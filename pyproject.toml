@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dark-hunter-pop"
+version = "0.1.0"
+description = "Compact-object mass function for the Dark Hunters (Gaia astrometric binaries, forward-modeled with gaiamock)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+  "numpy>=1.26,<2.0",
+  "scipy>=1.11",
+  "astropy>=6.0",
+  "astroquery>=0.4",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+plot = ["matplotlib>=3.8"]
+inference = ["dynesty>=2.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["darkhunter_pop*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

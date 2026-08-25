@@ -1,0 +1,32 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Pipeline outputs (run files under runs/ ARE tracked - they are the provenance record)
+output/
+samples/
+plots/
+*.fits
+*.npy
+!tests/fixtures/*
+
+# Large external data
+data/
+models/
+scanning_law/
+
+# Env
+.venv/
+venv/
+.env
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

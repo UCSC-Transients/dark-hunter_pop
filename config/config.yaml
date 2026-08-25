@@ -1,0 +1,12 @@
+# Canonical merged configuration for dark-hunter_pop.
+#
+# Populated by the Foundation subagent (config schema) and then extended one domain section per
+# stage. During development each subagent drafts its own fragment; the review/integration subagent
+# merges fragments here at each checkpoint, so the delivered repo always has exactly one config
+# file (ARCHITECTURE.md §7, dark-hunter-pop-workflow §5).
+#
+# Hard rule: no physics constant, threshold, statistical criterion, or file path lives anywhere
+# except constants/ and this file.
+#
+# DR3- and DR4-specific keys are configured independently even where the values coincide;
+# genuine physics/population parameters are shared (ARCHITECTURE.md §6).
