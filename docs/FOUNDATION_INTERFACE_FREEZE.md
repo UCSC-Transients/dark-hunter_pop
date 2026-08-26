@@ -140,6 +140,8 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 
 - Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`
   (Phase 2 config checkpoint: #40 / PR #46).
-- Continuous Review/Integration: #50 (Phase 3+).
-- In progress: Phase 3 per `ORCHESTRATION_PLAN.md` §5 / `PHASE3_KICKOFF.md` — roster #6
-  `rv_astrometry_gate` + `joint_orbit_fit` (#48), #8 `triples` stub (#49).
+- Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
+  #49 / PR #53 (`triples` stub). Continuous Review/Integration: #50.
+- Next: Phase 4 per `ORCHESTRATION_PLAN.md` §5 — roster #7
+  `companion_nature_likelihood`, #9 `population_model` (optional Review config
+  checkpoint for Phase 3 fragments still open under #50).
