@@ -1,23 +1,23 @@
 # Canonical merged configuration for dark-hunter_pop.
 # Fragments under config/fragments/ are merged first; this file wins on conflicts.
 # Secrets never belong here. See docs/ARCHITECTURE.md §6–§7.
+# Phase 2 integration checkpoint: materializes fragment domains into this file
+# (data_acquisition, selection_function_*, mass_derivation, sensitivity_analysis, diagnostics).
 
 paths:
   artifact_root: output
   data_root: data
-
 active_dr_mode: dr3
-
 gaiamock:
   mod_release: gaiamock-mod-v1
-
+  mod_sha256: null
+  git_commit: null
 mass_calibration:
   method: TAG10
   sigma_logM: 0.027
   sigma_logR: 0.014
   santos_correction: true
   delta_M_Ch_msun: 0.0
-
 mass_derivation:
   dark_companion_flux_ratio: 0.0
   uberms_m1_prior_max_msun: 3.0
@@ -25,40 +25,263 @@ mass_derivation:
   information_gain_sigma_floor_msun: 0.01
   sed_queue_max_stars: null
   require_sed_package: false
-
 classification:
   M_MIN_msun: 1.1
   n_sigma_mass_cut: 2.0
   M_TOV_msun: 2.2
-
 physics:
   cooling_tracks: bedard
   cooling_atmosphere: DA
   cooling_tracks_path: null
   imf: kroupa
   mc_noise_threshold: 0.1
-
-# Path-specific (independent even when values match). El-Badry et al. 2023 v1 defaults.
+selection_function_astrometric:
+  extinction_model: combined19
+  validation_gate:
+    ks_pvalue_min: 0.01
+    solution_type_fraction_max_abs_delta: 0.05
+    reference_path: null
+  mock_population:
+    period_days: 1000.0
+    Mg_tot: 4.0
+    flux_ratio: 0.01
+    m1_msun: 1.0
+    m2_msun: 0.5
+    eccentricity: 0.3
+    N_realizations: 100
+    ruwe_min: 1.4
+    skip_acceleration: false
+    hz_pc: 300.0
+selection_function_followup:
+  target_lists:
+  - name: andrews
+    adoption_dates_path: config/target_lists/derived/andrews_adoption_dates.yaml
+    cooler_star_preference: true
+  - name: elbadry
+    adoption_dates_path: config/target_lists/derived/elbadry_adoption_dates.yaml
+    cooler_star_preference: true
+  - name: accel_jerk
+    adoption_dates_path: config/target_lists/derived/accel_jerk_adoption_dates.yaml
+    cooler_star_preference: false
+  declination_min_deg: -35.0
+  declination_max_deg: 90.0
+  g_mag_bright_limit: 5.0
+  g_mag_faint_limit: 15.0
+  cooler_star_teff_max_k: 6500.0
+  cooler_star_weight: 1.5
+  major_surveys:
+  - name: APOGEE
+    selection_function_path: config/target_lists/survey_sfs/apogee.yaml
+    tier: documented
+  - name: RAVE
+    selection_function_path: config/target_lists/survey_sfs/rave.yaml
+    tier: documented
+  - name: LAMOST
+    selection_function_path: config/target_lists/survey_sfs/lamost.yaml
+    tier: documented
+  - name: DESI
+    selection_function_path: config/target_lists/survey_sfs/desi.yaml
+    tier: documented
+  ad_hoc_literature:
+    use_brightness: true
+    use_declination: true
+    use_proper_motion: true
+    pm_total_min_mas_yr: 0.0
+    base_probability: 0.05
+  calibration:
+    n_obs_bin_edges:
+    - 0.0
+    - 1.0
+    - 2.0
+    - 3.0
+    - 5.0
+    - 10.0
+    - 20.0
+    - 50.0
+    time_span_day_bin_edges:
+    - 0.0
+    - 30.0
+    - 90.0
+    - 180.0
+    - 365.0
+    - 730.0
+    - 1500.0
+    ks_pvalue_min: 0.01
+    real_followup_catalog_path: null
+  target_list_sheet:
+    spreadsheet_id: ''
+    sheet_range: Sheet1
+    credentials_env: GOOGLE_APPLICATION_CREDENTIALS
+    revision_history_incompleteness_caveat: true
+    weekly_snapshot_relative_dir: target_lists/snapshots
+    derived_adoption_dates_relative_dir: config/target_lists/derived
+sensitivity_analysis:
+  population_classes:
+  - BH
+  - NS
+  - WD
+  - other
+  - outlier
+  candidate_covariates:
+  - ruwe
+  - eccentricity
+  - period_day
+  joint_dimensions:
+  - mass_msun
+  - period_day
+  - eccentricity
+  bic_delta_include_covariate: 6.0
+  bic_delta_prefer_joint_nd: 10.0
+  mean_count_per_bin_unbinned_preference: 5.0
+  n_mass_bins: 8
+  mass_min_msun: 0.2
+  mass_max_msun: 20.0
+  fiducial_expected_counts:
+  - 5.0
+  - 8.0
+  - 12.0
+  - 10.0
+  - 6.0
+  - 4.0
+  - 2.0
+  - 1.0
+  n_mock_start: 50
+  n_mock_max: 10000
+  n_mock_growth_factor: 2.0
+  n_synthetic_systems: 400
+  random_seed: 38
+diagnostics:
+  figure_dpi: 120
+  figures_subdir: figures
+  reports_subdir: reports
+  write_figures: true
+  write_reports: true
+  hooks:
+    funnel_sky: true
+    elbadry_six_panel: true
+    fit_tier_coverage: true
+    gate_pass_rate: true
 dr3:
   mission_baseline_months: 34.0
   scanning_law_id: gaiadr3_pinned
   zero_point_version: dr3_pinned
-  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  sed_filters:
+  - G
+  - BP
+  - RP
+  - J
+  - H
+  - Ks
+  - W1
+  - W2
   quality_cut_bins:
-    - g_max: 13.0
-      gof_max: 10.0
-    - g_min: 13.0
-      gof_max: 5.0
+  - g_min: null
+    g_max: 13.0
+    gof_max: 10.0
+  - g_min: 13.0
+    g_max: null
+    gof_max: 5.0
+  gaia_source_photometry_bands:
+  - G
+  - BP
+  - RP
+  external_photometry_crossmatches:
+  - band: NUV
+    neighbour_table: gaiadr3.galex_ais_best_neighbour
+    catalog_table: gaiadr3.galex_ais_dr3
+    mag_column: nuv_mag
+    mag_err_column: nuv_mag_err
+    enabled: true
+  - band: r_ps1
+    neighbour_table: gaiadr3.ps1_best_neighbour
+    catalog_table: gaiadr3.panstarrs1
+    mag_column: r_mean_psf_mag
+    mag_err_column: r_mean_psf_mag_error
+    enabled: true
+  - band: J
+    neighbour_table: gaiadr3.tmass_best_neighbour
+    catalog_table: gaiadr3.tmass
+    mag_column: j_m
+    mag_err_column: j_m_err
+    enabled: true
+  - band: H
+    neighbour_table: gaiadr3.tmass_best_neighbour
+    catalog_table: gaiadr3.tmass
+    mag_column: h_m
+    mag_err_column: h_m_err
+    enabled: true
+  - band: Ks
+    neighbour_table: gaiadr3.tmass_best_neighbour
+    catalog_table: gaiadr3.tmass
+    mag_column: k_m
+    mag_err_column: k_m_err
+    enabled: true
+  - band: W1
+    neighbour_table: gaiadr3.allwise_best_neighbour
+    catalog_table: gaiadr3.allwise
+    mag_column: w1mpro
+    mag_err_column: w1mpro_error
+    enabled: true
+  - band: W2
+    neighbour_table: gaiadr3.allwise_best_neighbour
+    catalog_table: gaiadr3.allwise
+    mag_column: w2mpro
+    mag_err_column: w2mpro_error
+    enabled: true
+  - band: u_sdss
+    neighbour_table: gaiadr3.sdss_best_neighbour
+    catalog_table: gaiadr3.sdss_dr13
+    mag_column: u
+    mag_err_column: u_err
+    enabled: true
+  - band: u_decam
+    neighbour_table: gaiadr3.decam_best_neighbour
+    catalog_table: gaiadr3.decam_dr2
+    mag_column: mag_u
+    mag_err_column: magerr_u
+    enabled: false
+  gaia_archive_user_env: GAIA_ARCHIVE_USER
+  gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
+  nss_table: gaiadr3.nss_two_body_orbit
+  gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
-
+  selection_function_astrometric:
+    d_min_pc: 100.0
+    d_max_pc: 500.0
+  selection_function_followup:
+    accel_jerk_catalog_id: dr3_accel_jerk_pinned
 dr4:
   mission_baseline_months: 66.0
   scanning_law_id: gaiadr4_pinned
   zero_point_version: dr4_pinned
-  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  sed_filters:
+  - G
+  - BP
+  - RP
+  - J
+  - H
+  - Ks
+  - W1
+  - W2
   quality_cut_bins:
-    - g_max: 13.0
-      gof_max: 10.0
-    - g_min: 13.0
-      gof_max: 5.0
+  - g_min: null
+    g_max: 13.0
+    gof_max: 10.0
+  - g_min: 13.0
+    g_max: null
+    gof_max: 5.0
+  gaia_source_photometry_bands:
+  - G
+  - BP
+  - RP
+  external_photometry_crossmatches: []
+  gaia_archive_user_env: GAIA_ARCHIVE_USER
+  gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
+  nss_table: gaiadr4.nss_two_body_orbit
+  gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true
+  selection_function_astrometric:
+    d_min_pc: 100.0
+    d_max_pc: 500.0
+  selection_function_followup:
+    accel_jerk_catalog_id: dr4_accel_jerk_pinned

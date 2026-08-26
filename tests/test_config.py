@@ -19,6 +19,7 @@ from darkhunter_pop.config_loader import (
 )
 from darkhunter_pop.config_schema import (
     PATH_SPECIFIC_LEAF_KEYS,
+    SHARED_CHECKSUM_SECTIONS,
     PipelineConfig,
     QualityCutBin,
 )
@@ -170,3 +171,33 @@ def test_path_specific_leaf_registry_covers_mission_keys() -> None:
     fields = set(PipelineConfig.model_fields)
     for leaf in PATH_SPECIFIC_LEAF_KEYS:
         assert leaf not in fields
+
+
+def test_phase2_canonical_matches_fragment_merge() -> None:
+    """Integration checkpoint: config.yaml materializes fragments (issue #40)."""
+    with_frags = load_config(merge_fragments=True)
+    canon_only = load_config(merge_fragments=False)
+    assert with_frags.model_dump(mode="json") == canon_only.model_dump(mode="json")
+    assert canon_only.dr3.nss_table.startswith("gaiadr3.")
+    assert canon_only.dr4.nss_table.startswith("gaiadr4.")
+    assert canon_only.dr4.selection_function_followup.accel_jerk_catalog_id.startswith(
+        "dr4_"
+    )
+    assert len(canon_only.dr3.external_photometry_crossmatches) >= 1
+    assert len(canon_only.selection_function_followup.target_lists) >= 1
+    assert len(canon_only.selection_function_followup.major_surveys) >= 1
+
+
+def test_checksum_includes_phase2_shared_sections() -> None:
+    assert "mass_derivation" in SHARED_CHECKSUM_SECTIONS
+    assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
+    assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
+    assert "diagnostics" not in SHARED_CHECKSUM_SECTIONS
+    cfg = load_config()
+    base = config_checksum(cfg)
+    altered = cfg.model_copy(deep=True)
+    altered.sensitivity_analysis.n_mass_bins = cfg.sensitivity_analysis.n_mass_bins + 1
+    assert config_checksum(altered) != base
+    layout_only = cfg.model_copy(deep=True)
+    layout_only.diagnostics.figure_dpi = cfg.diagnostics.figure_dpi + 10
+    assert config_checksum(layout_only) == base

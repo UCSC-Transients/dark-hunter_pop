@@ -7,4 +7,7 @@
 # Naming convention: config/fragments/<domain_or_stage>.yaml
 # Example: config/fragments/data_acquisition.yaml
 #
+# Phase 2 checkpoint (issue #40): domains below are materialized in config/config.yaml.
+# Fragments remain the draft source for later stage edits; loader still merges them first.
+#
 # Do not put secrets in fragments. See ARCHITECTURE.md §7.
