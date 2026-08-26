@@ -31,6 +31,17 @@ Future on-disk layout when ParameterSet switches from covariance to joint sample
 v1 writes covariance under the same candidate/provenance groups instead of samples.
 """
 
+# Per-system companion-nature → population_model weight contract (issues #56 / #57).
+# Keys are fixed; values are non-negative responsibilities (normalized by population_model).
+COMPANION_NATURE_WEIGHT_KEYS: Final[tuple[str, ...]] = (
+    "BH",
+    "NS",
+    "WD",
+    "other",
+    "outlier",
+)
+COMPANION_NATURE_WEIGHT_SCHEMA_VERSION: Final[int] = 1
+
 
 class OrbitTier(str, Enum):
     """Orbit solution tier recorded on candidates / ParameterSet provenance metadata."""
@@ -196,6 +207,12 @@ class CandidateRecord(BaseModel):
     ``rv_summary`` holds the full dark-hunter_rv JSON summary block (Phase 1 #5 conforms to
     this schema; ask before breaking field contracts). Extra keys under ``extras`` are allowed
     for forward-compatible ingestion only.
+
+    ``companion_nature_weights`` (issue #56 → #57 contract): when set, keys MUST be exactly
+    the five population classes in :data:`COMPANION_NATURE_WEIGHT_KEYS`
+    (``BH``, ``NS``, ``WD``, ``other``, ``outlier``). Values are non-negative unnormalized
+    responsibilities or probabilities; ``population_model`` normalizes. Never used as a
+    pre-filter — every system remains in the sample with contamination included.
     """
 
     model_config = ConfigDict(extra="forbid")

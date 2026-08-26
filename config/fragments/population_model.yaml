@@ -1,0 +1,46 @@
+# population_model stage (ARCHITECTURE.md §4, issue #57).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# Shared physics (M_TOV, delta_M_Ch, IMF) stay in classification / mass_calibration / physics.
+# External compact-object mass functions are never inference priors.
+
+population_model:
+  # v1 multiplicity: everything NSS is the binary generative branch.
+  p_single: 0.0
+  p_binary: 1.0
+  p_triple: 0.0
+  population_classes:
+    - BH
+    - NS
+    - WD
+    - other
+    - outlier
+  compact_object_classes:
+    - BH
+    - NS
+    - WD
+  mass_function_model: free_height_bins
+  bin_edge_policy: equal_log_m
+  n_mass_bins: 8
+  mass_min_msun: 0.2
+  mass_max_msun: 20.0
+  # Fiducial expected detections — fix bin edges before looking at real counts.
+  fiducial_expected_counts:
+    - 5.0
+    - 8.0
+    - 12.0
+    - 10.0
+    - 6.0
+    - 4.0
+    - 2.0
+    - 1.0
+  m_tov_soft_width_msun: 0.05
+  m_tov_prior_sigma_msun: 0.2
+  m_tov_prior_n_quad: 21
+  m1_family: kroupa
+  period_family: flat_log_p
+  eccentricity_family: thermal
+  apply_sensitivity_covariates: true
+  gp_length_scale_log_m: 0.5
+  gp_variance: 1.0
+  allow_external_co_mf_priors: false
+  random_seed: 57
