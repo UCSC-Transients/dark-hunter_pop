@@ -1,9 +1,9 @@
-"""Stage: ``diagnostics`` — scaffolding and shared hook points (ARCHITECTURE.md §4).
+"""Stage: ``diagnostics`` — scaffolding, hooks, and SBC recovery (ARCHITECTURE.md §4).
 
 Provides logging/report layout under config paths and reusable emitters for
-funnel/sky maps, El-Badry-style six-panel figures, fit-tier coverage, and gate
-pass-rate stubs. Full simulation-based calibration / known-truth SBC design is
-Phase 6 (roster #13) and is intentionally out of scope here.
+funnel/sky maps, El-Badry-style six-panel figures, fit-tier coverage, gate
+pass-rate stubs, and Phase 6 simulation-based calibration (issue #69).
+Known-truth benchmarks / comparison catalogs remain sibling Phase 6 work.
 
 Diagnostic reports and plot captions stay full-detail (caveman exemption).
 """
@@ -21,7 +21,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from darkhunter_pop.config_loader import repo_root
-from darkhunter_pop.config_schema import PipelineConfig
+from darkhunter_pop.config_schema import PipelineConfig, SBCConfig
 from darkhunter_pop.plotting import (
     MatplotlibUnavailableError,
     matplotlib_available,
@@ -38,6 +38,12 @@ from darkhunter_pop.run_management import (
     plan_stage,
     save_run_manifest,
     stage_artifact_path,
+)
+from darkhunter_pop.sbc import (
+    format_sbc_report,
+    read_sbc_artifact,
+    run_sbc_suite,
+    write_sbc_artifact,
 )
 from darkhunter_pop.schemas import FitTier, RunManifest, StageStatus
 
@@ -83,7 +89,7 @@ class HookEmissionResult:
 
 @dataclass
 class DiagnosticsStageResult:
-    """Scaffolding stage output (no Phase 6 SBC payloads)."""
+    """Diagnostics stage output (hooks + optional SBC recovery payload)."""
 
     schema_version: int
     dirs: DiagnosticDirs
@@ -91,6 +97,7 @@ class DiagnosticsStageResult:
     helpers_registered: tuple[str, ...]
     matplotlib_available: bool
     config_snapshot: dict[str, Any]
+    sbc_payload: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -102,10 +109,11 @@ class DiagnosticsStageResult:
             "helpers_registered": list(self.helpers_registered),
             "hooks_run": [h.as_dict() for h in self.hooks_run],
             "config_snapshot": self.config_snapshot,
+            "sbc_payload": self.sbc_payload,
             "notes": (
-                "Infrastructure scaffolding only. Simulation-based calibration, "
-                "known-truth benchmarks, and cross-validation catalog suites are "
-                "Phase 6 (roster #13)."
+                "Diagnostics hooks + optional SBC recovery (issue #69). "
+                "Known-truth benchmarks and cross-validation catalog suites are "
+                "sibling Phase 6 deliverables."
             ),
         }
 
@@ -500,6 +508,38 @@ def emit_gate_pass_rate(
     return result
 
 
+def emit_sbc_recovery(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    sbc: SBCConfig | None = None,
+    n_repeats: int | None = None,
+) -> HookEmissionResult:
+    """Hook: simulation-based calibration recovery + coverage report (issue #69)."""
+    diag = config.diagnostics
+    if not diag.hooks.sbc_recovery:
+        return HookEmissionResult(
+            hook_name="sbc_recovery",
+            skipped_reason="diagnostics.hooks.sbc_recovery=false",
+        )
+    cfg = sbc if sbc is not None else diag.sbc
+    if not cfg.enabled:
+        return HookEmissionResult(
+            hook_name="sbc_recovery",
+            skipped_reason="diagnostics.sbc.enabled=false",
+        )
+    result = run_sbc_suite(config, sbc=cfg, n_repeats=n_repeats)
+    emission = HookEmissionResult(hook_name="sbc_recovery")
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(dirs.reports / "sbc_recovery.txt", format_sbc_report(result))
+        )
+        h5_path = dirs.reports / "sbc_recovery.h5"
+        write_sbc_artifact(h5_path, result)
+        emission.reports.append(h5_path)
+    return emission
+
+
 def _ensure_builtin_helpers_registered() -> None:
     """Idempotently register the infrastructure hook helpers."""
     builtins: dict[str, DiagnosticHelper] = {
@@ -507,10 +547,12 @@ def _ensure_builtin_helpers_registered() -> None:
         "emit_elbadry_six_panel": emit_elbadry_six_panel,
         "emit_fit_tier_coverage": emit_fit_tier_coverage,
         "emit_gate_pass_rate": emit_gate_pass_rate,
+        "emit_sbc_recovery": emit_sbc_recovery,
         "format_funnel_report": format_funnel_report,
         "format_elbadry_panel_report": format_elbadry_panel_report,
         "format_fit_tier_coverage_report": format_fit_tier_coverage_report,
         "format_gate_pass_rate_report": format_gate_pass_rate_report,
+        "format_sbc_report": format_sbc_report,
     }
     for name, fn in builtins.items():
         if name not in _HELPER_REGISTRY:
@@ -522,15 +564,17 @@ def run_diagnostics_scaffolding(
     *,
     run_id: str,
     demo_hooks: bool = True,
+    run_sbc: bool | None = None,
 ) -> DiagnosticsStageResult:
-    """Build directories, register helpers, optionally emit stub hook outputs.
+    """Build directories, register helpers, optionally emit stub hooks / SBC.
 
-    Does not implement Phase 6 SBC. When ``demo_hooks`` is True, emits empty-count
-    fit-tier and gate stubs so the on-disk layout is exercised without science data.
+    SBC runs when ``run_sbc`` is True, or when ``run_sbc is None`` and
+    ``diagnostics.sbc.run_in_stage`` is True. Default config keeps stage fast.
     """
     _ensure_builtin_helpers_registered()
     dirs = resolve_diagnostic_dirs(config, run_id=run_id)
     hooks: list[HookEmissionResult] = []
+    sbc_payload: dict[str, Any] | None = None
     if demo_hooks:
         hooks.append(
             emit_fit_tier_coverage(
@@ -549,6 +593,20 @@ def run_diagnostics_scaffolding(
                 counts={"passed": 0, "failed": 0, "skipped": 0},
             )
         )
+    do_sbc = (
+        bool(config.diagnostics.sbc.run_in_stage)
+        if run_sbc is None
+        else bool(run_sbc)
+    )
+    if do_sbc and config.diagnostics.hooks.sbc_recovery and config.diagnostics.sbc.enabled:
+        emission = emit_sbc_recovery(config, dirs)
+        hooks.append(emission)
+        if emission.skipped_reason is None:
+            # Reload summary from the written HDF5 when present.
+            for path in emission.reports:
+                if path.suffix == ".h5" and path.is_file():
+                    sbc_payload = read_sbc_artifact(path)
+                    break
     return DiagnosticsStageResult(
         schema_version=1,
         dirs=dirs,
@@ -556,6 +614,7 @@ def run_diagnostics_scaffolding(
         helpers_registered=list_diagnostic_helpers(),
         matplotlib_available=matplotlib_available(),
         config_snapshot=config.diagnostics.model_dump(mode="json"),
+        sbc_payload=sbc_payload,
     )
 
 
@@ -618,7 +677,7 @@ def read_diagnostics_artifact(path: Path) -> dict[str, Any]:
 def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
     """Fully legible diagnostics-stage summary (exempt from caveman compression)."""
     lines = [
-        "=== diagnostics stage (scaffolding) ===",
+        "=== diagnostics stage ===",
         f"schema_version: {result.schema_version}",
         f"root: {result.dirs.root}",
         f"figures_dir: {result.dirs.figures}",
@@ -644,9 +703,32 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
                 lines.append(f"    report: {path}")
             for path in emission.figures:
                 lines.append(f"    figure: {path}")
+    sbc_cfg = result.config_snapshot.get("sbc") or {}
+    lines.append("sbc_config:")
+    lines.append(f"  enabled: {sbc_cfg.get('enabled')}")
+    lines.append(f"  run_in_stage: {sbc_cfg.get('run_in_stage')}")
+    lines.append(f"  recovery_backend: {sbc_cfg.get('recovery_backend')}")
     lines.append(
-        "scope_note: Phase 6 will add SBC recovery, known-truth benchmarks, "
-        "and cross-validation catalog suites on top of these primitives."
+        f"  credible_interval_level: {sbc_cfg.get('credible_interval_level')}"
+    )
+    lines.append(
+        f"  coverage_abs_tolerance: {sbc_cfg.get('coverage_abs_tolerance')}"
+    )
+    if result.sbc_payload is None:
+        lines.append("sbc_payload: (not run in this stage invocation)")
+    else:
+        lines.append("sbc_payload:")
+        lines.append(
+            f"  overall_empirical_coverage: "
+            f"{result.sbc_payload.get('overall_empirical_coverage')}"
+        )
+        lines.append(f"  overall_passed: {result.sbc_payload.get('overall_passed')}")
+        lines.append(
+            f"  n_records: {result.sbc_payload.get('n_records')}"
+        )
+    lines.append(
+        "scope_note: SBC recovery (#69) is wired here; known-truth benchmarks and "
+        "comparison-catalog suites are sibling Phase 6 issues."
     )
     lines.append("=== end diagnostics stage ===")
     return "\n".join(lines)

@@ -77,7 +77,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
 | `population_model.*` | multiplicity, free-height / GP MF, bin-edge policy, soft `M_TOV` width; shared `M_TOV` / `delta_M_Ch` / IMF stay in their sections |
 | `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
-| `diagnostics.*` | figure/report layout + hook enable flags (not science thresholds) |
+| `diagnostics.*` | figure/report layout + hook flags; Phase 6 SBC knobs under `diagnostics.sbc` (#69; still excluded from checksum) |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
@@ -85,7 +85,7 @@ Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR 
 `companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
 `selection_function_astrometric`, `selection_function_followup`, `sensitivity_analysis`,
 `population_model`, `triples` (`config_loader.config_checksum`).
-`diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
+`diagnostics` is intentionally excluded (layout + SBC tooling; not resume science). Inactive DR changes do not affect
 the checksum.
 
 Constants precedence: `effective_M_Ch_msun(config) = constants.M_CH + delta_M_Ch_msun`.

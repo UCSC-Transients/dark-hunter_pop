@@ -1,8 +1,8 @@
-# diagnostics + plotting infrastructure (ARCHITECTURE.md §4, issue #39).
+# diagnostics + plotting infrastructure (ARCHITECTURE.md §4, issues #39 / #69).
 # Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
-# Layout / DPI / hook enable flags only. Science thresholds stay in owning stages
-# (validation_gate KS cuts, rv_astrometry_gate chi2/dof, physics.mc_noise_threshold).
-# Phase 6 owns SBC recovery design; do not add recovery knobs here.
+# Layout / DPI / hook enable flags + Phase 6 SBC recovery tolerances.
+# Other science thresholds stay in owning stages (validation_gate KS cuts,
+# rv_astrometry_gate chi2/dof, physics.mc_noise_threshold).
 
 diagnostics:
   figure_dpi: 120
@@ -15,3 +15,31 @@ diagnostics:
     elbadry_six_panel: true
     fit_tier_coverage: true
     gate_pass_rate: true
+    sbc_recovery: true
+  sbc:
+    enabled: true
+    # Stage stays fast by default; tests call run_sbc_suite directly.
+    run_in_stage: false
+    recovery_backend: analytic_binned
+    credible_interval_level: 0.68
+    coverage_abs_tolerance: 0.20
+    n_repeats: 24
+    n_mass_bins: 4
+    expected_total_rate: 40.0
+    astrometric_sf: 1.0
+    followup_sf: 1.0
+    random_seed: 69
+    n_posterior_samples: 2000
+    inference_nlive: 12
+    inference_maxcall: 200
+    inference_dlogz: 1.0
+    inference_n_mass_grid: 24
+    injected_profiles:
+      - name: flat
+        relative_heights: [1.0, 1.0, 1.0, 1.0]
+      - name: rising
+        relative_heights: [0.5, 1.0, 2.0, 3.0]
+      - name: falling
+        relative_heights: [3.0, 2.0, 1.0, 0.5]
+      - name: peaked
+        relative_heights: [0.5, 2.5, 2.5, 0.5]
