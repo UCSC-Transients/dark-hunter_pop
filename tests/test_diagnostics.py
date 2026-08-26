@@ -57,6 +57,8 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.write_figures is True
     assert cfg.diagnostics.hooks.funnel_sky is True
     assert cfg.diagnostics.hooks.elbadry_six_panel is True
+    assert cfg.diagnostics.hooks.known_truth_benchmarks is True
+    assert cfg.diagnostics.hooks.comparison_catalogs is True
 
 
 def test_registry_fingerprints_diagnostics_config() -> None:
@@ -64,8 +66,10 @@ def test_registry_fingerprints_diagnostics_config() -> None:
     assert spec.module.endswith("diagnostics")
     assert "paths.artifact_root" in spec.config_fingerprint_keys
     assert "diagnostics" in spec.config_fingerprint_keys
+    assert "benchmarks" in spec.config_fingerprint_keys
     assert spec.inputs_from == ("inference",)
     assert "darkhunter_pop.plotting" not in spec.dependency_modules
+    assert "darkhunter_pop.benchmarks" in spec.dependency_modules
 
 
 def test_builtin_helpers_registered() -> None:
@@ -76,6 +80,8 @@ def test_builtin_helpers_registered() -> None:
     assert "emit_elbadry_six_panel" in names
     assert "emit_fit_tier_coverage" in names
     assert "emit_gate_pass_rate" in names
+    assert "emit_known_truth_benchmarks" in names
+    assert "emit_comparison_catalogs" in names
     assert callable(get_diagnostic_helper("emit_funnel_sky"))
 
 
@@ -257,7 +263,7 @@ def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
     assert result.schema_version == 1
     assert result.dirs.root.is_dir()
     assert "emit_funnel_sky" in result.helpers_registered
-    assert len(result.hooks_run) == 2
+    assert len(result.hooks_run) == 4
 
     artifact = tmp_path / "out.h5"
     write_diagnostics_artifact(artifact, result)
@@ -268,8 +274,8 @@ def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
         assert handle.attrs["stage"] == "diagnostics"
 
     report = format_diagnostics_stage_report(result)
-    assert "diagnostics stage (scaffolding)" in report
-    assert "Phase 6" in report
+    assert "diagnostics stage" in report
+    assert "issue #70" in report or "known-truth" in report
 
 
 def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:
@@ -295,4 +301,4 @@ def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:
     )
     assert artifact.is_file()
     payload = read_diagnostics_artifact(artifact)
-    assert payload["notes"].startswith("Infrastructure scaffolding")
+    assert "known-truth" in payload["notes"] or "issue #70" in payload["notes"]

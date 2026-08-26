@@ -1,9 +1,9 @@
-"""Stage: ``diagnostics`` — scaffolding and shared hook points (ARCHITECTURE.md §4).
+"""Stage: ``diagnostics`` — scaffolding, known-truth, and comparison catalogs.
 
-Provides logging/report layout under config paths and reusable emitters for
-funnel/sky maps, El-Badry-style six-panel figures, fit-tier coverage, and gate
-pass-rate stubs. Full simulation-based calibration / known-truth SBC design is
-Phase 6 (roster #13) and is intentionally out of scope here.
+``plotting.py`` provides shared rendering primitives; this module decides what to
+check and emit. Known-truth Gaia BH benchmarks and comparison-only literature /
+external mass-function catalogs are fixture-driven (issue #70). Simulation-based
+calibration recovery is issue #69 (separate).
 
 Diagnostic reports and plot captions stay full-detail (caveman exemption).
 """
@@ -20,6 +20,16 @@ import h5py
 import numpy as np
 from numpy.typing import NDArray
 
+from darkhunter_pop.benchmarks import (
+    assert_required_catalogs_present,
+    check_known_truth_expectations,
+    format_comparison_catalog_report,
+    format_known_truth_report,
+    load_all_comparison_catalogs,
+    load_known_truth_table_from_config,
+    synthetic_observed_from_truth,
+    validate_benchmarks_config,
+)
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.plotting import (
@@ -83,7 +93,7 @@ class HookEmissionResult:
 
 @dataclass
 class DiagnosticsStageResult:
-    """Scaffolding stage output (no Phase 6 SBC payloads)."""
+    """Diagnostics stage output (scaffolding + known-truth + comparison catalogs)."""
 
     schema_version: int
     dirs: DiagnosticDirs
@@ -103,9 +113,9 @@ class DiagnosticsStageResult:
             "hooks_run": [h.as_dict() for h in self.hooks_run],
             "config_snapshot": self.config_snapshot,
             "notes": (
-                "Infrastructure scaffolding only. Simulation-based calibration, "
-                "known-truth benchmarks, and cross-validation catalog suites are "
-                "Phase 6 (roster #13)."
+                "Diagnostics scaffolding plus known-truth Gaia BH benchmarks and "
+                "comparison-only catalog reports (issue #70). Simulation-based "
+                "calibration recovery is issue #69."
             ),
         }
 
@@ -500,6 +510,67 @@ def emit_gate_pass_rate(
     return result
 
 
+def emit_known_truth_benchmarks(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    observed: Mapping[int, Any] | Sequence[Any] | None = None,
+) -> HookEmissionResult:
+    """Hook: Gaia BH known-truth expectation report (fixture/config-driven)."""
+    diag = config.diagnostics
+    if not diag.hooks.known_truth_benchmarks:
+        return HookEmissionResult(
+            hook_name="known_truth_benchmarks",
+            skipped_reason="diagnostics.hooks.known_truth_benchmarks=false",
+        )
+    validate_benchmarks_config(config)
+    table = load_known_truth_table_from_config(config)
+    obs = observed if observed is not None else synthetic_observed_from_truth(table)
+    results = check_known_truth_expectations(
+        table,
+        obs,
+        ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+    )
+    result = HookEmissionResult(hook_name="known_truth_benchmarks")
+    if diag.write_reports:
+        result.reports.append(
+            write_report(
+                dirs.reports / "known_truth_gaia_bh.txt",
+                format_known_truth_report(
+                    table,
+                    results,
+                    ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+                ),
+            )
+        )
+    return result
+
+
+def emit_comparison_catalogs(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+) -> HookEmissionResult:
+    """Hook: comparison-only catalog loaders + caveated report (never priors)."""
+    diag = config.diagnostics
+    if not diag.hooks.comparison_catalogs:
+        return HookEmissionResult(
+            hook_name="comparison_catalogs",
+            skipped_reason="diagnostics.hooks.comparison_catalogs=false",
+        )
+    validate_benchmarks_config(config)
+    catalogs = load_all_comparison_catalogs(config)
+    assert_required_catalogs_present(catalogs)
+    result = HookEmissionResult(hook_name="comparison_catalogs")
+    if diag.write_reports:
+        result.reports.append(
+            write_report(
+                dirs.reports / "comparison_catalogs.txt",
+                format_comparison_catalog_report(catalogs),
+            )
+        )
+    return result
+
+
 def _ensure_builtin_helpers_registered() -> None:
     """Idempotently register the infrastructure hook helpers."""
     builtins: dict[str, DiagnosticHelper] = {
@@ -507,10 +578,14 @@ def _ensure_builtin_helpers_registered() -> None:
         "emit_elbadry_six_panel": emit_elbadry_six_panel,
         "emit_fit_tier_coverage": emit_fit_tier_coverage,
         "emit_gate_pass_rate": emit_gate_pass_rate,
+        "emit_known_truth_benchmarks": emit_known_truth_benchmarks,
+        "emit_comparison_catalogs": emit_comparison_catalogs,
         "format_funnel_report": format_funnel_report,
         "format_elbadry_panel_report": format_elbadry_panel_report,
         "format_fit_tier_coverage_report": format_fit_tier_coverage_report,
         "format_gate_pass_rate_report": format_gate_pass_rate_report,
+        "format_known_truth_report": format_known_truth_report,
+        "format_comparison_catalog_report": format_comparison_catalog_report,
     }
     for name, fn in builtins.items():
         if name not in _HELPER_REGISTRY:
@@ -523,10 +598,10 @@ def run_diagnostics_scaffolding(
     run_id: str,
     demo_hooks: bool = True,
 ) -> DiagnosticsStageResult:
-    """Build directories, register helpers, optionally emit stub hook outputs.
+    """Build directories, register helpers, optionally emit stub + benchmark hooks.
 
-    Does not implement Phase 6 SBC. When ``demo_hooks`` is True, emits empty-count
-    fit-tier and gate stubs so the on-disk layout is exercised without science data.
+    When ``demo_hooks`` is True, emits empty-count fit-tier/gate stubs plus
+    known-truth and comparison-catalog reports from fixtures.
     """
     _ensure_builtin_helpers_registered()
     dirs = resolve_diagnostic_dirs(config, run_id=run_id)
@@ -549,13 +624,18 @@ def run_diagnostics_scaffolding(
                 counts={"passed": 0, "failed": 0, "skipped": 0},
             )
         )
+        hooks.append(emit_known_truth_benchmarks(config, dirs))
+        hooks.append(emit_comparison_catalogs(config, dirs))
     return DiagnosticsStageResult(
         schema_version=1,
         dirs=dirs,
         hooks_run=hooks,
         helpers_registered=list_diagnostic_helpers(),
         matplotlib_available=matplotlib_available(),
-        config_snapshot=config.diagnostics.model_dump(mode="json"),
+        config_snapshot={
+            "diagnostics": config.diagnostics.model_dump(mode="json"),
+            "benchmarks": config.benchmarks.model_dump(mode="json"),
+        },
     )
 
 
@@ -618,13 +698,13 @@ def read_diagnostics_artifact(path: Path) -> dict[str, Any]:
 def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
     """Fully legible diagnostics-stage summary (exempt from caveman compression)."""
     lines = [
-        "=== diagnostics stage (scaffolding) ===",
+        "=== diagnostics stage ===",
         f"schema_version: {result.schema_version}",
         f"root: {result.dirs.root}",
         f"figures_dir: {result.dirs.figures}",
         f"reports_dir: {result.dirs.reports}",
         f"matplotlib_available: {result.matplotlib_available}",
-        f"figure_dpi: {result.config_snapshot.get('figure_dpi')}",
+        f"figure_dpi: {(result.config_snapshot.get('diagnostics') or result.config_snapshot).get('figure_dpi')}",
         f"helpers_registered ({len(result.helpers_registered)}):",
     ]
     for name in result.helpers_registered:
@@ -645,8 +725,8 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
             for path in emission.figures:
                 lines.append(f"    figure: {path}")
     lines.append(
-        "scope_note: Phase 6 will add SBC recovery, known-truth benchmarks, "
-        "and cross-validation catalog suites on top of these primitives."
+        "scope_note: known-truth Gaia BH benchmarks and comparison-only catalogs "
+        "are fixture-driven (issue #70). SBC recovery is issue #69."
     )
     lines.append("=== end diagnostics stage ===")
     return "\n".join(lines)

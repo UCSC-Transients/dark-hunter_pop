@@ -1,0 +1,21 @@
+# Comparison-only fixture: El-Badry/Rix/Latham/Shahaf/Mazeh et al. 21-system NS-candidate catalog.
+# Minimal schema stub for loaders/reports — never an inference prior.
+schema_version: 1
+catalog_id: ns_candidate_21
+role: comparison_only
+never_as_prior: true
+provenance:
+  citation: "El-Badry, Rix, Latham, Shahaf, Mazeh et al. (NS-candidate catalog; ~21 systems)"
+  notes: >
+    Literature NS candidates reported more eccentric than typical WD+MS binaries —
+    direct support for the SN-kick hypothesis (ARCHITECTURE.md §4). Comparison-only.
+n_systems_expected: 21
+systems:
+  - source_id: 1000000000000000001
+    label: "fixture_ns_cand_01"
+    eccentricity: 0.45
+    m2_msun_approx: 1.4
+  - source_id: 1000000000000000002
+    label: "fixture_ns_cand_02"
+    eccentricity: 0.52
+    m2_msun_approx: 1.6
