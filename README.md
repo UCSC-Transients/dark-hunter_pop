@@ -7,7 +7,7 @@ Gaia NSS sample with an inhomogeneous Poisson point-process likelihood.
 
 **Status:** Phases 0–6 are on `main` (Foundation through Validation/SBC + diagnostics).
 Phase 7 wires the main program ([#79](https://github.com/UCSC-Transients/dark-hunter_pop/issues/79))
-and this documentation catch-up. Design authority remains
+via `scripts/run_pipeline.py`. Design authority remains
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the
 [`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md) — do not treat
 README prose as a substitute for those locked decisions.
@@ -93,21 +93,26 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
 
 ## Usage
 
-Pipeline entry (`scripts/run_pipeline.py`) lands with
-[#79](https://github.com/UCSC-Transients/dark-hunter_pop/issues/79). Intended CLI (see that
-issue / PR for the final flags):
+Print the full run plan (no stage execution; no new `runs/*.yaml` when `--run-file` is omitted):
 
 ```bash
-python scripts/run_pipeline.py \
-  --config config/config.yaml \
-  [--run-file runs/<run_id>.yaml] \
-  [--force-rerun <stage> ...] \
-  [--dry-run]
+python scripts/run_pipeline.py --dry-run
 ```
 
-Before any stage executes, the entry point prints the full run plan (run vs skip and why).
-Until #79 merges, the script on `main` is still a stub — prefer stage-level APIs / tests for
-local work, or follow the #79 PR.
+Execute `STAGE_ORDER` (creates or resumes a run file under `runs/`; prints the plan first):
+
+```bash
+python scripts/run_pipeline.py
+python scripts/run_pipeline.py --config config/config.yaml
+python scripts/run_pipeline.py --run-file runs/<run_id>.yaml
+python scripts/run_pipeline.py --force-rerun data_acquisition
+python scripts/run_pipeline.py --stages data_acquisition triples --dry-run
+python scripts/purge_run.py runs/<run_id>.yaml
+```
+
+Flags: `--config`, `--run-file`, `--force-rerun STAGE [STAGE ...]`, `--stages STAGE ...`,
+`--dry-run`, `--list-stages`. Incomplete runs without `--run-file` print a table and exit
+nonzero ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §5).
 
 ## Operator notes
 
