@@ -1,0 +1,46 @@
+# sensitivity_analysis stage (ARCHITECTURE.md §4, issue #38).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# MC/Poisson gate uses physics.mc_noise_threshold (default 0.1); do not duplicate here.
+# Recommendations are artifacts for population_model / inference — those modules' defaults
+# are not rewritten by this stage.
+
+sensitivity_analysis:
+  population_classes:
+    - BH
+    - NS
+    - WD
+    - other
+    - outlier
+  # Covariates tested beyond mass (mass is always included).
+  candidate_covariates:
+    - ruwe
+    - eccentricity
+    - period_day
+  # Dimensions for joint N-D vs collapse to 1D dN/dM (mass_msun is mandatory and first).
+  joint_dimensions:
+    - mass_msun
+    - period_day
+    - eccentricity
+  # Jeffreys-scale ΔBIC thresholds (positive ⇒ extended model preferred).
+  bic_delta_include_covariate: 6.0
+  bic_delta_prefer_joint_nd: 10.0
+  # Prefer unbinned Poisson likelihood when mean expected count per N-D bin is below this.
+  mean_count_per_bin_unbinned_preference: 5.0
+  n_mass_bins: 8
+  mass_min_msun: 0.2
+  mass_max_msun: 20.0
+  # Fiducial expected detections per mass bin (fixed before looking at real counts).
+  fiducial_expected_counts:
+    - 5.0
+    - 8.0
+    - 12.0
+    - 10.0
+    - 6.0
+    - 4.0
+    - 2.0
+    - 1.0
+  n_mock_start: 50
+  n_mock_max: 10000
+  n_mock_growth_factor: 2.0
+  n_synthetic_systems: 400
+  random_seed: 38

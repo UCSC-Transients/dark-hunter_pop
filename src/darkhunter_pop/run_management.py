@@ -193,7 +193,10 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "sensitivity_analysis",
             "darkhunter_pop.sensitivity_analysis",
             inputs_from=("population_model",),
-            config_keys=("physics.mc_noise_threshold",),
+            config_keys=(
+                "physics.mc_noise_threshold",
+                "sensitivity_analysis",
+            ),
         ),
         _spec(
             "inference",
