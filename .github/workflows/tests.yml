@@ -25,7 +25,9 @@ jobs:
               - 'vendor/DATA_MANIFEST.md'
               - 'scripts/install_gaiamock_mod.sh'
               - 'src/darkhunter_pop/gaiamock_vendor.py'
+              - 'src/darkhunter_pop/forward_model.py'
               - 'tests/test_gaiamock_vendor.py'
+              - 'tests/test_forward_model.py'
               - '.github/workflows/tests.yml'
 
   # Required merge check: unit + physics + api only (ARCHITECTURE.md §10). Target ≪ 20 min.

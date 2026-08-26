@@ -81,6 +81,65 @@ class PhysicsConfig(BaseModel):
     mc_noise_threshold: float = Field(0.1, gt=0)
 
 
+class ExtinctionModel(str, Enum):
+    """Extinction map used by gaiamock mock photometry (ARCHITECTURE.md §4)."""
+
+    COMBINED19 = "combined19"
+    NONE = "none"
+
+
+class ValidationGateConfig(BaseModel):
+    """El-Badry et al. (2024) six-panel mock-vs-real gate + solution-type diagnostic."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ks_pvalue_min: float = Field(0.01, gt=0, le=1)
+    solution_type_fraction_max_abs_delta: float = Field(0.05, gt=0, le=1)
+    reference_path: str | None = None
+
+
+class MockPopulationConfig(BaseModel):
+    """Fiducial binary used for mock injection / validation (one realization set)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    period_days: float = Field(1000.0, gt=0)
+    Mg_tot: float = 4.0
+    flux_ratio: float = Field(0.01, gt=0)
+    m1_msun: float = Field(1.0, gt=0)
+    m2_msun: float = Field(0.5, gt=0)
+    eccentricity: float = Field(0.3, ge=0, lt=1)
+    N_realizations: int = Field(100, ge=1)
+    ruwe_min: float = Field(1.4, gt=0)
+    skip_acceleration: bool = False
+    hz_pc: float = Field(300.0, gt=0)
+
+
+class SelectionFunctionAstrometricConfig(BaseModel):
+    """Shared selection-function astrometric settings (not DR-path-specific)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extinction_model: ExtinctionModel = ExtinctionModel.COMBINED19
+    validation_gate: ValidationGateConfig = Field(default_factory=ValidationGateConfig)
+    mock_population: MockPopulationConfig = Field(default_factory=MockPopulationConfig)
+
+
+class DRSelectionFunctionPathConfig(BaseModel):
+    """Path-specific distance window for mock injection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    d_min_pc: float = Field(100.0, gt=0)
+    d_max_pc: float = Field(500.0, gt=0)
+
+    @model_validator(mode="after")
+    def _distance_order(self) -> DRSelectionFunctionPathConfig:
+        if self.d_min_pc >= self.d_max_pc:
+            raise ValueError("d_min_pc must be < d_max_pc")
+        return self
+
+
 class QualityCutBin(BaseModel):
     """One (magnitude, goodness-of-fit threshold) bin.
 
@@ -119,6 +178,9 @@ class DRPathConfig(BaseModel):
     quality_cut_bins: list[QualityCutBin] = Field(..., min_length=1)
     # Reserved for DR4 epoch capabilities; ignored when inactive.
     allow_astrometric_epoch_outliers: bool = False
+    selection_function_astrometric: DRSelectionFunctionPathConfig = Field(
+        default_factory=DRSelectionFunctionPathConfig
+    )
 
 
 class PipelineConfig(BaseModel):
@@ -134,6 +196,9 @@ class PipelineConfig(BaseModel):
     )
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
+    selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
+        default_factory=SelectionFunctionAstrometricConfig
+    )
     dr3: DRPathConfig
     dr4: DRPathConfig
 
@@ -152,6 +217,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "physics",
     "gaiamock",
     "paths",
+    "selection_function_astrometric",
 )
 
 

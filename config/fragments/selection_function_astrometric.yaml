@@ -1,0 +1,31 @@
+# selection_function_astrometric stage (ARCHITECTURE.md §4, issue #30).
+# Shared mock-population / validation thresholds; path-specific distance windows under dr3/dr4.
+
+selection_function_astrometric:
+  # mwdust Combined19 (Bayestar-based); gaiamock uses this when do_dust=True.
+  extinction_model: combined19
+  validation_gate:
+    ks_pvalue_min: 0.01
+    solution_type_fraction_max_abs_delta: 0.05
+    reference_path: null
+  mock_population:
+    period_days: 1000.0
+    Mg_tot: 4.0
+    flux_ratio: 0.01
+    m1_msun: 1.0
+    m2_msun: 0.5
+    eccentricity: 0.3
+    N_realizations: 100
+    ruwe_min: 1.4
+    skip_acceleration: false
+    hz_pc: 300.0
+
+dr3:
+  selection_function_astrometric:
+    d_min_pc: 100.0
+    d_max_pc: 500.0
+
+dr4:
+  selection_function_astrometric:
+    d_min_pc: 100.0
+    d_max_pc: 500.0
