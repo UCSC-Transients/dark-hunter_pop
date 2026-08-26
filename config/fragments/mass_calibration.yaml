@@ -1,0 +1,16 @@
+# Physical / calibration constants live in src/darkhunter_pop/constants.py.
+# Choosable defaults that *override or select* behavior (not the coefficient tables
+# themselves) are recorded here for the F3 schema merge.
+
+mass_calibration:
+  method: TAG10
+  sigma_logM: 0.027
+  sigma_logR: 0.014
+  santos_correction: true
+  # optional: delta_M_Ch  # additive offset to constants.M_CH if ever needed
+
+classification:
+  # M_Ch itself is constants.M_CH; M_TOV / M_MIN are choosable:
+  M_MIN_msun: 1.1
+  n_sigma_mass_cut: 2
+  # M_TOV prior parameters — schema in F3
