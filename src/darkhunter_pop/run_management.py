@@ -163,7 +163,13 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "selection_function_followup",
             "darkhunter_pop.forward_model",
             inputs_from=("selection_function_astrometric",),
-            config_keys=("active_dr_mode", "physics"),
+            config_keys=(
+                "active_dr_mode",
+                "physics",
+                "selection_function_followup",
+                "dr3.selection_function_followup",
+                "dr4.selection_function_followup",
+            ),
         ),
         _spec(
             "population_model",

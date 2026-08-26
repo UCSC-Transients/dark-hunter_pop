@@ -18,6 +18,7 @@ from darkhunter_pop.config_loader import (
     require_dr3_active_for_v1,
 )
 from darkhunter_pop.config_schema import (
+    PATH_SPECIFIC_LEAF_KEYS,
     PipelineConfig,
     QualityCutBin,
 )
@@ -125,6 +126,47 @@ def test_dr4_active_refused_in_v1() -> None:
 
 def test_audit_notes_identical_path_values() -> None:
     cfg = load_config()
-    notes = audit_dr_independence(cfg)
+    result = audit_dr_independence(cfg)
+    notes = result.messages()
     # sed_filters currently match across DR in the scaffold defaults.
     assert any("sed_filters" in n for n in notes)
+    assert result.ok
+    assert result.violations == []
+
+
+def test_audit_flags_shared_path_specific_key_in_raw_dict() -> None:
+    raw = load_config().model_dump(mode="json")
+    raw["mission_baseline_months"] = 34.0  # illegally shared
+    result = audit_dr_independence(raw)
+    assert not result.ok
+    assert any(
+        f.severity == "violation" and f.key == "mission_baseline_months"
+        for f in result.findings
+    )
+
+
+def test_audit_flags_path_specific_leaf_outside_dr_subtree() -> None:
+    raw = load_config().model_dump(mode="json")
+    raw["selection_function_followup"]["accel_jerk_catalog_id"] = "shared_bad"
+    result = audit_dr_independence(raw)
+    assert not result.ok
+    assert any("accel_jerk_catalog_id" in (f.key or "") for f in result.violations)
+
+
+def test_audit_flags_shared_physics_under_dr_paths() -> None:
+    raw = load_config().model_dump(mode="json")
+    raw["dr3"]["physics"] = {"mc_noise_threshold": 0.1, "imf": "kroupa"}
+    raw["dr4"]["physics"] = {"mc_noise_threshold": 0.2, "imf": "kroupa"}
+    result = audit_dr_independence(raw)
+    assert not result.ok
+    assert any(f.key == "physics" for f in result.violations)
+
+
+def test_path_specific_leaf_registry_covers_mission_keys() -> None:
+    assert "scanning_law_id" in PATH_SPECIFIC_LEAF_KEYS
+    assert "quality_cut_bins" in PATH_SPECIFIC_LEAF_KEYS
+    assert "sed_filters" in PATH_SPECIFIC_LEAF_KEYS
+    assert "accel_jerk_catalog_id" in PATH_SPECIFIC_LEAF_KEYS
+    fields = set(PipelineConfig.model_fields)
+    for leaf in PATH_SPECIFIC_LEAF_KEYS:
+        assert leaf not in fields

@@ -1,0 +1,7 @@
+survey: RAVE
+tier: documented
+notes: "Placeholder; apply published RAVE SF lookup at inference time."
+g_mag_faint_limit: 12.0
+declination_min_deg: -90.0
+declination_max_deg: 5.0
+base_probability: 0.7

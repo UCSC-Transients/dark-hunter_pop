@@ -111,6 +111,31 @@ def test_every_stage_declares_dependency_modules() -> None:
         assert spec.module, f"{name} missing module"
 
 
+def test_selection_function_followup_inputs_from_and_hdf5_contract(tmp_path: Path) -> None:
+    """Producer HDF5 for followup SF is readable; registry inputs_from is declared."""
+    from darkhunter_pop.config_loader import load_config
+    from darkhunter_pop.forward_model import run_selection_function_followup
+
+    spec = STAGE_REGISTRY["selection_function_followup"]
+    assert spec.inputs_from == ("selection_function_astrometric",)
+    assert "selection_function_followup" in spec.config_fingerprint_keys
+    assert "dr3.selection_function_followup" in spec.config_fingerprint_keys
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_followup.calibration.ks_pvalue_min = 0.0
+    path = tmp_path / "followup.h5"
+    run_selection_function_followup(tweaked, path, rng_seed=1)
+
+    import h5py
+
+    with h5py.File(path, "r") as handle:
+        assert handle.attrs["stage"] == "selection_function_followup"
+        assert "probability" in handle["followup_catalog"]
+        assert "n_observations" in handle["followup_catalog"]
+        assert "time_span_day" in handle["followup_catalog"]
+
+
 def test_run_manifest_round_trip_is_consumer_safe() -> None:
     from datetime import datetime, timezone
 

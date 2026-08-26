@@ -1,0 +1,9 @@
+# Documented APOGEE selection-function lookup stub (ARCHITECTURE.md §4).
+# Replace with published SF tables when wired to real survey products.
+survey: APOGEE
+tier: documented
+notes: "Placeholder; apply published APOGEE SF lookup at inference time."
+g_mag_faint_limit: 14.0
+declination_min_deg: -90.0
+declination_max_deg: 90.0
+base_probability: 0.8

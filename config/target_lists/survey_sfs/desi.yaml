@@ -1,0 +1,7 @@
+survey: DESI
+tier: documented
+notes: "Placeholder; apply published DESI SF lookup at inference time."
+g_mag_faint_limit: 19.0
+declination_min_deg: -20.0
+declination_max_deg: 80.0
+base_probability: 0.7

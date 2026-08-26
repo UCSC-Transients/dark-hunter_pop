@@ -1,0 +1,66 @@
+# selection_function_followup stage (ARCHITECTURE.md §4, issue #36).
+# Shared follow-up SF parameters; path-specific accel/jerk catalog pins under dr3/dr4.
+
+selection_function_followup:
+  target_lists:
+    - name: andrews
+      adoption_dates_path: config/target_lists/derived/andrews_adoption_dates.yaml
+      cooler_star_preference: true
+    - name: elbadry
+      adoption_dates_path: config/target_lists/derived/elbadry_adoption_dates.yaml
+      cooler_star_preference: true
+    - name: accel_jerk
+      adoption_dates_path: config/target_lists/derived/accel_jerk_adoption_dates.yaml
+      cooler_star_preference: false
+
+  declination_min_deg: -35.0
+  declination_max_deg: 90.0
+  g_mag_bright_limit: 5.0
+  g_mag_faint_limit: 15.0
+  cooler_star_teff_max_k: 6500.0
+  cooler_star_weight: 1.5
+
+  major_surveys:
+    - name: APOGEE
+      selection_function_path: config/target_lists/survey_sfs/apogee.yaml
+      tier: documented
+    - name: RAVE
+      selection_function_path: config/target_lists/survey_sfs/rave.yaml
+      tier: documented
+    - name: LAMOST
+      selection_function_path: config/target_lists/survey_sfs/lamost.yaml
+      tier: documented
+    - name: DESI
+      selection_function_path: config/target_lists/survey_sfs/desi.yaml
+      tier: documented
+
+  ad_hoc_literature:
+    use_brightness: true
+    use_declination: true
+    use_proper_motion: true
+    pm_total_min_mas_yr: 0.0
+    base_probability: 0.05
+
+  calibration:
+    n_obs_bin_edges: [0, 1, 2, 3, 5, 10, 20, 50]
+    time_span_day_bin_edges: [0.0, 30.0, 90.0, 180.0, 365.0, 730.0, 1500.0]
+    ks_pvalue_min: 0.01
+    real_followup_catalog_path: null
+
+  target_list_sheet:
+    spreadsheet_id: ""
+    sheet_range: "Sheet1"
+    credentials_env: "GOOGLE_APPLICATION_CREDENTIALS"
+    # Google Drive revisions.list can be incomplete for long-lived, frequently-edited sheets
+    # (documented Drive API caveat). Spot-check UI version history when dates matter.
+    revision_history_incompleteness_caveat: true
+    weekly_snapshot_relative_dir: "target_lists/snapshots"
+    derived_adoption_dates_relative_dir: "config/target_lists/derived"
+
+dr3:
+  selection_function_followup:
+    accel_jerk_catalog_id: dr3_accel_jerk_pinned
+
+dr4:
+  selection_function_followup:
+    accel_jerk_catalog_id: dr4_accel_jerk_pinned

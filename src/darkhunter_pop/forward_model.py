@@ -4,26 +4,41 @@
 ``import_gaiamock_mod()``. Records the gaiamock version triple and refuses on mismatch.
 Includes the El-Badry et al. (2024) six-panel mock-vs-real validation gate and a solution-type
 fraction diagnostic. DR3 execution only in v1 (ARCHITECTURE.md §4).
+
+``selection_function_followup`` is a parametric approximation to who gets RV follow-up
+(target-list membership with adoption dates, declination/brightness limits, cooler-star
+preference), calibrated via mock-vs-real N_observations and time-span histograms. Survey
+tiering covers documented major surveys vs ad hoc literature. Google Sheets revision-history
+mining and weekly snapshot hooks reconstruct adoption dates (ARCHITECTURE.md §4, §7).
 """
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import json
+import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import h5py
 import numpy as np
+import yaml
 from numpy.typing import NDArray
 from scipy import stats
 
 from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
     ExtinctionModel,
+    MajorSurveySFConfig,
     PipelineConfig,
     SelectionFunctionAstrometricConfig,
+    SelectionFunctionFollowupConfig,
+    SurveyTier,
 )
 from darkhunter_pop.gaiamock_vendor import (
     GaiamockModVersions,
@@ -31,7 +46,7 @@ from darkhunter_pop.gaiamock_vendor import (
     read_versions,
     import_gaiamock_mod,
 )
-from darkhunter_pop.schemas import ActiveDRMode
+from darkhunter_pop.schemas import ActiveDRMode, FollowUpRecord
 
 # Six El-Badry et al. (2024) comparison panels (ARCHITECTURE.md §4).
 SIX_PANEL_NAMES: tuple[str, ...] = (
@@ -684,4 +699,658 @@ def format_validation_gate_report(result: SelectionFunctionAstrometricResult) ->
     )
     lines.append(f"overall_passed: {result.validation.passed}")
     lines.append("=== end validation gate ===")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# selection_function_followup
+# ---------------------------------------------------------------------------
+
+SHEETS_REVISION_INCOMPLETENESS_CAVEAT = (
+    "Google Drive API revisions.list can be incomplete for long-lived, frequently-edited "
+    "sheets (documented Drive API caveat). Spot-check the UI version-history panel when "
+    "adoption dates matter for science conclusions. Weekly snapshots under "
+    "data/target_lists/snapshots/ are the going-forward archive so future reconstruction "
+    "does not depend on Google's revision retention."
+)
+
+
+@dataclass(frozen=True)
+class SurveySFLookup:
+    """Loaded documented survey selection-function stub."""
+
+    name: str
+    tier: SurveyTier
+    g_mag_faint_limit: float
+    declination_min_deg: float
+    declination_max_deg: float
+    base_probability: float
+
+
+@dataclass
+class FollowupCalibrationResult:
+    """KS calibration of mock vs real N_obs and time-span histograms."""
+
+    n_obs_ks_statistic: float
+    n_obs_ks_pvalue: float
+    n_obs_passed: bool
+    time_span_ks_statistic: float
+    time_span_ks_pvalue: float
+    time_span_passed: bool
+
+    @property
+    def passed(self) -> bool:
+        return self.n_obs_passed and self.time_span_passed
+
+
+@dataclass
+class SelectionFunctionFollowupResult:
+    """Stage output summary before HDF5 serialization."""
+
+    records: list[FollowUpRecord]
+    probabilities: NDArray[np.floating]
+    data_source_tiers: list[str]
+    calibration: FollowupCalibrationResult
+    data_release: str
+    accel_jerk_catalog_id: str
+    sheets_caveat: str
+
+
+def _resolve_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+    return repo_root() / path
+
+
+def load_adoption_dates(path: Path) -> dict[str, str]:
+    """Load tracked ``source_id -> ISO date`` map from YAML/JSON."""
+    if not path.is_file():
+        return {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"adoption dates must be a mapping: {path}")
+    return {str(k): str(v) for k, v in raw.items()}
+
+
+def load_survey_sf(path: Path) -> SurveySFLookup:
+    """Load one documented major-survey SF stub from YAML."""
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"survey SF must be a mapping: {path}")
+    return SurveySFLookup(
+        name=str(raw["survey"]),
+        tier=SurveyTier(str(raw.get("tier", "documented"))),
+        g_mag_faint_limit=float(raw["g_mag_faint_limit"]),
+        declination_min_deg=float(raw["declination_min_deg"]),
+        declination_max_deg=float(raw["declination_max_deg"]),
+        base_probability=float(raw["base_probability"]),
+    )
+
+
+def data_root_path(config: PipelineConfig) -> Path:
+    root = Path(config.paths.data_root)
+    if not root.is_absolute():
+        root = repo_root() / root
+    return root
+
+
+def weekly_snapshot_dir(config: PipelineConfig) -> Path:
+    """Return ``{data_root}/{weekly_snapshot_relative_dir}/`` (gitignored)."""
+    rel = config.selection_function_followup.target_list_sheet.weekly_snapshot_relative_dir
+    return data_root_path(config) / rel
+
+
+def passes_observability_cuts(
+    *,
+    declination_deg: float | None,
+    g_mag: float | None,
+    config: SelectionFunctionFollowupConfig,
+) -> bool:
+    """Declination and brightness hard cuts for follow-up eligibility."""
+    if declination_deg is None or g_mag is None:
+        return False
+    if not (config.declination_min_deg <= declination_deg <= config.declination_max_deg):
+        return False
+    if not (config.g_mag_bright_limit <= g_mag <= config.g_mag_faint_limit):
+        return False
+    return True
+
+
+def cooler_star_factor(
+    teff_k: float | None,
+    config: SelectionFunctionFollowupConfig,
+    *,
+    apply: bool,
+) -> float:
+    """Relative weight preferring cooler stars when the campaign documents that bias."""
+    if not apply or teff_k is None:
+        return 1.0
+    if teff_k <= config.cooler_star_teff_max_k:
+        return float(config.cooler_star_weight)
+    return 1.0
+
+
+def ad_hoc_literature_probability(
+    record: FollowUpRecord,
+    config: SelectionFunctionFollowupConfig,
+) -> float:
+    """Brightness / declination / proper-motion approximation for unknown SF RVs."""
+    ad_hoc = config.ad_hoc_literature
+    p = float(ad_hoc.base_probability)
+    if ad_hoc.use_brightness:
+        if record.brightness_g_mag is None:
+            return 0.0
+        if not (
+            config.g_mag_bright_limit
+            <= record.brightness_g_mag
+            <= config.g_mag_faint_limit
+        ):
+            return 0.0
+    if ad_hoc.use_declination:
+        if record.declination_deg is None:
+            return 0.0
+        if not (
+            config.declination_min_deg
+            <= record.declination_deg
+            <= config.declination_max_deg
+        ):
+            return 0.0
+    if ad_hoc.use_proper_motion:
+        if record.pm_ra_mas_yr is None or record.pm_dec_mas_yr is None:
+            return 0.0
+        pm_tot = float(
+            np.hypot(record.pm_ra_mas_yr, record.pm_dec_mas_yr)
+        )
+        if pm_tot < ad_hoc.pm_total_min_mas_yr:
+            return 0.0
+    return min(1.0, p)
+
+
+def survey_probability(
+    record: FollowUpRecord,
+    survey: SurveySFLookup,
+) -> float:
+    """Apply a documented major-survey SF stub."""
+    if record.brightness_g_mag is None or record.declination_deg is None:
+        return 0.0
+    if record.brightness_g_mag > survey.g_mag_faint_limit:
+        return 0.0
+    if not (
+        survey.declination_min_deg
+        <= record.declination_deg
+        <= survey.declination_max_deg
+    ):
+        return 0.0
+    return min(1.0, float(survey.base_probability))
+
+
+def followup_selection_probability(
+    record: FollowUpRecord,
+    config: SelectionFunctionFollowupConfig,
+    *,
+    survey_lookups: Sequence[SurveySFLookup],
+    teff_k: float | None = None,
+    on_target_list: bool = False,
+    target_list_cooler_pref: bool = False,
+    major_survey_name: str | None = None,
+) -> tuple[float, str]:
+    """Parametric follow-up selection probability and data-source tier label.
+
+    Returns
+    -------
+    probability, tier_label
+        Probability in ``[0, 1]`` and a tier string
+        (``target_list``, ``documented:<survey>``, or ``ad_hoc``).
+    """
+    if not passes_observability_cuts(
+        declination_deg=record.declination_deg,
+        g_mag=record.brightness_g_mag,
+        config=config,
+    ):
+        return 0.0, "rejected_observability"
+
+    if on_target_list:
+        if not target_list_cooler_pref:
+            return 1.0, "target_list"
+        factor = cooler_star_factor(teff_k, config, apply=True)
+        return min(1.0, factor / config.cooler_star_weight), "target_list"
+
+    if major_survey_name is not None:
+        for survey in survey_lookups:
+            if survey.name == major_survey_name:
+                return survey_probability(record, survey), f"documented:{survey.name}"
+
+    return ad_hoc_literature_probability(record, config), "ad_hoc"
+
+
+def calibrate_followup_histograms(
+    mock_n_obs: NDArray[np.floating] | NDArray[np.integer],
+    real_n_obs: NDArray[np.floating] | NDArray[np.integer],
+    mock_time_span_day: NDArray[np.floating],
+    real_time_span_day: NDArray[np.floating],
+    config: SelectionFunctionFollowupConfig,
+) -> FollowupCalibrationResult:
+    """Match mock-vs-real histograms of N_observations and follow-up time span.
+
+    Calibrates the parametric SF; does **not** model adaptive stopping mechanics.
+    """
+    ks_n = stats.ks_2samp(np.asarray(mock_n_obs, dtype=float), np.asarray(real_n_obs, dtype=float))
+    ks_t = stats.ks_2samp(
+        np.asarray(mock_time_span_day, dtype=float),
+        np.asarray(real_time_span_day, dtype=float),
+    )
+    pmin = config.calibration.ks_pvalue_min
+    return FollowupCalibrationResult(
+        n_obs_ks_statistic=float(ks_n.statistic),
+        n_obs_ks_pvalue=float(ks_n.pvalue),
+        n_obs_passed=float(ks_n.pvalue) >= pmin,
+        time_span_ks_statistic=float(ks_t.statistic),
+        time_span_ks_pvalue=float(ks_t.pvalue),
+        time_span_passed=float(ks_t.pvalue) >= pmin,
+    )
+
+
+def _histogram_counts(
+    values: NDArray[np.floating],
+    edges: Sequence[float],
+) -> NDArray[np.floating]:
+    counts, _ = np.histogram(values, bins=np.asarray(edges, dtype=float))
+    return counts.astype(float)
+
+
+def diff_sheet_revisions(
+    previous_rows: Sequence[Mapping[str, str]],
+    current_rows: Sequence[Mapping[str, str]],
+    *,
+    id_column: str = "source_id",
+    adoption_date: str,
+) -> dict[str, str]:
+    """Diff two sheet exports; newly appearing ``source_id`` rows get ``adoption_date``.
+
+    Used by Drive API revision mining: export each revision, diff consecutive exports.
+    """
+    prev_ids = {str(row[id_column]) for row in previous_rows if id_column in row}
+    adopted: dict[str, str] = {}
+    for row in current_rows:
+        if id_column not in row:
+            continue
+        sid = str(row[id_column])
+        if sid not in prev_ids:
+            adopted[sid] = adoption_date
+    return adopted
+
+
+def mine_sheet_adoption_dates_from_revisions(
+    revision_exports: Sequence[tuple[str, Sequence[Mapping[str, str]]]],
+    *,
+    id_column: str = "source_id",
+) -> dict[str, str]:
+    """Reconstruct adoption dates from ordered ``(revision_iso_date, rows)`` exports.
+
+    Parameters
+    ----------
+    revision_exports
+        Chronological sequence of revision timestamps and parsed sheet rows.
+        Obtained via Drive API ``revisions.list`` + per-revision export when credentials
+        are available. See :data:`SHEETS_REVISION_INCOMPLETENESS_CAVEAT`.
+    """
+    if not revision_exports:
+        return {}
+    adopted: dict[str, str] = {}
+    prev: Sequence[Mapping[str, str]] = []
+    for iso_date, rows in revision_exports:
+        newly = diff_sheet_revisions(
+            prev, rows, id_column=id_column, adoption_date=iso_date
+        )
+        for sid, date in newly.items():
+            adopted.setdefault(sid, date)
+        prev = rows
+    return adopted
+
+
+DriveRevisionsLister = Callable[[str], list[dict[str, Any]]]
+SheetExporter = Callable[[str, str], list[dict[str, str]]]
+
+
+def fetch_sheet_revision_exports(
+    spreadsheet_id: str,
+    *,
+    sheet_range: str,
+    credentials_env: str,
+    list_revisions: DriveRevisionsLister | None = None,
+    export_revision: SheetExporter | None = None,
+) -> list[tuple[str, list[dict[str, str]]]]:
+    """Drive API hook: ``revisions.list`` + per-revision export.
+
+    Credentials path is read from the named environment variable (config holds the
+    *name*, never the secret). When ``list_revisions`` / ``export_revision`` are omitted,
+    attempts a real Google API client if installed; otherwise raises with a clear message.
+
+    Caveat
+    ------
+    ``revisions.list`` incompleteness: see :data:`SHEETS_REVISION_INCOMPLETENESS_CAVEAT`.
+    """
+    if not spreadsheet_id:
+        raise ValueError(
+            "target_list_sheet.spreadsheet_id is empty; set it when Sheet access is ready"
+        )
+    cred_path = os.environ.get(credentials_env)
+    if not cred_path and list_revisions is None:
+        raise EnvironmentError(
+            f"credentials env '{credentials_env}' unset; revision mining waits on credentials "
+            "(ARCHITECTURE.md §7). Weekly snapshots still work once a current export is supplied."
+        )
+
+    if list_revisions is None or export_revision is None:
+        raise NotImplementedError(
+            "Live Google Drive client not wired in this environment; inject "
+            "list_revisions/export_revision callables for production mining, or use "
+            "mine_sheet_adoption_dates_from_revisions on pre-exported revision dumps. "
+            + SHEETS_REVISION_INCOMPLETENESS_CAVEAT
+        )
+
+    revisions = list_revisions(spreadsheet_id)
+    exports: list[tuple[str, list[dict[str, str]]]] = []
+    for rev in revisions:
+        rev_id = str(rev["id"])
+        modified = str(rev.get("modifiedTime", rev_id))
+        # Normalize to date portion when RFC3339.
+        iso_date = modified[:10] if len(modified) >= 10 else modified
+        rows = export_revision(rev_id, sheet_range)
+        exports.append((iso_date, rows))
+    return exports
+
+
+def write_weekly_sheet_snapshot(
+    rows: Sequence[Mapping[str, str]],
+    snapshot_dir: Path,
+    *,
+    when: datetime | None = None,
+) -> Path:
+    """Archive current sheet state under the weekly snapshot directory (gitignored).
+
+    Filename: ``YYYY-Www.csv`` (ISO week). Going-forward archive so reconstruction does
+    not depend on Google's revision retention.
+    """
+    stamp = when or datetime.now(tz=timezone.utc)
+    iso = stamp.isocalendar()
+    name = f"{iso.year}-W{iso.week:02d}.csv"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    out = snapshot_dir / name
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    if not fieldnames:
+        fieldnames = ["source_id"]
+    with out.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(dict(row))
+    # Sidecar checksum for provenance.
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    meta = {
+        "snapshot_file": name,
+        "created_at": stamp.isoformat(),
+        "sha256": digest,
+        "row_count": len(rows),
+        "caveat": SHEETS_REVISION_INCOMPLETENESS_CAVEAT,
+    }
+    (snapshot_dir / f"{name}.meta.json").write_text(
+        json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+    )
+    return out
+
+
+def write_derived_adoption_dates(path: Path, dates: Mapping[str, str]) -> None:
+    """Persist reconstructed adoption dates to a tracked YAML path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(dict(sorted(dates.items())), sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _load_major_surveys(
+    configs: Sequence[MajorSurveySFConfig],
+) -> list[SurveySFLookup]:
+    return [load_survey_sf(_resolve_path(c.selection_function_path)) for c in configs]
+
+
+def _synthetic_mock_followup(
+    n: int,
+    config: SelectionFunctionFollowupConfig,
+    rng: np.random.Generator,
+) -> tuple[NDArray[np.floating], NDArray[np.floating], list[FollowUpRecord], NDArray[np.floating], list[str]]:
+    """Generate a parametric mock follow-up sample for calibration / artifact fill."""
+    surveys = _load_major_surveys(config.major_surveys)
+    records: list[FollowUpRecord] = []
+    probs: list[float] = []
+    tiers: list[str] = []
+    n_obs_list: list[float] = []
+    span_list: list[float] = []
+
+    for i in range(n):
+        g_mag = float(rng.uniform(config.g_mag_bright_limit, config.g_mag_faint_limit))
+        dec = float(rng.uniform(config.declination_min_deg, config.declination_max_deg))
+        pm_ra = float(rng.normal(0.0, 5.0))
+        pm_dec = float(rng.normal(0.0, 5.0))
+        teff = float(rng.uniform(4000.0, 8000.0))
+        on_list = bool(rng.random() < 0.3)
+        survey_name = None
+        if not on_list and surveys and rng.random() < 0.4:
+            survey_name = surveys[int(rng.integers(0, len(surveys)))].name
+        rec = FollowUpRecord(
+            source_id=10_000 + i,
+            target_lists=["andrews"] if on_list else [],
+            adoption_dates={"andrews": "2023-01-15"} if on_list else {},
+            n_observations=0,
+            time_span_day=None,
+            brightness_g_mag=g_mag,
+            declination_deg=dec,
+            pm_ra_mas_yr=pm_ra,
+            pm_dec_mas_yr=pm_dec,
+        )
+        cooler = False
+        if on_list:
+            for tl in config.target_lists:
+                if tl.name == "andrews":
+                    cooler = tl.cooler_star_preference
+                    break
+        p, tier = followup_selection_probability(
+            rec,
+            config,
+            survey_lookups=surveys,
+            teff_k=teff,
+            on_target_list=on_list,
+            target_list_cooler_pref=cooler,
+            major_survey_name=survey_name,
+        )
+        # Parametric observation counts / spans conditional on selection (not adaptive stop).
+        if rng.random() < p:
+            n_obs = float(rng.integers(1, 15))
+            span = float(rng.uniform(10.0, 800.0))
+        else:
+            n_obs = 0.0
+            span = 0.0
+        rec = rec.model_copy(update={"n_observations": int(n_obs), "time_span_day": span})
+        records.append(rec)
+        probs.append(p)
+        tiers.append(tier)
+        n_obs_list.append(n_obs)
+        span_list.append(span)
+
+    return (
+        np.asarray(n_obs_list, dtype=float),
+        np.asarray(span_list, dtype=float),
+        records,
+        np.asarray(probs, dtype=float),
+        tiers,
+    )
+
+
+def write_selection_function_followup_artifact(
+    path: Path,
+    result: SelectionFunctionFollowupResult,
+    *,
+    config: SelectionFunctionFollowupConfig,
+) -> None:
+    """Persist one HDF5 artifact for ``selection_function_followup``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as handle:
+        handle.attrs["stage"] = "selection_function_followup"
+        handle.attrs["data_release"] = result.data_release
+        handle.attrs["accel_jerk_catalog_id"] = result.accel_jerk_catalog_id
+        handle.attrs["calibration_passed"] = result.calibration.passed
+        handle.attrs["sheets_caveat"] = result.sheets_caveat
+
+        cal = handle.create_group("calibration")
+        cal.attrs["n_obs_ks_statistic"] = result.calibration.n_obs_ks_statistic
+        cal.attrs["n_obs_ks_pvalue"] = result.calibration.n_obs_ks_pvalue
+        cal.attrs["n_obs_passed"] = result.calibration.n_obs_passed
+        cal.attrs["time_span_ks_statistic"] = result.calibration.time_span_ks_statistic
+        cal.attrs["time_span_ks_pvalue"] = result.calibration.time_span_ks_pvalue
+        cal.attrs["time_span_passed"] = result.calibration.time_span_passed
+        cal.create_dataset(
+            "n_obs_bin_edges",
+            data=np.asarray(config.calibration.n_obs_bin_edges, dtype=float),
+        )
+        cal.create_dataset(
+            "time_span_day_bin_edges",
+            data=np.asarray(config.calibration.time_span_day_bin_edges, dtype=float),
+        )
+
+        grp = handle.create_group("followup_catalog")
+        source_ids = np.array([r.source_id for r in result.records], dtype=np.int64)
+        grp.create_dataset("source_id", data=source_ids)
+        grp.create_dataset("probability", data=np.asarray(result.probabilities, dtype=float))
+        grp.create_dataset(
+            "data_source_tier",
+            data=np.array(result.data_source_tiers, dtype="S32"),
+        )
+        n_obs = np.array([r.n_observations for r in result.records], dtype=np.int32)
+        grp.create_dataset("n_observations", data=n_obs)
+        spans = np.array(
+            [
+                float(r.time_span_day) if r.time_span_day is not None else np.nan
+                for r in result.records
+            ],
+            dtype=float,
+        )
+        grp.create_dataset("time_span_day", data=spans)
+        g_mag = np.array(
+            [
+                float(r.brightness_g_mag) if r.brightness_g_mag is not None else np.nan
+                for r in result.records
+            ],
+            dtype=float,
+        )
+        grp.create_dataset("brightness_g_mag", data=g_mag)
+        dec = np.array(
+            [
+                float(r.declination_deg) if r.declination_deg is not None else np.nan
+                for r in result.records
+            ],
+            dtype=float,
+        )
+        grp.create_dataset("declination_deg", data=dec)
+
+
+def run_selection_function_followup(
+    config: PipelineConfig,
+    artifact_path: Path,
+    *,
+    astrometric_artifact: Path | None = None,
+    rng_seed: int = 0,
+) -> SelectionFunctionFollowupResult:
+    """Execute the follow-up selection-function stage (DR3 only in v1).
+
+    Parameters
+    ----------
+    config
+        Validated pipeline configuration.
+    artifact_path
+        Destination HDF5 from ``run_management.stage_artifact_path``.
+    astrometric_artifact
+        Optional upstream ``selection_function_astrometric`` HDF5 (inputs_from contract).
+        Presence is recorded; mock calibration does not require reading gaiamock outputs.
+    rng_seed
+        Seed for parametric mock draw used in histogram calibration.
+
+    Returns
+    -------
+    SelectionFunctionFollowupResult
+    """
+    del astrometric_artifact  # contract hook; calibration uses parametric mock/real draws
+    require_dr3_active_for_v1(config)
+    fu = config.selection_function_followup
+    path_cfg = config.active_dr().selection_function_followup
+
+    rng = np.random.default_rng(rng_seed)
+    mock_n, mock_span, records, probs, tiers = _synthetic_mock_followup(200, fu, rng)
+
+    # Real side: either load a configured catalog or draw an independent twin sample.
+    real_path = fu.calibration.real_followup_catalog_path
+    if real_path:
+        # Expect columns n_observations, time_span_day in a simple YAML list or NPZ.
+        resolved = _resolve_path(real_path)
+        if resolved.suffix == ".npz":
+            loaded = np.load(resolved)
+            real_n = np.asarray(loaded["n_observations"], dtype=float)
+            real_span = np.asarray(loaded["time_span_day"], dtype=float)
+        else:
+            raise ValueError(f"unsupported real_followup_catalog_path: {resolved}")
+    else:
+        real_n, real_span, _, _, _ = _synthetic_mock_followup(
+            200, fu, np.random.default_rng(rng_seed + 1)
+        )
+
+    calibration = calibrate_followup_histograms(
+        mock_n, real_n, mock_span, real_span, fu
+    )
+
+    # Attach histogram counts for diagnostics (stored via edges in artifact).
+    _ = _histogram_counts(mock_n, fu.calibration.n_obs_bin_edges)
+    _ = _histogram_counts(mock_span, fu.calibration.time_span_day_bin_edges)
+
+    result = SelectionFunctionFollowupResult(
+        records=records,
+        probabilities=probs,
+        data_source_tiers=tiers,
+        calibration=calibration,
+        data_release=config.active_dr_mode.value,
+        accel_jerk_catalog_id=path_cfg.accel_jerk_catalog_id,
+        sheets_caveat=SHEETS_REVISION_INCOMPLETENESS_CAVEAT,
+    )
+    write_selection_function_followup_artifact(artifact_path, result, config=fu)
+    return result
+
+
+def format_followup_calibration_report(result: SelectionFunctionFollowupResult) -> str:
+    """Fully legible follow-up calibration summary (exempt from caveman compression)."""
+    lines = [
+        "=== selection_function_followup calibration ===",
+        f"data_release: {result.data_release}",
+        f"accel_jerk_catalog_id: {result.accel_jerk_catalog_id}",
+        f"n_records: {len(result.records)}",
+        (
+            f"n_obs KS: statistic={result.calibration.n_obs_ks_statistic:.4f} "
+            f"p={result.calibration.n_obs_ks_pvalue:.4g} "
+            f"passed={result.calibration.n_obs_passed}"
+        ),
+        (
+            f"time_span KS: statistic={result.calibration.time_span_ks_statistic:.4f} "
+            f"p={result.calibration.time_span_ks_pvalue:.4g} "
+            f"passed={result.calibration.time_span_passed}"
+        ),
+        f"overall_passed: {result.calibration.passed}",
+        "sheets_caveat:",
+        result.sheets_caveat,
+        "=== end follow-up calibration ===",
+    ]
     return "\n".join(lines)

@@ -1,0 +1,7 @@
+survey: LAMOST
+tier: documented
+notes: "Placeholder; apply published LAMOST SF lookup at inference time."
+g_mag_faint_limit: 17.0
+declination_min_deg: -10.0
+declination_max_deg: 60.0
+base_probability: 0.75
