@@ -84,6 +84,7 @@ actually use the cluster before it's gone.
   #69–#71; Review/Integration #72).
 - **Phase 7**: #16 Main program wiring, #14 Documentation, final review. Kickoff issues + paste
   prompts: `docs/PHASE7_KICKOFF.md` (umbrella #78; children #79–#80; Review/Integration #81).
+  Landed: #79 / PR #84, #80 / PR #83; final freeze status sync under #81.
 
 \#15 Review/Integration runs continuously from Phase 1 onward.
 

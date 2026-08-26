@@ -13,5 +13,7 @@
 # Phase 5: inference fragment materialized under continuous Review (#72) after #63 / PR #67.
 # Phase 6: benchmarks + diagnostics.sbc / hooks.sbc_recovery materialized under #72 after
 # children #69/#70/#71 landed. Loader still merges fragments first (canonical wins).
+# Phase 7 final checkpoint (#81): no new domain fragments; fragments ≡ canonical
+# config/config.yaml (verified at Review/Integration).
 #
 # Do not put secrets in fragments. See ARCHITECTURE.md §7.
