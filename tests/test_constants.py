@@ -41,6 +41,11 @@ def test_santos2013_coefficients() -> None:
     assert C.SANTOS2013_S0 == pytest.approx(0.701)
 
 
+def test_spectroscopic_mass_function_factor() -> None:
+    assert C.SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS == pytest.approx(1.036149e-7, rel=1e-6)
+    assert C.GAIA_J2016_MJD == pytest.approx(57388.5)
+
+
 def test_no_choosable_thresholds_exported() -> None:
     """Regression: choosables must not appear as module-level constants."""
     banned = {

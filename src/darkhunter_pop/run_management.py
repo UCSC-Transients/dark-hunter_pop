@@ -135,13 +135,13 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "rv_astrometry_gate",
             "darkhunter_pop.rv_consistency",
             inputs_from=("mass_derivation_refined",),
-            config_keys=("classification",),
+            config_keys=("rv_consistency",),
         ),
         _spec(
             "joint_orbit_fit",
             "darkhunter_pop.rv_consistency",
             inputs_from=("rv_astrometry_gate",),
-            config_keys=("classification",),
+            config_keys=("rv_consistency",),
         ),
         _spec(
             "companion_nature_likelihood",
