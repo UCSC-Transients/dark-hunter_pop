@@ -69,6 +69,25 @@ class ClassificationConfig(BaseModel):
     M_TOV_msun: float = Field(2.2, gt=0)
 
 
+class MassDerivationConfig(BaseModel):
+    """Choosables for bulk TAG10→M2 and refined uberMS queue stages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Flux ratio F2/F1 for gaiamock mass-function inversion (0 = dark companion).
+    dark_companion_flux_ratio: float = Field(0.0, ge=0)
+    # uberMS initial_Mass prior upper edge (watch-list when M1 approaches this).
+    uberms_m1_prior_max_msun: float = Field(3.0, gt=0)
+    # Flag when M1 >= fraction * uberms_m1_prior_max_msun.
+    uberms_m1_watchlist_fraction: float = Field(0.95, gt=0, le=1)
+    # Floor for relative-uncertainty information-gain stub (avoid /0).
+    information_gain_sigma_floor_msun: float = Field(0.01, gt=0)
+    # Cap queue length; null = process all candidates passing the bulk cut.
+    sed_queue_max_stars: int | None = Field(default=None, ge=1)
+    # When true, refined stage raises if darkhunter_sed is not importable.
+    require_sed_package: bool = False
+
+
 class PhysicsConfig(BaseModel):
     """Shared across DR3/DR4 — genuine population/physics choices."""
 
@@ -217,6 +236,7 @@ class PipelineConfig(BaseModel):
     mass_calibration: MassCalibrationConfig = Field(
         default_factory=MassCalibrationConfig
     )
+    mass_derivation: MassDerivationConfig = Field(default_factory=MassDerivationConfig)
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
@@ -236,6 +256,7 @@ class PipelineConfig(BaseModel):
 # Keys included in the resume/amend config checksum (ARCHITECTURE.md §5).
 SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "mass_calibration",
+    "mass_derivation",
     "classification",
     "physics",
     "gaiamock",

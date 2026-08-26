@@ -55,6 +55,16 @@ _GAIA_SOURCE_MAG_FIELDS: dict[str, tuple[str, str | None]] = {
 _THIELE_INNES_FIELDS: tuple[str, ...] = ("A", "B", "F", "G")
 _THIELE_INNES_ERR_SUFFIX = "_error"
 
+# Astrophysical-parameters columns for mass_derivation (MSC preferred, gspphot fallback).
+_AP_PARAM_STEMS: tuple[str, ...] = (
+    "teff_msc1",
+    "logg_msc1",
+    "mh_msc",
+    "teff_gspphot",
+    "logg_gspphot",
+    "mh_gspphot",
+)
+
 
 @dataclass(frozen=True)
 class SnapshotMeta:
@@ -212,6 +222,12 @@ def build_nss_adql(dr: DRPathConfig) -> str:
         select_parts.append(f"nss.{thiele}")
         select_parts.append(f"nss.{thiele}{_THIELE_INNES_ERR_SUFFIX}")
 
+    # MSC / gspphot atmospheric parameters for mass_derivation_bulk (ARCHITECTURE.md §4).
+    for stem in _AP_PARAM_STEMS:
+        select_parts.append(f"ap.{stem}")
+        select_parts.append(f"ap.{stem}_upper")
+        select_parts.append(f"ap.{stem}_lower")
+
     for band in dr.gaia_source_photometry_bands:
         if band not in _GAIA_SOURCE_MAG_FIELDS:
             raise ValueError(f"unsupported Gaia source photometry band: {band!r}")
@@ -242,6 +258,11 @@ def build_nss_adql(dr: DRPathConfig) -> str:
     lines.append(f"FROM {dr.nss_table} AS nss")
     lines.append(
         "JOIN {0} AS gs ON nss.source_id = gs.source_id".format(dr.gaia_source_table)
+    )
+    # Astrophysical parameters share the same DR catalog family as gaia_source.
+    ap_table = dr.gaia_source_table.replace("gaia_source", "astrophysical_parameters")
+    lines.append(
+        f"LEFT JOIN {ap_table} AS ap ON nss.source_id = ap.source_id"
     )
 
     for neighbour_table, alias in neighbour_alias.items():
@@ -426,6 +447,18 @@ def _build_nss_orbital(row: Mapping[str, Any]) -> dict[str, Any]:
     return orbital
 
 
+def _build_atmosphere_extras(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy MSC/gspphot columns into ``CandidateRecord.extras`` for mass_derivation."""
+    extras: dict[str, Any] = {}
+    for stem in _AP_PARAM_STEMS:
+        for suffix in ("", "_upper", "_lower", "_error"):
+            key = f"{stem}{suffix}"
+            value = _optional_float(row, key)
+            if value is not None:
+                extras[key] = value
+    return extras
+
+
 def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> CandidateRecord:
     """Map one joined archive row to a ``CandidateRecord`` (data_acquisition-owned fields)."""
     mapping = _row_as_mapping(row)
@@ -445,6 +478,7 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         thiele_innes=_build_thiele_innes(mapping),
         nss_orbital=_build_nss_orbital(mapping),
         photometry=_build_photometry(mapping, dr),
+        extras=_build_atmosphere_extras(mapping),
     )
 
 
