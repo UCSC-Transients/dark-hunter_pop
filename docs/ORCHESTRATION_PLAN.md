@@ -82,7 +82,8 @@ actually use the cluster before it's gone.
 - **Phase 6**: #13 Validation/SBC completion, full diagnostic suite, all validation gates
   passing. Kickoff issues + paste prompts: `docs/PHASE6_KICKOFF.md` (umbrella #68; children
   #69–#71; Review/Integration #72).
-- **Phase 7**: #16 Main program wiring, #14 Documentation, final review.
+- **Phase 7**: #16 Main program wiring, #14 Documentation, final review. Kickoff issues + paste
+  prompts: `docs/PHASE7_KICKOFF.md` (umbrella #78; children #79–#80; Review/Integration #81).
 
 \#15 Review/Integration runs continuously from Phase 1 onward.
 
