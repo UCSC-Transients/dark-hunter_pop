@@ -230,6 +230,17 @@ def test_joint_orbit_fit_skip_reason() -> None:
     assert entry.detail == "rv_astrometry_gate_failed"
 
 
+def test_triples_default_skip_in_plan_stage() -> None:
+    """Off-by-default triples: plan_stage skips without an explicit skip_reason."""
+    from darkhunter_pop.run_management import TRIPLES_DISABLED_SKIP_REASON
+
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    entry = plan_stage(STAGE_REGISTRY["triples"], manifest, cfg)
+    assert entry.action is StageAction.SKIP_REASON
+    assert entry.detail == TRIPLES_DISABLED_SKIP_REASON
+
+
 def test_list_incomplete_sorted_by_run_id_not_mtime(tmp_path: Path) -> None:
     cfg = load_config()
     runs = tmp_path / "runs"

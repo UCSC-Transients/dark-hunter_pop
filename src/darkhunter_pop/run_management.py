@@ -135,13 +135,13 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "rv_astrometry_gate",
             "darkhunter_pop.rv_consistency",
             inputs_from=("mass_derivation_refined",),
-            config_keys=("classification",),
+            config_keys=("rv_consistency",),
         ),
         _spec(
             "joint_orbit_fit",
             "darkhunter_pop.rv_consistency",
             inputs_from=("rv_astrometry_gate",),
-            config_keys=("classification",),
+            config_keys=("rv_consistency",),
         ),
         _spec(
             "companion_nature_likelihood",
@@ -158,6 +158,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.triples.tess_variability",
                 "darkhunter_pop.triples.rotation_check",
             ),
+            config_keys=("triples",),
         ),
         _spec(
             "selection_function_astrometric",
@@ -232,12 +233,29 @@ class StageAction(str, Enum):
     SKIP_REASON = "skip_reason"
 
 
+# Canonical skip detail when ``config.triples.enabled`` is false (ARCHITECTURE.md §4).
+TRIPLES_DISABLED_SKIP_REASON = "triples.enabled=false"
+
+
 @dataclass(frozen=True)
 class StagePlanEntry:
     stage: str
     action: StageAction
     detail: str
     artifact_path: Path | None = None
+
+
+def stage_default_skip_reason(
+    spec: StageSpec, config: PipelineConfig
+) -> str | None:
+    """Config-driven skip reasons known to ``run_management`` (no science execution).
+
+    Currently: the ``triples`` stage is off by default. Callers may still pass an
+    explicit ``skip_reason`` to ``plan_stage`` (e.g. ``rv_astrometry_gate_failed``).
+    """
+    if spec.name == "triples" and not config.triples.enabled:
+        return TRIPLES_DISABLED_SKIP_REASON
+    return None
 
 
 def runs_dir() -> Path:
@@ -497,13 +515,22 @@ def plan_stage(
     force_rerun: bool = False,
     skip_reason: str | None = None,
 ) -> StagePlanEntry:
-    """Decide whether a stage should run, use cache, or skip for another reason."""
+    """Decide whether a stage should run, use cache, or skip for another reason.
+
+    When ``skip_reason`` is omitted, ``stage_default_skip_reason`` may still skip
+    (e.g. ``triples`` with ``enabled=false``). Explicit ``skip_reason`` wins.
+    """
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-    if skip_reason:
+    effective_skip = (
+        skip_reason
+        if skip_reason is not None
+        else stage_default_skip_reason(spec, config)
+    )
+    if effective_skip:
         return StagePlanEntry(
             stage=spec.name,
             action=StageAction.SKIP_REASON,
-            detail=skip_reason,
+            detail=effective_skip,
             artifact_path=artifact,
         )
     if force_rerun:

@@ -190,8 +190,10 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
 
 def test_checksum_includes_phase2_shared_sections() -> None:
     assert "mass_derivation" in SHARED_CHECKSUM_SECTIONS
+    assert "rv_consistency" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
     assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
+    assert "triples" in SHARED_CHECKSUM_SECTIONS
     assert "diagnostics" not in SHARED_CHECKSUM_SECTIONS
     cfg = load_config()
     base = config_checksum(cfg)
@@ -201,3 +203,11 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     layout_only = cfg.model_copy(deep=True)
     layout_only.diagnostics.figure_dpi = cfg.diagnostics.figure_dpi + 10
     assert config_checksum(layout_only) == base
+    rv_altered = cfg.model_copy(deep=True)
+    rv_altered.rv_consistency.chi2_dof_threshold = (
+        cfg.rv_consistency.chi2_dof_threshold + 1.0
+    )
+    assert config_checksum(rv_altered) != base
+    triples_flip = cfg.model_copy(deep=True)
+    triples_flip.triples.enabled = True
+    assert config_checksum(triples_flip) != base
