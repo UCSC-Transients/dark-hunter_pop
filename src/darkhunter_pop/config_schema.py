@@ -132,6 +132,33 @@ class MassDerivationConfig(BaseModel):
     require_sed_package: bool = False
 
 
+class RvConsistencyConfig(BaseModel):
+    """Choosables for ``rv_astrometry_gate`` and ``joint_orbit_fit`` (ARCHITECTURE.md §4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Whole-curve chi2/dof threshold; above → gate fail / outlier path.
+    chi2_dof_threshold: float = Field(5.0, gt=0)
+    # Minimum usable RV epochs per instrument for a γ+jitter nuisance fit.
+    min_epochs_per_instrument: int = Field(3, ge=2)
+    # Minimum total epochs across instruments to score the gate.
+    min_epochs_total: int = Field(3, ge=2)
+    # Upper bound when profiling homoscedastic jitter (km/s).
+    jitter_max_kms: float = Field(10.0, gt=0)
+    # Relative |ΔP|/P tolerance for SB2 vs astrometric period consistency.
+    sb2_period_frac_tol: float = Field(0.1, gt=0)
+    # Absolute |Δe| tolerance for SB2 vs astrometric eccentricity.
+    sb2_ecc_abs_tol: float = Field(0.15, gt=0, le=1)
+    # Which dark-hunter_rv Joker variant block seeds the joint fit when present.
+    joker_seed_variant: str = "full"
+    # Soft NSS prior scales (fractional on P; absolute on e / ω_rad / T_day) for joint fit.
+    joint_prior_period_frac: float = Field(0.05, gt=0)
+    joint_prior_ecc_abs: float = Field(0.05, gt=0)
+    joint_prior_omega_rad: float = Field(0.2, gt=0)
+    joint_prior_t_peri_day: float = Field(5.0, gt=0)
+    joint_fit_max_nfev: int = Field(200, ge=20)
+
+
 class PhysicsConfig(BaseModel):
     """Shared across DR3/DR4 — genuine population/physics choices."""
 
@@ -446,6 +473,7 @@ class PipelineConfig(BaseModel):
         default_factory=MassCalibrationConfig
     )
     mass_derivation: MassDerivationConfig = Field(default_factory=MassDerivationConfig)
+    rv_consistency: RvConsistencyConfig = Field(default_factory=RvConsistencyConfig)
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
@@ -505,6 +533,7 @@ SHARED_PHYSICS_SECTIONS: frozenset[str] = frozenset(
 SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "mass_calibration",
     "mass_derivation",
+    "rv_consistency",
     "classification",
     "physics",
     "gaiamock",
