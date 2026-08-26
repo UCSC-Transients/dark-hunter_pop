@@ -7,7 +7,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Required merge check: fast suites only (ARCHITECTURE.md §10).
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      gaiamock: ${{ steps.filter.outputs.gaiamock }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gaiamock:
+              - 'vendor/gaiamock/**'
+              - 'vendor/overlays/**'
+              - 'vendor/DATA_MANIFEST.md'
+              - 'scripts/install_gaiamock_mod.sh'
+              - 'src/darkhunter_pop/gaiamock_vendor.py'
+              - 'tests/test_gaiamock_vendor.py'
+              - '.github/workflows/tests.yml'
+
+  # Required merge check: unit + physics + api only (ARCHITECTURE.md §10). Target ≪ 20 min.
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -22,12 +43,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run required suites
-        # Prefer marked suites; also collect unmarked scaffold tests during Foundation rollout.
-        run: pytest -q -m "unit or physics or api or (not unit and not physics and not api and not gaiamock and not network and not slow)"
+        run: pytest -q -m "unit or physics or api"
 
-  # Optional: manual / nightly until path-filter wiring in F6.
+  # Optional: path-filter OR manual workflow_dispatch (needs Release assets + GSL).
   gaiamock:
-    if: github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.gaiamock == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +64,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgsl-dev gcc
           python -m pip install --upgrade pip
-          pip install -e ".[dev,gaiamock]"
+          pip install -e ".[dev,gaiamock,plot]"
       - name: Install gaiamock-mod overlay from Release
         env:
           DOWNLOAD_FROM_RELEASE: "1"
