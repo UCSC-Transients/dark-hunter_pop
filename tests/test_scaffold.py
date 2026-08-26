@@ -11,6 +11,7 @@ import pytest
 MODULES = [
     "darkhunter_pop",
     "darkhunter_pop.constants",
+    "darkhunter_pop.gaiamock_vendor",
     "darkhunter_pop.run_management",
     "darkhunter_pop.physics_utils",
     "darkhunter_pop.schemas",
@@ -30,6 +31,7 @@ MODULES = [
 ]
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("module_name", MODULES)
 def test_module_imports(module_name: str) -> None:
     assert importlib.import_module(module_name) is not None

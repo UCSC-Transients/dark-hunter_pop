@@ -61,7 +61,10 @@ dark-hunter_pop/
 │   ├── inference.py            # stage: inference
 │   ├── plotting.py             # shared rendering primitives
 │   └── diagnostics.py          # stage: diagnostics
-├── vendor/gaiamock/            # git submodule @ upstream main + modified-RUWE overlay (§1.1)
+├── vendor/
+│   ├── DATA_MANIFEST.md        # SHA256s for Release gaiamock-mod-v1 assets
+│   ├── overlays/gaiamock_mod.py  # tracked mod source; install copies into submodule
+│   └── gaiamock/               # git submodule @ upstream main + installed overlay (§1.1)
 ├── tests/
 ├── scripts/                    # entry point, install_gaiamock_mod, purge_run
 ├── notebooks/
@@ -81,18 +84,20 @@ Science paths import **`gaiamock_mod` only** (as `import gaiamock_mod as gaiamoc
 
 Install (scripted by `scripts/install_gaiamock_mod.sh`):
 
-1. Submodule `vendor/gaiamock` pinned to upstream `main` (`kareemelbadry/gaiamock`, MIT).
-2. Overlay from the modified-RUWE pack (upstream README Box link; mirrored on an immutable
-   GitHub Release tag, e.g. `gaiamock-mod-v1` — **do not** host the default ~984 MB
-   `healpix_scans.zip`):
-   - `gaiamock_mod.py` — tracked in this repo and mirrored on the Release
-   - `healpix_16_med_ruwe.npz` — Release asset
-   - `individual_ccds.zip` contents → `vendor/gaiamock/healpix_scans/` — Release asset
-3. Compile `kepler_solve_astrometry.so` inside `vendor/gaiamock/`.
+1. Submodule `vendor/gaiamock` pinned to a commit on upstream `main` (`kareemelbadry/gaiamock`,
+   MIT) via `git submodule update --init`.
+2. Overlay from the modified-RUWE pack (upstream README Box link; mirrored on immutable GitHub
+   Release `gaiamock-mod-v1` — **do not** host the default ~984 MB `healpix_scans.zip`):
+   - `gaiamock_mod.py` — tracked at `vendor/overlays/gaiamock_mod.py`, copied into the submodule
+     working tree; mirrored on the Release
+   - `healpix_16_med_ruwe.npz` — Release / `mod_files/` → `vendor/gaiamock/`
+   - `individual_ccds.zip` contents → `vendor/gaiamock/healpix_scans/`
+3. Compile `kepler_solve_astrometry.so` inside `vendor/gaiamock/` (requires GSL + gcc).
 
-Version triple recorded in config and every run/stage record: `gaiamock_mod_release`,
-`gaiamock_mod_sha256`, `gaiamock_git_commit`. Mismatch at a gaiamock-using stage start → refuse
-(same class as config mismatch). Checksums live in `vendor/gaiamock/DATA_MANIFEST.md`.
+Version triple recorded in config and every run/stage record (`darkhunter_pop.gaiamock_vendor`):
+`gaiamock_mod_release`, `gaiamock_mod_sha256`, `gaiamock_git_commit`. Mismatch at a
+gaiamock-using stage start → refuse (same class as config mismatch). Checksums live in
+`vendor/DATA_MANIFEST.md`. Import science paths via `import_gaiamock_mod()` only.
 
 Local staging drop: `mod_files/` (gitignored). Default 49 152-file healpix set is never hosted
 or required for v1.

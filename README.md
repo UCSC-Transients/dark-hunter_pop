@@ -24,7 +24,9 @@ Foundation task list.
 config/                 merged config.yaml + tracked fragments/
 runs/                   per-run YAML manifests (tracked)
 src/darkhunter_pop/     package (constants.py + one file per stage)
-vendor/gaiamock/        submodule + modified-RUWE overlay (see DATA_MANIFEST.md)
+vendor/gaiamock/        submodule; overlay installed from Release / mod_files/
+vendor/overlays/        tracked gaiamock_mod.py source
+vendor/DATA_MANIFEST.md SHA256s for gaiamock-mod-v1 assets
 output/                 stage HDF5 artifacts (gitignored)
 data/                   raw snapshots / sheet dumps (gitignored)
 tests/ scripts/ notebooks/ docs/
@@ -36,10 +38,11 @@ tests/ scripts/ notebooks/ docs/
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,plot,inference]"
-# After Foundation pins the submodule and the gaiamock-mod-v1 Release exists:
+git submodule update --init
+# Overlay + compile (GSL + gcc; uses mod_files/ if present, else Release):
 #   scripts/install_gaiamock_mod.sh
-# Or from local staging: place files under mod_files/ then run the same script.
 pytest -m "unit or physics or api"
+# Optional: pytest -m gaiamock
 ```
 
 Required CI check runs `unit` + `physics` + `api` only (≪ 20 min). Optional `gaiamock` /

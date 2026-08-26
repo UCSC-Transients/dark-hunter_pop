@@ -11,6 +11,13 @@
 # DR3- and DR4-specific keys are configured independently even where the values coincide;
 # genuine physics/population parameters are shared (ARCHITECTURE.md §6). Default active mode: dr3.
 #
-# Reserved keys (filled by Foundation): paths.artifact_root, active_dr_mode, gaiamock_mod_release,
-# gaiamock_mod_sha256, gaiamock_git_commit, mass_calibration.method, mass_calibration.sigma_logM,
-# mass_calibration.santos_correction, etc.
+# Reserved keys (filled by Foundation): paths.artifact_root, active_dr_mode,
+# mass_calibration.method, mass_calibration.sigma_logM, mass_calibration.santos_correction, etc.
+
+paths:
+  artifact_root: output
+
+active_dr_mode: dr3
+
+gaiamock:
+  mod_release: gaiamock-mod-v1

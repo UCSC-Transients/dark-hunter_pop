@@ -22,6 +22,7 @@ dependencies = [
 dev = ["pytest>=8.0"]
 plot = ["matplotlib>=3.8"]
 inference = ["dynesty>=2.1"]
+gaiamock = ["healpy>=1.16", "joblib>=1.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -30,3 +31,11 @@ include = ["darkhunter_pop*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "unit: fast unit tests (required CI)",
+  "physics: analytic physics tests (required CI)",
+  "api: cross-module I/O contract tests (required CI)",
+  "gaiamock: requires vendored gaiamock_mod overlay + compiled .so",
+  "network: requires external network services",
+  "slow: long-running / performance tests",
+]
