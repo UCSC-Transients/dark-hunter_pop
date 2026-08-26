@@ -38,7 +38,8 @@ Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 
 - Required: `source_id`
 - Optional blocks: NSS / Thiele–Innes / `rv_summary` (dict; #5 conforms) / photometry / TESS /
-  `m1`/`m2` ParameterSets / `orbit_tier` / `fit_tier` / `companion_nature_weights` / `extras`
+  `m1`/`m2` ParameterSets / `orbit_tier` / `fit_tier` / `companion_nature_weights`
+  (`COMPANION_NATURE_WEIGHT_KEYS` = `BH`/`NS`/`WD`/`other`/`outlier`; #56 ↔ #57) / `extras`
 
 ### Enums
 
@@ -68,6 +69,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
 | `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps |
 | `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
+| `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
 | `physics.*` | cooling tracks/atmosphere/path, IMF, `mc_noise_threshold` |
 | `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
@@ -80,9 +82,9 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
-`classification`, `physics`, `gaiamock`, `paths`, `selection_function_astrometric`,
-`selection_function_followup`, `sensitivity_analysis`, `population_model`, `triples`
-(`config_loader.config_checksum`).
+`companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
+`selection_function_astrometric`, `selection_function_followup`, `sensitivity_analysis`,
+`population_model`, `triples` (`config_loader.config_checksum`).
 `diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
 the checksum.
 
@@ -148,6 +150,6 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
   (Phase 2 config checkpoint: #40 / PR #46).
 - Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
   #49 / PR #53 (`triples` stub). Continuous Review/Integration: #50.
-- Next: Phase 4 per `ORCHESTRATION_PLAN.md` §5 — roster #7
-  `companion_nature_likelihood`, #9 `population_model` (optional Review config
-  checkpoint for Phase 3 fragments still open under #50).
+- Phase 4 in progress per `ORCHESTRATION_PLAN.md` §5 — roster #7
+  `companion_nature_likelihood` (#56; five-key weights), #9 `population_model`
+  (#57, landed). Review/Integration: #58.

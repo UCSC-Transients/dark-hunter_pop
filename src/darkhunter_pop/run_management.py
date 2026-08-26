@@ -147,7 +147,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "companion_nature_likelihood",
             "darkhunter_pop.companion_nature",
             inputs_from=("joint_orbit_fit", "mass_derivation_refined"),
-            config_keys=("physics.cooling_tracks", "physics.cooling_atmosphere"),
+            config_keys=(
+                "companion_nature",
+                "physics.cooling_tracks",
+                "physics.cooling_atmosphere",
+                "physics.cooling_tracks_path",
+            ),
         ),
         _spec(
             "triples",

@@ -191,6 +191,7 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
 def test_checksum_includes_phase2_shared_sections() -> None:
     assert "mass_derivation" in SHARED_CHECKSUM_SECTIONS
     assert "rv_consistency" in SHARED_CHECKSUM_SECTIONS
+    assert "companion_nature" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
     assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
     assert "population_model" in SHARED_CHECKSUM_SECTIONS
@@ -209,6 +210,11 @@ def test_checksum_includes_phase2_shared_sections() -> None:
         cfg.rv_consistency.chi2_dof_threshold + 1.0
     )
     assert config_checksum(rv_altered) != base
+    cn_altered = cfg.model_copy(deep=True)
+    cn_altered.companion_nature.delta_bic_threshold = (
+        cfg.companion_nature.delta_bic_threshold + 1.0
+    )
+    assert config_checksum(cn_altered) != base
     triples_flip = cfg.model_copy(deep=True)
     triples_flip.triples.enabled = True
     assert config_checksum(triples_flip) != base
