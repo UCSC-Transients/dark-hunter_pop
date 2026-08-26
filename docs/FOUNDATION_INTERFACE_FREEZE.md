@@ -1,11 +1,10 @@
 # Foundation interface freeze
 
-Status: **frozen for Phase 1** once PR landing this document is merged (issue #15).
-Parent umbrella: #2.
+Status: **frozen** (landed with issue #15 / PR #27). Parent umbrella: #2.
 
-Phase 1 subagents (`data_acquisition`, `selection_function_astrometric`,
-`dark-hunter_rv`/`_sed` extensions) must build against these interfaces. Breaking changes
-require a docs PR first and an explicit ask.
+Phase 1+ subagents build against these interfaces. Breaking changes require a docs PR
+first and an explicit ask. Phase 2 (#35 / #36–#39) extended config sections and the
+resume checksum payload; this document tracks the post–Phase-2 contract.
 
 Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 `docs/GAIAMOCK_API.md`.
@@ -55,9 +54,11 @@ Live YAML under `runs/{run_id}.yaml`. Minimum fields as in ARCHITECTURE.md §5.
 
 ---
 
-## 3. Config keys Phase 1 may rely on
+## 3. Config keys stages may rely on
 
 Root: `PipelineConfig` (`config/config.yaml` + `config/fragments/*.yaml`).
+Review/Integration materializes fragments into `config/config.yaml` at checkpoints;
+`load_config` still deep-merges fragments first (canonical file wins on conflicts).
 
 | Section | Notes |
 |---|---|
@@ -65,13 +66,20 @@ Root: `PipelineConfig` (`config/config.yaml` + `config/fragments/*.yaml`).
 | `active_dr_mode` | Default `dr3`; `require_dr3_active_for_v1()` |
 | `gaiamock.mod_release` (+ optional sha/commit pins) | Version triple with installed overlay |
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
+| `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
 | `physics.*` | cooling tracks/atmosphere/path, IMF, `mc_noise_threshold` |
+| `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
+| `selection_function_followup.*` | shared follow-up SF; accel/jerk catalog pins under `dr3`/`dr4` |
+| `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
+| `diagnostics.*` | figure/report layout + hook enable flags (not science thresholds) |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
-Checksum for resume/amend: **active DR subtree +** `mass_calibration`, `classification`,
-`physics`, `gaiamock`, `paths` (`config_loader.config_checksum`). Inactive DR changes do not
-affect the checksum.
+Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
+**active DR subtree +** `mass_calibration`, `mass_derivation`, `classification`, `physics`,
+`gaiamock`, `paths`, `selection_function_astrometric`, `selection_function_followup`,
+`sensitivity_analysis` (`config_loader.config_checksum`). `diagnostics` is intentionally
+excluded (layout-only). Inactive DR changes do not affect the checksum.
 
 Constants precedence: `effective_M_Ch_msun(config) = constants.M_CH + delta_M_Ch_msun`.
 
@@ -125,12 +133,9 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 
 ---
 
-## 7. Open Phase 1 kickoff (orchestrator next)
+## 7. Phase status (orchestrator)
 
-After this freeze merges and #2 closes, orchestrator produces kickoff tickets for:
-
-1. `#1 data_acquisition`
-2. `#2 selection_function_astrometric`
-3. `#5 dark-hunter_rv` / `dark-hunter_sed` extensions
-
-Each in its own Agents Window session / git worktree per `ORCHESTRATION_PLAN.md` §1 and §4.
+- Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`.
+- Continuous Review/Integration: #40.
+- Next: Phase 3 per `ORCHESTRATION_PLAN.md` §5 — roster #6 `rv_astrometry_gate` +
+  `joint_orbit_fit`, #8 `triples` stub (Agents Window / worktree per §1 and §4).
