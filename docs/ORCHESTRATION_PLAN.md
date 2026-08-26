@@ -73,7 +73,8 @@ actually use the cluster before it's gone.
 - **Phase 3** (parallel): #6 `rv_astrometry_gate` + `joint_orbit_fit`, #8 `triples` stub.
   Kickoff issues + paste prompts: `docs/PHASE3_KICKOFF.md` (umbrella #47; children #48–#49;
   Review/Integration #50).
-- **Phase 4**: #7 `companion_nature_likelihood`, #9 `population_model`.
+- **Phase 4**: #7 `companion_nature_likelihood`, #9 `population_model`. Kickoff issues + paste
+  prompts: `docs/PHASE4_KICKOFF.md` (umbrella #55; children #56–#57; Review/Integration #58).
 - **Phase 5 (priority — get a minimal path here before the December cutoff)**: #11 `inference`,
   even against a placeholder population model at first, to validate the end-to-end
   Poisson-likelihood + dynesty machinery on the actual compute target early.
