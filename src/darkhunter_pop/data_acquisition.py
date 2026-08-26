@@ -222,16 +222,23 @@ def _split_join_eq(spec: str) -> tuple[str, str]:
 
 
 def build_nss_adql(dr: DRPathConfig) -> str:
-    """Build the literal ADQL for the NSS catalog + photometry cross-matches."""
+    """Build the literal ADQL for the NSS catalog + photometry cross-matches.
+
+    Astrometry (ra/dec/parallax/pm) is ``COALESCE(nss.*, gs.*)``: Orbital* rows
+    keep NSS solution values when filled; SB1 / EclipsingBinary / etc. fall back to
+    ``gaia_source`` because those solution types leave NSS astrometry null by design.
+    Thiele-Innes (A/B/F/G) stay NSS-only and are null for non-astrometric solutions.
+    """
     select_parts = [
         "nss.source_id",
         "nss.nss_solution_type",
-        "nss.ra",
-        "nss.dec",
-        "nss.parallax",
-        "nss.parallax_error",
-        "nss.pmra",
-        "nss.pmdec",
+        # NSS columns are sparsely filled by solution type; fall back to gaia_source.
+        "COALESCE(nss.ra, gs.ra) AS ra",
+        "COALESCE(nss.dec, gs.dec) AS dec",
+        "COALESCE(nss.parallax, gs.parallax) AS parallax",
+        "COALESCE(nss.parallax_error, gs.parallax_error) AS parallax_error",
+        "COALESCE(nss.pmra, gs.pmra) AS pmra",
+        "COALESCE(nss.pmdec, gs.pmdec) AS pmdec",
         "nss.period",
         "nss.period_error",
         "nss.eccentricity",

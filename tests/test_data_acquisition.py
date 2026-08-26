@@ -132,6 +132,7 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "gaiadr1.tmass_original_valid" in adql
     assert "panstarrs1_best_neighbour" in adql
     assert "a_thiele_innes AS A" in adql
+    assert "COALESCE(nss.ra, gs.ra) AS ra" in adql
     assert "nss.A," not in adql.replace("\n", "")
     assert "phot_g_mean_mag_error" not in adql
     assert "LEFT JOIN" in adql
