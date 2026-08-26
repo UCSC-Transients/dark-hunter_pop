@@ -482,8 +482,13 @@ def run_mock_injections(
     l_deg, b_deg = gaiamock.xyz_to_galactic(x=_x, y=_y, z=_z)
 
     if do_dust:
-        import mwdust
-
+        try:
+            import mwdust
+        except ImportError as exc:
+            raise ImportError(
+                "extinction_model=combined19 requires the mwdust package; "
+                "pip install -e '.[gaiamock]' or set extinction_model=none"
+            ) from exc
         combined19_ebv = mwdust.Combined19()
         ebv = combined19_ebv(l_deg, b_deg, d_pc / 1000.0)
         a_g = 2.80 * ebv
