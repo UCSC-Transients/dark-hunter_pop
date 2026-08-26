@@ -7,7 +7,7 @@ __pycache__/
 build/
 dist/
 
-# Pipeline outputs (run files under runs/ ARE tracked - they are the provenance record)
+# Pipeline outputs (run files under runs/ ARE tracked — they are the provenance record)
 output/
 samples/
 plots/
@@ -15,12 +15,15 @@ plots/
 *.npy
 !tests/fixtures/*
 
-# Large external data
+# Large external / local staging data (never commit)
 data/
+mod_files/
 models/
 scanning_law/
+*.npz
+!tests/fixtures/**
 
-# Env
+# Env / secrets
 .venv/
 venv/
 .env

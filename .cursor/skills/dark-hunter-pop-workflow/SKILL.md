@@ -18,11 +18,15 @@ large, reproducibility-critical, statistics-heavy forward-modeling pipeline.
 
 ## 1. No hardcoded values, ever
 
-Every physical constant, classification threshold, statistical criterion, or file path lives in
-`constants/` or `config.yaml` — never inline. This explicitly includes: the ΔBIC threshold for the
-companion-nature likelihood, the chi2/dof threshold for the RV/astrometry outlier gate, the
-mock-injection Poisson-noise threshold (default 0.1), and the goodness-of-fit quality cut, which
-must support an arbitrary, configurable number of (magnitude, threshold) bins — never hardcode two.
+Every true physical constant lives in `src/darkhunter_pop/constants.py` (prefer
+`astropy.constants`; add named extras only when not choosable). Every threshold, statistical
+criterion, method switch, prior, or file path lives in `config.yaml` — never inline. This
+explicitly includes: the ΔBIC threshold for the companion-nature likelihood, the chi2/dof
+threshold for the RV/astrometry outlier gate, the mock-injection Poisson-noise threshold
+(default 0.1), `M_MIN`, `M_TOV` prior, TAG10 method / `sigma_logM` / Santos on-off, and the
+goodness-of-fit quality cut, which must support an arbitrary, configurable number of
+(magnitude, threshold) bins — never hardcode two. `M_Ch` is a constant (optional `Delta_M_Ch` in
+config).
 
 ## 2. Every stage is named, cached, and reported — never a bare "stage1"
 
@@ -62,9 +66,9 @@ robustness protocol (§7), not by reproducing identical output from identical se
 
 ## 5. Config: fragments during development, one file at delivery
 
-Draft config additions in your subagent's own domain fragment against the frozen schema. The
-review/integration subagent merges fragments into the single canonical `config.yaml` at each
-integration checkpoint — the delivered repo always has exactly one config file.
+Draft config additions in `config/fragments/<domain>.yaml` (tracked) against the frozen schema.
+The review/integration subagent merges fragments into the single canonical `config.yaml` at each
+integration checkpoint — the delivered repo always has exactly one merged config file.
 
 ## 6. DR3/DR4: independent by default, shared only when it's genuinely physics
 

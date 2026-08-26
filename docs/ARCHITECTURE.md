@@ -1,6 +1,7 @@
 # dark-hunter_pop — Architecture & Pipeline Specification
 
-Status: DRAFT for review. Nothing in this repo is implemented until this document is approved.
+Status: Decisions locked (2026-08-25). Scaffold exists; Foundation implementation waits on
+approval of the Foundation task list against this document.
 
 ## 0. Purpose and non-goals
 
@@ -32,53 +33,87 @@ Repo: `UCSC-Transients/dark-hunter_pop`. Local base directory:
 
 ```
 dark-hunter_pop/
-├── config/                     # modular fragments during dev -> merged into ONE config.yaml
-│   └── config.yaml
-├── constants/                  # physical constants + classification-threshold defaults
-├── runs/                       # per-run YAML run files (see §5)
+├── config/
+│   ├── config.yaml             # single merged canonical config
+│   └── fragments/              # tracked per-domain drafts; merged into config.yaml at checkpoints
+├── runs/                       # per-run YAML run files (see §5); tracked in git
+├── data/                       # gitignored raw data (Gaia snapshots, sheet dumps, cooling tracks)
+│   ├── dr3/gaia_snapshots/
+│   ├── dr4/gaia_snapshots/     # reserved; DR4 not runnable yet
+│   └── target_lists/
+│       └── snapshots/          # weekly sheet dumps (gitignored); derived dates tracked elsewhere
+├── output/                     # gitignored stage HDF5 artifacts (paths.artifact_root)
 ├── src/darkhunter_pop/
+│   ├── constants.py            # true physical constants only (astropy.constants + extras)
 │   ├── run_management.py       # stage registry, caching/skip logic, run-file I/O (foundation)
-│   ├── physics_utils.py        # unit handling, point-process primitives — NOT a Kepler solver,
-│   │                           #   that's imported from vendor/gaiamock, never reimplemented
-│   ├── schemas.py               # pydantic interface contracts (ParameterSet, CandidateRecord, ...)
+│   ├── physics_utils.py        # unit handling, point-process primitives — NOT a Kepler solver
+│   ├── schemas.py              # pydantic interface contracts (ParameterSet, CandidateRecord, ...)
 │   ├── data_acquisition.py     # stage: data_acquisition
 │   ├── mass_derivation.py      # stages: mass_derivation_bulk, mass_derivation_refined
-│   ├── rv_consistency.py       # stage: rv_astrometry_gate (+ joint orbit fit)
+│   ├── rv_consistency.py       # stages: rv_astrometry_gate, joint_orbit_fit
 │   ├── companion_nature.py     # stage: companion_nature_likelihood
-│   ├── triples/                # stage: triples (off by default) — the one module large enough
-│   │   ├── tess_variability.py #   to warrant its own directory
+│   ├── triples/                # stage: triples (off by default)
+│   │   ├── tess_variability.py
 │   │   └── rotation_check.py
 │   ├── forward_model.py        # stages: selection_function_astrometric, selection_function_followup
 │   ├── population_model.py     # stage: population_model
 │   ├── sensitivity_analysis.py # stage: sensitivity_analysis
 │   ├── inference.py            # stage: inference
-│   ├── plotting.py             # shared rendering primitives — used by diagnostics AND product figures
+│   ├── plotting.py             # shared rendering primitives
 │   └── diagnostics.py          # stage: diagnostics
-├── vendor/gaiamock/            # pinned commit, git submodule
+├── vendor/gaiamock/            # git submodule @ upstream main + modified-RUWE overlay (§1.1)
 ├── tests/
-├── scripts/                    # entry point; main program calling stages in order via run_management
-├── notebooks/                  # gaiamock/El-Badry reproduction notebooks
+├── scripts/                    # entry point, install_gaiamock_mod, purge_run
+├── notebooks/
 └── docs/
 ```
 
-Most modules are one file, living directly in `src/darkhunter_pop/`. `triples/` is the one
-exception, since it already has two genuinely distinct files even in stub form. Promote any other
-module to a subdirectory only once it's genuinely outgrown a single file.
+Most modules are one file under `src/darkhunter_pop/`. `triples/` is the one exception.
+Promote any other module to a subdirectory only once it has outgrown a single file.
 
-**Foundation-phase task**: before `physics_utils.py` is scoped, audit `gaiamock`'s public API for
-what it already provides (confirmed: Kepler solver, RUWE prediction, the 5/7/9/12-parameter
-solution-type cascade) so nothing here reimplements it.
+The `src/` layout deliberately differs from `dark-hunter_rv` / `dark-hunter_sed` (flat packages);
+sibling repos may align later. This document is authoritative for `dark-hunter_pop`.
+
+### 1.1 Vendored `gaiamock` (modified-RUWE only)
+
+Science paths import **`gaiamock_mod` only** (as `import gaiamock_mod as gaiamock`). Stock
+`gaiamock` must not be used for RUWE / selection-function work.
+
+Install (scripted by `scripts/install_gaiamock_mod.sh`):
+
+1. Submodule `vendor/gaiamock` pinned to upstream `main` (`kareemelbadry/gaiamock`, MIT).
+2. Overlay from the modified-RUWE pack (upstream README Box link; mirrored on an immutable
+   GitHub Release tag, e.g. `gaiamock-mod-v1` — **do not** host the default ~984 MB
+   `healpix_scans.zip`):
+   - `gaiamock_mod.py` — tracked in this repo and mirrored on the Release
+   - `healpix_16_med_ruwe.npz` — Release asset
+   - `individual_ccds.zip` contents → `vendor/gaiamock/healpix_scans/` — Release asset
+3. Compile `kepler_solve_astrometry.so` inside `vendor/gaiamock/`.
+
+Version triple recorded in config and every run/stage record: `gaiamock_mod_release`,
+`gaiamock_mod_sha256`, `gaiamock_git_commit`. Mismatch at a gaiamock-using stage start → refuse
+(same class as config mismatch). Checksums live in `vendor/gaiamock/DATA_MANIFEST.md`.
+
+Local staging drop: `mod_files/` (gitignored). Default 49 152-file healpix set is never hosted
+or required for v1.
+
+**Foundation-phase task**: audit `gaiamock_mod`'s public API before scoping `physics_utils.py`
+(Kepler solver, RUWE prediction, 5/7/9/12-parameter cascade, epoch-astrometry fitter) so nothing
+here reimplements it. Write `docs/GAIAMOCK_API.md`.
 
 ## 2. Foundation layer — built first, gates all parallel work
 
-1. **`constants/`** — physical constants, classification-threshold defaults (`M_TOV`, `M_CH`,
-   `M_MIN`), all overridable from `config.yaml`. No physics constant or threshold hardcoded
-   anywhere else.
+1. **`constants.py`** — true physical constants only, via `astropy.constants` where available
+   (c, G, …) plus named extras that are not choosable (e.g. `M_Ch`; optional `Delta_M_Ch` lives
+   in config). **Not** variables, thresholds, or method choices — those are config (including
+   `M_MIN`, `M_TOV` prior, SN-kick velocity, TAG10 method flag, `sigma_logM`, Santos on/off,
+   cooling-track choice). No physics constant hardcoded anywhere else.
 2. **`physics_utils.py`** — unit conversions and Poisson point-process primitives only.
 3. **`schemas.py`** (§3).
 4. **`run_management.py`** (§5) — the stage-execution framework every subagent's stage code must
    conform to.
-5. **Config schema** — one pydantic-validated section per domain, assembled into `config.yaml`.
+5. **Config schema** — one pydantic-validated section per domain, assembled into `config.yaml`;
+   fragments under `config/fragments/` are tracked and merged at review checkpoints.
 
 No subagent starts stage-implementation work until this layer's interfaces are frozen and
 reviewed.
@@ -87,15 +122,18 @@ reviewed.
 
 - **`ParameterSet`** — the standard output type for essentially every fit stage (MSC/gspphot
   Teff-logg-[Fe/H], the TAG10 mass+radius derivation, the RV/orbit fit, the final M1+M2
-  derivation, uberMS's multi-parameter output): a named vector of quantities plus either a
-  covariance matrix or joint posterior samples. Most quantities here are jointly fit and
-  correlated by construction, so joint storage is the default, not an opt-in. A plain
-  single-value-with-uncertainty accessor is available as a marginal view. A bare scalar type is
-  reserved only for genuinely standalone external inputs never jointly fit with anything else
-  tracked here.
+  derivation, uberMS's multi-parameter output): a named vector of quantities plus a **covariance
+  matrix** (v1). Joint posterior samples are a documented alternate on-disk format (HDF5) for a
+  future switch — stubbed in the schema / docs only in v1, not implemented. Most quantities here
+  are jointly fit and correlated by construction, so joint storage is the default, not an opt-in.
+  A plain single-value-with-uncertainty accessor is available as a marginal view. A bare scalar
+  type is reserved only for genuinely standalone external inputs never jointly fit with anything
+  else tracked here.
   Every `ParameterSet` carries a **provenance tag** (which method/tier produced it — TAG10 vs.
   gspphot-fallback vs. uberMS; `astrometry_only` vs. `joint_astrometry_rv` orbit tier) as metadata
   only — provenance does not by itself justify inflating the reported uncertainty.
+  Stage outputs are stored as **one HDF5 file per stage** under `paths.artifact_root` (`output/`
+  by default).
 - **`CandidateRecord`** — one row per Gaia source: identifiers, NSS solution type, Thiele-Innes
   elements where available; the full field set from the RV pipeline's per-star summary output
   (Gaia metadata block, NSS orbital parameters, external literature RV rows, internal pipeline RV
@@ -130,7 +168,11 @@ reviewed.
 - Primary mass from **MSC** (`teff_msc1`, `logg_msc1`, `mh_msc`) when available, **gspphot** as
   fallback (single-star-assuming; treated as a reasonable estimate for genuine candidates without
   added error inflation — see §3), transformed via the **Torres, Andersen & Giménez (2010,
-  "TAG10")** calibration (replaces `mtgr` and Eker et al. entirely):
+  "TAG10")** calibration by default (replaces `mtgr` and Eker et al. entirely). The mass-calibration
+  **method is a config choice** (`TAG10` in v1; other names may be reserved to raise
+  "not implemented"). TAG10 Table 1 coefficients are named constants in `constants.py`; the
+  published intrinsic scatter `sigma_logM` (0.027 dex) and the Santos correction on/off flag are
+  **config** (Santos applied by default):
 
   ```
   log M = a1 + a2*X + a3*X^2 + a4*X^3 + a5*(log g)^2 + a6*(log g)^3 + a7*[Fe/H]
@@ -140,12 +182,11 @@ reviewed.
   constants, never inline). `log R` from this fit is the bulk-tier radius estimate everywhere
   radius is needed, until superseded by uberMS.
   Uncertainty: exact analytic partial derivatives of the polynomial, combined in quadrature with
-  the intrinsic scatter σ_logM = 0.027 dex.
-  **The Santos et al. (2013) correction is applied by default**:
-  `M_corrected = 0.791·M_TAG10² − 0.575·M_TAG10 + 0.701`, correcting the known TAG10-vs-isochrone
-  offset.
+  the config `sigma_logM`.
+  **Santos et al. (2013) correction** (coefficients named constants; enable via config, default
+  on): `M_corrected = 0.791·M_TAG10² − 0.575·M_TAG10 + 0.701`.
 - Cut: retain `M2 + n_sigma * sigma_M2 >= M_min` (`n_sigma=2`, `M_min=1.1 M_sun` as config
-  defaults).
+  defaults — choosable, not constants).
 - **Diagnostics:** before/after counts, M2 distribution pre/post cut.
 
 ### `mass_derivation_refined` (dark-hunter_sed integration)
@@ -158,35 +199,41 @@ reviewed.
 - `dark-hunter_sed` extended for WISE and DECam-u photometry (new PRs against that repo).
 - Watch-list diagnostic: uberMS's M1 prior is capped at 3 M☉ — flag any candidate approaching it.
 
-### `rv_astrometry_gate` (+ joint orbit fit)
+### `rv_astrometry_gate`
 
 `dark-hunter_rv` now has **The Joker** installed and integrated (RV fitting is no longer built
 from scratch here — this stage consumes it). RV and astrometry are fit **separately**; The Joker
 is not itself an MCMC but a rejection/importance sampler for the period problem, whose output can
 seed further refinement. `dark-hunter_rv` is being extended for JSON summary output (replacing the
-sectioned `summary.txt`) and WISE/DECam ingestion support as needed.
+sectioned `summary.txt`) and WISE/DECam ingestion support as needed. Phase 1 / #5 conforms to the
+Phase 0 `CandidateRecord` schema where possible; real breaks require asking before changing the
+frozen contract.
 
-Two-tier structure:
-- **Tier A (gate, cheap)**: orbital elements (P, e, T_periastron, K, ω) held fixed at the
-  astrometric solution's values; only systemic velocity γ and jitter are free, **fit
-  independently per RV instrument/source**. Test statistic: chi2/dof against the predicted RV
-  curve, vs. a config-driven threshold.
-  - **SB2 handling**: if SB2 with an orbit consistent with the astrometric one, this is not a
-    companion-type verdict by itself — it feeds the `companion_nature_likelihood` stage (spectral
-    lines can look WD-like or ordinary-stellar) and additionally unlocks a **direct mass-ratio
-    measurement that doesn't require an isochrone-based M1** — a third mass-determination channel
-    alongside "astrometry + isochrone M1" and "astrometry + RV joint fit for dark companions." If
-    the SB2 orbit is inconsistent with the astrometric one, the system routes to the outlier class,
-    same as a failed gate.
-  - Documented v1 limitation: only whole-curve chi2/dof is implemented; per-RV-point outlier
-    removal, and a more general robust/bad-data treatment (RV, photometry, and eventually
-    astrometric epochs), are noted as future work. Astrometric epoch-level outliers require
-    individual epoch measurements and are DR4-only (§6).
-- **Tier B (joint fit, gate-passers only)**: orbital elements free, full simultaneous
-  astrometry+RV fit (Joker-seeded), refined M1/M2 supersedes the astrometry-only value.
-  `OrbitTier` records `astrometry_only` vs. `joint_astrometry_rv`. A system that fails the gate
-  gets no joint fit attempted — it keeps its astrometry-only parameters and is scored by the
-  population model's outlier class, not silently excluded.
+- Orbital elements (P, e, T_periastron, K, ω) held fixed at the astrometric solution's values;
+  only systemic velocity γ and jitter are free, **fit independently per RV instrument/source**.
+  Test statistic: chi2/dof against the predicted RV curve, vs. a config-driven threshold.
+- **SB2 handling**: if SB2 with an orbit consistent with the astrometric one, this is not a
+  companion-type verdict by itself — it feeds the `companion_nature_likelihood` stage (spectral
+  lines can look WD-like or ordinary-stellar) and additionally unlocks a **direct mass-ratio
+  measurement that doesn't require an isochrone-based M1** — a third mass-determination channel
+  alongside "astrometry + isochrone M1" and "astrometry + RV joint fit for dark companions." If
+  the SB2 orbit is inconsistent with the astrometric one, the system routes to the outlier class,
+  same as a failed gate.
+- Documented v1 limitation: only whole-curve chi2/dof is implemented; per-RV-point outlier
+  removal, and a more general robust/bad-data treatment (RV, photometry, and eventually
+  astrometric epochs), are noted as future work. Astrometric epoch-level outliers require
+  individual epoch measurements and are DR4-only (§6).
+
+### `joint_orbit_fit`
+
+Separate registered stage (same module `rv_consistency.py`), immediately after
+`rv_astrometry_gate` in the default order.
+
+- Gate passers only: orbital elements free, full simultaneous astrometry+RV fit (Joker-seeded);
+  refined M1/M2 supersedes the astrometry-only value. `OrbitTier` records `joint_astrometry_rv`.
+- Gate failures: stage status `skipped` with `reason: rv_astrometry_gate_failed`. System keeps
+  `astrometry_only` parameters and is scored by the population model's outlier class later — not
+  silently excluded.
 
 ### `companion_nature_likelihood`
 
@@ -198,8 +245,9 @@ SED, via ΔBIC, config-driven threshold), Gaia XP spectral residual, and SB2 spe
 characteristics when present.
 - **Joint** multi-band model (not independent per-band multiplication), correctly accounting for
   which evidence channels are actually available per system.
-- Against Bédard et al. cooling tracks (default, config-swappable), 100% H (DA) atmosphere with He
-  as a config option.
+- Against Bédard et al. cooling tracks (default, config-swappable; tracks are **local files** under
+  a config path, staged like other large data — not fetched at runtime in v1), 100% H (DA)
+  atmosphere with He as a config option.
 - Continuous, not step-function: a 5σ-expected non-detection still carries small non-zero
   probability of a real companion; a 2σ non-detection is still informative.
 - Two-tier: fast approximate joint fit for the bulk pass, full joint fit queued for
@@ -350,39 +398,72 @@ convergence diagnostic.
 ## 5. Run management
 
 Every stage above is registered under its canonical name (the names used in §4's headers —
-`data_acquisition`, `mass_derivation_bulk`, etc. — are the actual identifiers used in code and
-config, never a bare `stage1`/`stage2`).
+`data_acquisition`, `mass_derivation_bulk`, `joint_orbit_fit`, etc. — are the actual identifiers
+used in code and config, never a bare `stage1`/`stage2`). Registry keys are stage names; a stage→
+module map is explicit (e.g. both mass-derivation stages → `mass_derivation.py`; both selection
+stages → `forward_model.py`; `rv_astrometry_gate` and `joint_orbit_fit` → `rv_consistency.py`).
+Each stage declares `inputs_from: [...]` for API-contract tests (§10).
 
-**Caching**: each stage declares its expected output artifact path(s), parameterized by whatever
-subset of `config.yaml` actually affects that stage's result (e.g. the specific quality-cut values
-used). Before running, the main program checks whether that exact output already exists; if so, it
-skips the stage. This means `data_acquisition` genuinely only runs once and is skipped on every
-subsequent invocation until the database changes or a different quality-cut configuration is
-requested — a different configuration naturally produces a different output path, so nothing is
-silently overwritten and nothing is silently reused across incompatible settings.
+**Active DR mode**: config default `dr3`. DR4 keys exist and must be independently configured, but
+DR4 execution is not enabled yet.
 
-**Force re-run**: a per-stage boolean in the run file overrides the cache check and re-executes
-that stage regardless of existing output.
+**Caching**: each stage declares its expected output artifact path(s) — **one HDF5 per stage** —
+parameterized by the config subset that actually affects that stage's result. Before running, the
+main program checks whether that exact output already exists; if so, it skips. A different config
+subset yields a different path (no silent overwrite / false cache hit). Cache paths and artifact
+details are recorded in the run file so resume can resolve inputs.
 
-**The run file** is a YAML document, one per logical analysis run, stored under `runs/`. It is
-**built up incrementally as the pipeline proceeds** — it starts with run metadata (run ID, start
-time, base config reference) and gains an entry per completed stage (stage name, the config subset
-used, output path(s), timestamp, code commit hash, status). This *is* the `RunManifest` from §3 —
-a live document, not a one-shot end-of-run emission.
-- **Default selection**: if no run file is specified, the main program uses the most recently
-  modified file in `runs/`.
-- **Open design choice, not yet resolved**: when a force-re-run is requested, does it amend the
-  existing (most-recent) run file's entry for that stage in place, or does the request always spin
-  up a brand-new run file so no run file's history is ever mutated after the fact? Defaulting to
-  **always create a new run file on any force-re-run**, so a run file's own provenance record is
-  immutable once written — but this is a real design choice with a cost (many run files
-  accumulating under `runs/`), and should be explicitly confirmed rather than assumed.
+**Per-stage source hash**: each stage declares which package modules (and vendored pins) affect its
+answers. At stage completion the run file records `source_hash` for that dependency set. At stage
+start, only **that stage's** current hash is checked — not upstream stages. Reproducibility is the
+tuple `(stage_name, source_hash_at_run, config_subset, artifact_path)` per stage. Docstring /
+plotting / display-only modules are omitted from dependency lists so they do not spuriously
+invalidate science stages. Human judgment owns whether upstream stages must be force-re-run after
+upstream code changes.
+
+**Config checksum**: computed over the **active DR subtree + shared physics/population keys**
+only (not the inactive DR subtree). Mismatch on resume/amend → hard refuse; start a new run.
+
+**gaiamock version checks**: when a stage depends on gaiamock, recorded
+`gaiamock_mod_release` / `gaiamock_mod_sha256` / `gaiamock_git_commit` must match config; else refuse.
+
+**Force re-run** of an already-completed stage → **always a new run file**. Prior stages' completion
+records and artifact paths are **copied** into the new file so later stages can still resolve
+inputs. Mid-stage crash (partial outputs, no completion record) → wipe that stage's partial
+artifacts and re-run it, **amending** the same run file.
+
+**Amend vs new run** (locked):
+
+| Situation | Action |
+|---|---|
+| Stop between stages; resume at the next incomplete stage; config checksum OK; stage hash OK | **Amend** same run file |
+| Force-re-run of a completed stage | **New** run file (copy prior stage records) |
+| Config checksum mismatch | **Refuse**; new run required |
+| gaiamock version mismatch (gaiamock-using stage) | **Refuse** |
+| Mid-stage crash | Wipe partials; **amend**; re-run that stage |
+| Docstring / plotting-only edits | Ignored (not in stage dependency hash) |
+
+**The run file** is a YAML document under `runs/`, filename `runs/{run_id}.yaml` where
+`run_id = YYYYMMDD-HHMMSS-<shortgit>`. It is built incrementally and *is* the `RunManifest`.
+Required fields (minimum): `run_id`, `created_at`, `parent_run_id` (nullable; set when copying
+forward from a force-re-run), `config_checksum`, `active_dr_mode`, `artifact_root`, gaiamock
+version triple; per stage: `status`, `started_at`, `finished_at`, `source_hash`, `config_subset`,
+`artifact_path`, `code_commit`, `force_rerun`, optional `reason` (e.g. skipped).
+
+**Run selection**:
+- If ≥1 **incomplete** run exists under `runs/` and `--run-file` is omitted: print a table of
+  incomplete runs (`run_id`, status, last completed stage, created_at, config checksum short,
+  artifact_root) and exit nonzero. Require `--run-file`.
+- If zero incomplete runs and `--run-file` omitted: create a new run.
+- Selection among runs uses the **run_id timestamp inside the file**, never filesystem mtime.
+- `scripts/purge_run.py`: default deletes the run YAML only; `--with-artifacts` also deletes
+  recorded HDF5 paths; refuse purging completed runs unless `--force`.
 
 **Required screen output at run start**: before any stage executes, print a run plan — which run
-file is being used/created, and for every stage in the requested sequence, whether it will run or
-be skipped and why ("cached: output exists at `<path>`" vs. "running: output missing" vs.
-"running: force_rerun=True"), plus which config values/variant each stage will use. Per-stage
-start/end status is reported as it happens during execution.
+file is used/created, and for every stage whether it will run or be skipped and why
+("cached: output exists at `<path>`" / "running: output missing" / "running: force_rerun=True" /
+"skipped: rv_astrometry_gate_failed"), plus which config values/variant each stage will use.
+Per-stage start/end status is reported during execution. (Exempt from caveman compression.)
 
 ## 6. DR3 / DR4 mode matrix
 
@@ -397,6 +478,10 @@ start/end status is reported as it happens during execution.
 | Quality-cut bins | independent config, N-bin | independent config, N-bin — may need different N/values |
 | Astrometric epoch outliers | not possible | possible (new capability) |
 | Cross-validation | — | (a) vs (b) compared on overlap sample |
+| Query snapshots | `data/dr3/gaia_snapshots/` | `data/dr4/gaia_snapshots/` |
+
+Default active mode: **`dr3`**. DR4 cannot be run yet; keys are reserved and must still be
+independently present so the audit function can fire.
 
 Physics/population parameters (M_TOV prior, IMF, cooling tracks, mass-function bin policy) are
 **shared** across both paths, enforced by the audit function described alongside
@@ -406,16 +491,24 @@ identical values in parameters meant to be independently configured per path.
 
 ## 7. Config philosophy
 
-Zero hardcoded physics constants, thresholds, or file paths outside `constants/` and
+Zero hardcoded physics constants, thresholds, or file paths outside `constants.py` and
 `config.yaml` — including the ΔBIC threshold, the chi2/dof outlier threshold, the N-bin
-goodness-of-fit cuts, and the mock-injection Poisson-noise threshold. Subagents draft modular
-fragments during development; the review/integration subagent merges them into the single
-canonical `config.yaml` at each checkpoint.
+goodness-of-fit cuts, and the mock-injection Poisson-noise threshold. True constants
+(`astropy.constants`, `M_Ch`, TAG10 coefficient tables, Santos coefficients) live in
+`constants.py`. Choosable numbers and method switches live in config.
 
-## 8. Open items still flagged for confirmation
+Subagents draft modular fragments under `config/fragments/` (tracked in git) during development;
+the review/integration subagent merges them into the single canonical `config.yaml` at each
+checkpoint. Secrets (Gaia archive password, Google credentials) are never committed — env vars /
+local files only; config holds key *names*, not values.
 
-1. Force-re-run semantics (§5): new run file per force-re-run (current default) vs. in-place
-   amendment of the existing run file.
+Target-list sheet: world-readable Google Sheet for current values; revision-history mining waits on
+credentials supplied later. Weekly dumps → gitignored `data/target_lists/snapshots/`; derived
+fields (e.g. `APF_added_date`) → tracked YAML/JSON under the repo.
+
+## 8. Open items
+
+None currently flagged. Further adjustments go through PRs that update this document first.
 
 ## 9. Documented v1 limitations (revisit list)
 
@@ -431,3 +524,25 @@ canonical `config.yaml` at each checkpoint.
 - No absolute Galactic rate normalization / stellar population synthesis / binary-evolution
   modeling.
 - Acceleration/jerk-catalog systems matched at population level only, not individual masses.
+- `ParameterSet` joint posterior samples: documented future HDF5 format only; v1 is covariance.
+- Bédard cooling-track files: reserved config path; files added when needed.
+- Google Drive revision-history mining: deferred until credentials provided; weekly snapshots from
+  then on.
+
+## 10. Testing and CI
+
+| Marker | Required to merge? | Purpose |
+|---|---|---|
+| `unit` | yes | schemas, run_management, constants loader |
+| `physics` | yes | analytic test problems (closed-form solutions) |
+| `api` | yes | producer→consumer fixtures across stage I/O; registry `inputs_from` completeness |
+| `gaiamock` | no | mod install + minimal RUWE smoke (needs Release assets) |
+| `network` | no | Gaia, Sheet |
+| `slow` | no | performance regression budgets |
+
+Default GitHub Actions required check `tests` runs `pytest -m "unit or physics or api"` only,
+target ≪ 20 minutes. Optional suites use `dorny/paths-filter` (run when relevant paths change)
+and/or `workflow_dispatch` / nightly. Local full suite remains available.
+
+Branch protection on `main`: PR required, `tests` status required, zero required reviews (sole
+developer merges = approves), admin bypass allowed.
