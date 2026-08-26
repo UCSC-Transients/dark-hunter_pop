@@ -149,7 +149,10 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 - Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`
   (Phase 2 config checkpoint: #40 / PR #46).
 - Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
-  #49 / PR #53 (`triples` stub). Continuous Review/Integration: #50.
-- Phase 4 in progress per `ORCHESTRATION_PLAN.md` §5 — roster #7
-  `companion_nature_likelihood` (#56; five-key weights), #9 `population_model`
-  (#57, landed). Review/Integration: #58.
+  #49 / PR #53 (`triples` stub).
+- Phase 4 children landed: #56 / PR #60 (`companion_nature_likelihood`; five-key
+  weights), #57 / PR #61 (`population_model`). Config materialization of P3/P4
+  fragments into `config/config.yaml` is owned by continuous Review (#64).
+- Phase 5 in progress per `ORCHESTRATION_PLAN.md` §5 — roster #11 `inference`
+  (#63; Poisson × SF × dynesty, December priority). Continuous Review/Integration:
+  #64. Docs-first before any freeze break; CI dynesty smoke must stay bounded.

@@ -174,7 +174,7 @@ def test_path_specific_leaf_registry_covers_mission_keys() -> None:
 
 
 def test_phase2_canonical_matches_fragment_merge() -> None:
-    """Integration checkpoint: config.yaml materializes fragments (issue #40)."""
+    """Integration checkpoint: config.yaml materializes fragments (#40, #64)."""
     with_frags = load_config(merge_fragments=True)
     canon_only = load_config(merge_fragments=False)
     assert with_frags.model_dump(mode="json") == canon_only.model_dump(mode="json")
@@ -186,6 +186,22 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
     assert len(canon_only.dr3.external_photometry_crossmatches) >= 1
     assert len(canon_only.selection_function_followup.target_lists) >= 1
     assert len(canon_only.selection_function_followup.major_surveys) >= 1
+    # Phase 3–4 sections must be present in the delivered canonical file (not
+    # only via schema defaults when fragments are skipped).
+    assert canon_only.rv_consistency.chi2_dof_threshold > 0.0
+    assert canon_only.companion_nature.delta_bic_threshold > 0.0
+    assert canon_only.population_model.n_mass_bins >= 1
+    assert canon_only.triples.enabled is False
+    raw = (Path(__file__).resolve().parents[1] / "config" / "config.yaml").read_text(
+        encoding="utf-8"
+    )
+    for section in (
+        "rv_consistency:",
+        "companion_nature:",
+        "population_model:",
+        "triples:",
+    ):
+        assert section in raw, f"canonical config.yaml missing {section}"
 
 
 def test_checksum_includes_phase2_shared_sections() -> None:
