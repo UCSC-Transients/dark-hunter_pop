@@ -17,13 +17,14 @@ dependencies = [
   "h5py>=3.10",
   "pydantic>=2.6",
   "pyyaml>=6.0",
+  "h5py>=3.10",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 plot = ["matplotlib>=3.8"]
 inference = ["dynesty>=2.1"]
-gaiamock = ["healpy>=1.16", "joblib>=1.3"]
+gaiamock = ["healpy>=1.16", "joblib>=1.3", "mwdust>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

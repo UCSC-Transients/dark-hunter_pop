@@ -149,7 +149,14 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "selection_function_astrometric",
             "darkhunter_pop.forward_model",
             inputs_from=("data_acquisition",),
-            config_keys=("gaiamock", "active_dr_mode", "physics"),
+            config_keys=(
+                "gaiamock",
+                "active_dr_mode",
+                "physics",
+                "selection_function_astrometric",
+                "dr3.selection_function_astrometric",
+                "dr4.selection_function_astrometric",
+            ),
             uses_gaiamock=True,
         ),
         _spec(
