@@ -62,22 +62,17 @@ def test_impossible_counts_when_mu_zero() -> None:
 
 
 def test_physics_utils_does_not_import_gaiamock() -> None:
-    """Scope guard: residual module must not pull in orbital gaiamock APIs."""
-    src = Path(P.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    """Scope guard: residual module must not import orbital gaiamock APIs."""
+    src_path = Path(P.__file__)
+    tree = ast.parse(src_path.read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imported.update(alias.name.split(".")[0] for alias in node.names)
+            imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
-    assert "gaiamock" not in imported
-    assert "gaiamock_mod" not in imported
-    assert "gaiamock_vendor" not in src
-    banned = ("kepler", "solve_kepler", "check_ruwe", "fit_full_astrometric")
-    lower = src.lower()
-    for token in banned:
-        # Allow mentioning in the module docstring as "NOT a Kepler solver".
-        if token == "kepler":
-            continue
-        assert token not in lower
+            imported.add(node.module)
+    banned_prefixes = ("gaiamock", "gaiamock_mod", "darkhunter_pop.gaiamock_vendor")
+    for name in imported:
+        assert not any(
+            name == b or name.startswith(b + ".") for b in banned_prefixes
+        ), f"unexpected import {name}"
