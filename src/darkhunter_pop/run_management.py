@@ -228,7 +228,18 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "selection_function_followup",
                 "sensitivity_analysis",
             ),
-            config_keys=("physics", "classification"),
+            deps=(
+                "darkhunter_pop.inference",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.population_model",
+            ),
+            config_keys=(
+                "inference",
+                "physics",
+                "classification",
+                "population_model",
+                "mass_calibration.delta_M_Ch_msun",
+            ),
         ),
         _spec(
             "diagnostics",
