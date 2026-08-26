@@ -73,13 +73,14 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
 | `selection_function_followup.*` | shared follow-up SF; accel/jerk catalog pins under `dr3`/`dr4` |
 | `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
+| `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
 | `diagnostics.*` | figure/report layout + hook enable flags (not science thresholds) |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
 `classification`, `physics`, `gaiamock`, `paths`, `selection_function_astrometric`,
-`selection_function_followup`, `sensitivity_analysis` (`config_loader.config_checksum`).
+`selection_function_followup`, `sensitivity_analysis`, `triples` (`config_loader.config_checksum`).
 `diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
 the checksum.
 

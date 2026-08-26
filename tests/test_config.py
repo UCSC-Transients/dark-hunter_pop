@@ -193,6 +193,7 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     assert "rv_consistency" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
     assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
+    assert "triples" in SHARED_CHECKSUM_SECTIONS
     assert "diagnostics" not in SHARED_CHECKSUM_SECTIONS
     cfg = load_config()
     base = config_checksum(cfg)
@@ -207,3 +208,6 @@ def test_checksum_includes_phase2_shared_sections() -> None:
         cfg.rv_consistency.chi2_dof_threshold + 1.0
     )
     assert config_checksum(rv_altered) != base
+    triples_flip = cfg.model_copy(deep=True)
+    triples_flip.triples.enabled = True
+    assert config_checksum(triples_flip) != base

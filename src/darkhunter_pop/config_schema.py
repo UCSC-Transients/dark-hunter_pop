@@ -67,6 +67,22 @@ class DiagnosticsConfig(BaseModel):
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
 
 
+class TriplesConfig(BaseModel):
+    """Unrelated outer-companion (genuine triple) stage (ARCHITECTURE.md §4).
+
+    Off by default in v1; ``population_model`` forces P(triple)=0. Channel flags
+    reserve TESS variability + rotation-consistency hooks so the stage can be
+    enabled later without restructuring. No science thresholds are applied while
+    the stage remains a stub.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    tess_variability_channel: bool = True
+    rotation_consistency_channel: bool = True
+
+
 class GaiamockConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -470,6 +486,7 @@ class PipelineConfig(BaseModel):
         default_factory=SensitivityAnalysisConfig
     )
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
+    triples: TriplesConfig = Field(default_factory=TriplesConfig)
     dr3: DRPathConfig
     dr4: DRPathConfig
 
@@ -524,6 +541,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "selection_function_astrometric",
     "selection_function_followup",
     "sensitivity_analysis",
+    "triples",
 )
 
 

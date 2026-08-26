@@ -1,0 +1,10 @@
+# triples stage (ARCHITECTURE.md §4, issue #49).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# Off by default in v1: population_model forces P(triple)=0. Enabling later must not
+# require restructuring; channel flags reserve the evidence hooks without science.
+
+triples:
+  enabled: false
+  # Channel switches used only when enabled=true (stubbed; no science applied yet).
+  tess_variability_channel: true
+  rotation_consistency_channel: true
