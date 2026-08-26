@@ -1,0 +1,38 @@
+# inference stage (ARCHITECTURE.md §4, issue #63).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# Values must match InferenceConfig defaults so fragment-merge == canonical dump.
+# v1 staged-but-connected: fixed plug-in weights from rv_astrometry_gate +
+# companion_nature_likelihood (no joint re-sampling). v2 fully-joint is future.
+#
+# Cluster (full) recipe — NOT default CI:
+#   inference.nlive: 500
+#   inference.dlogz: 0.01
+#   inference.maxcall: 200000
+#   inference.n_robustness_runs: 3
+#   inference.robustness_nlive_scale: 1.5
+# Run ≥3 independent seeds; require posterior medians / 68% intervals to agree within
+# a science-chosen tolerance — never bitwise seed identity (workflow §7).
+
+inference:
+  apply_sensitivity_dimensionality: true
+  likelihood_form: auto
+  eccentricity_hypothesis: thermal
+  circular_implies_wd: false
+  circular_e_threshold: 0.05
+  log_height_min: -5.0
+  log_height_max: 5.0
+  n_mass_grid: 64
+  default_astrometric_sf: 1.0
+  default_followup_sf: 1.0
+  # CI smoke defaults (tiny nested sampling).
+  nlive: 20
+  dlogz: 0.5
+  maxcall: 400
+  sample: rwalk
+  random_seed: 63
+  n_robustness_runs: 1
+  robustness_nlive_scale: 1.5
+  robustness_seed_stride: 17
+  posterior_prior_overlap_threshold: 0.85
+  zero_count_ul_confidence: 0.95
+  skip_sampler: false

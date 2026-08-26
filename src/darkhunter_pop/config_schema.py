@@ -303,6 +303,54 @@ class SensitivityAnalysisConfig(BaseModel):
         return self
 
 
+class InferenceConfig(BaseModel):
+    """Staged-but-connected Poisson + dynesty inference (ARCHITECTURE.md §4, issue #63).
+
+    Per-system ``rv_astrometry_gate`` / ``companion_nature_likelihood`` results enter as
+    fixed empirical-Bayes plug-in weights — not jointly re-sampled (v2 fully-joint is
+    documented, not built here). Science knobs live here; no hardcoded sampler sizes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Opt-in: honor sensitivity_analysis dimensionality / likelihood-form advice.
+    apply_sensitivity_dimensionality: bool = True
+    # ``auto`` → SA preferred_likelihood when apply_sensitivity_dimensionality else unbinned.
+    likelihood_form: Literal["auto", "unbinned", "binned"] = "auto"
+    # Model-comparison switches (ARCHITECTURE.md §4 inference).
+    eccentricity_hypothesis: Literal["thermal", "sn_kick"] = "thermal"
+    circular_implies_wd: bool = False
+    circular_e_threshold: float = Field(0.05, ge=0.0, le=1.0)
+    # Free-height log-prior bounds (unit-cube → heights via exp).
+    log_height_min: float = -5.0
+    log_height_max: float = 5.0
+    n_mass_grid: int = Field(64, ge=8)
+    # Scalar SF multipliers when HDF5 artifacts absent / simplified path.
+    default_astrometric_sf: float = Field(1.0, gt=0.0)
+    default_followup_sf: float = Field(1.0, gt=0.0)
+    # Dynesty nested sampling (CI smoke uses the small defaults; cluster recipe in docs).
+    nlive: int = Field(20, ge=2)
+    dlogz: float = Field(0.5, gt=0.0)
+    maxcall: int = Field(400, ge=10)
+    sample: Literal["auto", "rwalk", "slice", "rslice", "hslice", "unif"] = "rwalk"
+    random_seed: int = 63
+    # Multi-run robustness protocol (not bitwise seed identity). CI keeps n_robustness_runs=1.
+    n_robustness_runs: int = Field(1, ge=1)
+    robustness_nlive_scale: float = Field(1.5, gt=1.0)
+    robustness_seed_stride: int = Field(17, ge=1)
+    # Small-N generics.
+    posterior_prior_overlap_threshold: float = Field(0.85, gt=0.0, le=2.0)
+    zero_count_ul_confidence: float = Field(0.95, gt=0.0, lt=1.0)
+    # When True, skip dynesty and evaluate fiducial logL only (unit tests / dry-run).
+    skip_sampler: bool = False
+
+    @model_validator(mode="after")
+    def _inference_bounds(self) -> InferenceConfig:
+        if self.log_height_min >= self.log_height_max:
+            raise ValueError("log_height_min must be < log_height_max")
+        return self
+
+
 class PopulationModelConfig(BaseModel):
     """Hierarchical multiplicity → type mixture + non-parametric MF (ARCHITECTURE.md §4).
 
@@ -644,6 +692,7 @@ class PipelineConfig(BaseModel):
     population_model: PopulationModelConfig = Field(
         default_factory=PopulationModelConfig
     )
+    inference: InferenceConfig = Field(default_factory=InferenceConfig)
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
     triples: TriplesConfig = Field(default_factory=TriplesConfig)
     dr3: DRPathConfig
