@@ -1,0 +1,10 @@
+# mass_derivation_bulk / mass_derivation_refined choosables.
+# TAG10 coefficient tables and Santos coeffs live in constants.py; scatters in mass_calibration.
+
+mass_derivation:
+  dark_companion_flux_ratio: 0.0
+  uberms_m1_prior_max_msun: 3.0
+  uberms_m1_watchlist_fraction: 0.95
+  information_gain_sigma_floor_msun: 0.01
+  sed_queue_max_stars: null
+  require_sed_package: false

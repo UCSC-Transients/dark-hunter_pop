@@ -105,17 +105,31 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "mass_derivation_bulk",
             "darkhunter_pop.mass_derivation",
             inputs_from=("data_acquisition",),
+            deps=(
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.constants",
+            ),
             config_keys=(
                 "mass_calibration",
+                "mass_derivation.dark_companion_flux_ratio",
                 "classification.M_MIN_msun",
                 "classification.n_sigma_mass_cut",
             ),
+            uses_gaiamock=True,
         ),
         _spec(
             "mass_derivation_refined",
             "darkhunter_pop.mass_derivation",
             inputs_from=("mass_derivation_bulk",),
-            config_keys=("mass_calibration", "active_dr_mode"),
+            deps=(
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.constants",
+            ),
+            config_keys=(
+                "mass_calibration",
+                "mass_derivation",
+                "active_dr_mode",
+            ),
         ),
         _spec(
             "rv_astrometry_gate",
@@ -163,7 +177,13 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "selection_function_followup",
             "darkhunter_pop.forward_model",
             inputs_from=("selection_function_astrometric",),
-            config_keys=("active_dr_mode", "physics"),
+            config_keys=(
+                "active_dr_mode",
+                "physics",
+                "selection_function_followup",
+                "dr3.selection_function_followup",
+                "dr4.selection_function_followup",
+            ),
         ),
         _spec(
             "population_model",

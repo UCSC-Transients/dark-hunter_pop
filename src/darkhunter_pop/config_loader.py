@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Mapping
 
 import yaml
 from astropy import units as u
 
 from darkhunter_pop import constants
 from darkhunter_pop.config_schema import (
+    PATH_SPECIFIC_LEAF_KEYS,
+    SHARED_PHYSICS_SECTIONS,
     PipelineConfig,
     checksum_payload,
 )
@@ -26,6 +29,40 @@ from darkhunter_pop.schemas import ActiveDRMode
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG = _REPO_ROOT / "config" / "config.yaml"
 _FRAGMENTS_DIR = _REPO_ROOT / "config" / "fragments"
+
+AuditSeverity = Literal["violation", "informational"]
+
+
+@dataclass(frozen=True)
+class DRAuditFinding:
+    """One DR3/DR4 parameter-independence audit finding."""
+
+    severity: AuditSeverity
+    message: str
+    key: str | None = None
+
+
+@dataclass
+class DRAuditResult:
+    """Full walk of the parameter set for DR3/DR4 independence (ARCHITECTURE.md §6)."""
+
+    findings: list[DRAuditFinding] = field(default_factory=list)
+
+    @property
+    def violations(self) -> list[DRAuditFinding]:
+        return [f for f in self.findings if f.severity == "violation"]
+
+    @property
+    def informational(self) -> list[DRAuditFinding]:
+        return [f for f in self.findings if f.severity == "informational"]
+
+    @property
+    def ok(self) -> bool:
+        return not self.violations
+
+    def messages(self) -> list[str]:
+        """Flat human-readable notes (backward-compatible with list[str] callers)."""
+        return [f.message for f in self.findings]
 
 
 def repo_root() -> Path:
@@ -112,23 +149,147 @@ def effective_M_Ch_msun(config: PipelineConfig) -> float:
     return float(base + config.mass_calibration.delta_M_Ch_msun)
 
 
-def audit_dr_independence(config: PipelineConfig) -> list[str]:
-    """Informational audit: flag identical path-specific values across DR3/DR4.
+def _walk_keys(node: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    """Flatten nested mappings to dotted paths (lists treated as leaves)."""
+    out: list[tuple[str, Any]] = []
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if isinstance(value, Mapping):
+                out.extend(_walk_keys(value, path))
+            else:
+                out.append((path, value))
+    else:
+        out.append((prefix, node))
+    return out
 
-    Shared physics is intentionally single-keyed; this does not compare those. Unexpected
-    divergence in shared physics cannot occur by construction (one object). Returns a list of
-    human-readable notes (empty if none).
+
+def audit_dr_independence(
+    config: PipelineConfig | Mapping[str, Any],
+) -> DRAuditResult:
+    """Walk the full parameter set for DR3/DR4 independence (ARCHITECTURE.md §6).
+
+    Flags:
+    - **violation**: Gaia-mission-specific or external-data-use keys placed as shared
+      top-level keys (must be independent under ``dr3`` / ``dr4``).
+    - **violation**: shared physics/population sections unexpectedly duplicated under
+      both DR paths with divergent values.
+    - **informational**: identical values in path-specific keys (allowed, but values
+      remain independently configured even when they match).
+
+    Returns a :class:`DRAuditResult`. Call ``.messages()`` for a flat ``list[str]``.
     """
-    notes: list[str] = []
-    d3 = config.dr3.model_dump(mode="json")
-    d4 = config.dr4.model_dump(mode="json")
+    result = DRAuditResult()
+    if isinstance(config, PipelineConfig):
+        data = config.model_dump(mode="json")
+        top_fields = set(PipelineConfig.model_fields)
+    else:
+        data = dict(config)
+        top_fields = set(data)
+
+    # 1) Path-specific leaf keys must not appear as shared top-level PipelineConfig fields.
+    for leaf in sorted(PATH_SPECIFIC_LEAF_KEYS):
+        if leaf in top_fields and leaf not in {"dr3", "dr4"}:
+            result.findings.append(
+                DRAuditFinding(
+                    severity="violation",
+                    key=leaf,
+                    message=(
+                        f"violation: path-specific key '{leaf}' must not be a shared "
+                        "top-level config field; place independently under dr3/ and dr4/"
+                    ),
+                )
+            )
+
+    # 2) Walk full tree: any top-level (non-dr) path containing a path-specific leaf
+    # that is not nested under selection_function_* shared blocks' path children.
+    for path, _value in _walk_keys(data):
+        parts = path.split(".")
+        leaf = parts[-1]
+        under_dr = parts[0] in {"dr3", "dr4"}
+        if leaf in PATH_SPECIFIC_LEAF_KEYS and not under_dr:
+            # Shared selection_function_followup / astrometric blocks must not own
+            # path-specific leaves like d_min_pc / accel_jerk_catalog_id.
+            result.findings.append(
+                DRAuditFinding(
+                    severity="violation",
+                    key=path,
+                    message=(
+                        f"violation: Gaia-mission/external-data key '{path}' is shared "
+                        "across DR; must be independent under dr3.*/dr4.*"
+                    ),
+                )
+            )
+
+    # 3) Shared physics must exist once at top level; flag divergence if duplicated
+    # under both DR paths (should not happen with the frozen schema, but catch raw YAML).
+    d3 = data.get("dr3") if isinstance(data.get("dr3"), Mapping) else {}
+    d4 = data.get("dr4") if isinstance(data.get("dr4"), Mapping) else {}
+    assert isinstance(d3, Mapping) and isinstance(d4, Mapping)
+    for section in sorted(SHARED_PHYSICS_SECTIONS):
+        if section in d3 or section in d4:
+            v3 = d3.get(section)
+            v4 = d4.get(section)
+            if v3 is not None and v4 is not None and v3 != v4:
+                result.findings.append(
+                    DRAuditFinding(
+                        severity="violation",
+                        key=section,
+                        message=(
+                            f"violation: shared physics section '{section}' diverges "
+                            "between dr3 and dr4; keep a single top-level key"
+                        ),
+                    )
+                )
+            else:
+                result.findings.append(
+                    DRAuditFinding(
+                        severity="violation",
+                        key=section,
+                        message=(
+                            f"violation: shared physics section '{section}' must not live "
+                            "under dr3/dr4; use a single top-level key"
+                        ),
+                    )
+                )
+        if section not in data:
+            result.findings.append(
+                DRAuditFinding(
+                    severity="violation",
+                    key=section,
+                    message=(
+                        f"violation: shared physics section '{section}' missing at "
+                        "top level"
+                    ),
+                )
+            )
+
+    # 4) Both DR path blocks must be present so the audit can fire.
+    if "dr3" not in data or "dr4" not in data:
+        result.findings.append(
+            DRAuditFinding(
+                severity="violation",
+                key="dr3/dr4",
+                message="violation: both dr3 and dr4 path configs must be present",
+            )
+        )
+        return result
+
+    # 5) Informational: identical values in path-specific keys across DR3/DR4.
     for key in sorted(set(d3) & set(d4)):
         if d3[key] == d4[key]:
-            notes.append(
-                f"informational: dr3.{key} == dr4.{key} "
-                f"(path-specific keys are independent even when values match)"
+            result.findings.append(
+                DRAuditFinding(
+                    severity="informational",
+                    key=key,
+                    message=(
+                        f"informational: dr3.{key} == dr4.{key} "
+                        "(path-specific keys are independent even when values match)"
+                    ),
+                )
             )
-    return notes
+
+    return result
 
 
 def require_dr3_active_for_v1(config: PipelineConfig) -> None:
