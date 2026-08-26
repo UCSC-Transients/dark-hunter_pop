@@ -451,6 +451,7 @@ dr3:
   gaia_archive_user_env: GAIA_ARCHIVE_USER
   gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
   gaia_archive_row_limit: -1
+  gaia_archive_async: true
   nss_table: gaiadr3.nss_two_body_orbit
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
@@ -487,6 +488,7 @@ dr4:
   gaia_archive_user_env: GAIA_ARCHIVE_USER
   gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
   gaia_archive_row_limit: -1
+  gaia_archive_async: true
   nss_table: gaiadr4.nss_two_body_orbit
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true

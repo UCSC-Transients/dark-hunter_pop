@@ -7,6 +7,8 @@ dr3:
   gaia_source_photometry_bands: [G, BP, RP]
   # -1 = unlimited (astroquery Gaia.ROW_LIMIT); use 2000 for archive smoke tests.
   gaia_archive_row_limit: -1
+  # Sync jobs → ESA Error 408 on full NSS+crossmatch; keep async for production queries.
+  gaia_archive_async: true
   external_photometry_crossmatches:
     # No gaiadr3 GALEX AIS best_neighbour in the public TAP — leave disabled.
     - band: NUV
@@ -85,4 +87,5 @@ dr4:
   gaia_source_table: gaiadr4.gaia_source
   gaia_source_photometry_bands: [G, BP, RP]
   gaia_archive_row_limit: -1
+  gaia_archive_async: true
   external_photometry_crossmatches: []

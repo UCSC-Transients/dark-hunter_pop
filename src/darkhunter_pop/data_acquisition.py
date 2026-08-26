@@ -695,7 +695,11 @@ def default_gaia_query(adql: str, dr: DRPathConfig) -> Table:
         Gaia.login(user=user, password=password)
     # astroquery injects TOP when ROW_LIMIT > 0; -1 disables the cap.
     Gaia.ROW_LIMIT = int(dr.gaia_archive_row_limit)
-    job = Gaia.launch_job(adql, dump_to_file=False)
+    if dr.gaia_archive_async:
+        # Sync jobs abort with ESA Error 408 on the full NSS+crossmatch ADQL.
+        job = Gaia.launch_job_async(adql, dump_to_file=False)
+    else:
+        job = Gaia.launch_job(adql, dump_to_file=False)
     result = job.get_results()
     if not isinstance(result, Table):
         raise TypeError(f"expected astropy Table from Gaia job, got {type(result)!r}")

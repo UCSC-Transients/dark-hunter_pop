@@ -812,8 +812,10 @@ class DRPathConfig(BaseModel):
     )
     gaia_archive_user_env: str = "GAIA_ARCHIVE_USER"
     gaia_archive_password_env: str = "GAIA_ARCHIVE_PASSWORD"
-    # astroquery Gaia.ROW_LIMIT; -1 = unlimited. Default 2000 matches archive smoke.
+    # astroquery Gaia.ROW_LIMIT; -1 = unlimited. Use 2000 for archive smoke tests.
     gaia_archive_row_limit: int = Field(-1, ge=-1)
+    # Sync jobs hit ESA Error 408 on large NSS+crossmatch queries; async is default.
+    gaia_archive_async: bool = True
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # Reserved for DR4 epoch capabilities; ignored when inactive.

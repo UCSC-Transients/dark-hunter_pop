@@ -138,6 +138,12 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "galex_ais_best_neighbour" not in adql  # disabled
 
 
+def test_gaia_archive_async_defaults_true() -> None:
+    cfg = load_config()
+    assert cfg.dr3.gaia_archive_async is True
+    assert cfg.dr3.gaia_archive_row_limit == -1
+
+
 def test_snapshot_round_trip(tmp_path: Path) -> None:
     table = _sample_table()
     adql = "SELECT * FROM test"
