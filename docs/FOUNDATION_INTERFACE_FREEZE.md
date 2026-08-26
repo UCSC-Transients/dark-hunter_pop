@@ -135,7 +135,8 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 
 ## 7. Phase status (orchestrator)
 
-- Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`.
-- Continuous Review/Integration: #40.
-- Next: Phase 3 per `ORCHESTRATION_PLAN.md` §5 — roster #6 `rv_astrometry_gate` +
-  `joint_orbit_fit`, #8 `triples` stub (Agents Window / worktree per §1 and §4).
+- Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`
+  (Phase 2 config checkpoint: #40 / PR #46).
+- Continuous Review/Integration: #50 (Phase 3+).
+- In progress: Phase 3 per `ORCHESTRATION_PLAN.md` §5 / `PHASE3_KICKOFF.md` — roster #6
+  `rv_astrometry_gate` + `joint_orbit_fit` (#48), #8 `triples` stub (#49).
