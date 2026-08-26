@@ -1,6 +1,7 @@
 # dark-hunter_pop — Orchestration Plan
 
-Companion to `ARCHITECTURE.md`.
+Companion to `ARCHITECTURE.md`. Decisions locked 2026-08-25; see that document for
+authoritative technical detail.
 
 ## 1. Cursor mechanics
 
@@ -21,10 +22,13 @@ Companion to `ARCHITECTURE.md`.
 
 - `UCSC-Transients/dark-hunter_pop`, local base directory
   `/Users/rfoley/darkhunter/pop/dark-hunter_pop/` (repo root itself). Package: `darkhunter_pop`.
-- `venv` (or agreed alternative); Linux primary target, macOS-friendly where reasonable.
+- `venv` (or agreed alternative); Linux primary target, macOS-friendly where reasonable. No conda
+  requirement known for the December supercomputer target.
 - `gh` CLI credentials available; used for all issue/PR creation, on this repo and on
   `dark-hunter_rv`/`dark-hunter_sed` when extended for this project.
 - Git worktrees per active subagent branch.
+- Large gaiamock-mod assets hosted on an immutable GitHub Release (e.g. `gaiamock-mod-v1`); see
+  `ARCHITECTURE.md` §1.1. Default healpix pack is not hosted.
 
 ## 3. Skills active in every subagent session
 
@@ -39,8 +43,8 @@ Companion to `ARCHITECTURE.md`.
 | 2 | `selection_function_astrometric` (gaiamock wrapper, DR3/DR4 modes, validation gate) | Foundation | Top | Physics-critical; the validation gate determines whether the selection function can be trusted at all. |
 | 3 | `selection_function_followup` (+ DR3/DR4 audit function, Google Sheets adoption-date mining + going-forward weekly snapshot) | Foundation, target-list adoption-date access | Top | Genuinely subtle statistics (outcome-dependent selection risk); the audit function and the Sheets revision-history reconstruction are both correctness-critical, fiddly pieces. |
 | 4 | `mass_derivation_bulk` + `mass_derivation_refined` (TAG10 + Santos correction, uberMS queue integration) | Foundation, #1 | Top | Directly determines the input sample; TAG10 implementation and uncertainty propagation need care. |
-| 5 | `dark-hunter_rv`/`dark-hunter_sed` extensions (WISE/DECam, JSON output; Joker integration already done upstream — this is now wiring/consumption plus the remaining photometry work) | Foundation | Mid | Reduced scope now that The Joker is installed and integrated server-side; mostly adapter/integration work remains. |
-| 6 | `rv_astrometry_gate` + joint orbit fit | #4, #5 | Top | The gate statistic (per-instrument nuisance terms, chi2/dof) and the gate→joint-fit→outlier-routing logic are all physics-critical. |
+| 5 | `dark-hunter_rv`/`dark-hunter_sed` extensions (WISE/DECam, JSON output; Joker integration already done upstream — this is now wiring/consumption plus the remaining photometry work) | Foundation | Mid | Reduced scope now that The Joker is installed and integrated server-side; mostly adapter/integration work remains. Conform to Phase 0 schemas; ask before breaking them. |
+| 6 | `rv_astrometry_gate` + `joint_orbit_fit` | #4, #5 | Top | The gate statistic (per-instrument nuisance terms, chi2/dof) and the gate→joint-fit→outlier-routing logic are all physics-critical. |
 | 7 | `companion_nature_likelihood` | #4, #6 | Top | Core statistical model determining WD vs. other vs. dark; largest-uncertainty regime is exactly where precision matters most. |
 | 8 | `triples` stub (off by default) | Foundation, #5 | Mid | Well-specified but unbuilt-for-real-use in v1; mostly interface/stub work. |
 | 9 | `population_model` (multiplicity/type hierarchy, non-parametric mass function) | #7, #2, #3 | Top | Mixture-model architecture, hard/soft truncation rules, and the outlier-class rate all need careful judgment. |
@@ -58,12 +62,13 @@ Supercomputer access ends **December** — the compute-heavy `inference` stage (
 end-to-end path working *early*, even against a simplified population model, so there's runway to
 actually use the cluster before it's gone.
 
-- **Phase 0** (sequential, blocking): #0 Foundation.
+- **Phase 0** (sequential, blocking): #0 Foundation. Preceded by the docs/decisions PR that locks
+  `ARCHITECTURE.md` / this plan.
 - **Phase 1** (parallel, ≤3): #1 `data_acquisition`, #2 `selection_function_astrometric` +
   validation gate, #5 `dark-hunter_rv`/`_sed` extensions.
 - **Phase 2** (parallel): #3 `selection_function_followup` + audit function, #4 mass derivation,
   #10 `sensitivity_analysis`, #12 plotting/diagnostics infrastructure.
-- **Phase 3** (parallel): #6 `rv_astrometry_gate` + joint fit, #8 `triples` stub.
+- **Phase 3** (parallel): #6 `rv_astrometry_gate` + `joint_orbit_fit`, #8 `triples` stub.
 - **Phase 4**: #7 `companion_nature_likelihood`, #9 `population_model`.
 - **Phase 5 (priority — get a minimal path here before the December cutoff)**: #11 `inference`,
   even against a placeholder population model at first, to validate the end-to-end
@@ -73,21 +78,28 @@ actually use the cluster before it's gone.
 
 \#15 Review/Integration runs continuously from Phase 1 onward.
 
-## 6. Git / PR workflow
+## 6. Git / PR / issue workflow
 
 Applies uniformly to `dark-hunter_pop`, `dark-hunter_rv`, `dark-hunter_sed`:
 
 1. Subagent works in its own worktree/branch.
 2. `[AI Checkpoint] <description>` micro-commits locally after each passing `pytest` run (local
    use only, for `regression-hunter`; not pushed).
-3. **Full local `pytest` pass required before opening a PR.**
+3. **Full local `pytest` pass required before opening a PR** (at least the required marker set).
 4. PR via `gh`: detailed description, links resolved issues ("Resolves #NN"), test checklist,
-   requires GitHub CI green.
+   requires GitHub CI green (`tests` = `unit or physics or api`).
 5. Review/Integration subagent checks physics/interface consistency across open PRs, merges
    modular config fragments into the single `config.yaml`.
-6. You do the final human merge to `main`.
+6. You do the final human merge to `main` (sole developer; merge = approval).
+7. **GitHub Issues**: one issue = one thing. Prefer fine-grained issues so partial work can close
+   independently; optional umbrella issues may track children. Track major changes, features, and
+   bugs on GitHub — not only in chat.
+8. **Docs-first**: update `ARCHITECTURE.md` / this plan (via PR) before implementing a design
+   change. Adjust as we go, but every step needs a written plan.
+
+Branch protection on `main`: PR required, required status check `tests`, zero required reviews,
+admin bypass allowed.
 
 ## 7. Open items
 
-1. Run-file force-re-run semantics (`ARCHITECTURE.md` §5, §8): new run file per force-re-run
-   (current default) vs. in-place amendment.
+None currently flagged. See `ARCHITECTURE.md` §8.

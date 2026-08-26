@@ -10,6 +10,7 @@ import pytest
 
 MODULES = [
     "darkhunter_pop",
+    "darkhunter_pop.constants",
     "darkhunter_pop.run_management",
     "darkhunter_pop.physics_utils",
     "darkhunter_pop.schemas",
