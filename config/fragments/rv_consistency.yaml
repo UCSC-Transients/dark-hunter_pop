@@ -1,0 +1,16 @@
+# rv_astrometry_gate + joint_orbit_fit choosables (ARCHITECTURE.md §4).
+# chi2/dof threshold and SB2 consistency tolerances are config-owned — never hardcoded.
+
+rv_consistency:
+  chi2_dof_threshold: 5.0
+  min_epochs_per_instrument: 3
+  min_epochs_total: 3
+  jitter_max_kms: 10.0
+  sb2_period_frac_tol: 0.1
+  sb2_ecc_abs_tol: 0.15
+  joker_seed_variant: full
+  joint_prior_period_frac: 0.05
+  joint_prior_ecc_abs: 0.05
+  joint_prior_omega_rad: 0.2
+  joint_prior_t_peri_day: 5.0
+  joint_fit_max_nfev: 200

@@ -84,3 +84,16 @@ TAG10_B_ERR: Final[NDArray[np.floating]] = np.array(
 SANTOS2013_S2: Final[float] = 0.791
 SANTOS2013_S1: Final[float] = -0.575
 SANTOS2013_S0: Final[float] = 0.701
+
+# ---------------------------------------------------------------------------
+# Spectroscopic binary mass-function conversion (P in days, K in km/s → Msun).
+# f = SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS * K^3 * P * (1-e^2)^{3/2}
+# Derived from G + Msun via astropy — not a choosable threshold.
+# ---------------------------------------------------------------------------
+
+SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS: Final[float] = float(
+    (1.0 * u.day * (1.0 * u.km / u.s) ** 3 / (2.0 * np.pi * G)).to(u.Msun).value
+)
+
+# Gaia DR3 NSS ``t_periastron`` origin (days from J2016.0 → add to this MJD).
+GAIA_J2016_MJD: Final[float] = 57388.5

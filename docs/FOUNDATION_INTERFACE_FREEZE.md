@@ -67,6 +67,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `gaiamock.mod_release` (+ optional sha/commit pins) | Version triple with installed overlay |
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
 | `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps |
+| `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
 | `physics.*` | cooling tracks/atmosphere/path, IMF, `mc_noise_threshold` |
 | `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
@@ -76,10 +77,11 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
-**active DR subtree +** `mass_calibration`, `mass_derivation`, `classification`, `physics`,
-`gaiamock`, `paths`, `selection_function_astrometric`, `selection_function_followup`,
-`sensitivity_analysis` (`config_loader.config_checksum`). `diagnostics` is intentionally
-excluded (layout-only). Inactive DR changes do not affect the checksum.
+**active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
+`classification`, `physics`, `gaiamock`, `paths`, `selection_function_astrometric`,
+`selection_function_followup`, `sensitivity_analysis` (`config_loader.config_checksum`).
+`diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
+the checksum.
 
 Constants precedence: `effective_M_Ch_msun(config) = constants.M_CH + delta_M_Ch_msun`.
 
