@@ -226,6 +226,82 @@ class SensitivityAnalysisConfig(BaseModel):
         return self
 
 
+class PopulationModelConfig(BaseModel):
+    """Hierarchical multiplicity → type mixture + non-parametric MF (ARCHITECTURE.md §4).
+
+    Shared physics (``classification.M_TOV_msun``, ``mass_calibration.delta_M_Ch_msun``,
+    ``physics.imf``) stay in their owning sections. External compact-object mass functions
+    are never inference priors — ``allow_external_co_mf_priors`` is forced false.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # v1 multiplicity: NSS generative branch is binary-only (latent layer kept generic).
+    p_single: float = Field(0.0, ge=0.0, le=1.0)
+    p_binary: float = Field(1.0, ge=0.0, le=1.0)
+    p_triple: float = Field(0.0, ge=0.0, le=1.0)
+    population_classes: list[str] = Field(
+        default_factory=lambda: ["BH", "NS", "WD", "other", "outlier"],
+        min_length=1,
+    )
+    # Classes summed into tier-1 raw total compact-object dN/dM (no M_TOV).
+    compact_object_classes: list[str] = Field(
+        default_factory=lambda: ["BH", "NS", "WD"],
+        min_length=1,
+    )
+    mass_function_model: Literal["free_height_bins", "gp_log_dndm"] = "free_height_bins"
+    bin_edge_policy: Literal["equal_log_m", "equal_fiducial_count"] = "equal_log_m"
+    n_mass_bins: int = Field(8, ge=2)
+    mass_min_msun: float = Field(0.2, gt=0)
+    mass_max_msun: float = Field(20.0, gt=0)
+    # Fiducial expected detections per bin — fixes edges before real counts (workflow §7).
+    fiducial_expected_counts: list[float] = Field(
+        default_factory=lambda: [5.0, 8.0, 12.0, 10.0, 6.0, 4.0, 2.0, 1.0],
+        min_length=2,
+    )
+    # Soft logistic width for NS M_TOV truncation; location = classification.M_TOV_msun.
+    m_tov_soft_width_msun: float = Field(0.05, gt=0)
+    m_tov_prior_sigma_msun: float = Field(0.2, gt=0)
+    m_tov_prior_n_quad: int = Field(21, ge=5)
+    # Auxiliary parametric families (swappable model-comparison hooks for inference).
+    m1_family: Literal["kroupa"] = "kroupa"
+    period_family: Literal["flat_log_p", "moe_di_stefano"] = "flat_log_p"
+    eccentricity_family: Literal["thermal", "sn_kick"] = "thermal"
+    # Opt-in: apply sensitivity_analysis class-covariate recommendations when present.
+    apply_sensitivity_covariates: bool = True
+    # GP-on-log(dN/dM) hyperparameters (used only when mass_function_model=gp_log_dndm).
+    gp_length_scale_log_m: float = Field(0.5, gt=0)
+    gp_variance: float = Field(1.0, gt=0)
+    # Hard rule: pulsar / LIGO / literature CO MFs are comparison-only, never priors.
+    allow_external_co_mf_priors: Literal[False] = False
+    random_seed: int = 57
+
+    @model_validator(mode="after")
+    def _population_model_bounds(self) -> PopulationModelConfig:
+        if self.mass_min_msun >= self.mass_max_msun:
+            raise ValueError("mass_min_msun must be < mass_max_msun")
+        if len(self.fiducial_expected_counts) != self.n_mass_bins:
+            raise ValueError(
+                "fiducial_expected_counts length must equal n_mass_bins"
+            )
+        if any(c < 0 for c in self.fiducial_expected_counts):
+            raise ValueError("fiducial_expected_counts must be non-negative")
+        mult_sum = self.p_single + self.p_binary + self.p_triple
+        if abs(mult_sum - 1.0) > 1e-9:
+            raise ValueError("p_single + p_binary + p_triple must equal 1")
+        unknown = set(self.compact_object_classes) - set(self.population_classes)
+        if unknown:
+            raise ValueError(
+                f"compact_object_classes not in population_classes: {sorted(unknown)}"
+            )
+        if self.allow_external_co_mf_priors is not False:
+            raise ValueError(
+                "allow_external_co_mf_priors must be false "
+                "(external CO mass functions are comparison-only)"
+            )
+        return self
+
+
 class ExtinctionModel(str, Enum):
     """Extinction map used by gaiamock mock photometry (ARCHITECTURE.md §4)."""
 
@@ -485,6 +561,9 @@ class PipelineConfig(BaseModel):
     sensitivity_analysis: SensitivityAnalysisConfig = Field(
         default_factory=SensitivityAnalysisConfig
     )
+    population_model: PopulationModelConfig = Field(
+        default_factory=PopulationModelConfig
+    )
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
     triples: TriplesConfig = Field(default_factory=TriplesConfig)
     dr3: DRPathConfig
@@ -541,6 +620,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "selection_function_astrometric",
     "selection_function_followup",
     "sensitivity_analysis",
+    "population_model",
     "triples",
 )
 
