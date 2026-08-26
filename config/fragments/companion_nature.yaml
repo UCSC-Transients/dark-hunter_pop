@@ -1,0 +1,42 @@
+# companion_nature_likelihood choosables (ARCHITECTURE.md §4).
+# ΔBIC threshold and tier/age-bin knobs are config-owned — never hardcoded.
+# Cooling-track files remain under physics.cooling_tracks_path (local only).
+
+companion_nature:
+  delta_bic_threshold: 10.0
+  evidence_scale: 1.0
+  weight_floor: 1.0e-6
+  dark_to_bh_fraction: 0.5
+  outlier_gate_blend: 0.8
+  use_photometry: true
+  use_xp: true
+  use_sb2: true
+  default_mag_err: 0.05
+  n_params_dark: 0
+  n_params_wd: 2
+  n_params_other: 2
+  wd_mg_zero_point: 12.0
+  wd_mg_mass_slope: -2.5
+  other_mg_zero_point: 5.0
+  other_mg_mass_slope: -5.0
+  xp_chi2_dark_key: xp_chi2_dark
+  xp_chi2_wd_key: xp_chi2_wd
+  xp_chi2_other_key: xp_chi2_other
+  xp_n_data_key: xp_n_data
+  phot_chi2_dark_key: phot_chi2_dark
+  phot_chi2_wd_key: phot_chi2_wd
+  phot_chi2_other_key: phot_chi2_other
+  phot_n_data_key: phot_n_data
+  primary_mg_zero_point: 4.5
+  primary_mg_mass_slope: -5.0
+  sb2_wd_likeness_key: sb2_wd_likeness
+  sb2_score_n_data: 4
+  sb2_dark_chi2_per_datum: 25.0
+  sb2_type_chi2_scale: 9.0
+  default_tier: fast
+  full_tier_ambiguity_delta_bic: 5.0
+  full_tier_m2_msun_min: null
+  full_queue_max: null
+  full_tier_grid_factor: 3
+  age_bin_edges_gyr: [0.0, 1.0, 3.0, 10.0, 14.0]
+  age_extras_key: age_gyr
