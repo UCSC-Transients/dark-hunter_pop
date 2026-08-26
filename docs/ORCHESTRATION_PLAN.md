@@ -68,7 +68,8 @@ actually use the cluster before it's gone.
   validation gate, #5 `dark-hunter_rv`/`_sed` extensions. Kickoff issues + paste prompts:
   `docs/PHASE1_KICKOFF.md` (umbrella #28; children #29–#31).
 - **Phase 2** (parallel): #3 `selection_function_followup` + audit function, #4 mass derivation,
-  #10 `sensitivity_analysis`, #12 plotting/diagnostics infrastructure.
+  #10 `sensitivity_analysis`, #12 plotting/diagnostics infrastructure. Kickoff issues + paste
+  prompts: `docs/PHASE2_KICKOFF.md` (umbrella #35; children #36–#39; Review/Integration #40).
 - **Phase 3** (parallel): #6 `rv_astrometry_gate` + `joint_orbit_fit`, #8 `triples` stub.
 - **Phase 4**: #7 `companion_nature_likelihood`, #9 `population_model`.
 - **Phase 5 (priority — get a minimal path here before the December cutoff)**: #11 `inference`,
