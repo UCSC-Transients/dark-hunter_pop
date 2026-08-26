@@ -23,6 +23,13 @@ scanning_law/
 *.npz
 !tests/fixtures/**
 
+# Installed into the gaiamock submodule working tree by scripts/install_gaiamock_mod.sh
+vendor/gaiamock/healpix_scans/
+vendor/gaiamock/healpix_16_med_ruwe.npz
+vendor/gaiamock/gaiamock_mod.py
+vendor/gaiamock/*.so
+vendor/gaiamock/__pycache__/
+
 # Env / secrets
 .venv/
 venv/

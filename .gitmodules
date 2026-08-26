@@ -1,0 +1,3 @@
+[submodule "vendor/gaiamock"]
+	path = vendor/gaiamock
+	url = https://github.com/kareemelbadry/gaiamock.git

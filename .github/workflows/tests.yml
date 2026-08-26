@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -20,11 +22,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run required suites
-        # Scaffold has no markers yet; Foundation will add unit/physics/api marks.
-        # Until then, run the full default pytest collection (scaffold smoke tests).
-        run: pytest -q
+        # Prefer marked suites; also collect unmarked scaffold tests during Foundation rollout.
+        run: pytest -q -m "unit or physics or api or (not unit and not physics and not api and not gaiamock and not network and not slow)"
 
-  # Optional: enabled when vendor/gaiamock or install script changes (and Release assets exist).
+  # Optional: manual / nightly until path-filter wiring in F6.
   gaiamock:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -35,5 +36,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Placeholder
-        run: echo "gaiamock suite wired in Foundation F0/F6 once Release gaiamock-mod-v1 exists"
+      - name: Install deps + GSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgsl-dev gcc
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,gaiamock]"
+      - name: Install gaiamock-mod overlay from Release
+        env:
+          DOWNLOAD_FROM_RELEASE: "1"
+        run: scripts/install_gaiamock_mod.sh
+      - name: Run gaiamock suite
+        run: pytest -q -m gaiamock
