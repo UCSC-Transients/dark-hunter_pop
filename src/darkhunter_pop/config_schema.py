@@ -39,6 +39,34 @@ class PathsConfig(BaseModel):
     data_root: str = "data"
 
 
+class DiagnosticsHooksConfig(BaseModel):
+    """Enable flags for shared diagnostic emitters (no science thresholds)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    funnel_sky: bool = True
+    elbadry_six_panel: bool = True
+    fit_tier_coverage: bool = True
+    gate_pass_rate: bool = True
+
+
+class DiagnosticsConfig(BaseModel):
+    """Rendering / report layout for ``plotting`` + ``diagnostics`` (issue #39).
+
+    Science thresholds (KS p-values, chi2/dof gates, MC noise budgets) stay in their
+    owning stage configs. Phase 6 owns SBC recovery design.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    figure_dpi: int = Field(120, ge=36, le=600)
+    figures_subdir: str = "figures"
+    reports_subdir: str = "reports"
+    write_figures: bool = True
+    write_reports: bool = True
+    hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
+
+
 class GaiamockConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -413,6 +441,7 @@ class PipelineConfig(BaseModel):
     sensitivity_analysis: SensitivityAnalysisConfig = Field(
         default_factory=SensitivityAnalysisConfig
     )
+    diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
     dr3: DRPathConfig
     dr4: DRPathConfig
 

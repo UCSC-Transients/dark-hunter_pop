@@ -43,7 +43,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,plot]"
       - name: Run required suites
         run: pytest -q -m "unit or physics or api"
 
