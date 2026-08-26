@@ -79,7 +79,9 @@ actually use the cluster before it's gone.
   even against a placeholder population model at first, to validate the end-to-end
   Poisson-likelihood + dynesty machinery on the actual compute target early. Kickoff issues +
   paste prompts: `docs/PHASE5_KICKOFF.md` (umbrella #62; child #63; Review/Integration #64).
-- **Phase 6**: #13 Validation/SBC completion, full diagnostic suite, all validation gates passing.
+- **Phase 6**: #13 Validation/SBC completion, full diagnostic suite, all validation gates
+  passing. Kickoff issues + paste prompts: `docs/PHASE6_KICKOFF.md` (umbrella #68; children
+  #69–#71; Review/Integration #72).
 - **Phase 7**: #16 Main program wiring, #14 Documentation, final review.
 
 \#15 Review/Integration runs continuously from Phase 1 onward.
