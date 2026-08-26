@@ -166,6 +166,19 @@ class QualityCutBin(BaseModel):
         return self
 
 
+class ExternalPhotometryCrossmatch(BaseModel):
+    """One external-band cross-match via a Gaia ``*_best_neighbour`` table."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    band: str = Field(..., min_length=1)
+    neighbour_table: str = Field(..., min_length=1)
+    catalog_table: str = Field(..., min_length=1)
+    mag_column: str = Field(..., min_length=1)
+    mag_err_column: str | None = None
+    enabled: bool = True
+
+
 class DRPathConfig(BaseModel):
     """Gaia-mission / path-specific configuration for one data release."""
 
@@ -176,6 +189,16 @@ class DRPathConfig(BaseModel):
     zero_point_version: str
     sed_filters: list[str] = Field(default_factory=list)
     quality_cut_bins: list[QualityCutBin] = Field(..., min_length=1)
+    gaia_source_photometry_bands: list[str] = Field(
+        default_factory=lambda: ["G", "BP", "RP"]
+    )
+    external_photometry_crossmatches: list[ExternalPhotometryCrossmatch] = Field(
+        default_factory=list
+    )
+    gaia_archive_user_env: str = "GAIA_ARCHIVE_USER"
+    gaia_archive_password_env: str = "GAIA_ARCHIVE_PASSWORD"
+    nss_table: str = "gaiadr3.nss_two_body_orbit"
+    gaia_source_table: str = "gaiadr3.gaia_source"
     # Reserved for DR4 epoch capabilities; ignored when inactive.
     allow_astrometric_epoch_outliers: bool = False
     selection_function_astrometric: DRSelectionFunctionPathConfig = Field(
