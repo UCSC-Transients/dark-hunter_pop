@@ -20,6 +20,7 @@ Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 | `darkhunter_pop.config_loader.load_config` / `config_checksum` / `assert_config_checksum` | Load, merge fragments, resume checksum |
 | `darkhunter_pop.schemas.*` | `ParameterSet`, `CandidateRecord`, `RunManifest`, enums, gate/follow-up types |
 | `darkhunter_pop.run_management.*` | Stage registry, artifact paths, run files, plan/purge |
+| `darkhunter_pop.pipeline` | Main-program orchestration: resolve run, print plan, dispatch `STAGE_ORDER` (`scripts/run_pipeline.py`) |
 | `darkhunter_pop.gaiamock_vendor.import_gaiamock_mod` | Sole science import path for gaiamock |
 | `darkhunter_pop.physics_utils` | Units + Poisson primitives only (no Kepler/RUWE) |
 
@@ -152,6 +153,8 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 
 ## 7. Phase status (orchestrator)
 
+**Phases 0–7 complete** on `main` (planned roster closed).
+
 - Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`
   (Phase 2 config checkpoint: #40 / PR #46).
 - Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
@@ -162,6 +165,12 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 - Phase 6 children landed: #69 / PR #76 (SBC recovery), #70 / PR #74
   (known-truth + comparison catalogs), #71 / PR #75 (full diagnostic suite +
   `@pytest.mark.slow`). Continuous Review/Integration (#72) materializes
-  `inference` + `diagnostics.sbc` into `config/config.yaml`. Required CI stays
+  `inference` + `diagnostics.sbc` into `config/config.yaml`.
+- Phase 7 landed: #79 / PR #84 (`scripts/run_pipeline.py` + `darkhunter_pop.pipeline`;
+  ARCHITECTURE.md §5 plan-then-run), #80 / PR #83 (user-facing docs + operator notes).
+  Final Review/Integration checkpoint: #81. Config fragments already ≡
+  `config/config.yaml` at this checkpoint (no new domain keys). Required CI stays
   `unit|physics|api`; `slow` / `network` / `gaiamock` remain optional.
-  Next: Phase 7 — main program (#16) + documentation (#14).
+
+Optional human follow-ups (outside ticket scope unless opened separately): December
+cluster dynesty recipe, real Gaia snapshot end-to-end smoke.

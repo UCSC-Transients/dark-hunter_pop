@@ -5,9 +5,8 @@ astrometric binaries. A population model is forward-modeled through a modified-R
 [`gaiamock`](https://github.com/kareemelbadry/gaiamock) overlay and compared to the real
 Gaia NSS sample with an inhomogeneous Poisson point-process likelihood.
 
-**Status:** Phases 0–6 are on `main` (Foundation through Validation/SBC + diagnostics).
-Phase 7 wires the main program ([#79](https://github.com/UCSC-Transients/dark-hunter_pop/issues/79))
-via `scripts/run_pipeline.py`. Design authority remains
+**Status:** Phases 0–7 complete on `main` (Foundation through main program + docs).
+Entry point: `scripts/run_pipeline.py`. Design authority remains
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the
 [`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md) — do not treat
 README prose as a substitute for those locked decisions.
