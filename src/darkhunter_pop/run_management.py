@@ -194,7 +194,16 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "selection_function_astrometric",
                 "selection_function_followup",
             ),
-            config_keys=("physics", "classification"),
+            deps=(
+                "darkhunter_pop.population_model",
+                "darkhunter_pop.constants",
+            ),
+            config_keys=(
+                "population_model",
+                "physics",
+                "classification",
+                "mass_calibration.delta_M_Ch_msun",
+            ),
         ),
         _spec(
             "sensitivity_analysis",
