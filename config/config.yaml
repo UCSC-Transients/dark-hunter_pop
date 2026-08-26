@@ -1,23 +1,56 @@
 # Canonical merged configuration for dark-hunter_pop.
-#
-# Populated by the Foundation subagent (config schema) and then extended one domain section per
-# stage. During development each subagent drafts a fragment under config/fragments/ (tracked);
-# the review/integration subagent merges fragments here at each checkpoint
-# (ARCHITECTURE.md §7, dark-hunter-pop-workflow §5).
-#
-# Hard rule: true physical constants live in src/darkhunter_pop/constants.py; choosable numbers,
-# thresholds, method switches, and paths live here. No secrets in git.
-#
-# DR3- and DR4-specific keys are configured independently even where the values coincide;
-# genuine physics/population parameters are shared (ARCHITECTURE.md §6). Default active mode: dr3.
-#
-# Reserved keys (filled by Foundation): paths.artifact_root, active_dr_mode,
-# mass_calibration.method, mass_calibration.sigma_logM, mass_calibration.santos_correction, etc.
+# Fragments under config/fragments/ are merged first; this file wins on conflicts.
+# Secrets never belong here. See docs/ARCHITECTURE.md §6–§7.
 
 paths:
   artifact_root: output
+  data_root: data
 
 active_dr_mode: dr3
 
 gaiamock:
   mod_release: gaiamock-mod-v1
+
+mass_calibration:
+  method: TAG10
+  sigma_logM: 0.027
+  sigma_logR: 0.014
+  santos_correction: true
+  delta_M_Ch_msun: 0.0
+
+classification:
+  M_MIN_msun: 1.1
+  n_sigma_mass_cut: 2.0
+  M_TOV_msun: 2.2
+
+physics:
+  cooling_tracks: bedard
+  cooling_atmosphere: DA
+  cooling_tracks_path: null
+  imf: kroupa
+  mc_noise_threshold: 0.1
+
+# Path-specific (independent even when values match). El-Badry et al. 2023 v1 defaults.
+dr3:
+  mission_baseline_months: 34.0
+  scanning_law_id: gaiadr3_pinned
+  zero_point_version: dr3_pinned
+  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  quality_cut_bins:
+    - g_max: 13.0
+      gof_max: 10.0
+    - g_min: 13.0
+      gof_max: 5.0
+  allow_astrometric_epoch_outliers: false
+
+dr4:
+  mission_baseline_months: 66.0
+  scanning_law_id: gaiadr4_pinned
+  zero_point_version: dr4_pinned
+  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  quality_cut_bins:
+    - g_max: 13.0
+      gof_max: 10.0
+    - g_min: 13.0
+      gof_max: 5.0
+  allow_astrometric_epoch_outliers: true

@@ -1,0 +1,25 @@
+# Independent DR3 / DR4 path config. Values may match but keys must never be shared.
+
+dr3:
+  mission_baseline_months: 34.0
+  scanning_law_id: gaiadr3_pinned
+  zero_point_version: dr3_pinned
+  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  quality_cut_bins:
+    - g_max: 13.0
+      gof_max: 10.0
+    - g_min: 13.0
+      gof_max: 5.0
+  allow_astrometric_epoch_outliers: false
+
+dr4:
+  mission_baseline_months: 66.0
+  scanning_law_id: gaiadr4_pinned
+  zero_point_version: dr4_pinned
+  sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  quality_cut_bins:
+    - g_max: 13.0
+      gof_max: 10.0
+    - g_min: 13.0
+      gof_max: 5.0
+  allow_astrometric_epoch_outliers: true

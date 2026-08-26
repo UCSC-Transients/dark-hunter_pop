@@ -1,0 +1,8 @@
+# Shared physics / population choices (not DR-path-specific).
+
+physics:
+  cooling_tracks: bedard
+  cooling_atmosphere: DA
+  cooling_tracks_path: null
+  imf: kroupa
+  mc_noise_threshold: 0.1
