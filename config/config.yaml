@@ -3,7 +3,7 @@
 # Secrets never belong here. See docs/ARCHITECTURE.md §6–§7.
 # Phase 2–5 integration checkpoints materialize fragment domains into this file
 # (incl. rv_consistency, companion_nature, population_model, triples, inference).
-# Phase 6 benchmarks (known-truth + comparison catalogs) materialized with #70.
+# Phase 6 (#72): benchmarks + diagnostics.sbc / hooks.sbc_recovery materialized.
 
 paths:
   artifact_root: output
@@ -246,6 +246,29 @@ population_model:
   gp_variance: 1.0
   allow_external_co_mf_priors: false
   random_seed: 57
+inference:
+  apply_sensitivity_dimensionality: true
+  likelihood_form: auto
+  eccentricity_hypothesis: thermal
+  circular_implies_wd: false
+  circular_e_threshold: 0.05
+  log_height_min: -5.0
+  log_height_max: 5.0
+  n_mass_grid: 64
+  default_astrometric_sf: 1.0
+  default_followup_sf: 1.0
+  # CI smoke defaults (tiny nested sampling). Cluster recipe in fragments/inference.yaml.
+  nlive: 20
+  dlogz: 0.5
+  maxcall: 400
+  sample: rwalk
+  random_seed: 63
+  n_robustness_runs: 1
+  robustness_nlive_scale: 1.5
+  robustness_seed_stride: 17
+  posterior_prior_overlap_threshold: 0.85
+  zero_count_ul_confidence: 0.95
+  skip_sampler: false
 diagnostics:
   figure_dpi: 120
   figures_subdir: figures
@@ -267,6 +290,34 @@ diagnostics:
     solution_type_fractions: true
     known_truth_benchmarks: true
     comparison_catalogs: true
+    sbc_recovery: true
+  sbc:
+    enabled: true
+    # Stage stays fast by default; tests call run_sbc_suite directly.
+    run_in_stage: false
+    recovery_backend: analytic_binned
+    credible_interval_level: 0.68
+    coverage_abs_tolerance: 0.20
+    n_repeats: 24
+    n_mass_bins: 4
+    expected_total_rate: 40.0
+    astrometric_sf: 1.0
+    followup_sf: 1.0
+    random_seed: 69
+    n_posterior_samples: 2000
+    inference_nlive: 12
+    inference_maxcall: 200
+    inference_dlogz: 1.0
+    inference_n_mass_grid: 24
+    injected_profiles:
+      - name: flat
+        relative_heights: [1.0, 1.0, 1.0, 1.0]
+      - name: rising
+        relative_heights: [0.5, 1.0, 2.0, 3.0]
+      - name: falling
+        relative_heights: [3.0, 2.0, 1.0, 0.5]
+      - name: peaked
+        relative_heights: [0.5, 2.5, 2.5, 0.5]
 benchmarks:
   known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
   ruwe_match_tolerance: 0.25
