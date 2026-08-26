@@ -2,9 +2,11 @@
 
 Continuous joint likelihood over the true nature of M2 from broadband photometry
 residual (ΔBIC), Gaia XP residual, and SB2 spectral characteristics when present
-(ARCHITECTURE.md §4). Feeds ``population_model`` as per-system weights
-``{WD, other, dark}`` — never a pre-filter / discard. Bédard cooling tracks load
-from ``physics.cooling_tracks_path`` only (local files; no runtime fetch).
+(ARCHITECTURE.md §4). Feeds ``population_model`` as per-system weights over
+``COMPANION_NATURE_WEIGHT_KEYS`` (``BH``/``NS``/``WD``/``other``/``outlier``) —
+never a pre-filter / discard. Photometric evidence is scored as WD / other / dark
+then mapped onto those five keys. Bédard cooling tracks load from
+``physics.cooling_tracks_path`` only (local files; no runtime fetch).
 """
 
 from __future__ import annotations
@@ -37,12 +39,20 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
-from darkhunter_pop.schemas import CandidateRecord, PhotometryPoint, RunManifest, StageStatus
+from darkhunter_pop.schemas import (
+    COMPANION_NATURE_WEIGHT_KEYS,
+    CandidateRecord,
+    PhotometryPoint,
+    RunManifest,
+    StageStatus,
+)
 
 SCHEMA_VERSION = 1
 STAGE_NAME = "companion_nature_likelihood"
-NATURE_CLASSES: tuple[str, ...] = ("WD", "other", "dark")
-NatureClass = Literal["WD", "other", "dark"]
+# Internal photometric hypotheses (joint BIC); mapped → five population keys.
+PHOTOMETRIC_CLASSES: tuple[str, ...] = ("WD", "other", "dark")
+NATURE_CLASSES = COMPANION_NATURE_WEIGHT_KEYS
+NatureClass = Literal["BH", "NS", "WD", "other", "outlier"]
 NatureTier = Literal["fast", "full"]
 
 # Provenance tags for weight metadata (extras); not a freeze schema enum.
@@ -397,6 +407,10 @@ def _precomputed_photometry_channel(
     )
 
 
+def _photometric_empty() -> dict[str, float]:
+    return {c: 0.0 for c in PHOTOMETRIC_CLASSES}
+
+
 def photometry_channel(
     candidate: CandidateRecord,
     *,
@@ -412,7 +426,7 @@ def photometry_channel(
     inputs). Otherwise build an absolute-mag flux-sum residual from M1/M2 + parallax
     + local cooling tracks. Missing ingredients → channel masked (not a discard).
     """
-    empty = {c: 0.0 for c in NATURE_CLASSES}
+    empty = _photometric_empty()
     if not cfg.use_photometry:
         return ChannelContribution(
             channel=ChannelName.PHOTOMETRY,
@@ -443,7 +457,7 @@ def photometry_channel(
     m_c_wd = mg_wd + mu
     m_c_other = mg_other + mu
 
-    chi2 = {c: 0.0 for c in NATURE_CLASSES}
+    chi2 = _photometric_empty()
     n_data = 0
     for point in points:
         err = point.mag_err if point.mag_err is not None else cfg.default_mag_err
@@ -477,7 +491,7 @@ def photometry_channel(
 
 def xp_channel(candidate: CandidateRecord, cfg: CompanionNatureConfig) -> ChannelContribution:
     """Gaia XP residual channel from extras chi2 keys when present."""
-    empty = {c: 0.0 for c in NATURE_CLASSES}
+    empty = _photometric_empty()
     if not cfg.use_xp:
         return ChannelContribution(
             channel=ChannelName.XP, chi2_by_class=empty, n_data=0, available=False
@@ -552,7 +566,7 @@ def sb2_channel(candidate: CandidateRecord, cfg: CompanionNatureConfig) -> Chann
     A luminous secondary strongly disfavors ``dark``. WD-likeness score maps to
     relative chi2 between WD and other; absent score → equal WD/other, dark high.
     """
-    empty = {c: 0.0 for c in NATURE_CLASSES}
+    empty = _photometric_empty()
     if not cfg.use_sb2 or not _sb2_unlocked(candidate):
         return ChannelContribution(
             channel=ChannelName.SB2, chi2_by_class=empty, n_data=0, available=False
@@ -588,7 +602,7 @@ def joint_bic_by_class(
     channels: Sequence[ChannelContribution],
     cfg: CompanionNatureConfig,
 ) -> tuple[dict[str, float], int]:
-    """Joint multi-band BIC: sum chi2 over available channels + k ln n.
+    """Joint multi-band BIC over photometric hypotheses: sum chi2 + k ln n.
 
     Not an independent per-band probability product — one shared residual budget.
     """
@@ -597,41 +611,98 @@ def joint_bic_by_class(
         "WD": cfg.n_params_wd,
         "other": cfg.n_params_other,
     }
-    chi2_tot = {c: 0.0 for c in NATURE_CLASSES}
+    chi2_tot = _photometric_empty()
     n_data = 0
     for ch in channels:
         if not ch.available or ch.n_data < 1:
             continue
         n_data += ch.n_data
-        for name in NATURE_CLASSES:
+        for name in PHOTOMETRIC_CLASSES:
             chi2_tot[name] += float(ch.chi2_by_class[name])
     if n_data < 1:
         # No evidence → uniform BIC (weights → uniform after floor).
-        return {c: 0.0 for c in NATURE_CLASSES}, 0
+        return _photometric_empty(), 0
     log_n = math.log(float(n_data))
     bic = {
-        name: chi2_tot[name] + float(n_params[name]) * log_n for name in NATURE_CLASSES
+        name: chi2_tot[name] + float(n_params[name]) * log_n
+        for name in PHOTOMETRIC_CLASSES
     }
     return bic, n_data
+
+
+def photometric_weights_from_bic(
+    bic_by_class: Mapping[str, float],
+    cfg: CompanionNatureConfig,
+) -> dict[str, float]:
+    """Continuous softmax over photometric WD/other/dark BIC; apply floor."""
+    scale = float(cfg.evidence_scale) * float(cfg.delta_bic_threshold)
+    if scale <= 0:
+        raise ValueError("evidence_scale * delta_bic_threshold must be > 0")
+    shifted = {k: -0.5 * float(v) / scale for k, v in bic_by_class.items()}
+    m = max(shifted.values()) if shifted else 0.0
+    exps = {k: math.exp(v - m) for k, v in shifted.items()}
+    total = sum(exps.values()) or 1.0
+    raw = {k: exps[k] / total for k in PHOTOMETRIC_CLASSES}
+    floored = {k: max(float(cfg.weight_floor), raw[k]) for k in PHOTOMETRIC_CLASSES}
+    norm = sum(floored.values()) or 1.0
+    return {k: floored[k] / norm for k in PHOTOMETRIC_CLASSES}
+
+
+def _gate_failed_outlier_route(candidate: CandidateRecord) -> bool:
+    extras = candidate.extras
+    if extras.get("rv_astrometry_gate_passed") is False:
+        return True
+    skip = extras.get("joint_orbit_fit_skip_reason")
+    if skip == "rv_astrometry_gate_failed":
+        return True
+    gate = extras.get("rv_astrometry_gate")
+    if isinstance(gate, Mapping) and gate.get("passed") is False:
+        return True
+    return False
+
+
+def map_photometric_to_population_weights(
+    photometric: Mapping[str, float],
+    candidate: CandidateRecord,
+    cfg: CompanionNatureConfig,
+) -> dict[str, float]:
+    """Map WD/other/dark → ``COMPANION_NATURE_WEIGHT_KEYS`` (#56 ↔ #57).
+
+    Photometric ``dark`` splits into BH/NS by ``dark_to_bh_fraction``. Gate failures
+    blend mass into ``outlier`` via ``outlier_gate_blend``. Floor + renorm so no
+    class is hard-zero.
+    """
+    dark = float(photometric.get("dark", 0.0))
+    bh_frac = float(cfg.dark_to_bh_fraction)
+    mapped = {
+        "BH": dark * bh_frac,
+        "NS": dark * (1.0 - bh_frac),
+        "WD": float(photometric.get("WD", 0.0)),
+        "other": float(photometric.get("other", 0.0)),
+        "outlier": 0.0,
+    }
+    if _gate_failed_outlier_route(candidate):
+        alpha = float(cfg.outlier_gate_blend)
+        mapped = {k: (1.0 - alpha) * v for k, v in mapped.items()}
+        mapped["outlier"] = alpha
+    floored = {k: max(float(cfg.weight_floor), mapped[k]) for k in NATURE_CLASSES}
+    norm = sum(floored.values()) or 1.0
+    return {k: floored[k] / norm for k in NATURE_CLASSES}
 
 
 def weights_from_bic(
     bic_by_class: Mapping[str, float],
     cfg: CompanionNatureConfig,
+    *,
+    candidate: CandidateRecord | None = None,
 ) -> dict[str, float]:
-    """Continuous softmax weights from joint BIC; apply config weight floor."""
-    scale = float(cfg.evidence_scale) * float(cfg.delta_bic_threshold)
-    if scale <= 0:
-        raise ValueError("evidence_scale * delta_bic_threshold must be > 0")
-    # Softmax(-0.5 * BIC / scale); never hard-zero before floor.
-    shifted = {k: -0.5 * float(v) / scale for k, v in bic_by_class.items()}
-    m = max(shifted.values()) if shifted else 0.0
-    exps = {k: math.exp(v - m) for k, v in shifted.items()}
-    total = sum(exps.values()) or 1.0
-    raw = {k: exps[k] / total for k in NATURE_CLASSES}
-    floored = {k: max(float(cfg.weight_floor), raw[k]) for k in NATURE_CLASSES}
-    norm = sum(floored.values()) or 1.0
-    return {k: floored[k] / norm for k in NATURE_CLASSES}
+    """Photometric BIC → five-key population weights (compat helper)."""
+    photo = photometric_weights_from_bic(bic_by_class, cfg)
+    if candidate is None:
+        # Unit tests without a candidate: no gate blend.
+        stub = CandidateRecord(source_id=0)
+        return map_photometric_to_population_weights(photo, stub, cfg)
+    return map_photometric_to_population_weights(photo, candidate, cfg)
 
 
 def select_tier(
@@ -705,7 +776,7 @@ def evaluate_companion_nature(
         channels = channels_fast
         bic = bic_fast
 
-    weights = weights_from_bic(bic, cfg)
+    weights = weights_from_bic(bic, cfg, candidate=candidate)
     notes_parts: list[str] = []
     if not any(c.available for c in channels):
         notes_parts.append("no_evidence_channels:uniform_weights")
@@ -717,6 +788,8 @@ def evaluate_companion_nature(
         notes_parts.append("He_atmosphere")
     else:
         notes_parts.append("DA_atmosphere")
+    if _gate_failed_outlier_route(candidate):
+        notes_parts.append("outlier_gate_blend")
 
     return NatureEvidence(
         source_id=candidate.source_id,
@@ -744,11 +817,14 @@ def apply_nature_to_candidate(
     extras["companion_nature_channels"] = [
         c.channel.value for c in evidence.channels if c.available
     ]
+    extras["companion_nature_photometric_bic"] = dict(evidence.bic_by_class)
     if evidence.notes:
         extras["companion_nature_notes"] = evidence.notes
     return candidate.model_copy(
         update={
-            "companion_nature_weights": dict(evidence.weights),
+            "companion_nature_weights": {
+                k: float(evidence.weights[k]) for k in NATURE_CLASSES
+            },
             "extras": extras,
         }
     )

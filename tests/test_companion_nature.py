@@ -21,6 +21,7 @@ from darkhunter_pop.companion_nature import (
 )
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.config_schema import SHARED_CHECKSUM_SECTIONS
+from darkhunter_pop.population_model import validate_companion_nature_weights
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     create_run_manifest,
@@ -28,6 +29,7 @@ from darkhunter_pop.run_management import (
     stage_artifact_path,
 )
 from darkhunter_pop.schemas import (
+    COMPANION_NATURE_WEIGHT_KEYS,
     CandidateRecord,
     ParameterSet,
     PhotometryPoint,
@@ -126,12 +128,13 @@ def test_weights_continuous_never_hard_zero() -> None:
     # Huge ΔBIC favoring dark — WD/other still above floor after renorm.
     bic = {"dark": 0.0, "WD": 1.0e6, "other": 1.0e6}
     weights = weights_from_bic(bic, cfg)
+    assert set(weights) == set(COMPANION_NATURE_WEIGHT_KEYS)
     assert set(weights) == set(NATURE_CLASSES)
     assert abs(sum(weights.values()) - 1.0) < 1e-12
-    assert weights["dark"] > 0.9
-    assert weights["WD"] >= cfg.weight_floor * 0.5
-    assert weights["other"] >= cfg.weight_floor * 0.5
+    assert weights["BH"] + weights["NS"] > 0.9
     assert weights["WD"] > 0.0 and weights["other"] > 0.0
+    assert weights["outlier"] > 0.0
+    validate_companion_nature_weights(weights)
 
 
 def test_joint_not_independent_product() -> None:
@@ -146,7 +149,9 @@ def test_joint_not_independent_product() -> None:
     )
     e_phot = evaluate_companion_nature(phot_only, cfg)
     e_both = evaluate_companion_nature(both, cfg)
-    assert e_phot.weights["dark"] > e_both.weights["dark"]
+    assert e_phot.weights["BH"] + e_phot.weights["NS"] > (
+        e_both.weights["BH"] + e_both.weights["NS"]
+    )
     assert e_both.weights["WD"] > e_phot.weights["WD"]
     assert e_both.channels[0].available and e_both.channels[1].available
 
@@ -161,7 +166,9 @@ def test_sb2_downweights_dark() -> None:
     )
     e0 = evaluate_companion_nature(no_sb2, cfg)
     e1 = evaluate_companion_nature(sb2, cfg)
-    assert e1.weights["dark"] < e0.weights["dark"]
+    dark0 = e0.weights["BH"] + e0.weights["NS"]
+    dark1 = e1.weights["BH"] + e1.weights["NS"]
+    assert dark1 < dark0
     assert e1.weights["WD"] > e1.weights["other"]
 
 
@@ -181,7 +188,11 @@ def test_never_discards_candidates() -> None:
     assert diag.n_weighted == 3
     assert diag.n_input == 3
     assert all(c.companion_nature_weights is not None for c in out)
-    assert all(abs(sum(c.companion_nature_weights.values()) - 1.0) < 1e-9 for c in out)
+    for c in out:
+        assert c.companion_nature_weights is not None
+        validate_companion_nature_weights(c.companion_nature_weights)
+        assert abs(sum(c.companion_nature_weights.values()) - 1.0) < 1e-9
+
 
 
 def test_cooling_tracks_local_only(tmp_path: Path) -> None:

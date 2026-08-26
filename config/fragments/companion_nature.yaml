@@ -6,6 +6,8 @@ companion_nature:
   delta_bic_threshold: 10.0
   evidence_scale: 1.0
   weight_floor: 1.0e-6
+  dark_to_bh_fraction: 0.5
+  outlier_gate_blend: 0.8
   use_photometry: true
   use_xp: true
   use_sb2: true

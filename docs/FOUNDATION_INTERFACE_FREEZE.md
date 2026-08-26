@@ -38,8 +38,8 @@ Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 
 - Required: `source_id`
 - Optional blocks: NSS / Thiele–Innes / `rv_summary` (dict; #5 conforms) / photometry / TESS /
-  `m1`/`m2` ParameterSets / `orbit_tier` / `fit_tier` / `companion_nature_weights` /
-  (`{WD, other, dark}` summing to 1; #56) / `extras`
+  `m1`/`m2` ParameterSets / `orbit_tier` / `fit_tier` / `companion_nature_weights`
+  (`COMPANION_NATURE_WEIGHT_KEYS` = `BH`/`NS`/`WD`/`other`/`outlier`; #56 ↔ #57) / `extras`
 
 ### Enums
 
@@ -69,12 +69,13 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
 | `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps |
 | `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
-| `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; weights `{WD,other,dark}` |
+| `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
 | `physics.*` | cooling tracks/atmosphere/path, IMF, `mc_noise_threshold` |
 | `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
 | `selection_function_followup.*` | shared follow-up SF; accel/jerk catalog pins under `dr3`/`dr4` |
 | `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
+| `population_model.*` | multiplicity, free-height / GP MF, bin-edge policy, soft `M_TOV` width; shared `M_TOV` / `delta_M_Ch` / IMF stay in their sections |
 | `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
 | `diagnostics.*` | figure/report layout + hook enable flags (not science thresholds) |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
@@ -83,11 +84,15 @@ Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR 
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
 `companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
 `selection_function_astrometric`, `selection_function_followup`, `sensitivity_analysis`,
-`triples` (`config_loader.config_checksum`).
+`population_model`, `triples` (`config_loader.config_checksum`).
 `diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
 the checksum.
 
 Constants precedence: `effective_M_Ch_msun(config) = constants.M_CH + delta_M_Ch_msun`.
+
+`CandidateRecord.companion_nature_weights` (#56 → #57): when set, keys are exactly
+`COMPANION_NATURE_WEIGHT_KEYS` = `(BH, NS, WD, other, outlier)` (schema version 1);
+non-negative responsibilities normalized by `population_model`; never a pre-filter.
 
 ---
 
@@ -146,5 +151,5 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 - Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
   #49 / PR #53 (`triples` stub). Continuous Review/Integration: #50.
 - Phase 4 in progress per `ORCHESTRATION_PLAN.md` §5 — roster #7
-  `companion_nature_likelihood` (#56; weights `{WD, other, dark}`), #9
-  `population_model` (#57). Review/Integration: #58.
+  `companion_nature_likelihood` (#56; five-key weights), #9 `population_model`
+  (#57, landed). Review/Integration: #58.
