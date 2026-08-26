@@ -91,7 +91,15 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
         _spec(
             "data_acquisition",
             "darkhunter_pop.data_acquisition",
-            config_keys=("active_dr_mode", "dr3.quality_cut_bins", "dr4.quality_cut_bins"),
+            config_keys=(
+                "active_dr_mode",
+                "dr3.quality_cut_bins",
+                "dr4.quality_cut_bins",
+                "dr3.external_photometry_crossmatches",
+                "dr4.external_photometry_crossmatches",
+                "dr3.nss_table",
+                "dr4.nss_table",
+            ),
         ),
         _spec(
             "mass_derivation_bulk",
