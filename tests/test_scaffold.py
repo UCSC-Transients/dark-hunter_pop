@@ -16,6 +16,7 @@ MODULES = [
     "darkhunter_pop.gaiamock_vendor",
     "darkhunter_pop.schemas",
     "darkhunter_pop.run_management",
+    "darkhunter_pop.pipeline",
     "darkhunter_pop.physics_utils",
     "darkhunter_pop.data_acquisition",
     "darkhunter_pop.mass_derivation",
