@@ -78,6 +78,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `population_model.*` | multiplicity, free-height / GP MF, bin-edge policy, soft `M_TOV` width; shared `M_TOV` / `delta_M_Ch` / IMF stay in their sections |
 | `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
 | `diagnostics.*` | figure/report layout + hook enable flags (not science thresholds) |
+| `benchmarks.*` | known-truth + comparison catalog paths / RUWE match tolerance (issue #70); fixture YAML holds system values + provenance; comparison-only never priors |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
@@ -85,8 +86,8 @@ Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR 
 `companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
 `selection_function_astrometric`, `selection_function_followup`, `sensitivity_analysis`,
 `population_model`, `triples` (`config_loader.config_checksum`).
-`diagnostics` is intentionally excluded (layout-only). Inactive DR changes do not affect
-the checksum.
+`diagnostics` and `benchmarks` are intentionally excluded (layout / validation
+fixtures only). Inactive DR changes do not affect the checksum.
 
 Constants precedence: `effective_M_Ch_msun(config) = constants.M_CH + delta_M_Ch_msun`.
 
@@ -115,6 +116,10 @@ Canonical names and order: `run_management.STAGE_ORDER` / `STAGE_REGISTRY`.
 | `sensitivity_analysis` | `sensitivity_analysis` | `population_model` |
 | `inference` | `inference` | population + selections + sensitivity |
 | `diagnostics` | `diagnostics` | `inference` |
+
+`darkhunter_pop.benchmarks` is a diagnostics helper module (known-truth +
+comparison catalog loaders); it is listed in the ``diagnostics`` stage
+``dependency_modules`` fingerprint but is not a separate pipeline stage.
 
 Each stage: `dependency_modules` → `source_hash`; `config_fingerprint_keys` → artifact path;
 optional `uses_gaiamock`.
@@ -153,6 +158,8 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 - Phase 4 children landed: #56 / PR #60 (`companion_nature_likelihood`; five-key
   weights), #57 / PR #61 (`population_model`). Config materialization of P3/P4
   fragments into `config/config.yaml` is owned by continuous Review (#64).
-- Phase 5 in progress per `ORCHESTRATION_PLAN.md` §5 — roster #11 `inference`
-  (#63; Poisson × SF × dynesty, December priority). Continuous Review/Integration:
-  #64. Docs-first before any freeze break; CI dynesty smoke must stay bounded.
+- Phase 5 landed: #62 / PR #67 (`inference`; Poisson × SF × dynesty).
+- Phase 6 in progress per `ORCHESTRATION_PLAN.md` / `PHASE6_KICKOFF.md` —
+  roster #13 diagnostics (SBC #69, known-truth/comparison catalogs #70,
+  full diagnostic suite #71). Continuous Review/Integration: #72.
+  Docs-first before any freeze break; CI dynesty smoke must stay bounded.

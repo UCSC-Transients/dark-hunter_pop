@@ -1,0 +1,14 @@
+# Comparison-only fixture: Shahaf et al. catalog.
+schema_version: 1
+catalog_id: shahaf
+role: comparison_only
+never_as_prior: true
+provenance:
+  citation: "Shahaf et al. (ARCHITECTURE.md §4 cross-validation catalogs)"
+  notes: "Comparison-only Shahaf literature systems."
+n_systems_expected: 2
+systems:
+  - source_id: 5000000000000000001
+    label: "fixture_shahaf_01"
+  - source_id: 5000000000000000002
+    label: "fixture_shahaf_02"

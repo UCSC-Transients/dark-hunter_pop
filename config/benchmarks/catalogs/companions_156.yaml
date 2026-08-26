@@ -1,0 +1,18 @@
+# Comparison-only fixture: 156-companions astrometry+RV validation paper.
+schema_version: 1
+catalog_id: companions_156
+role: comparison_only
+never_as_prior: true
+provenance:
+  citation: "156-companions astrometry+RV validation paper (ARCHITECTURE.md §4)"
+  notes: "Cross-validation catalog for joint astrometry+RV companions. Comparison-only."
+n_systems_expected: 156
+systems:
+  - source_id: 2000000000000000001
+    label: "fixture_comp156_01"
+    has_rv: true
+    has_astrometry: true
+  - source_id: 2000000000000000002
+    label: "fixture_comp156_02"
+    has_rv: true
+    has_astrometry: true

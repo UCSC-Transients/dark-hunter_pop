@@ -48,13 +48,16 @@ class DiagnosticsHooksConfig(BaseModel):
     elbadry_six_panel: bool = True
     fit_tier_coverage: bool = True
     gate_pass_rate: bool = True
+    known_truth_benchmarks: bool = True
+    comparison_catalogs: bool = True
 
 
 class DiagnosticsConfig(BaseModel):
     """Rendering / report layout for ``plotting`` + ``diagnostics`` (issue #39).
 
     Science thresholds (KS p-values, chi2/dof gates, MC noise budgets) stay in their
-    owning stage configs. Phase 6 owns SBC recovery design.
+    owning stage configs. Known-truth / comparison fixture values live under
+    ``benchmarks`` (issue #70); SBC recovery design is Phase 6 roster #13.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +68,44 @@ class DiagnosticsConfig(BaseModel):
     write_figures: bool = True
     write_reports: bool = True
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
+
+
+class BenchmarkCatalogEntry(BaseModel):
+    """One comparison-only catalog path entry (ARCHITECTURE.md §4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    role: Literal["comparison_only"] = "comparison_only"
+    never_as_prior: Literal[True] = True
+
+
+class BenchmarksConfig(BaseModel):
+    """Known-truth + comparison catalog paths (issue #70).
+
+    System-level science values live in fixture YAML with provenance. This section
+    holds paths and match tolerances only. Excluded from resume checksum (validation).
+    External CO mass functions are comparison-only — never inference priors.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    known_truth_path: str = "config/benchmarks/known_truth_gaia_bh.yaml"
+    ruwe_match_tolerance: float = Field(0.25, gt=0)
+    catalogs: dict[str, BenchmarkCatalogEntry] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _benchmarks_hard_rules(self) -> BenchmarksConfig:
+        for catalog_id, entry in self.catalogs.items():
+            if entry.role != "comparison_only":
+                raise ValueError(
+                    f"benchmarks.catalogs[{catalog_id}].role must be comparison_only"
+                )
+            if entry.never_as_prior is not True:
+                raise ValueError(
+                    f"benchmarks.catalogs[{catalog_id}].never_as_prior must be true"
+                )
+        return self
 
 
 class TriplesConfig(BaseModel):
@@ -694,6 +735,7 @@ class PipelineConfig(BaseModel):
     )
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
+    benchmarks: BenchmarksConfig = Field(default_factory=BenchmarksConfig)
     triples: TriplesConfig = Field(default_factory=TriplesConfig)
     dr3: DRPathConfig
     dr4: DRPathConfig

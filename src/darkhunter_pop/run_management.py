@@ -245,8 +245,11 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "diagnostics",
             "darkhunter_pop.diagnostics",
             inputs_from=("inference",),
-            deps=("darkhunter_pop.diagnostics",),  # plotting excluded from hash
-            config_keys=("paths.artifact_root", "diagnostics"),
+            deps=(
+                "darkhunter_pop.diagnostics",
+                "darkhunter_pop.benchmarks",
+            ),  # plotting excluded from hash
+            config_keys=("paths.artifact_root", "diagnostics", "benchmarks"),
         ),
     )
 }
