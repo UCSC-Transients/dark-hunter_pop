@@ -1,8 +1,9 @@
 # Canonical merged configuration for dark-hunter_pop.
 # Fragments under config/fragments/ are merged first; this file wins on conflicts.
 # Secrets never belong here. See docs/ARCHITECTURE.md §6–§7.
-# Phase 2 integration checkpoint: materializes fragment domains into this file
-# (data_acquisition, selection_function_*, mass_derivation, sensitivity_analysis, diagnostics).
+# Phase 2–4 integration checkpoints materialize fragment domains into this file
+# (incl. rv_consistency, companion_nature, population_model, triples).
+# Phase 5 inference fragment merges here when #63 lands.
 
 paths:
   artifact_root: output
@@ -25,6 +26,62 @@ mass_derivation:
   information_gain_sigma_floor_msun: 0.01
   sed_queue_max_stars: null
   require_sed_package: false
+rv_consistency:
+  chi2_dof_threshold: 5.0
+  min_epochs_per_instrument: 3
+  min_epochs_total: 3
+  jitter_max_kms: 10.0
+  sb2_period_frac_tol: 0.1
+  sb2_ecc_abs_tol: 0.15
+  joker_seed_variant: full
+  joint_prior_period_frac: 0.05
+  joint_prior_ecc_abs: 0.05
+  joint_prior_omega_rad: 0.2
+  joint_prior_t_peri_day: 5.0
+  joint_fit_max_nfev: 200
+companion_nature:
+  delta_bic_threshold: 10.0
+  evidence_scale: 1.0
+  weight_floor: 1.0e-06
+  dark_to_bh_fraction: 0.5
+  outlier_gate_blend: 0.8
+  use_photometry: true
+  use_xp: true
+  use_sb2: true
+  default_mag_err: 0.05
+  n_params_dark: 0
+  n_params_wd: 2
+  n_params_other: 2
+  wd_mg_zero_point: 12.0
+  wd_mg_mass_slope: -2.5
+  other_mg_zero_point: 5.0
+  other_mg_mass_slope: -5.0
+  xp_chi2_dark_key: xp_chi2_dark
+  xp_chi2_wd_key: xp_chi2_wd
+  xp_chi2_other_key: xp_chi2_other
+  xp_n_data_key: xp_n_data
+  phot_chi2_dark_key: phot_chi2_dark
+  phot_chi2_wd_key: phot_chi2_wd
+  phot_chi2_other_key: phot_chi2_other
+  phot_n_data_key: phot_n_data
+  primary_mg_zero_point: 4.5
+  primary_mg_mass_slope: -5.0
+  sb2_wd_likeness_key: sb2_wd_likeness
+  sb2_score_n_data: 4
+  sb2_dark_chi2_per_datum: 25.0
+  sb2_type_chi2_scale: 9.0
+  default_tier: fast
+  full_tier_ambiguity_delta_bic: 5.0
+  full_tier_m2_msun_min: null
+  full_queue_max: null
+  full_tier_grid_factor: 3
+  age_bin_edges_gyr:
+  - 0.0
+  - 1.0
+  - 3.0
+  - 10.0
+  - 14.0
+  age_extras_key: age_gyr
 classification:
   M_MIN_msun: 1.1
   n_sigma_mass_cut: 2.0
@@ -150,6 +207,45 @@ sensitivity_analysis:
   n_mock_growth_factor: 2.0
   n_synthetic_systems: 400
   random_seed: 38
+population_model:
+  p_single: 0.0
+  p_binary: 1.0
+  p_triple: 0.0
+  population_classes:
+  - BH
+  - NS
+  - WD
+  - other
+  - outlier
+  compact_object_classes:
+  - BH
+  - NS
+  - WD
+  mass_function_model: free_height_bins
+  bin_edge_policy: equal_log_m
+  n_mass_bins: 8
+  mass_min_msun: 0.2
+  mass_max_msun: 20.0
+  fiducial_expected_counts:
+  - 5.0
+  - 8.0
+  - 12.0
+  - 10.0
+  - 6.0
+  - 4.0
+  - 2.0
+  - 1.0
+  m_tov_soft_width_msun: 0.05
+  m_tov_prior_sigma_msun: 0.2
+  m_tov_prior_n_quad: 21
+  m1_family: kroupa
+  period_family: flat_log_p
+  eccentricity_family: thermal
+  apply_sensitivity_covariates: true
+  gp_length_scale_log_m: 0.5
+  gp_variance: 1.0
+  allow_external_co_mf_priors: false
+  random_seed: 57
 diagnostics:
   figure_dpi: 120
   figures_subdir: figures
@@ -161,6 +257,10 @@ diagnostics:
     elbadry_six_panel: true
     fit_tier_coverage: true
     gate_pass_rate: true
+triples:
+  enabled: false
+  tess_variability_channel: true
+  rotation_consistency_channel: true
 dr3:
   mission_baseline_months: 34.0
   scanning_law_id: gaiadr3_pinned
