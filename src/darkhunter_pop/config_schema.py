@@ -40,7 +40,7 @@ class PathsConfig(BaseModel):
 
 
 class DiagnosticsHooksConfig(BaseModel):
-    """Enable flags for shared diagnostic emitters (no science thresholds)."""
+    """Enable flags for shared diagnostic emitters (layout hooks + Phase 6 SBC)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -56,15 +56,93 @@ class DiagnosticsHooksConfig(BaseModel):
     solution_type_fractions: bool = True
     known_truth_benchmarks: bool = True
     comparison_catalogs: bool = True
+    sbc_recovery: bool = True
+
+
+class InjectedMassFunctionProfile(BaseModel):
+    """One distinct injected free-height mass-function profile for SBC."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    relative_heights: list[float] = Field(..., min_length=2)
+
+    @model_validator(mode="after")
+    def _positive_heights(self) -> InjectedMassFunctionProfile:
+        if any(h <= 0.0 for h in self.relative_heights):
+            raise ValueError(
+                f"injected profile {self.name!r}: relative_heights must be > 0"
+            )
+        return self
+
+
+class SBCConfig(BaseModel):
+    """Simulation-based calibration recovery + credible-interval coverage (issue #69).
+
+    Tolerances and injection knobs live here — never hardcoded in ``sbc.py``.
+    ``analytic_binned`` is the fast unit/physics path; ``dynesty`` exercises the
+    staged inference sampler (prefer ``@pytest.mark.slow`` for multi-repeat suites).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # When False, diagnostics stage skips the (potentially long) SBC suite;
+    # tests and explicit callers still invoke ``run_sbc_suite`` directly.
+    run_in_stage: bool = False
+    recovery_backend: Literal["analytic_binned", "dynesty"] = "analytic_binned"
+    credible_interval_level: float = Field(0.68, gt=0.0, lt=1.0)
+    coverage_abs_tolerance: float = Field(0.20, gt=0.0, le=1.0)
+    n_repeats: int = Field(24, ge=1)
+    n_mass_bins: int = Field(4, ge=2)
+    expected_total_rate: float = Field(40.0, gt=0.0)
+    astrometric_sf: float = Field(1.0, gt=0.0)
+    followup_sf: float = Field(1.0, gt=0.0)
+    random_seed: int = 69
+    # Analytic posterior Monte Carlo draws per bin (coverage estimator).
+    n_posterior_samples: int = Field(2000, ge=64)
+    # Dynesty overrides when recovery_backend == dynesty (CI/slow keep these small).
+    inference_nlive: int = Field(12, ge=2)
+    inference_maxcall: int = Field(200, ge=10)
+    inference_dlogz: float = Field(1.0, gt=0.0)
+    inference_n_mass_grid: int = Field(24, ge=8)
+    injected_profiles: list[InjectedMassFunctionProfile] = Field(
+        default_factory=lambda: [
+            InjectedMassFunctionProfile(
+                name="flat", relative_heights=[1.0, 1.0, 1.0, 1.0]
+            ),
+            InjectedMassFunctionProfile(
+                name="rising", relative_heights=[0.5, 1.0, 2.0, 3.0]
+            ),
+            InjectedMassFunctionProfile(
+                name="falling", relative_heights=[3.0, 2.0, 1.0, 0.5]
+            ),
+            InjectedMassFunctionProfile(
+                name="peaked", relative_heights=[0.5, 2.5, 2.5, 0.5]
+            ),
+        ],
+        min_length=1,
+    )
+
+    @model_validator(mode="after")
+    def _profile_bin_lengths(self) -> SBCConfig:
+        for profile in self.injected_profiles:
+            if len(profile.relative_heights) != self.n_mass_bins:
+                raise ValueError(
+                    f"injected profile {profile.name!r}: "
+                    f"len(relative_heights)={len(profile.relative_heights)} "
+                    f"must equal n_mass_bins={self.n_mass_bins}"
+                )
+        return self
 
 
 class DiagnosticsConfig(BaseModel):
-    """Rendering / report layout for ``plotting`` + ``diagnostics`` (issues #39, #71).
+    """Rendering / report layout for ``plotting`` + ``diagnostics`` (issues #39, #69–#71).
 
-    Science thresholds (KS p-values, chi2/dof gates, MC noise budgets) stay in their
-    owning stage configs. Known-truth / comparison fixture values live under
-    ``benchmarks`` (issue #70). Required diagnostic-suite hooks are issue #71;
-    SBC recovery design is Phase 6 roster #13 / issue #69.
+    Layout / DPI / hook flags stay non-checksum. Phase 6 SBC recovery tolerances
+    live under ``sbc`` (issue #69). Known-truth / comparison fixture values live
+    under ``benchmarks`` (issue #70). Required diagnostic-suite hooks are #71.
+    Stage science thresholds (KS, chi2/dof, MC noise) remain in owning stage configs.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -79,6 +157,7 @@ class DiagnosticsConfig(BaseModel):
     # Max |ΔlogZ| / combined_err allowed across robustness runs (layout-side check).
     sampler_logz_sigma_tol: float = Field(3.0, gt=0)
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
+    sbc: SBCConfig = Field(default_factory=SBCConfig)
 
 
 class BenchmarkCatalogEntry(BaseModel):

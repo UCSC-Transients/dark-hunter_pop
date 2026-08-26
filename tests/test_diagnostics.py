@@ -127,6 +127,9 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.hooks.solution_type_fractions is True
     assert cfg.diagnostics.hooks.known_truth_benchmarks is True
     assert cfg.diagnostics.hooks.comparison_catalogs is True
+    assert cfg.diagnostics.hooks.sbc_recovery is True
+    assert cfg.diagnostics.sbc.enabled is True
+    assert cfg.diagnostics.sbc.run_in_stage is False
 
 
 def test_registry_fingerprints_diagnostics_config() -> None:
@@ -138,6 +141,7 @@ def test_registry_fingerprints_diagnostics_config() -> None:
     assert spec.inputs_from == ("inference",)
     assert "darkhunter_pop.plotting" not in spec.dependency_modules
     assert "darkhunter_pop.benchmarks" in spec.dependency_modules
+    assert "darkhunter_pop.sbc" in spec.dependency_modules
 
 
 def test_builtin_helpers_registered() -> None:
@@ -156,6 +160,7 @@ def test_builtin_helpers_registered() -> None:
     assert "emit_solution_type_fractions" in names
     assert "emit_known_truth_benchmarks" in names
     assert "emit_comparison_catalogs" in names
+    assert "emit_sbc_recovery" in names
     assert callable(get_diagnostic_helper("emit_funnel_sky"))
 
 
@@ -561,6 +566,7 @@ def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
     report = format_diagnostics_stage_report(result)
     assert "diagnostics stage (full suite)" in report
     assert "Phase 6" in report or "SBC recovery" in report or "known-truth" in report
+    assert "sbc_config:" in report
 
 
 def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:
@@ -586,6 +592,9 @@ def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:
     )
     assert artifact.is_file()
     payload = read_diagnostics_artifact(artifact)
+    assert "Phase 6 diagnostic suite" in payload["notes"]
+    assert "issue #70" in payload["notes"] or "known-truth" in payload["notes"]
+    assert "issue #69" in payload["notes"] or "SBC" in payload["notes"]
     assert "Phase 6 diagnostic suite" in payload["notes"]
     assert "issue #70" in payload["notes"] or "known-truth" in payload["notes"]
 

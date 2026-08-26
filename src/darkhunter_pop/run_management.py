@@ -248,6 +248,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.diagnostics",
                 "darkhunter_pop.benchmarks",
+                "darkhunter_pop.sbc",
             ),  # plotting excluded from hash
             config_keys=("paths.artifact_root", "diagnostics", "benchmarks"),
         ),
