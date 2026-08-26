@@ -1,0 +1,17 @@
+# diagnostics + plotting infrastructure (ARCHITECTURE.md §4, issue #39).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# Layout / DPI / hook enable flags only. Science thresholds stay in owning stages
+# (validation_gate KS cuts, rv_astrometry_gate chi2/dof, physics.mc_noise_threshold).
+# Phase 6 owns SBC recovery design; do not add recovery knobs here.
+
+diagnostics:
+  figure_dpi: 120
+  figures_subdir: figures
+  reports_subdir: reports
+  write_figures: true
+  write_reports: true
+  hooks:
+    funnel_sky: true
+    elbadry_six_panel: true
+    fit_tier_coverage: true
+    gate_pass_rate: true

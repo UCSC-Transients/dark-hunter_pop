@@ -18,17 +18,20 @@ from typing import Any
 import h5py
 import numpy as np
 import yaml
-from astropy import units as u
-from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from numpy.typing import NDArray
 
-from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
+from darkhunter_pop.config_loader import load_config, repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
     DRPathConfig,
     ExternalPhotometryCrossmatch,
     PipelineConfig,
     QualityCutBin,
+)
+from darkhunter_pop.diagnostics import (
+    emit_funnel_sky,
+    format_funnel_report,
+    resolve_diagnostic_dirs,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -497,81 +500,45 @@ def format_funnel_table(
     quality_cut_bin_counts: Mapping[str, int],
 ) -> str:
     """Human-readable funnel table (exempt from caveman compression)."""
-    lines = [
-        "data_acquisition funnel",
-        f"  queried:              {funnel.queried}",
-        f"  after_quality_cut:    {funnel.after_quality_cut}",
-        f"  candidates_written:   {funnel.candidates_written}",
-        "  quality_cut_bins:",
-    ]
-    for key, count in sorted(quality_cut_bin_counts.items()):
-        lines.append(f"    {key}: {count}")
-    return "\n".join(lines)
+    return format_funnel_report(
+        funnel.as_dict(),
+        quality_cut_bin_counts=quality_cut_bin_counts,
+        stage_name="data_acquisition",
+    )
 
 
 def write_diagnostic_artifacts(
     diagnostics: StageDiagnostics,
     artifact_path: Path,
+    *,
+    config: PipelineConfig | None = None,
 ) -> list[Path]:
-    """Write optional matplotlib diagnostics beside the stage HDF5."""
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return []
-
-    out_dir = artifact_path.parent / f"{artifact_path.stem}_diagnostics"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
-
-    def _hist(
-        values: NDArray[np.floating] | None,
-        name: str,
-        xlabel: str,
-    ) -> None:
-        if values is None or len(values) == 0:
-            return
-        fig, axis = plt.subplots(figsize=(6, 4))
-        axis.hist(values, bins="auto", color="steelblue", edgecolor="white")
-        axis.set_xlabel(xlabel)
-        axis.set_ylabel("count")
-        axis.set_title(name)
-        path = out_dir / f"{name}.png"
-        fig.tight_layout()
-        fig.savefig(path, dpi=120)
-        plt.close(fig)
-        written.append(path)
-
-    _hist(diagnostics.ruwe, "ruwe", "RUWE")
-    _hist(diagnostics.period_day, "period_day", "period [day]")
-    _hist(diagnostics.eccentricity, "eccentricity", "eccentricity")
-
-    if diagnostics.ra_deg is not None and diagnostics.dec_deg is not None:
-        fig = plt.figure(figsize=(8, 4))
-        ax = fig.add_subplot(111, projection="mollweide")
-        coord = SkyCoord(
-            diagnostics.ra_deg * u.deg,
-            diagnostics.dec_deg * u.deg,
-            frame="icrs",
-        )
-        ax.scatter(
-            coord.ra.wrap_at(180 * u.deg).radian,
-            coord.dec.radian,
-            s=4,
-            alpha=0.6,
-        )
-        ax.set_title("sky coverage")
-        path = out_dir / "sky_map.png"
-        fig.tight_layout()
-        fig.savefig(path, dpi=120)
-        plt.close(fig)
-        written.append(path)
-
-    funnel_path = out_dir / "funnel.txt"
-    funnel_path.write_text(
-        format_funnel_table(diagnostics.funnel, diagnostics.quality_cut_bin_counts),
-        encoding="utf-8",
+    """Write funnel/sky diagnostics beside the stage HDF5 via shared plotting hooks."""
+    cfg = config if config is not None else load_config()
+    dirs = resolve_diagnostic_dirs(
+        cfg,
+        run_id=artifact_path.parent.parent.name,
+        beside_artifact=artifact_path,
     )
-    written.append(funnel_path)
+    emission = emit_funnel_sky(
+        cfg,
+        dirs,
+        funnel_counts=diagnostics.funnel.as_dict(),
+        quality_cut_bin_counts=diagnostics.quality_cut_bin_counts,
+        ruwe=diagnostics.ruwe,
+        period_day=diagnostics.period_day,
+        eccentricity=diagnostics.eccentricity,
+        ra_deg=diagnostics.ra_deg,
+        dec_deg=diagnostics.dec_deg,
+        stage_name="data_acquisition",
+    )
+    # Preserve legacy funnel.txt at the diagnostics root for existing callers.
+    written: list[Path] = list(emission.figures) + list(emission.reports)
+    if emission.reports:
+        legacy = dirs.root / "funnel.txt"
+        legacy.write_text(emission.reports[0].read_text(encoding="utf-8"), encoding="utf-8")
+        if legacy not in written:
+            written.append(legacy)
     return written
 
 
@@ -694,7 +661,7 @@ def run_data_acquisition(
         quality_cut_bin_counts=bin_counts,
     )
     write_stage_hdf5(artifact, candidates, snapshot=snapshot, diagnostics=diagnostics)
-    write_diagnostic_artifacts(diagnostics, artifact)
+    write_diagnostic_artifacts(diagnostics, artifact, config=config)
 
     manifest = mark_stage_finished(
         manifest,
