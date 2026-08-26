@@ -213,7 +213,9 @@ def test_scaffolding_includes_benchmark_hooks(tmp_path: Path) -> None:
     assert "emit_known_truth_benchmarks" in list_diagnostic_helpers()
     assert "emit_comparison_catalogs" in list_diagnostic_helpers()
     assert "benchmarks" in result.config_snapshot
-    assert result.as_dict()["notes"].startswith("Diagnostics scaffolding plus")
+    notes = result.as_dict()["notes"]
+    assert "issue #70" in notes or "known-truth" in notes
+    assert "issue #71" in notes or "diagnostic suite" in notes
 
 
 def test_load_known_truth_from_explicit_path() -> None:

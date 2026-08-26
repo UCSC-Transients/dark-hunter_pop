@@ -48,16 +48,23 @@ class DiagnosticsHooksConfig(BaseModel):
     elbadry_six_panel: bool = True
     fit_tier_coverage: bool = True
     gate_pass_rate: bool = True
+    age_stratified_wd: bool = True
+    triples_robustness: bool = True
+    info_gain_followup: bool = True
+    sampler_consistency: bool = True
+    mc_noise_convergence: bool = True
+    solution_type_fractions: bool = True
     known_truth_benchmarks: bool = True
     comparison_catalogs: bool = True
 
 
 class DiagnosticsConfig(BaseModel):
-    """Rendering / report layout for ``plotting`` + ``diagnostics`` (issue #39).
+    """Rendering / report layout for ``plotting`` + ``diagnostics`` (issues #39, #71).
 
     Science thresholds (KS p-values, chi2/dof gates, MC noise budgets) stay in their
     owning stage configs. Known-truth / comparison fixture values live under
-    ``benchmarks`` (issue #70); SBC recovery design is Phase 6 roster #13.
+    ``benchmarks`` (issue #70). Required diagnostic-suite hooks are issue #71;
+    SBC recovery design is Phase 6 roster #13 / issue #69.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -67,6 +74,10 @@ class DiagnosticsConfig(BaseModel):
     reports_subdir: str = "reports"
     write_figures: bool = True
     write_reports: bool = True
+    # Top-N systems listed in the information-gain / follow-up priority report.
+    info_gain_top_n: int = Field(20, ge=1)
+    # Max |ΔlogZ| / combined_err allowed across robustness runs (layout-side check).
+    sampler_logz_sigma_tol: float = Field(3.0, gt=0)
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
 
 

@@ -223,3 +223,80 @@ def plot_categorical_bars(
     axis.set_ylabel(ylabel)
     axis.set_title(title)
     return save_figure(fig, path, dpi=dpi)
+
+
+def plot_grouped_bars(
+    labels: Sequence[str],
+    series: Mapping[str, Sequence[float]],
+    path: Path,
+    *,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    dpi: int,
+) -> Path | None:
+    """Grouped bar chart (e.g. mock vs real solution-type fractions)."""
+    if not labels or not series:
+        return None
+    n_series = len(series)
+    for values in series.values():
+        if len(values) != len(labels):
+            return None
+    plt = require_pyplot()
+    fig, axis = plt.subplots(figsize=(8, 4.5))
+    positions = np.arange(len(labels), dtype=np.float64)
+    width = 0.8 / n_series
+    for index, (name, values) in enumerate(series.items()):
+        offset = (index - 0.5 * (n_series - 1)) * width
+        axis.bar(
+            positions + offset,
+            [float(v) for v in values],
+            width=width,
+            label=name,
+            edgecolor="white",
+        )
+    axis.set_xticks(positions)
+    axis.set_xticklabels(list(labels), rotation=30, ha="right")
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel(ylabel)
+    axis.set_title(title)
+    axis.legend(loc="best")
+    return save_figure(fig, path, dpi=dpi)
+
+
+def plot_line_with_threshold(
+    x: Sequence[float] | NDArray[np.floating],
+    y: Sequence[float] | NDArray[np.floating],
+    path: Path,
+    *,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    dpi: int,
+    threshold: float | None = None,
+    threshold_label: str = "threshold",
+    log_x: bool = False,
+) -> Path | None:
+    """Line plot with optional horizontal threshold (MC/Poisson convergence)."""
+    xx = np.asarray(x, dtype=np.float64)
+    yy = np.asarray(y, dtype=np.float64)
+    if xx.size == 0 or yy.size == 0 or xx.size != yy.size:
+        return None
+    plt = require_pyplot()
+    fig, axis = plt.subplots(figsize=(7, 4))
+    axis.plot(xx, yy, marker="o", linewidth=1.5)
+    if threshold is not None:
+        axis.axhline(
+            float(threshold),
+            color="crimson",
+            linestyle="--",
+            linewidth=1.2,
+            label=threshold_label,
+        )
+        axis.legend(loc="best")
+    if log_x:
+        axis.set_xscale("log")
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel(ylabel)
+    axis.set_title(title)
+    return save_figure(fig, path, dpi=dpi)
