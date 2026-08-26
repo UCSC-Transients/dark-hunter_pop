@@ -65,7 +65,8 @@ actually use the cluster before it's gone.
 - **Phase 0** (sequential, blocking): #0 Foundation. Preceded by the docs/decisions PR that locks
   `ARCHITECTURE.md` / this plan.
 - **Phase 1** (parallel, ≤3): #1 `data_acquisition`, #2 `selection_function_astrometric` +
-  validation gate, #5 `dark-hunter_rv`/`_sed` extensions.
+  validation gate, #5 `dark-hunter_rv`/`_sed` extensions. Kickoff issues + paste prompts:
+  `docs/PHASE1_KICKOFF.md` (umbrella #28; children #29–#31).
 - **Phase 2** (parallel): #3 `selection_function_followup` + audit function, #4 mass derivation,
   #10 `sensitivity_analysis`, #12 plotting/diagnostics infrastructure.
 - **Phase 3** (parallel): #6 `rv_astrometry_gate` + `joint_orbit_fit`, #8 `triples` stub.
