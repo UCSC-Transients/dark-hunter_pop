@@ -1,9 +1,9 @@
 # Canonical merged configuration for dark-hunter_pop.
 # Fragments under config/fragments/ are merged first; this file wins on conflicts.
 # Secrets never belong here. See docs/ARCHITECTURE.md §6–§7.
-# Phase 2–4 integration checkpoints materialize fragment domains into this file
-# (incl. rv_consistency, companion_nature, population_model, triples).
-# Phase 5 inference fragment merges here when #63 lands.
+# Phase 2–5 integration checkpoints materialize fragment domains into this file
+# (incl. rv_consistency, companion_nature, population_model, triples, inference).
+# Phase 6 benchmarks (known-truth + comparison catalogs) materialized with #70.
 
 paths:
   artifact_root: output
@@ -252,11 +252,53 @@ diagnostics:
   reports_subdir: reports
   write_figures: true
   write_reports: true
+  info_gain_top_n: 20
+  sampler_logz_sigma_tol: 3.0
   hooks:
     funnel_sky: true
     elbadry_six_panel: true
     fit_tier_coverage: true
     gate_pass_rate: true
+    age_stratified_wd: true
+    triples_robustness: true
+    info_gain_followup: true
+    sampler_consistency: true
+    mc_noise_convergence: true
+    solution_type_fractions: true
+    known_truth_benchmarks: true
+    comparison_catalogs: true
+benchmarks:
+  known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
+  ruwe_match_tolerance: 0.25
+  catalogs:
+    ns_candidate_21:
+      path: config/benchmarks/catalogs/ns_candidate_21.yaml
+      role: comparison_only
+      never_as_prior: true
+    companions_156:
+      path: config/benchmarks/catalogs/companions_156.yaml
+      role: comparison_only
+      never_as_prior: true
+    amrf_binary_masses:
+      path: config/benchmarks/catalogs/amrf_binary_masses.yaml
+      role: comparison_only
+      never_as_prior: true
+    andrews:
+      path: config/benchmarks/catalogs/andrews.yaml
+      role: comparison_only
+      never_as_prior: true
+    shahaf:
+      path: config/benchmarks/catalogs/shahaf.yaml
+      role: comparison_only
+      never_as_prior: true
+    pulsar_mf:
+      path: config/benchmarks/catalogs/pulsar_mf.yaml
+      role: comparison_only
+      never_as_prior: true
+    ligo_bh_mf:
+      path: config/benchmarks/catalogs/ligo_bh_mf.yaml
+      role: comparison_only
+      never_as_prior: true
 triples:
   enabled: false
   tess_variability_channel: true

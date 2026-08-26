@@ -1,0 +1,45 @@
+# Known-truth benchmark table for Gaia BH systems (ARCHITECTURE.md §4 diagnostics).
+# Science expectations live here with provenance — not hardcoded in Python.
+schema_version: 1
+table_id: known_truth_gaia_bh
+active_dr_mode: dr3
+provenance:
+  project_authority: "docs/ARCHITECTURE.md §4 diagnostics (known-truth benchmarks)"
+  notes: >
+    Gaia-BH1/BH2 are clean DR3 NSS detections. Gaia-BH3 is a DR3 marginal/non-detection
+    with RUWE≈3.4 and would have appeared in the acceleration catalog for parts of its orbit.
+    Numerical thresholds used by expectation checks are config-owned (benchmarks.ruwe_match_tolerance).
+systems:
+  - name: Gaia-BH1
+    source_id: 4373465352415301632
+    dr3_expectation: clean_detection
+    nss_orbital_expected: true
+    ruwe_approx: null
+    acceleration_catalog_parts_of_orbit: false
+    literature:
+      citation: "El-Badry et al. 2023a, MNRAS (Gaia BH1)"
+      designation: "Gaia DR3 4373465352415301632"
+      notes: "Sun-like star + ~10 Msun dark companion; clean DR3 astrometric orbit."
+  - name: Gaia-BH2
+    source_id: 5870569352746779008
+    dr3_expectation: clean_detection
+    nss_orbital_expected: true
+    ruwe_approx: null
+    acceleration_catalog_parts_of_orbit: false
+    literature:
+      citation: "El-Badry et al. 2023b, MNRAS (Gaia BH2)"
+      designation: "Gaia DR3 5870569352746779008"
+      notes: "Red giant + ~9 Msun dark companion; clean DR3 astrometric orbit + RV confirmation."
+  - name: Gaia-BH3
+    source_id: 4318465066420528000
+    dr3_expectation: marginal_or_non_detection
+    nss_orbital_expected: false
+    ruwe_approx: 3.4
+    acceleration_catalog_parts_of_orbit: true
+    literature:
+      citation: "Gaia Collaboration, Panuzzo et al. 2024, A&A 686, L2"
+      designation: "Gaia DR3 4318465066420528000"
+      notes: >
+        Long-period (~11.6 yr) system; DR3 single-star RUWE≈3.4 implies marginal/non-detection
+        as a clean NSS orbital solution. Acceleration-catalog appearance expected for parts of
+        the orbit (ARCHITECTURE.md §4).

@@ -1,8 +1,9 @@
-# diagnostics + plotting infrastructure (ARCHITECTURE.md §4, issues #39 / #69).
+# diagnostics + plotting (ARCHITECTURE.md §4, issues #39 / #69 / #70 / #71).
 # Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
-# Layout / DPI / hook enable flags + Phase 6 SBC recovery tolerances.
+# Layout / DPI / hook enable flags + Phase 6 SBC recovery tolerances (#69).
 # Other science thresholds stay in owning stages (validation_gate KS cuts,
 # rv_astrometry_gate chi2/dof, physics.mc_noise_threshold).
+# Known-truth / comparison fixture values live under config/fragments/benchmarks.yaml.
 
 diagnostics:
   figure_dpi: 120
@@ -10,11 +11,21 @@ diagnostics:
   reports_subdir: reports
   write_figures: true
   write_reports: true
+  info_gain_top_n: 20
+  sampler_logz_sigma_tol: 3.0
   hooks:
     funnel_sky: true
     elbadry_six_panel: true
     fit_tier_coverage: true
     gate_pass_rate: true
+    age_stratified_wd: true
+    triples_robustness: true
+    info_gain_followup: true
+    sampler_consistency: true
+    mc_noise_convergence: true
+    solution_type_fractions: true
+    known_truth_benchmarks: true
+    comparison_catalogs: true
     sbc_recovery: true
   sbc:
     enabled: true

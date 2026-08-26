@@ -200,8 +200,14 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
         "companion_nature:",
         "population_model:",
         "triples:",
+        "benchmarks:",
     ):
         assert section in raw, f"canonical config.yaml missing {section}"
+    assert "known_truth_benchmarks:" in raw
+    assert "comparison_catalogs:" in raw
+    assert canon_only.benchmarks.ruwe_match_tolerance > 0.0
+    assert "pulsar_mf" in canon_only.benchmarks.catalogs
+    assert canon_only.benchmarks.catalogs["ligo_bh_mf"].never_as_prior is True
 
 
 def test_checksum_includes_phase2_shared_sections() -> None:

@@ -1,0 +1,24 @@
+# Comparison-only external mass function: radio pulsar MF (selection-biased).
+# HARD RULE: never an inference prior (ARCHITECTURE.md §4; population_model.allow_external_co_mf_priors=false).
+schema_version: 1
+catalog_id: pulsar_mf
+role: comparison_only
+never_as_prior: true
+kind: mass_function
+provenance:
+  citation: "Radio pulsar mass function (literature compilation; radio-selection-biased)"
+  caveats: >
+    Strongly selection-biased relative to a volume-limited dormant NS population.
+    Comparison-only overlay for diagnostics — forbidden as a population prior.
+mass_msun:
+  - 1.20
+  - 1.35
+  - 1.40
+  - 1.55
+  - 1.70
+weights:
+  - 1.0
+  - 2.0
+  - 3.0
+  - 2.0
+  - 1.0
