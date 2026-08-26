@@ -1,9 +1,4 @@
 # Gaiamock vendor / modified-RUWE overlay (ARCHITECTURE.md §1.1).
-# Filled further by F3 config schema; these keys are the version-triple hooks for F0.
 
 gaiamock:
   mod_release: gaiamock-mod-v1
-  # sha256 and git_commit are recorded into the run file at stage start from the
-  # installed overlay (darkhunter_pop.gaiamock_vendor.read_versions); optional pins:
-  # mod_sha256: 71454d768f5eb5514555d1cee716a3eab89121815d55fb561ba13f013d7ef028
-  # git_commit: <vendor/gaiamock submodule SHA>

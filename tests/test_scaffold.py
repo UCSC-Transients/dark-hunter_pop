@@ -11,10 +11,12 @@ import pytest
 MODULES = [
     "darkhunter_pop",
     "darkhunter_pop.constants",
+    "darkhunter_pop.config_schema",
+    "darkhunter_pop.config_loader",
     "darkhunter_pop.gaiamock_vendor",
+    "darkhunter_pop.schemas",
     "darkhunter_pop.run_management",
     "darkhunter_pop.physics_utils",
-    "darkhunter_pop.schemas",
     "darkhunter_pop.data_acquisition",
     "darkhunter_pop.mass_derivation",
     "darkhunter_pop.rv_consistency",
