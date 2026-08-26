@@ -252,11 +252,19 @@ diagnostics:
   reports_subdir: reports
   write_figures: true
   write_reports: true
+  info_gain_top_n: 20
+  sampler_logz_sigma_tol: 3.0
   hooks:
     funnel_sky: true
     elbadry_six_panel: true
     fit_tier_coverage: true
     gate_pass_rate: true
+    age_stratified_wd: true
+    triples_robustness: true
+    info_gain_followup: true
+    sampler_consistency: true
+    mc_noise_convergence: true
+    solution_type_fractions: true
 triples:
   enabled: false
   tess_variability_channel: true
