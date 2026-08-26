@@ -1,0 +1,15 @@
+# Comparison-only fixture: Andrews et al. catalog / target-list cross-check.
+schema_version: 1
+catalog_id: andrews
+role: comparison_only
+never_as_prior: true
+provenance:
+  citation: "Andrews et al. (ARCHITECTURE.md §4 cross-validation catalogs)"
+  related_target_list: "config/target_lists/derived/andrews_adoption_dates.yaml"
+  notes: "Comparison-only against Andrews literature systems / follow-up target list."
+n_systems_expected: 2
+systems:
+  - source_id: 4000000000000000001
+    label: "fixture_andrews_01"
+  - source_id: 4000000000000000002
+    label: "fixture_andrews_02"

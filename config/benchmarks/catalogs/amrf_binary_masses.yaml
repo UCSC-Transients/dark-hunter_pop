@@ -1,0 +1,20 @@
+# Comparison-only fixture: gaiadr3.binary_masses AMRF classification.
+schema_version: 1
+catalog_id: amrf_binary_masses
+role: comparison_only
+never_as_prior: true
+provenance:
+  citation: "Gaia DR3 gaiadr3.binary_masses (AMRF classification)"
+  gaia_table: "gaiadr3.binary_masses"
+  notes: "AMRF class labels for cross-check against companion_nature. Comparison-only."
+n_systems_expected: 3
+systems:
+  - source_id: 3000000000000000001
+    amrf_class: "MSMS"
+    label: "fixture_amrf_msms"
+  - source_id: 3000000000000000002
+    amrf_class: "WDMS"
+    label: "fixture_amrf_wdms"
+  - source_id: 3000000000000000003
+    amrf_class: "BHMS"
+    label: "fixture_amrf_bhms"

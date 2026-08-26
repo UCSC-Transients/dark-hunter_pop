@@ -14,7 +14,8 @@ completes the remaining required diagnostics:
 - gaiamock solution-type-fraction validation wrapper
 - RV chi2/dof gate pass-rate diagnostic
 
-SBC recovery and known-truth catalog suites are separate Phase 6 slots.
+Known-truth / comparison catalogs (#70) are also emitted here when enabled.
+SBC recovery is issue #69 (separate).
 Diagnostic reports and plot captions stay full-detail (caveman exemption).
 """
 
@@ -31,6 +32,16 @@ import h5py
 import numpy as np
 from numpy.typing import NDArray
 
+from darkhunter_pop.benchmarks import (
+    assert_required_catalogs_present,
+    check_known_truth_expectations,
+    format_comparison_catalog_report,
+    format_known_truth_report,
+    load_all_comparison_catalogs,
+    load_known_truth_table_from_config,
+    synthetic_observed_from_truth,
+    validate_benchmarks_config,
+)
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.forward_model import (
@@ -154,7 +165,7 @@ class InfoGainSystemRow:
 
 @dataclass
 class DiagnosticsStageResult:
-    """Full diagnostic-suite stage output (ARCHITECTURE.md §4 required list)."""
+    """Full diagnostic-suite stage output (ARCHITECTURE.md §4 + #70 / #71)."""
 
     schema_version: int
     dirs: DiagnosticDirs
@@ -178,7 +189,8 @@ class DiagnosticsStageResult:
                 "WD check, triples robustness (stub-safe), info-gain/follow-up "
                 "priority, sampler multi-run consistency, MC Poisson-negligibility "
                 "convergence, gaiamock solution-type fractions, RV gate pass-rate. "
-                "SBC recovery and known-truth catalogs are separate Phase 6 slots."
+                "Also emits known-truth Gaia BH benchmarks and comparison-only "
+                "catalog reports (issue #70). SBC recovery is issue #69."
             ),
         }
 
@@ -1277,6 +1289,67 @@ def emit_solution_type_fractions(
     return emission
 
 
+def emit_known_truth_benchmarks(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    observed: Mapping[int, Any] | Sequence[Any] | None = None,
+) -> HookEmissionResult:
+    """Hook: Gaia BH known-truth expectation report (fixture/config-driven)."""
+    diag = config.diagnostics
+    if not diag.hooks.known_truth_benchmarks:
+        return HookEmissionResult(
+            hook_name="known_truth_benchmarks",
+            skipped_reason="diagnostics.hooks.known_truth_benchmarks=false",
+        )
+    validate_benchmarks_config(config)
+    table = load_known_truth_table_from_config(config)
+    obs = observed if observed is not None else synthetic_observed_from_truth(table)
+    results = check_known_truth_expectations(
+        table,
+        obs,
+        ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+    )
+    result = HookEmissionResult(hook_name="known_truth_benchmarks")
+    if diag.write_reports:
+        result.reports.append(
+            write_report(
+                dirs.reports / "known_truth_gaia_bh.txt",
+                format_known_truth_report(
+                    table,
+                    results,
+                    ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+                ),
+            )
+        )
+    return result
+
+
+def emit_comparison_catalogs(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+) -> HookEmissionResult:
+    """Hook: comparison-only catalog loaders + caveated report (never priors)."""
+    diag = config.diagnostics
+    if not diag.hooks.comparison_catalogs:
+        return HookEmissionResult(
+            hook_name="comparison_catalogs",
+            skipped_reason="diagnostics.hooks.comparison_catalogs=false",
+        )
+    validate_benchmarks_config(config)
+    catalogs = load_all_comparison_catalogs(config)
+    assert_required_catalogs_present(catalogs)
+    result = HookEmissionResult(hook_name="comparison_catalogs")
+    if diag.write_reports:
+        result.reports.append(
+            write_report(
+                dirs.reports / "comparison_catalogs.txt",
+                format_comparison_catalog_report(catalogs),
+            )
+        )
+    return result
+
+
 def _ensure_builtin_helpers_registered() -> None:
     """Idempotently register the infrastructure hook helpers."""
     builtins: dict[str, DiagnosticHelper] = {
@@ -1290,6 +1363,8 @@ def _ensure_builtin_helpers_registered() -> None:
         "emit_sampler_consistency": emit_sampler_consistency,
         "emit_mc_noise_convergence": emit_mc_noise_convergence,
         "emit_solution_type_fractions": emit_solution_type_fractions,
+        "emit_known_truth_benchmarks": emit_known_truth_benchmarks,
+        "emit_comparison_catalogs": emit_comparison_catalogs,
         "format_funnel_report": format_funnel_report,
         "format_elbadry_panel_report": format_elbadry_panel_report,
         "format_fit_tier_coverage_report": format_fit_tier_coverage_report,
@@ -1300,6 +1375,8 @@ def _ensure_builtin_helpers_registered() -> None:
         "format_sampler_consistency_report": format_sampler_consistency_report,
         "format_mc_noise_convergence_report": format_mc_noise_convergence_report,
         "format_solution_type_fraction_report": format_solution_type_fraction_report,
+        "format_known_truth_report": format_known_truth_report,
+        "format_comparison_catalog_report": format_comparison_catalog_report,
         "count_fit_tiers": count_fit_tiers,
         "assess_sampler_consistency": assess_sampler_consistency,
         "rank_information_gain": rank_information_gain,
@@ -1334,6 +1411,7 @@ def run_diagnostic_suite(
 
     When ``demo_missing`` is True, empty/synthetic stand-ins fill hooks that lack
     upstream data so the on-disk layout is exercised without science artifacts.
+    Known-truth and comparison-catalog hooks also run from fixtures when enabled.
     """
     _ensure_builtin_helpers_registered()
     dirs = resolve_diagnostic_dirs(config, run_id=run_id)
@@ -1438,13 +1516,18 @@ def run_diagnostic_suite(
     else:
         hooks.append(emit_solution_type_fractions(config, dirs, result=None))
 
+    hooks.append(emit_known_truth_benchmarks(config, dirs))
+    hooks.append(emit_comparison_catalogs(config, dirs))
     return DiagnosticsStageResult(
         schema_version=DIAGNOSTICS_SCHEMA_VERSION,
         dirs=dirs,
         hooks_run=hooks,
         helpers_registered=list_diagnostic_helpers(),
         matplotlib_available=matplotlib_available(),
-        config_snapshot=config.diagnostics.model_dump(mode="json"),
+        config_snapshot={
+            "diagnostics": config.diagnostics.model_dump(mode="json"),
+            "benchmarks": config.benchmarks.model_dump(mode="json"),
+        },
     )
 
 
@@ -1533,7 +1616,7 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
         f"figures_dir: {result.dirs.figures}",
         f"reports_dir: {result.dirs.reports}",
         f"matplotlib_available: {result.matplotlib_available}",
-        f"figure_dpi: {result.config_snapshot.get('figure_dpi')}",
+        f"figure_dpi: {(result.config_snapshot.get('diagnostics') or result.config_snapshot).get('figure_dpi')}",
         f"helpers_registered ({len(result.helpers_registered)}):",
     ]
     for name in result.helpers_registered:
@@ -1554,8 +1637,8 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
             for path in emission.figures:
                 lines.append(f"    figure: {path}")
     lines.append(
-        "scope_note: SBC recovery and known-truth / comparison-catalog suites are "
-        "Phase 6 slots #69 / #70; this stage owns the required diagnostic list."
+        "scope_note: this stage owns the required diagnostic list (#71) plus "
+        "known-truth / comparison-catalog hooks (#70). SBC recovery is issue #69."
     )
     lines.append("=== end diagnostics stage ===")
     return "\n".join(lines)

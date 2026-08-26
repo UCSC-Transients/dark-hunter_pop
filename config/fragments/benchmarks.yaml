@@ -1,0 +1,39 @@
+# Known-truth + comparison catalogs (ARCHITECTURE.md §4 diagnostics, issue #70).
+# Draft fragment — Review/Integration merges into config/config.yaml at checkpoints.
+# Paths + match tolerances only; system-level science values live in fixture YAML with provenance.
+# Excluded from resume checksum (validation/diagnostics, like diagnostics.*).
+# External CO mass functions are comparison-only — never inference priors.
+
+benchmarks:
+  known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
+  # Absolute RUWE tolerance when checking Gaia-BH3 ruwe_approx against observed RUWE.
+  ruwe_match_tolerance: 0.25
+  catalogs:
+    ns_candidate_21:
+      path: config/benchmarks/catalogs/ns_candidate_21.yaml
+      role: comparison_only
+      never_as_prior: true
+    companions_156:
+      path: config/benchmarks/catalogs/companions_156.yaml
+      role: comparison_only
+      never_as_prior: true
+    amrf_binary_masses:
+      path: config/benchmarks/catalogs/amrf_binary_masses.yaml
+      role: comparison_only
+      never_as_prior: true
+    andrews:
+      path: config/benchmarks/catalogs/andrews.yaml
+      role: comparison_only
+      never_as_prior: true
+    shahaf:
+      path: config/benchmarks/catalogs/shahaf.yaml
+      role: comparison_only
+      never_as_prior: true
+    pulsar_mf:
+      path: config/benchmarks/catalogs/pulsar_mf.yaml
+      role: comparison_only
+      never_as_prior: true
+    ligo_bh_mf:
+      path: config/benchmarks/catalogs/ligo_bh_mf.yaml
+      role: comparison_only
+      never_as_prior: true
