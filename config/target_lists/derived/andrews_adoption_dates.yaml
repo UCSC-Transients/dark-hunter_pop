@@ -1,0 +1,4 @@
+# Derived adoption dates for Andrews et al. target list (tracked; reconstructed from Sheet).
+# Format: source_id -> ISO date string (YYYY-MM-DD) when the target was adopted.
+# Empty until Sheets revision-history mining is run with credentials.
+{}

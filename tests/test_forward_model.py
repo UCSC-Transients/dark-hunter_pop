@@ -1,7 +1,8 @@
-"""Tests for selection_function_astrometric (forward_model)."""
+"""Tests for selection_function_astrometric and selection_function_followup."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import h5py
@@ -296,3 +297,166 @@ def test_run_mock_injections_returns_records() -> None:
     records, g_mag = run_mock_injections(tweaked, gaiamock)
     assert len(records) == 1
     assert len(g_mag) == 1
+
+
+def test_config_loads_selection_function_followup_fragment() -> None:
+    cfg = load_config()
+    fu = cfg.selection_function_followup
+    assert len(fu.target_lists) == 3
+    assert fu.target_lists[0].name == "andrews"
+    assert len(fu.major_surveys) == 4
+    assert {s.name for s in fu.major_surveys} == {"APOGEE", "RAVE", "LAMOST", "DESI"}
+    assert cfg.dr3.selection_function_followup.accel_jerk_catalog_id == "dr3_accel_jerk_pinned"
+    assert cfg.dr4.selection_function_followup.accel_jerk_catalog_id == "dr4_accel_jerk_pinned"
+    assert fu.target_list_sheet.revision_history_incompleteness_caveat is True
+
+
+def test_followup_observability_and_tiers() -> None:
+    from darkhunter_pop.forward_model import (
+        ad_hoc_literature_probability,
+        followup_selection_probability,
+        load_survey_sf,
+        passes_observability_cuts,
+        _resolve_path,
+    )
+    from darkhunter_pop.schemas import FollowUpRecord
+
+    cfg = load_config().selection_function_followup
+    assert passes_observability_cuts(
+        declination_deg=10.0, g_mag=12.0, config=cfg
+    )
+    assert not passes_observability_cuts(
+        declination_deg=-80.0, g_mag=12.0, config=cfg
+    )
+
+    rec = FollowUpRecord(
+        source_id=1,
+        brightness_g_mag=12.0,
+        declination_deg=10.0,
+        pm_ra_mas_yr=2.0,
+        pm_dec_mas_yr=1.0,
+    )
+    surveys = [
+        load_survey_sf(_resolve_path(s.selection_function_path))
+        for s in cfg.major_surveys
+    ]
+    p_list, tier = followup_selection_probability(
+        rec,
+        cfg,
+        survey_lookups=surveys,
+        teff_k=5000.0,
+        on_target_list=True,
+        target_list_cooler_pref=True,
+    )
+    assert tier == "target_list"
+    assert p_list > 0
+
+    p_surv, tier_s = followup_selection_probability(
+        rec,
+        cfg,
+        survey_lookups=surveys,
+        major_survey_name="APOGEE",
+    )
+    assert tier_s == "documented:APOGEE"
+    assert p_surv > 0
+
+    p_adhoc = ad_hoc_literature_probability(rec, cfg)
+    assert 0 < p_adhoc <= 1
+
+
+def test_mine_adoption_dates_and_weekly_snapshot(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import (
+        SHEETS_REVISION_INCOMPLETENESS_CAVEAT,
+        diff_sheet_revisions,
+        mine_sheet_adoption_dates_from_revisions,
+        write_derived_adoption_dates,
+        write_weekly_sheet_snapshot,
+    )
+
+    rev0: list[dict[str, str]] = []
+    rev1 = [{"source_id": "100", "name": "a"}]
+    rev2 = [
+        {"source_id": "100", "name": "a"},
+        {"source_id": "200", "name": "b"},
+    ]
+    newly = diff_sheet_revisions(rev1, rev2, adoption_date="2024-06-01")
+    assert newly == {"200": "2024-06-01"}
+
+    adopted = mine_sheet_adoption_dates_from_revisions(
+        [("2024-01-01", rev0), ("2024-03-01", rev1), ("2024-06-01", rev2)]
+    )
+    assert adopted["100"] == "2024-03-01"
+    assert adopted["200"] == "2024-06-01"
+
+    snap = write_weekly_sheet_snapshot(
+        rev2,
+        tmp_path / "snapshots",
+        when=datetime(2024, 6, 3, tzinfo=timezone.utc),
+    )
+    assert snap.is_file()
+    assert (tmp_path / "snapshots" / f"{snap.name}.meta.json").is_file()
+
+    out = tmp_path / "derived.yaml"
+    write_derived_adoption_dates(out, adopted)
+    assert "100" in out.read_text(encoding="utf-8")
+    assert "incompleteness" in SHEETS_REVISION_INCOMPLETENESS_CAVEAT.lower() or (
+        "incomplete" in SHEETS_REVISION_INCOMPLETENESS_CAVEAT.lower()
+    )
+
+
+def test_fetch_sheet_revision_exports_injectable(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import fetch_sheet_revision_exports
+
+    def list_revisions(_sid: str) -> list[dict[str, object]]:
+        return [
+            {"id": "r1", "modifiedTime": "2024-01-10T12:00:00Z"},
+            {"id": "r2", "modifiedTime": "2024-02-10T12:00:00Z"},
+        ]
+
+    def export_revision(rev_id: str, _range: str) -> list[dict[str, str]]:
+        if rev_id == "r1":
+            return [{"source_id": "1"}]
+        return [{"source_id": "1"}, {"source_id": "2"}]
+
+    exports = fetch_sheet_revision_exports(
+        "sheet123",
+        sheet_range="Sheet1",
+        credentials_env="GOOGLE_APPLICATION_CREDENTIALS",
+        list_revisions=list_revisions,
+        export_revision=export_revision,
+    )
+    assert len(exports) == 2
+    assert exports[0][0] == "2024-01-10"
+
+
+def test_run_selection_function_followup_writes_hdf5(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import (
+        format_followup_calibration_report,
+        run_selection_function_followup,
+    )
+
+    cfg = load_config()
+    # Loosen KS threshold so twin parametric draws pass reliably.
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_followup.calibration.ks_pvalue_min = 0.0
+    artifact = tmp_path / "followup.h5"
+    result = run_selection_function_followup(tweaked, artifact, rng_seed=42)
+    assert artifact.is_file()
+    assert len(result.records) == 200
+    assert result.accel_jerk_catalog_id == "dr3_accel_jerk_pinned"
+    with h5py.File(artifact, "r") as handle:
+        assert handle.attrs["stage"] == "selection_function_followup"
+        assert "followup_catalog" in handle
+        assert "calibration" in handle
+    report = format_followup_calibration_report(result)
+    assert "selection_function_followup calibration" in report
+    assert "sheets_caveat" in report
+
+
+def test_followup_dr4_refused(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import run_selection_function_followup
+
+    cfg = load_config()
+    bad = cfg.model_copy(update={"active_dr_mode": ActiveDRMode.DR4})
+    with pytest.raises(ValueError, match="not runnable"):
+        run_selection_function_followup(bad, tmp_path / "x.h5")

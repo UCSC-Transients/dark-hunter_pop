@@ -199,6 +199,105 @@ class SelectionFunctionAstrometricConfig(BaseModel):
     mock_population: MockPopulationConfig = Field(default_factory=MockPopulationConfig)
 
 
+class SurveyTier(str, Enum):
+    """Data-source tier for follow-up RV provenance."""
+
+    DOCUMENTED = "documented"
+    AD_HOC = "ad_hoc"
+    DEDICATED_CAMPAIGN = "dedicated_campaign"
+
+
+class TargetListConfig(BaseModel):
+    """One named follow-up target list with tracked adoption dates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    adoption_dates_path: str
+    cooler_star_preference: bool = True
+
+
+class MajorSurveySFConfig(BaseModel):
+    """Major spectroscopic survey with a documented selection function."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    selection_function_path: str
+    tier: SurveyTier = SurveyTier.DOCUMENTED
+
+
+class AdHocLiteratureConfig(BaseModel):
+    """Approximation for ad hoc literature RVs with unknown selection functions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    use_brightness: bool = True
+    use_declination: bool = True
+    use_proper_motion: bool = True
+    pm_total_min_mas_yr: float = Field(0.0, ge=0)
+    base_probability: float = Field(0.05, gt=0, le=1)
+
+
+class FollowupCalibrationConfig(BaseModel):
+    """Mock-vs-real histogram calibration for N_obs and follow-up time span."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_obs_bin_edges: list[float] = Field(..., min_length=2)
+    time_span_day_bin_edges: list[float] = Field(..., min_length=2)
+    ks_pvalue_min: float = Field(0.01, gt=0, le=1)
+    real_followup_catalog_path: str | None = None
+
+
+class TargetListSheetConfig(BaseModel):
+    """Google Sheet credentials *names* and snapshot/derived paths (no secrets)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    spreadsheet_id: str = ""
+    sheet_range: str = "Sheet1"
+    credentials_env: str = "GOOGLE_APPLICATION_CREDENTIALS"
+    revision_history_incompleteness_caveat: bool = True
+    weekly_snapshot_relative_dir: str = "target_lists/snapshots"
+    derived_adoption_dates_relative_dir: str = "config/target_lists/derived"
+
+
+class SelectionFunctionFollowupConfig(BaseModel):
+    """Shared parametric follow-up selection function (ARCHITECTURE.md §4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_lists: list[TargetListConfig] = Field(default_factory=list)
+    declination_min_deg: float = -35.0
+    declination_max_deg: float = 90.0
+    g_mag_bright_limit: float = 5.0
+    g_mag_faint_limit: float = 15.0
+    cooler_star_teff_max_k: float = Field(6500.0, gt=0)
+    cooler_star_weight: float = Field(1.5, gt=0)
+    major_surveys: list[MajorSurveySFConfig] = Field(default_factory=list)
+    ad_hoc_literature: AdHocLiteratureConfig = Field(
+        default_factory=AdHocLiteratureConfig
+    )
+    calibration: FollowupCalibrationConfig = Field(
+        default_factory=lambda: FollowupCalibrationConfig(
+            n_obs_bin_edges=[0, 1, 2, 3, 5, 10, 20, 50],
+            time_span_day_bin_edges=[0.0, 30.0, 90.0, 180.0, 365.0, 730.0, 1500.0],
+        )
+    )
+    target_list_sheet: TargetListSheetConfig = Field(
+        default_factory=TargetListSheetConfig
+    )
+
+    @model_validator(mode="after")
+    def _limits_ordered(self) -> SelectionFunctionFollowupConfig:
+        if self.declination_min_deg >= self.declination_max_deg:
+            raise ValueError("declination_min_deg must be < declination_max_deg")
+        if self.g_mag_bright_limit >= self.g_mag_faint_limit:
+            raise ValueError("g_mag_bright_limit must be < g_mag_faint_limit")
+        return self
+
+
 class DRSelectionFunctionPathConfig(BaseModel):
     """Path-specific distance window for mock injection."""
 
@@ -212,6 +311,14 @@ class DRSelectionFunctionPathConfig(BaseModel):
         if self.d_min_pc >= self.d_max_pc:
             raise ValueError("d_min_pc must be < d_max_pc")
         return self
+
+
+class DRSelectionFunctionFollowupPathConfig(BaseModel):
+    """Path-specific follow-up catalog pins (accel/jerk catalogs differ by DR)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    accel_jerk_catalog_id: str = "dr3_accel_jerk_pinned"
 
 
 class QualityCutBin(BaseModel):
@@ -278,6 +385,9 @@ class DRPathConfig(BaseModel):
     selection_function_astrometric: DRSelectionFunctionPathConfig = Field(
         default_factory=DRSelectionFunctionPathConfig
     )
+    selection_function_followup: DRSelectionFunctionFollowupPathConfig = Field(
+        default_factory=DRSelectionFunctionFollowupPathConfig
+    )
 
 
 class PipelineConfig(BaseModel):
@@ -297,6 +407,9 @@ class PipelineConfig(BaseModel):
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
         default_factory=SelectionFunctionAstrometricConfig
     )
+    selection_function_followup: SelectionFunctionFollowupConfig = Field(
+        default_factory=SelectionFunctionFollowupConfig
+    )
     sensitivity_analysis: SensitivityAnalysisConfig = Field(
         default_factory=SensitivityAnalysisConfig
     )
@@ -311,6 +424,37 @@ class PipelineConfig(BaseModel):
         raise ValueError(f"unsupported active_dr_mode: {self.active_dr_mode}")
 
 
+# Gaia-mission / external-data-use leaf keys that MUST live under ``dr3`` / ``dr4``
+# independently (ARCHITECTURE.md §6; dark-hunter-pop-workflow §6).
+PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
+    {
+        "mission_baseline_months",
+        "scanning_law_id",
+        "zero_point_version",
+        "sed_filters",
+        "quality_cut_bins",
+        "gaia_source_photometry_bands",
+        "external_photometry_crossmatches",
+        "gaia_archive_user_env",
+        "gaia_archive_password_env",
+        "nss_table",
+        "gaia_source_table",
+        "allow_astrometric_epoch_outliers",
+        "accel_jerk_catalog_id",
+        "d_min_pc",
+        "d_max_pc",
+    }
+)
+
+# Genuine physics/population sections that MUST be single shared top-level keys.
+SHARED_PHYSICS_SECTIONS: frozenset[str] = frozenset(
+    {
+        "mass_calibration",
+        "classification",
+        "physics",
+    }
+)
+
 # Keys included in the resume/amend config checksum (ARCHITECTURE.md §5).
 SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "mass_calibration",
@@ -320,6 +464,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "gaiamock",
     "paths",
     "selection_function_astrometric",
+    "selection_function_followup",
     "sensitivity_analysis",
 )
 
