@@ -9,6 +9,7 @@ numpy>=1.26,<2.0
 scipy>=1.11
 astropy>=6.0
 astroquery>=0.4
+h5py>=3.10
 pydantic>=2.6
 pyyaml>=6.0
 dynesty>=2.1
