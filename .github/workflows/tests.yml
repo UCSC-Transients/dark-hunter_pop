@@ -64,7 +64,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgsl-dev gcc
           python -m pip install --upgrade pip
-          pip install -e ".[dev,gaiamock]"
+          pip install -e ".[dev,gaiamock,plot]"
       - name: Install gaiamock-mod overlay from Release
         env:
           DOWNLOAD_FROM_RELEASE: "1"
