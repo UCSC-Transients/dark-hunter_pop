@@ -159,6 +159,77 @@ class RvConsistencyConfig(BaseModel):
     joint_fit_max_nfev: int = Field(200, ge=20)
 
 
+class CompanionNatureConfig(BaseModel):
+    """Choosables for ``companion_nature_likelihood`` (ARCHITECTURE.md §4).
+
+    Outputs continuous per-system weights ``{WD, other, dark}`` for
+    ``population_model`` — never a discard filter. Cooling-track files stay under
+    ``physics.cooling_tracks_path`` (local only; not fetched at runtime).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # ΔBIC scale mapping continuous weights (ARCHITECTURE.md: config-driven threshold).
+    delta_bic_threshold: float = Field(10.0, gt=0)
+    # Softmax temperature on joint BIC; larger → flatter weights.
+    evidence_scale: float = Field(1.0, gt=0)
+    # Floor so a 5σ-style non-detection still carries small non-zero weight.
+    weight_floor: float = Field(1.0e-6, gt=0, lt=0.5)
+    # Channel enable flags (joint model still accounts for which exist per system).
+    use_photometry: bool = True
+    use_xp: bool = True
+    use_sb2: bool = True
+    # Photometry: default mag error when PhotometryPoint.mag_err is missing.
+    default_mag_err: float = Field(0.05, gt=0)
+    # Extra free parameters for luminous-companion SED models (BIC k term).
+    n_params_dark: int = Field(0, ge=0)
+    n_params_wd: int = Field(2, ge=0)
+    n_params_other: int = Field(2, ge=0)
+    # Absolute-magnitude offsets for analytic luminous / WD companions (band-agnostic).
+    wd_mg_zero_point: float = Field(12.0)
+    wd_mg_mass_slope: float = Field(-2.5)
+    other_mg_zero_point: float = Field(5.0)
+    other_mg_mass_slope: float = Field(-5.0)
+    # XP residual keys under CandidateRecord.extras (absent → channel masked).
+    xp_chi2_dark_key: str = "xp_chi2_dark"
+    xp_chi2_wd_key: str = "xp_chi2_wd"
+    xp_chi2_other_key: str = "xp_chi2_other"
+    xp_n_data_key: str = "xp_n_data"
+    # Optional precomputed photometry joint-SED chi2 keys (preferred when present).
+    phot_chi2_dark_key: str = "phot_chi2_dark"
+    phot_chi2_wd_key: str = "phot_chi2_wd"
+    phot_chi2_other_key: str = "phot_chi2_other"
+    phot_n_data_key: str = "phot_n_data"
+    # Analytic primary Mg when building photometry residuals from band list.
+    primary_mg_zero_point: float = Field(4.5)
+    primary_mg_mass_slope: float = Field(-5.0)
+    # SB2 spectral score in [0,1] under extras / rv_summary (higher → WD-like).
+    sb2_wd_likeness_key: str = "sb2_wd_likeness"
+    sb2_score_n_data: int = Field(4, ge=1)
+    # SB2 chi2 scale: dark penalty (~σ^2 per datum) and WD/other contrast scale.
+    sb2_dark_chi2_per_datum: float = Field(25.0, gt=0)
+    sb2_type_chi2_scale: float = Field(9.0, gt=0)
+    # Two-tier: fast bulk vs full queued for ambiguous / critical systems.
+    default_tier: Literal["fast", "full"] = "fast"
+    full_tier_ambiguity_delta_bic: float = Field(5.0, gt=0)
+    full_tier_m2_msun_min: float | None = Field(default=None, gt=0)
+    full_queue_max: int | None = Field(default=None, ge=1)
+    full_tier_grid_factor: int = Field(3, ge=2, le=20)
+    # Required age-independence diagnostic (primary age bins, Gyr).
+    age_bin_edges_gyr: list[float] = Field(
+        default_factory=lambda: [0.0, 1.0, 3.0, 10.0, 14.0],
+        min_length=2,
+    )
+    age_extras_key: str = "age_gyr"
+
+    @model_validator(mode="after")
+    def _companion_nature_bounds(self) -> CompanionNatureConfig:
+        edges = self.age_bin_edges_gyr
+        if any(edges[i] >= edges[i + 1] for i in range(len(edges) - 1)):
+            raise ValueError("age_bin_edges_gyr must be strictly increasing")
+        return self
+
+
 class PhysicsConfig(BaseModel):
     """Shared across DR3/DR4 — genuine population/physics choices."""
 
@@ -474,6 +545,9 @@ class PipelineConfig(BaseModel):
     )
     mass_derivation: MassDerivationConfig = Field(default_factory=MassDerivationConfig)
     rv_consistency: RvConsistencyConfig = Field(default_factory=RvConsistencyConfig)
+    companion_nature: CompanionNatureConfig = Field(
+        default_factory=CompanionNatureConfig
+    )
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
@@ -534,6 +608,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "mass_calibration",
     "mass_derivation",
     "rv_consistency",
+    "companion_nature",
     "classification",
     "physics",
     "gaiamock",
