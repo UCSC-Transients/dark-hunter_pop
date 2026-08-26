@@ -751,7 +751,14 @@ class QualityCutBin(BaseModel):
 
 
 class ExternalPhotometryCrossmatch(BaseModel):
-    """One external-band cross-match via a Gaia ``*_best_neighbour`` table."""
+    """One external-band cross-match via Gaia archive precomputed tables.
+
+    Simple path (AllWISE / PanSTARRS / SDSS): ``neighbour_table`` → ``catalog_table``
+    with ``neighbour_to_catalog`` as ``neighbour_col=catalog_col``.
+
+    2MASS path: ``neighbour_table`` → ``join_table`` → ``catalog_table`` using
+    ``neighbour_to_join`` and ``join_to_catalog`` (ESA mandatory join pattern).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -761,6 +768,30 @@ class ExternalPhotometryCrossmatch(BaseModel):
     mag_column: str = Field(..., min_length=1)
     mag_err_column: str | None = None
     enabled: bool = True
+    # "neighbour_col=catalog_col" when join_table is unset.
+    neighbour_to_catalog: str | None = None
+    join_table: str | None = None
+    # "neighbour_col=join_col" when join_table is set.
+    neighbour_to_join: str | None = None
+    # "join_col=catalog_col" when join_table is set.
+    join_to_catalog: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_join_keys(self) -> ExternalPhotometryCrossmatch:
+        if not self.enabled:
+            return self
+        if self.join_table:
+            if not self.neighbour_to_join or not self.join_to_catalog:
+                raise ValueError(
+                    f"band {self.band!r}: join_table requires neighbour_to_join "
+                    "and join_to_catalog"
+                )
+        elif not self.neighbour_to_catalog:
+            raise ValueError(
+                f"band {self.band!r}: neighbour_to_catalog is required when "
+                "join_table is unset"
+            )
+        return self
 
 
 class DRPathConfig(BaseModel):
@@ -781,6 +812,8 @@ class DRPathConfig(BaseModel):
     )
     gaia_archive_user_env: str = "GAIA_ARCHIVE_USER"
     gaia_archive_password_env: str = "GAIA_ARCHIVE_PASSWORD"
+    # astroquery Gaia.ROW_LIMIT; -1 = unlimited. Default 2000 matches archive smoke.
+    gaia_archive_row_limit: int = Field(-1, ge=-1)
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # Reserved for DR4 epoch capabilities; ignored when inactive.

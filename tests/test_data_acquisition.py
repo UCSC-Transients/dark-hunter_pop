@@ -127,8 +127,15 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     adql = build_nss_adql(dr)
     assert dr.nss_table in adql
     assert dr.gaia_source_table in adql
-    assert "tmass_best_neighbour" in adql
+    assert "tmass_psc_xsc_best_neighbour" in adql
+    assert "tmass_psc_xsc_join" in adql
+    assert "gaiadr1.tmass_original_valid" in adql
+    assert "panstarrs1_best_neighbour" in adql
+    assert "a_thiele_innes AS A" in adql
+    assert "nss.A," not in adql.replace("\n", "")
+    assert "phot_g_mean_mag_error" not in adql
     assert "LEFT JOIN" in adql
+    assert "galex_ais_best_neighbour" not in adql  # disabled
 
 
 def test_snapshot_round_trip(tmp_path: Path) -> None:

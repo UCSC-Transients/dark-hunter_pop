@@ -50,12 +50,20 @@ from darkhunter_pop.schemas import (
 )
 
 _GAIA_SOURCE_MAG_FIELDS: dict[str, tuple[str, str | None]] = {
-    "G": ("phot_g_mean_mag", "phot_g_mean_mag_error"),
-    "BP": ("phot_bp_mean_mag", "phot_bp_mean_mag_error"),
-    "RP": ("phot_rp_mean_mag", "phot_rp_mean_mag_error"),
+    # DR3 gaia_source has phot_*_mean_mag but not phot_*_mean_mag_error columns.
+    "G": ("phot_g_mean_mag", None),
+    "BP": ("phot_bp_mean_mag", None),
+    "RP": ("phot_rp_mean_mag", None),
 }
 
-_THIELE_INNES_FIELDS: tuple[str, ...] = ("A", "B", "F", "G")
+# Internal short names (schemas.ThieleInnesElements) → Gaia ADQL column stems.
+_THIELE_INNES_ADQL: dict[str, str] = {
+    "A": "a_thiele_innes",
+    "B": "b_thiele_innes",
+    "F": "f_thiele_innes",
+    "G": "g_thiele_innes",
+}
+_THIELE_INNES_FIELDS: tuple[str, ...] = tuple(_THIELE_INNES_ADQL.keys())
 _THIELE_INNES_ERR_SUFFIX = "_error"
 
 # Astrophysical-parameters columns for mass_derivation (MSC preferred, gspphot fallback).
@@ -203,6 +211,16 @@ def _enabled_crossmatches(
     return [match for match in crossmatches if match.enabled]
 
 
+def _split_join_eq(spec: str) -> tuple[str, str]:
+    if spec.count("=") != 1:
+        raise ValueError(f"join key must be 'left=right', got {spec!r}")
+    left, right = spec.split("=")
+    left, right = left.strip(), right.strip()
+    if not left or not right:
+        raise ValueError(f"join key must be 'left=right', got {spec!r}")
+    return left, right
+
+
 def build_nss_adql(dr: DRPathConfig) -> str:
     """Build the literal ADQL for the NSS catalog + photometry cross-matches."""
     select_parts = [
@@ -221,9 +239,11 @@ def build_nss_adql(dr: DRPathConfig) -> str:
         "nss.goodness_of_fit",
         "gs.ruwe",
     ]
-    for thiele in _THIELE_INNES_FIELDS:
-        select_parts.append(f"nss.{thiele}")
-        select_parts.append(f"nss.{thiele}{_THIELE_INNES_ERR_SUFFIX}")
+    for short, adql_stem in _THIELE_INNES_ADQL.items():
+        select_parts.append(f"nss.{adql_stem} AS {short}")
+        select_parts.append(
+            f"nss.{adql_stem}{_THIELE_INNES_ERR_SUFFIX} AS {short}{_THIELE_INNES_ERR_SUFFIX}"
+        )
 
     # MSC / gspphot atmospheric parameters for mass_derivation_bulk (ARCHITECTURE.md §4).
     for stem in _AP_PARAM_STEMS:
@@ -240,17 +260,20 @@ def build_nss_adql(dr: DRPathConfig) -> str:
             select_parts.append(f"gs.{err_col} AS {band.lower()}_mag_err")
 
     enabled = _enabled_crossmatches(dr.external_photometry_crossmatches)
+    # One JOIN chain per unique neighbour(+join)+catalog graph; bands share aliases.
     neighbour_alias: dict[str, str] = {}
+    join_alias: dict[str, str] = {}
+    catalog_alias: dict[tuple[str, str | None, str], str] = {}
+
     for match in enabled:
         if match.neighbour_table not in neighbour_alias:
             neighbour_alias[match.neighbour_table] = f"nb_{len(neighbour_alias)}"
-
-    catalog_alias: dict[tuple[str, str], str] = {}
-    for match in enabled:
-        key = (match.neighbour_table, match.catalog_table)
-        if key not in catalog_alias:
-            catalog_alias[key] = f"cat_{len(catalog_alias)}"
-        cat_ref = catalog_alias[key]
+        if match.join_table and match.join_table not in join_alias:
+            join_alias[match.join_table] = f"xj_{len(join_alias)}"
+        cat_key = (match.neighbour_table, match.join_table, match.catalog_table)
+        if cat_key not in catalog_alias:
+            catalog_alias[cat_key] = f"cat_{len(catalog_alias)}"
+        cat_ref = catalog_alias[cat_key]
         select_parts.append(f"{cat_ref}.{match.mag_column} AS {match.band}_mag")
         if match.mag_err_column is not None:
             select_parts.append(
@@ -274,12 +297,37 @@ def build_nss_adql(dr: DRPathConfig) -> str:
             f"ON nss.source_id = {alias}.source_id"
         )
 
-    for (neighbour_table, catalog_table), cat_ref in catalog_alias.items():
-        nb_ref = neighbour_alias[neighbour_table]
-        lines.append(
-            f"LEFT JOIN {catalog_table} AS {cat_ref} "
-            f"ON {nb_ref}.original_ext_source_id = {cat_ref}.original_ext_source_id"
-        )
+    emitted_joins: set[str] = set()
+    emitted_catalogs: set[tuple[str, str | None, str]] = set()
+    for match in enabled:
+        nb_ref = neighbour_alias[match.neighbour_table]
+        cat_key = (match.neighbour_table, match.join_table, match.catalog_table)
+        cat_ref = catalog_alias[cat_key]
+
+        if match.join_table:
+            xj_ref = join_alias[match.join_table]
+            if match.join_table not in emitted_joins:
+                left, right = _split_join_eq(match.neighbour_to_join or "")
+                lines.append(
+                    f"LEFT JOIN {match.join_table} AS {xj_ref} "
+                    f"ON {nb_ref}.{left} = {xj_ref}.{right}"
+                )
+                emitted_joins.add(match.join_table)
+            if cat_key not in emitted_catalogs:
+                left, right = _split_join_eq(match.join_to_catalog or "")
+                lines.append(
+                    f"LEFT JOIN {match.catalog_table} AS {cat_ref} "
+                    f"ON {xj_ref}.{left} = {cat_ref}.{right}"
+                )
+                emitted_catalogs.add(cat_key)
+        else:
+            if cat_key not in emitted_catalogs:
+                left, right = _split_join_eq(match.neighbour_to_catalog or "")
+                lines.append(
+                    f"LEFT JOIN {match.catalog_table} AS {cat_ref} "
+                    f"ON {nb_ref}.{left} = {cat_ref}.{right}"
+                )
+                emitted_catalogs.add(cat_key)
 
     return "\n".join(lines)
 
@@ -645,6 +693,8 @@ def default_gaia_query(adql: str, dr: DRPathConfig) -> Table:
     password = os.environ.get(dr.gaia_archive_password_env)
     if user and password:
         Gaia.login(user=user, password=password)
+    # astroquery injects TOP when ROW_LIMIT > 0; -1 disables the cap.
+    Gaia.ROW_LIMIT = int(dr.gaia_archive_row_limit)
     job = Gaia.launch_job(adql, dump_to_file=False)
     result = job.get_results()
     if not isinstance(result, Table):
