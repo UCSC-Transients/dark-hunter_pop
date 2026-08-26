@@ -174,7 +174,7 @@ def test_path_specific_leaf_registry_covers_mission_keys() -> None:
 
 
 def test_phase2_canonical_matches_fragment_merge() -> None:
-    """Integration checkpoint: config.yaml materializes fragments (#40, #64)."""
+    """Integration checkpoint: config.yaml materializes fragments (#40, #64, #72)."""
     with_frags = load_config(merge_fragments=True)
     canon_only = load_config(merge_fragments=False)
     assert with_frags.model_dump(mode="json") == canon_only.model_dump(mode="json")
@@ -186,12 +186,17 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
     assert len(canon_only.dr3.external_photometry_crossmatches) >= 1
     assert len(canon_only.selection_function_followup.target_lists) >= 1
     assert len(canon_only.selection_function_followup.major_surveys) >= 1
-    # Phase 3–4 sections must be present in the delivered canonical file (not
+    # Phase 3–6 sections must be present in the delivered canonical file (not
     # only via schema defaults when fragments are skipped).
     assert canon_only.rv_consistency.chi2_dof_threshold > 0.0
     assert canon_only.companion_nature.delta_bic_threshold > 0.0
     assert canon_only.population_model.n_mass_bins >= 1
     assert canon_only.triples.enabled is False
+    assert canon_only.inference.nlive >= 2
+    assert canon_only.diagnostics.hooks.sbc_recovery is True
+    assert canon_only.diagnostics.sbc.enabled is True
+    assert canon_only.diagnostics.sbc.run_in_stage is False
+    assert len(canon_only.diagnostics.sbc.injected_profiles) >= 1
     raw = (Path(__file__).resolve().parents[1] / "config" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -199,12 +204,15 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
         "rv_consistency:",
         "companion_nature:",
         "population_model:",
+        "inference:",
         "triples:",
         "benchmarks:",
     ):
         assert section in raw, f"canonical config.yaml missing {section}"
     assert "known_truth_benchmarks:" in raw
     assert "comparison_catalogs:" in raw
+    assert "sbc_recovery:" in raw
+    assert "\n  sbc:\n" in raw or "\n  sbc:" in raw
     assert canon_only.benchmarks.ruwe_match_tolerance > 0.0
     assert "pulsar_mf" in canon_only.benchmarks.catalogs
     assert canon_only.benchmarks.catalogs["ligo_bh_mf"].never_as_prior is True
@@ -219,6 +227,10 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     assert "population_model" in SHARED_CHECKSUM_SECTIONS
     assert "triples" in SHARED_CHECKSUM_SECTIONS
     assert "diagnostics" not in SHARED_CHECKSUM_SECTIONS
+    assert "benchmarks" not in SHARED_CHECKSUM_SECTIONS
+    # inference knobs are stage science but intentionally outside resume checksum today
+    # (fingerprint via STAGE_REGISTRY); do not silently add without a docs-first ask.
+    assert "inference" not in SHARED_CHECKSUM_SECTIONS
     cfg = load_config()
     base = config_checksum(cfg)
     altered = cfg.model_copy(deep=True)

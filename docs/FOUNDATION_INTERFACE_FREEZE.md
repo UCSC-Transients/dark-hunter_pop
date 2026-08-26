@@ -76,6 +76,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `selection_function_followup.*` | shared follow-up SF; accel/jerk catalog pins under `dr3`/`dr4` |
 | `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
 | `population_model.*` | multiplicity, free-height / GP MF, bin-edge policy, soft `M_TOV` width; shared `M_TOV` / `delta_M_Ch` / IMF stay in their sections |
+| `inference.*` | Poisson × SF × dynesty; CI-smoke `nlive`/`maxcall`; cluster recipe in fragment comments (#63; not in resume checksum) |
 | `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
 | `diagnostics.*` | figure/report layout + hook flags; Phase 6 SBC knobs under `diagnostics.sbc` (#69; still excluded from checksum) |
 | `benchmarks.*` | known-truth + comparison catalog paths / RUWE match tolerance (issue #70); fixture YAML holds system values + provenance; comparison-only never priors |
@@ -156,10 +157,11 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 - Phase 3 children landed: #48 / PR #54 (`rv_astrometry_gate` + `joint_orbit_fit`),
   #49 / PR #53 (`triples` stub).
 - Phase 4 children landed: #56 / PR #60 (`companion_nature_likelihood`; five-key
-  weights), #57 / PR #61 (`population_model`). Config materialization of P3/P4
-  fragments into `config/config.yaml` is owned by continuous Review (#64).
+  weights), #57 / PR #61 (`population_model`).
 - Phase 5 landed: #62 / PR #67 (`inference`; Poisson × SF × dynesty).
-- Phase 6 in progress per `ORCHESTRATION_PLAN.md` / `PHASE6_KICKOFF.md` —
-  roster #13 diagnostics (SBC #69, known-truth/comparison catalogs #70,
-  full diagnostic suite #71). Continuous Review/Integration: #72.
-  Docs-first before any freeze break; CI dynesty smoke must stay bounded.
+- Phase 6 children landed: #69 / PR #76 (SBC recovery), #70 / PR #74
+  (known-truth + comparison catalogs), #71 / PR #75 (full diagnostic suite +
+  `@pytest.mark.slow`). Continuous Review/Integration (#72) materializes
+  `inference` + `diagnostics.sbc` into `config/config.yaml`. Required CI stays
+  `unit|physics|api`; `slow` / `network` / `gaiamock` remain optional.
+  Next: Phase 7 — main program (#16) + documentation (#14).
