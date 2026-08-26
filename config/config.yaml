@@ -386,6 +386,13 @@ dr3:
     mag_err_column: nuv_mag_err
     neighbour_to_catalog: original_ext_source_id=original_ext_source_id
     enabled: false
+  - band: g_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: g_mean_psf_mag
+    mag_err_column: g_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
   - band: r_ps1
     neighbour_table: gaiadr3.panstarrs1_best_neighbour
     catalog_table: gaiadr2.panstarrs1_original_valid
@@ -393,32 +400,53 @@ dr3:
     mag_err_column: r_mean_psf_mag_error
     neighbour_to_catalog: original_ext_source_id=obj_id
     enabled: true
+  - band: i_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: i_mean_psf_mag
+    mag_err_column: i_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
+  - band: z_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: z_mean_psf_mag
+    mag_err_column: z_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
+  - band: y_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: y_mean_psf_mag
+    mag_err_column: y_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
   - band: J
     neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
     catalog_table: gaiadr1.tmass_original_valid
-    mag_column: j_m
-    mag_err_column: j_msigcom
     join_table: gaiadr3.tmass_psc_xsc_join
     neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
     join_to_catalog: original_psc_source_id=designation
+    mag_column: j_m
+    mag_err_column: j_msigcom
     enabled: true
   - band: H
     neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
     catalog_table: gaiadr1.tmass_original_valid
-    mag_column: h_m
-    mag_err_column: h_msigcom
     join_table: gaiadr3.tmass_psc_xsc_join
     neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
     join_to_catalog: original_psc_source_id=designation
+    mag_column: h_m
+    mag_err_column: h_msigcom
     enabled: true
   - band: Ks
     neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
     catalog_table: gaiadr1.tmass_original_valid
-    mag_column: ks_m
-    mag_err_column: ks_msigcom
     join_table: gaiadr3.tmass_psc_xsc_join
     neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
     join_to_catalog: original_psc_source_id=designation
+    mag_column: ks_m
+    mag_err_column: ks_msigcom
     enabled: true
   - band: W1
     neighbour_table: gaiadr3.allwise_best_neighbour
@@ -439,6 +467,34 @@ dr3:
     catalog_table: external.sdssdr13_photoprimary
     mag_column: u
     mag_err_column: err_u
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: g_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: g
+    mag_err_column: err_g
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: r_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: r
+    mag_err_column: err_r
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: i_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: i
+    mag_err_column: err_i
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: z_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: z
+    mag_err_column: err_z
     neighbour_to_catalog: original_ext_source_id=objid
     enabled: true
   - band: u_decam

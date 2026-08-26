@@ -18,11 +18,40 @@ dr3:
       mag_err_column: nuv_mag_err
       neighbour_to_catalog: original_ext_source_id=original_ext_source_id
       enabled: false
+    # Pan-STARRS1: all PSF mean bands (g,r,i,z,y). Footprint mostly Dec ≳ −30°.
+    - band: g_ps1
+      neighbour_table: gaiadr3.panstarrs1_best_neighbour
+      catalog_table: gaiadr2.panstarrs1_original_valid
+      mag_column: g_mean_psf_mag
+      mag_err_column: g_mean_psf_mag_error
+      neighbour_to_catalog: original_ext_source_id=obj_id
+      enabled: true
     - band: r_ps1
       neighbour_table: gaiadr3.panstarrs1_best_neighbour
       catalog_table: gaiadr2.panstarrs1_original_valid
       mag_column: r_mean_psf_mag
       mag_err_column: r_mean_psf_mag_error
+      neighbour_to_catalog: original_ext_source_id=obj_id
+      enabled: true
+    - band: i_ps1
+      neighbour_table: gaiadr3.panstarrs1_best_neighbour
+      catalog_table: gaiadr2.panstarrs1_original_valid
+      mag_column: i_mean_psf_mag
+      mag_err_column: i_mean_psf_mag_error
+      neighbour_to_catalog: original_ext_source_id=obj_id
+      enabled: true
+    - band: z_ps1
+      neighbour_table: gaiadr3.panstarrs1_best_neighbour
+      catalog_table: gaiadr2.panstarrs1_original_valid
+      mag_column: z_mean_psf_mag
+      mag_err_column: z_mean_psf_mag_error
+      neighbour_to_catalog: original_ext_source_id=obj_id
+      enabled: true
+    - band: y_ps1
+      neighbour_table: gaiadr3.panstarrs1_best_neighbour
+      catalog_table: gaiadr2.panstarrs1_original_valid
+      mag_column: y_mean_psf_mag
+      mag_err_column: y_mean_psf_mag_error
       neighbour_to_catalog: original_ext_source_id=obj_id
       enabled: true
     - band: J
@@ -66,11 +95,40 @@ dr3:
       mag_err_column: w2mpro_error
       neighbour_to_catalog: allwise_oid=allwise_oid
       enabled: true
+    # SDSS DR13: ugriz (archive simplified columns on photoprimary).
     - band: u_sdss
       neighbour_table: gaiadr3.sdssdr13_best_neighbour
       catalog_table: external.sdssdr13_photoprimary
       mag_column: u
       mag_err_column: err_u
+      neighbour_to_catalog: original_ext_source_id=objid
+      enabled: true
+    - band: g_sdss
+      neighbour_table: gaiadr3.sdssdr13_best_neighbour
+      catalog_table: external.sdssdr13_photoprimary
+      mag_column: g
+      mag_err_column: err_g
+      neighbour_to_catalog: original_ext_source_id=objid
+      enabled: true
+    - band: r_sdss
+      neighbour_table: gaiadr3.sdssdr13_best_neighbour
+      catalog_table: external.sdssdr13_photoprimary
+      mag_column: r
+      mag_err_column: err_r
+      neighbour_to_catalog: original_ext_source_id=objid
+      enabled: true
+    - band: i_sdss
+      neighbour_table: gaiadr3.sdssdr13_best_neighbour
+      catalog_table: external.sdssdr13_photoprimary
+      mag_column: i
+      mag_err_column: err_i
+      neighbour_to_catalog: original_ext_source_id=objid
+      enabled: true
+    - band: z_sdss
+      neighbour_table: gaiadr3.sdssdr13_best_neighbour
+      catalog_table: external.sdssdr13_photoprimary
+      mag_column: z
+      mag_err_column: err_z
       neighbour_to_catalog: original_ext_source_id=objid
       enabled: true
     # No gaiadr3 DECam best_neighbour in the public TAP — leave disabled.
