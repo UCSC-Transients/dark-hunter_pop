@@ -136,6 +136,25 @@ def test_selection_function_followup_inputs_from_and_hdf5_contract(tmp_path: Pat
         assert "time_span_day" in handle["followup_catalog"]
 
 
+def test_sensitivity_analysis_hdf5_producer_consumer_round_trip(tmp_path: Path) -> None:
+    """Producer (sensitivity_analysis HDF5) → consumer (read payload) contract."""
+    from darkhunter_pop.config_loader import load_config
+    from darkhunter_pop.sensitivity_analysis import (
+        read_sensitivity_analysis_artifact,
+        run_sensitivity_analysis,
+        write_sensitivity_analysis_artifact,
+    )
+
+    result = run_sensitivity_analysis(load_config(), require_mc_pass=True)
+    path = tmp_path / "sensitivity.h5"
+    write_sensitivity_analysis_artifact(path, result)
+    payload = read_sensitivity_analysis_artifact(path)
+    assert payload["schema_version"] == 1
+    assert "dimensionality" in payload
+    assert "class_covariates" in payload
+    assert "mc_noise_convergence" in payload
+
+
 def test_run_manifest_round_trip_is_consumer_safe() -> None:
     from datetime import datetime, timezone
 
