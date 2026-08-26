@@ -81,6 +81,61 @@ class PhysicsConfig(BaseModel):
     mc_noise_threshold: float = Field(0.1, gt=0)
 
 
+class SensitivityAnalysisConfig(BaseModel):
+    """Unified dimensionality + per-class covariate sensitivity (ARCHITECTURE.md §4).
+
+    The MC/Poisson noise gate reads ``physics.mc_noise_threshold``; this section holds
+    stage-specific design knobs only. Outputs are recommendation artifacts for
+    ``population_model`` / ``inference`` — those modules' defaults are not rewritten here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    population_classes: list[str] = Field(
+        default_factory=lambda: ["BH", "NS", "WD", "other", "outlier"],
+        min_length=1,
+    )
+    candidate_covariates: list[str] = Field(
+        default_factory=lambda: ["ruwe", "eccentricity", "period_day"],
+        min_length=1,
+    )
+    joint_dimensions: list[str] = Field(
+        default_factory=lambda: ["mass_msun", "period_day", "eccentricity"],
+        min_length=1,
+    )
+    bic_delta_include_covariate: float = Field(6.0, gt=0)
+    bic_delta_prefer_joint_nd: float = Field(10.0, gt=0)
+    mean_count_per_bin_unbinned_preference: float = Field(5.0, gt=0)
+    n_mass_bins: int = Field(8, ge=2)
+    mass_min_msun: float = Field(0.2, gt=0)
+    mass_max_msun: float = Field(20.0, gt=0)
+    fiducial_expected_counts: list[float] = Field(
+        default_factory=lambda: [5.0, 8.0, 12.0, 10.0, 6.0, 4.0, 2.0, 1.0],
+        min_length=2,
+    )
+    n_mock_start: int = Field(50, ge=1)
+    n_mock_max: int = Field(10000, ge=1)
+    n_mock_growth_factor: float = Field(2.0, gt=1.0)
+    n_synthetic_systems: int = Field(400, ge=10)
+    random_seed: int = 38
+
+    @model_validator(mode="after")
+    def _sensitivity_bounds(self) -> SensitivityAnalysisConfig:
+        if self.mass_min_msun >= self.mass_max_msun:
+            raise ValueError("mass_min_msun must be < mass_max_msun")
+        if len(self.fiducial_expected_counts) != self.n_mass_bins:
+            raise ValueError(
+                "fiducial_expected_counts length must equal n_mass_bins"
+            )
+        if any(c < 0 for c in self.fiducial_expected_counts):
+            raise ValueError("fiducial_expected_counts must be non-negative")
+        if self.n_mock_start > self.n_mock_max:
+            raise ValueError("n_mock_start must be <= n_mock_max")
+        if self.joint_dimensions[0] != "mass_msun":
+            raise ValueError("joint_dimensions[0] must be 'mass_msun'")
+        return self
+
+
 class ExtinctionModel(str, Enum):
     """Extinction map used by gaiamock mock photometry (ARCHITECTURE.md §4)."""
 
@@ -222,6 +277,9 @@ class PipelineConfig(BaseModel):
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
         default_factory=SelectionFunctionAstrometricConfig
     )
+    sensitivity_analysis: SensitivityAnalysisConfig = Field(
+        default_factory=SensitivityAnalysisConfig
+    )
     dr3: DRPathConfig
     dr4: DRPathConfig
 
@@ -241,6 +299,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "gaiamock",
     "paths",
     "selection_function_astrometric",
+    "sensitivity_analysis",
 )
 
 
