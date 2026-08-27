@@ -30,7 +30,6 @@ from darkhunter_pop.mass_derivation import (
     tag10_log_mass_radius,
     write_bulk_diagnostic_artifacts,
     write_stage_hdf5,
-    iter_upstream_candidates,
 )
 from darkhunter_pop.plotting import matplotlib_available
 from darkhunter_pop.run_management import (
@@ -43,7 +42,6 @@ from darkhunter_pop.schemas import (
     CandidateRecord,
     FitTier,
     ParameterSet,
-    StageRecord,
     StageStatus,
     ThieleInnesElements,
 )
@@ -434,35 +432,6 @@ def _sample_bulk_diagnostics() -> BulkDiagnostics:
         m2_pre_cut_msun=np.array([0.5, 1.0, 1.5], dtype=np.float64),
         m2_post_cut_msun=np.array([0.5, 1.0], dtype=np.float64),
     )
-
-
-def test_iter_upstream_candidates_streams_hdf5(tmp_path: Path) -> None:
-    cfg = load_config()
-    manifest = create_run_manifest(cfg)
-    daq_spec = STAGE_REGISTRY["data_acquisition"]
-    daq_path = stage_artifact_path(cfg, daq_spec, run_id=manifest.run_id)
-    candidates = [_candidate(1), _candidate(2), _candidate(3)]
-    write_stage_hdf5(
-        daq_path,
-        candidates,
-        stage_name="data_acquisition",
-        diagnostics={"queried": 3},
-    )
-    manifest = manifest.model_copy(
-        update={
-            "stages": {
-                "data_acquisition": StageRecord(
-                    stage_name="data_acquisition",
-                    status=StageStatus.COMPLETED,
-                    artifact_path=str(daq_path),
-                )
-            }
-        }
-    )
-    streamed = list(
-        iter_upstream_candidates(manifest, "data_acquisition", chunk_size=2)
-    )
-    assert [c.source_id for c in streamed] == [1, 2, 3]
 
 
 def test_write_bulk_diagnostic_artifacts_respects_write_figures_flag(

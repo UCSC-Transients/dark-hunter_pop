@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -778,6 +778,53 @@ def _load_upstream_candidates(manifest: RunManifest, stage_name: str) -> list[Ca
         return candidates
     candidates, _meta = read_stage_hdf5(path)
     return candidates
+
+
+def iter_upstream_candidates(
+    manifest: RunManifest,
+    stage_name: str,
+    *,
+    chunk_size: int = 1024,
+) -> Iterator[CandidateRecord]:
+    """Stream ``CandidateRecord``s from an upstream stage's HDF5 artifact.
+
+    Reads the shared ``candidates/records_json`` dataset (the layout is
+    identical whether the artifact was written by ``data_acquisition`` or by
+    this module — only the ``meta``/``diagnostics`` groups differ) in
+    ``chunk_size``-row slices rather than materializing the whole array, so a
+    consumer that only needs one candidate at a time doesn't have to hold the
+    full catalog in memory. At full NSS-catalog scale (tens of thousands of
+    rows now, more with DR4) that matters; for anything that genuinely needs
+    the full list at once, ``_load_upstream_candidates`` remains available.
+
+    Parameters
+    ----------
+    manifest:
+        The run manifest whose ``stages[stage_name]`` records the upstream
+        artifact path.
+    stage_name:
+        Name of the upstream stage to read (e.g. ``"data_acquisition"``,
+        ``"mass_derivation_bulk"``).
+    chunk_size:
+        Number of rows to read from the HDF5 dataset per slice. Must be >= 1.
+        This only bounds peak memory use during iteration; it does not change
+        what is yielded.
+
+    Yields
+    ------
+    CandidateRecord
+        One record at a time, in on-disk order.
+    """
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    path = _upstream_artifact(manifest, stage_name)
+    with h5py.File(path, "r") as handle:
+        strings = handle["candidates"]["records_json"].asstr()
+        n_rows = strings.shape[0]
+        for start in range(0, n_rows, chunk_size):
+            stop = min(start + chunk_size, n_rows)
+            for raw in strings[start:stop]:
+                yield CandidateRecord.model_validate(json.loads(raw))
 
 
 def _default_sed_summary_loader(source_id: int) -> dict[str, Any] | None:
