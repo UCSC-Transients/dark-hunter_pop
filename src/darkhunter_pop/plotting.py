@@ -60,6 +60,7 @@ def resolve_histogram_bins(
 
     Heavy-tailed large-N samples make Freedman–Diaconis ``bins="auto"`` produce
     hundreds–thousands of sub-pixel bars that render as an empty plot (#96).
+    ``values`` must already be finite; callers should drop NaN/inf first.
     """
     if max_bins is None:
         return bins
@@ -88,16 +89,23 @@ def plot_histogram(
     max_bins: int | None = None,
     color: str = "steelblue",
 ) -> Path | None:
-    """Write a one-dimensional histogram PNG. Returns None when values are empty."""
+    """Write a one-dimensional histogram PNG. Returns None when values are empty.
+
+    Non-finite entries are dropped so ``bins="auto"`` does not raise on NaN ranges
+    (e.g. missing eccentricities in NSS orbital blocks).
+    """
     if values is None:
         return None
     arr = np.asarray(values, dtype=np.float64)
     if arr.size == 0:
         return None
-    resolved = resolve_histogram_bins(arr, bins, max_bins=max_bins)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None
+    resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
     plt = require_pyplot()
     fig, axis = plt.subplots(figsize=(6, 4))
-    axis.hist(arr, bins=resolved, color=color, edgecolor="white")
+    axis.hist(finite, bins=resolved, color=color, edgecolor="white")
     axis.set_xlabel(xlabel)
     axis.set_ylabel(ylabel)
     axis.set_title(title)
@@ -125,6 +133,11 @@ def plot_sky_mollweide(
     dec = np.asarray(dec_deg, dtype=np.float64)
     if ra.size == 0 or dec.size == 0 or ra.size != dec.size:
         return None
+    finite = np.isfinite(ra) & np.isfinite(dec)
+    if not np.any(finite):
+        return None
+    ra = ra[finite]
+    dec = dec[finite]
 
     from astropy import units as u
     from astropy.coordinates import SkyCoord

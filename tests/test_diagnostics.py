@@ -555,6 +555,29 @@ def test_resolve_histogram_bins_caps_auto_for_heavy_tails() -> None:
 
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_drops_nonfinite_values(tmp_path: Path) -> None:
+    """NaN/inf must not abort bins=auto (eccentricity has missing NSS rows)."""
+    values = np.array([0.0, 0.1, np.nan, 0.2, np.inf, 0.3, -np.inf], dtype=np.float64)
+    path = plot_histogram(
+        values,
+        tmp_path / "ecc_nan.png",
+        xlabel="eccentricity",
+        title="eccentricity",
+        dpi=80,
+        max_bins=80,
+    )
+    assert path is not None and path.is_file()
+    assert plot_histogram(
+        np.array([np.nan, np.inf]),
+        tmp_path / "all_nan.png",
+        xlabel="x",
+        title="empty",
+        dpi=80,
+        max_bins=80,
+    ) is None
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
 def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
     rng = np.random.default_rng(96)
     values = np.concatenate(
