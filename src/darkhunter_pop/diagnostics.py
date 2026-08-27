@@ -701,6 +701,7 @@ def emit_funnel_sky(
         result.reports.append(report)
 
     if diag.write_figures:
+        max_bins = int(diag.histogram_max_bins)
         for name, values, xlabel in (
             ("ruwe", ruwe, "RUWE"),
             ("period_day", period_day, "period [day]"),
@@ -714,6 +715,7 @@ def emit_funnel_sky(
                     xlabel=xlabel,
                     title=name,
                     dpi=dpi,
+                    max_bins=max_bins,
                 ),
             )
             if path is not None:
@@ -726,6 +728,8 @@ def emit_funnel_sky(
                 dirs.figures / "sky_map.png",
                 title="sky coverage",
                 dpi=dpi,
+                point_size=float(diag.sky_map_point_size),
+                alpha=float(diag.sky_map_alpha),
             ),
         )
         if sky is not None:
@@ -921,6 +925,7 @@ def emit_gate_pass_rate(
                     xlabel="chi2/dof",
                     title=f"{gate_name} chi2/dof",
                     dpi=diag.figure_dpi,
+                    max_bins=int(diag.histogram_max_bins),
                 ),
             )
             if hist is not None:
@@ -1115,6 +1120,7 @@ def emit_info_gain_followup(
                 xlabel="information-gain score",
                 title="follow-up priority score distribution",
                 dpi=diag.figure_dpi,
+                max_bins=int(diag.histogram_max_bins),
             ),
         )
         if hist is not None:

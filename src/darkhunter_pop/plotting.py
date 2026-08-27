@@ -50,6 +50,32 @@ def save_figure(fig: Any, path: Path, *, dpi: int) -> Path:
     return path
 
 
+def resolve_histogram_bins(
+    values: NDArray[np.floating],
+    bins: int | str = "auto",
+    *,
+    max_bins: int | None = None,
+) -> int | str | NDArray[np.floating]:
+    """Resolve histogram binning, capping ``auto``/int counts when ``max_bins`` is set.
+
+    Heavy-tailed large-N samples make Freedman–Diaconis ``bins="auto"`` produce
+    hundreds–thousands of sub-pixel bars that render as an empty plot (#96).
+    """
+    if max_bins is None:
+        return bins
+    if max_bins < 1:
+        raise ValueError(f"max_bins must be >= 1, got {max_bins}")
+    if isinstance(bins, int):
+        return min(int(bins), int(max_bins))
+    if bins == "auto":
+        _counts, edges = np.histogram(values, bins="auto")
+        n_bins = int(len(edges) - 1)
+        if n_bins > int(max_bins):
+            return int(max_bins)
+        return "auto"
+    return bins
+
+
 def plot_histogram(
     values: NDArray[np.floating] | Sequence[float] | None,
     path: Path,
@@ -59,6 +85,7 @@ def plot_histogram(
     title: str,
     dpi: int,
     bins: int | str = "auto",
+    max_bins: int | None = None,
     color: str = "steelblue",
 ) -> Path | None:
     """Write a one-dimensional histogram PNG. Returns None when values are empty."""
@@ -67,9 +94,10 @@ def plot_histogram(
     arr = np.asarray(values, dtype=np.float64)
     if arr.size == 0:
         return None
+    resolved = resolve_histogram_bins(arr, bins, max_bins=max_bins)
     plt = require_pyplot()
     fig, axis = plt.subplots(figsize=(6, 4))
-    axis.hist(arr, bins=bins, color=color, edgecolor="white")
+    axis.hist(arr, bins=resolved, color=color, edgecolor="white")
     axis.set_xlabel(xlabel)
     axis.set_ylabel(ylabel)
     axis.set_title(title)
@@ -83,10 +111,14 @@ def plot_sky_mollweide(
     *,
     title: str = "sky coverage",
     dpi: int,
-    point_size: float = 4.0,
-    alpha: float = 0.6,
+    point_size: float = 0.1,
+    alpha: float = 0.25,
 ) -> Path | None:
-    """Write an equatorial Mollweide sky map. Returns None when coordinates are empty."""
+    """Write an equatorial Mollweide sky map. Returns None when coordinates are empty.
+
+    Default ``point_size`` / ``alpha`` match ``diagnostics.sky_map_*`` config and are
+    sized for NSS-scale catalogs (#97); override for small demo samples if needed.
+    """
     if ra_deg is None or dec_deg is None:
         return None
     ra = np.asarray(ra_deg, dtype=np.float64)
@@ -104,8 +136,10 @@ def plot_sky_mollweide(
     ax.scatter(
         coord.ra.wrap_at(180 * u.deg).radian,
         coord.dec.radian,
-        s=point_size,
-        alpha=alpha,
+        s=float(point_size),
+        alpha=float(alpha),
+        rasterized=True,
+        linewidths=0.0,
     )
     ax.set_title(title)
     return save_figure(fig, path, dpi=dpi)

@@ -152,6 +152,11 @@ class DiagnosticsConfig(BaseModel):
     reports_subdir: str = "reports"
     write_figures: bool = True
     write_reports: bool = True
+    # Cap for matplotlib bins="auto" so heavy-tailed large-N histos stay visible (#96).
+    histogram_max_bins: int = Field(80, ge=8, le=2000)
+    # Mollweide sky-map marker defaults sized for NSS-scale catalogs (#97).
+    sky_map_point_size: float = Field(0.1, gt=0)
+    sky_map_alpha: float = Field(0.25, gt=0, le=1)
     # Top-N systems listed in the information-gain / follow-up priority report.
     info_gain_top_n: int = Field(20, ge=1)
     # Max |ΔlogZ| / combined_err allowed across robustness runs (layout-side check).

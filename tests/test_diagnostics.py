@@ -56,6 +56,7 @@ from darkhunter_pop.plotting import (
     plot_overlay_histograms,
     plot_six_panel_grid,
     plot_sky_mollweide,
+    resolve_histogram_bins,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -115,6 +116,9 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.figures_subdir == "figures"
     assert cfg.diagnostics.reports_subdir == "reports"
     assert cfg.diagnostics.write_figures is True
+    assert cfg.diagnostics.histogram_max_bins == 80
+    assert cfg.diagnostics.sky_map_point_size == pytest.approx(0.1)
+    assert cfg.diagnostics.sky_map_alpha == pytest.approx(0.25)
     assert cfg.diagnostics.info_gain_top_n == 20
     assert cfg.diagnostics.sampler_logz_sigma_tol == 3.0
     assert cfg.diagnostics.hooks.funnel_sky is True
@@ -533,6 +537,92 @@ def test_plotting_primitives_write_pngs(tmp_path: Path) -> None:
         log_x=True,
     )
     assert line is not None and line.is_file()
+
+
+def test_resolve_histogram_bins_caps_auto_for_heavy_tails() -> None:
+    """Heavy-tailed large-N samples must not keep unbounded auto bin counts (#96)."""
+    rng = np.random.default_rng(96)
+    values = np.concatenate(
+        [rng.exponential(1.5, size=50_000) + 1.0, rng.uniform(40.0, 80.0, size=200)]
+    )
+    uncapped_counts, _ = np.histogram(values, bins="auto")
+    assert len(uncapped_counts) > 80
+    resolved = resolve_histogram_bins(values, "auto", max_bins=80)
+    assert resolved == 80
+    capped_counts, _ = np.histogram(values, bins=resolved)
+    assert len(capped_counts) == 80
+    assert capped_counts.max() > 0
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
+    rng = np.random.default_rng(96)
+    values = np.concatenate(
+        [
+            rng.exponential(200.0, size=20_000) + 0.2,
+            rng.uniform(4000.0, 9000.0, size=50),
+        ]
+    )
+    path = plot_histogram(
+        values,
+        tmp_path / "period_capped.png",
+        xlabel="period [day]",
+        title="period_day",
+        dpi=80,
+        max_bins=80,
+    )
+    assert path is not None and path.is_file()
+    uncapped, _ = np.histogram(values, bins="auto")
+    assert len(uncapped) > 80
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_emit_funnel_sky_uses_config_hist_and_sky_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """funnel_sky must pass diagnostics histogram/sky rendering knobs (#96, #97)."""
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path / "art")}),
+        }
+    )
+    assert cfg.diagnostics.histogram_max_bins == 80
+    assert cfg.diagnostics.sky_map_point_size == pytest.approx(0.1)
+    assert cfg.diagnostics.sky_map_alpha == pytest.approx(0.25)
+
+    seen: dict[str, object] = {}
+
+    def _fake_hist(values, path, **kwargs):  # type: ignore[no-untyped-def]
+        seen["hist_max_bins"] = kwargs.get("max_bins")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(b"png")
+        return Path(path)
+
+    def _fake_sky(ra, dec, path, **kwargs):  # type: ignore[no-untyped-def]
+        seen["sky_point_size"] = kwargs.get("point_size")
+        seen["sky_alpha"] = kwargs.get("alpha")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(b"png")
+        return Path(path)
+
+    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_histogram", _fake_hist)
+    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_sky_mollweide", _fake_sky)
+
+    dirs = resolve_diagnostic_dirs(cfg, run_id="t", beside_artifact=tmp_path / "x.h5")
+    emit_funnel_sky(
+        cfg,
+        dirs,
+        funnel_counts={"queried": 3, "candidates_written": 3},
+        ruwe=[1.1, 1.2, 40.0],
+        period_day=[10.0, 400.0, 8000.0],
+        eccentricity=[0.1, 0.2, 0.3],
+        ra_deg=[10.0, 20.0, 30.0],
+        dec_deg=[-10.0, 0.0, 10.0],
+    )
+    assert seen["hist_max_bins"] == 80
+    assert seen["sky_point_size"] == pytest.approx(0.1)
+    assert seen["sky_alpha"] == pytest.approx(0.25)
 
 
 def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:

@@ -11,6 +11,11 @@ diagnostics:
   reports_subdir: reports
   write_figures: true
   write_reports: true
+  # Cap bins="auto" so RUWE/period heavy tails stay readable (#96).
+  histogram_max_bins: 80
+  # Mollweide markers for NSS-scale catalogs (#97).
+  sky_map_point_size: 0.1
+  sky_map_alpha: 0.25
   info_gain_top_n: 20
   sampler_logz_sigma_tol: 3.0
   hooks:
