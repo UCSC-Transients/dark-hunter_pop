@@ -275,6 +275,11 @@ diagnostics:
   reports_subdir: reports
   write_figures: true
   write_reports: true
+  # Cap bins="auto" so RUWE/period heavy tails stay readable (#96).
+  histogram_max_bins: 80
+  # Mollweide markers for NSS-scale catalogs (#97).
+  sky_map_point_size: 0.1
+  sky_map_alpha: 0.25
   info_gain_top_n: 20
   sampler_logz_sigma_tol: 3.0
   hooks:
@@ -318,6 +323,38 @@ diagnostics:
         relative_heights: [3.0, 2.0, 1.0, 0.5]
       - name: peaked
         relative_heights: [0.5, 2.5, 2.5, 0.5]
+plotting:
+  font_family: serif
+  axes_label_fontsize: 18
+  tick_label_fontsize: 14
+  title_fontsize: 18
+  legend_fontsize: 14
+  tick_width: 2.0
+  tick_major_length: 8.0
+  tick_minor_length: 4.0
+  tick_direction: in
+  spines_width: 2.0
+  line_width: 2.0
+  marker_size: 6.0
+  figsize_landscape: [7.0, 5.0]
+  figsize_portrait: [5.0, 7.0]
+  figsize_wide: [8.0, 4.0]
+  # Okabe–Ito (https://jfly.uni-koeln.de/color/) — pair with linestyle/marker cycles.
+  color_cycle:
+    - "#000000"
+    - "#E69F00"
+    - "#56B4E9"
+    - "#009E73"
+    - "#F0E442"
+    - "#0072B2"
+    - "#D55E00"
+    - "#CC79A7"
+  linestyle_cycle: ["-", "--", "-.", ":"]
+  marker_cycle: ["o", "s", "^", "D", "v", "P", "X", "*"]
+  hist_face_color: "#0072B2"
+  hist_edge_color: "#000000"
+  threshold_color: "#D55E00"
+  threshold_linestyle: "--"
 benchmarks:
   known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
   ruwe_match_tolerance: 0.25

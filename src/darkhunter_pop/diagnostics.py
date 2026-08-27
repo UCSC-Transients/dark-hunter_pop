@@ -701,9 +701,10 @@ def emit_funnel_sky(
         result.reports.append(report)
 
     if diag.write_figures:
+        max_bins = int(diag.histogram_max_bins)
         for name, values, xlabel in (
             ("ruwe", ruwe, "RUWE"),
-            ("period_day", period_day, "period [day]"),
+            ("period_day", period_day, "period (day)"),
             ("eccentricity", eccentricity, "eccentricity"),
         ):
             path = _maybe_plot(
@@ -714,6 +715,8 @@ def emit_funnel_sky(
                     xlabel=xlabel,
                     title=name,
                     dpi=dpi,
+                    max_bins=max_bins,
+                    style=config.plotting,
                 ),
             )
             if path is not None:
@@ -726,6 +729,9 @@ def emit_funnel_sky(
                 dirs.figures / "sky_map.png",
                 title="sky coverage",
                 dpi=dpi,
+                point_size=float(diag.sky_map_point_size),
+                alpha=float(diag.sky_map_alpha),
+                style=config.plotting,
             ),
         )
         if sky is not None:
@@ -743,6 +749,7 @@ def emit_funnel_sky(
                     ylabel="count",
                     title=f"{stage_name} funnel",
                     dpi=dpi,
+                    style=config.plotting,
                 ),
             )
             if bars is not None:
@@ -785,6 +792,7 @@ def emit_elbadry_six_panel(
                 panel_order=panel_order,
                 dpi=diag.figure_dpi,
                 title=title,
+                style=config.plotting,
             ),
         )
         if grid is not None:
@@ -801,6 +809,7 @@ def emit_elbadry_six_panel(
                         xlabel=first,
                         title=first,
                         dpi=diag.figure_dpi,
+                        style=config.plotting,
                     ),
                 )
                 if single is not None:
@@ -849,6 +858,7 @@ def emit_fit_tier_coverage(
                 ylabel="count",
                 title="fit-tier coverage",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -908,6 +918,7 @@ def emit_gate_pass_rate(
                 ylabel="count",
                 title=f"{gate_name} outcomes",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -921,6 +932,8 @@ def emit_gate_pass_rate(
                     xlabel="chi2/dof",
                     title=f"{gate_name} chi2/dof",
                     dpi=diag.figure_dpi,
+                    max_bins=int(diag.histogram_max_bins),
+                    style=config.plotting,
                 ),
             )
             if hist is not None:
@@ -983,6 +996,7 @@ def emit_age_stratified_wd(
                 ylabel="mean WD weight",
                 title="age-stratified WD weights",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -1065,6 +1079,7 @@ def emit_triples_robustness(
                 ylabel="value",
                 title="triples with/without flagged",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -1115,6 +1130,8 @@ def emit_info_gain_followup(
                 xlabel="information-gain score",
                 title="follow-up priority score distribution",
                 dpi=diag.figure_dpi,
+                max_bins=int(diag.histogram_max_bins),
+                style=config.plotting,
             ),
         )
         if hist is not None:
@@ -1130,6 +1147,7 @@ def emit_info_gain_followup(
                 ylabel="score",
                 title=f"top-{len(top)} follow-up priority",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if bars is not None:
@@ -1177,6 +1195,7 @@ def emit_sampler_consistency(
                 ylabel="logZ",
                 title="sampler multi-run logZ",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -1227,6 +1246,7 @@ def emit_mc_noise_convergence(
                 threshold=float(diagnostic.threshold),
                 threshold_label=f"threshold={diagnostic.threshold}",
                 log_x=True,
+                style=config.plotting,
             ),
         )
         if path is not None:
@@ -1290,6 +1310,7 @@ def emit_solution_type_fractions(
                 ylabel="fraction",
                 title="gaiamock solution-type fractions",
                 dpi=diag.figure_dpi,
+                style=config.plotting,
             ),
         )
         if path is not None:

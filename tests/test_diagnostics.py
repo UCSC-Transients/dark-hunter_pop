@@ -48,6 +48,7 @@ from darkhunter_pop.forward_model import (
     run_solution_type_validation,
 )
 from darkhunter_pop.plotting import (
+    apply_axes_style,
     matplotlib_available,
     plot_categorical_bars,
     plot_grouped_bars,
@@ -56,6 +57,9 @@ from darkhunter_pop.plotting import (
     plot_overlay_histograms,
     plot_six_panel_grid,
     plot_sky_mollweide,
+    require_pyplot,
+    resolve_histogram_bins,
+    series_style,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -115,6 +119,9 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.figures_subdir == "figures"
     assert cfg.diagnostics.reports_subdir == "reports"
     assert cfg.diagnostics.write_figures is True
+    assert cfg.diagnostics.histogram_max_bins == 80
+    assert cfg.diagnostics.sky_map_point_size == pytest.approx(0.1)
+    assert cfg.diagnostics.sky_map_alpha == pytest.approx(0.25)
     assert cfg.diagnostics.info_gain_top_n == 20
     assert cfg.diagnostics.sampler_logz_sigma_tol == 3.0
     assert cfg.diagnostics.hooks.funnel_sky is True
@@ -130,6 +137,20 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.hooks.sbc_recovery is True
     assert cfg.diagnostics.sbc.enabled is True
     assert cfg.diagnostics.sbc.run_in_stage is False
+
+
+def test_config_loads_plotting_style_fragment() -> None:
+    cfg = load_config()
+    assert cfg.plotting.font_family == "serif"
+    assert cfg.plotting.axes_label_fontsize == pytest.approx(18.0)
+    assert cfg.plotting.tick_label_fontsize == pytest.approx(14.0)
+    assert cfg.plotting.tick_direction == "in"
+    assert cfg.plotting.tick_width == pytest.approx(2.0)
+    assert cfg.plotting.tick_major_length == pytest.approx(8.0)
+    assert cfg.plotting.tick_minor_length == pytest.approx(4.0)
+    assert cfg.plotting.line_width == pytest.approx(2.0)
+    assert "#0072B2" in cfg.plotting.color_cycle
+    assert cfg.plotting.figsize_portrait == (5.0, 7.0)
 
 
 def test_registry_fingerprints_diagnostics_config() -> None:
@@ -459,6 +480,33 @@ def test_solution_type_validation_gate_still_green() -> None:
 
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_apply_axes_style_inward_ticks_and_serif() -> None:
+    cfg = load_config().plotting
+    plt = require_pyplot()
+    fig, axis = plt.subplots()
+    apply_axes_style(
+        axis,
+        cfg,
+        xlabel=r"Right Ascension (deg)",
+        ylabel=r"Declination (deg)",
+        title="sky",
+    )
+    family = axis.xaxis.get_label().get_fontfamily()
+    if isinstance(family, str):
+        assert family == cfg.font_family
+    else:
+        assert cfg.font_family in family
+    assert axis.xaxis.get_label().get_fontsize() == pytest.approx(cfg.axes_label_fontsize)
+    assert axis.xaxis.majorTicks[0].tick1line.get_markeredgewidth() == pytest.approx(
+        cfg.tick_width
+    )
+    sty = series_style(1, cfg)
+    assert sty["color"] == cfg.color_cycle[1]
+    assert sty["linestyle"] == cfg.linestyle_cycle[1 % len(cfg.linestyle_cycle)]
+    plt.close(fig)
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
 def test_plotting_primitives_write_pngs(tmp_path: Path) -> None:
     dpi = 80
     hist = plot_histogram(
@@ -533,6 +581,115 @@ def test_plotting_primitives_write_pngs(tmp_path: Path) -> None:
         log_x=True,
     )
     assert line is not None and line.is_file()
+
+
+def test_resolve_histogram_bins_caps_auto_for_heavy_tails() -> None:
+    """Heavy-tailed large-N samples must not keep unbounded auto bin counts (#96)."""
+    rng = np.random.default_rng(96)
+    values = np.concatenate(
+        [rng.exponential(1.5, size=50_000) + 1.0, rng.uniform(40.0, 80.0, size=200)]
+    )
+    uncapped_counts, _ = np.histogram(values, bins="auto")
+    assert len(uncapped_counts) > 80
+    resolved = resolve_histogram_bins(values, "auto", max_bins=80)
+    assert resolved == 80
+    capped_counts, _ = np.histogram(values, bins=resolved)
+    assert len(capped_counts) == 80
+    assert capped_counts.max() > 0
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_drops_nonfinite_values(tmp_path: Path) -> None:
+    """NaN/inf must not abort bins=auto (eccentricity has missing NSS rows)."""
+    values = np.array([0.0, 0.1, np.nan, 0.2, np.inf, 0.3, -np.inf], dtype=np.float64)
+    path = plot_histogram(
+        values,
+        tmp_path / "ecc_nan.png",
+        xlabel="eccentricity",
+        title="eccentricity",
+        dpi=80,
+        max_bins=80,
+    )
+    assert path is not None and path.is_file()
+    assert plot_histogram(
+        np.array([np.nan, np.inf]),
+        tmp_path / "all_nan.png",
+        xlabel="x",
+        title="empty",
+        dpi=80,
+        max_bins=80,
+    ) is None
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
+    rng = np.random.default_rng(96)
+    values = np.concatenate(
+        [
+            rng.exponential(200.0, size=20_000) + 0.2,
+            rng.uniform(4000.0, 9000.0, size=50),
+        ]
+    )
+    path = plot_histogram(
+        values,
+        tmp_path / "period_capped.png",
+        xlabel="period [day]",
+        title="period_day",
+        dpi=80,
+        max_bins=80,
+    )
+    assert path is not None and path.is_file()
+    uncapped, _ = np.histogram(values, bins="auto")
+    assert len(uncapped) > 80
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_emit_funnel_sky_uses_config_hist_and_sky_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """funnel_sky must pass diagnostics histogram/sky rendering knobs (#96, #97)."""
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path / "art")}),
+        }
+    )
+    assert cfg.diagnostics.histogram_max_bins == 80
+    assert cfg.diagnostics.sky_map_point_size == pytest.approx(0.1)
+    assert cfg.diagnostics.sky_map_alpha == pytest.approx(0.25)
+
+    seen: dict[str, object] = {}
+
+    def _fake_hist(values, path, **kwargs):  # type: ignore[no-untyped-def]
+        seen["hist_max_bins"] = kwargs.get("max_bins")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(b"png")
+        return Path(path)
+
+    def _fake_sky(ra, dec, path, **kwargs):  # type: ignore[no-untyped-def]
+        seen["sky_point_size"] = kwargs.get("point_size")
+        seen["sky_alpha"] = kwargs.get("alpha")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(b"png")
+        return Path(path)
+
+    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_histogram", _fake_hist)
+    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_sky_mollweide", _fake_sky)
+
+    dirs = resolve_diagnostic_dirs(cfg, run_id="t", beside_artifact=tmp_path / "x.h5")
+    emit_funnel_sky(
+        cfg,
+        dirs,
+        funnel_counts={"queried": 3, "candidates_written": 3},
+        ruwe=[1.1, 1.2, 40.0],
+        period_day=[10.0, 400.0, 8000.0],
+        eccentricity=[0.1, 0.2, 0.3],
+        ra_deg=[10.0, 20.0, 30.0],
+        dec_deg=[-10.0, 0.0, 10.0],
+    )
+    assert seen["hist_max_bins"] == 80
+    assert seen["sky_point_size"] == pytest.approx(0.1)
+    assert seen["sky_alpha"] == pytest.approx(0.25)
 
 
 def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
