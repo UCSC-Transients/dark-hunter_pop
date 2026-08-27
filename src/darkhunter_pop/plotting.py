@@ -323,6 +323,7 @@ def plot_six_panel_grid(
     panel_order: Sequence[str],
     dpi: int,
     title: str = "El-Badry-style six-panel comparison",
+    panel_xlabels: Mapping[str, str] | None = None,
     bins: int | str = "auto",
     max_bins: int | None = None,
     density: bool = True,
@@ -372,11 +373,16 @@ def plot_six_panel_grid(
             series_index += 1
             drawn = True
             any_drawn = True
-        apply_axes_style(axis, cfg, xlabel=panel_name, title=panel_name)
+        apply_axes_style(
+            axis,
+            cfg,
+            xlabel=(panel_xlabels or {}).get(panel_name, panel_name),
+            title=panel_name,
+        )
         if drawn:
             axis.legend(
                 loc="best",
-                fontsize=max(8.0, float(cfg.legend_fontsize) - 4.0),
+                fontsize=cfg.legend_fontsize,
                 prop={"family": cfg.font_family},
             )
         else:

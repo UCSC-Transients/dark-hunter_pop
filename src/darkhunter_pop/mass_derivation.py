@@ -39,6 +39,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.schemas import (
     CandidateRecord,
     FitTier,
@@ -658,6 +659,7 @@ def run_bulk_on_candidates(
 def write_bulk_diagnostic_artifacts(
     diagnostics: BulkDiagnostics,
     artifact_path: Path,
+    config: PipelineConfig,
 ) -> list[Path]:
     """Write funnel text and optional M2 histograms beside the stage HDF5."""
     out_dir = artifact_path.parent / f"{artifact_path.stem}_diagnostics"
@@ -667,27 +669,29 @@ def write_bulk_diagnostic_artifacts(
     funnel_path.write_text(format_bulk_funnel_table(diagnostics), encoding="utf-8")
     written.append(funnel_path)
 
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
+    diag = config.diagnostics
+    if not diag.write_figures:
         return written
 
-    for name, values in (
-        ("m2_pre_cut", diagnostics.m2_pre_cut_msun),
-        ("m2_post_cut", diagnostics.m2_post_cut_msun),
+    dpi = int(diag.figure_dpi)
+    max_bins = int(diag.histogram_max_bins)
+    style = config.plotting
+    for name, values, title in (
+        ("m2_pre_cut", diagnostics.m2_pre_cut_msun, "M2 pre-cut"),
+        ("m2_post_cut", diagnostics.m2_post_cut_msun, "M2 post-cut"),
     ):
-        if values is None or len(values) == 0:
-            continue
-        fig, axis = plt.subplots(figsize=(6, 4))
-        axis.hist(values, bins="auto", color="steelblue", edgecolor="white")
-        axis.set_xlabel("M2 [Msun]")
-        axis.set_ylabel("count")
-        axis.set_title(name)
-        path = out_dir / f"{name}.png"
-        fig.tight_layout()
-        fig.savefig(path, dpi=120)
-        plt.close(fig)
-        written.append(path)
+        path = plot_histogram(
+            values,
+            out_dir / f"{name}.png",
+            xlabel=r"companion mass (M$_\odot$)",
+            ylabel="count",
+            title=title,
+            dpi=dpi,
+            max_bins=max_bins,
+            style=style,
+        )
+        if path is not None:
+            written.append(path)
     return written
 
 
@@ -847,7 +851,7 @@ def run_mass_derivation_bulk(
             "m2_post_cut_msun": diagnostics.m2_post_cut_msun,
         },
     )
-    write_bulk_diagnostic_artifacts(diagnostics, artifact)
+    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
 
     manifest = mark_stage_finished(
         manifest,
