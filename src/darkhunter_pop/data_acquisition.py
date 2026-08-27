@@ -50,12 +50,20 @@ from darkhunter_pop.schemas import (
 )
 
 _GAIA_SOURCE_MAG_FIELDS: dict[str, tuple[str, str | None]] = {
-    "G": ("phot_g_mean_mag", "phot_g_mean_mag_error"),
-    "BP": ("phot_bp_mean_mag", "phot_bp_mean_mag_error"),
-    "RP": ("phot_rp_mean_mag", "phot_rp_mean_mag_error"),
+    # DR3 gaia_source has phot_*_mean_mag but not phot_*_mean_mag_error columns.
+    "G": ("phot_g_mean_mag", None),
+    "BP": ("phot_bp_mean_mag", None),
+    "RP": ("phot_rp_mean_mag", None),
 }
 
-_THIELE_INNES_FIELDS: tuple[str, ...] = ("A", "B", "F", "G")
+# Internal short names (schemas.ThieleInnesElements) → Gaia ADQL column stems.
+_THIELE_INNES_ADQL: dict[str, str] = {
+    "A": "a_thiele_innes",
+    "B": "b_thiele_innes",
+    "F": "f_thiele_innes",
+    "G": "g_thiele_innes",
+}
+_THIELE_INNES_FIELDS: tuple[str, ...] = tuple(_THIELE_INNES_ADQL.keys())
 _THIELE_INNES_ERR_SUFFIX = "_error"
 
 # Astrophysical-parameters columns for mass_derivation (MSC preferred, gspphot fallback).
@@ -161,23 +169,47 @@ def passes_quality_cut(
     return float(goodness_of_fit) <= bins[index].gof_max
 
 
+def resolve_quality_g_column(
+    table: Table,
+    *,
+    preferred: str | None = None,
+) -> str:
+    """Pick the G magnitude column used by quality cuts.
+
+    Production ADQL aliases ``phot_g_mean_mag`` as ``g_mag``; fixtures / legacy
+    snapshots may still use the Gaia catalog name.
+    """
+    candidates: list[str] = []
+    if preferred is not None:
+        candidates.append(preferred)
+    candidates.extend(("g_mag", "phot_g_mean_mag"))
+    for name in candidates:
+        if name in table.colnames:
+            return name
+    raise KeyError(
+        "table missing G magnitude column "
+        f"(tried {candidates!r}; have {list(table.colnames)!r})"
+    )
+
+
 def apply_quality_cuts(
     table: Table,
     bins: Sequence[QualityCutBin],
     *,
-    g_column: str = "phot_g_mean_mag",
+    g_column: str | None = None,
     gof_column: str = "goodness_of_fit",
 ) -> tuple[Table, dict[str, int]]:
     """Filter ``table`` with the N-bin quality-cut scheme; return per-bin survivor counts."""
-    if g_column not in table.colnames or gof_column not in table.colnames:
-        raise KeyError(f"table missing {g_column!r} or {gof_column!r}")
+    g_col = resolve_quality_g_column(table, preferred=g_column)
+    if gof_column not in table.colnames:
+        raise KeyError(f"table missing {gof_column!r}")
 
     keep = np.zeros(len(table), dtype=bool)
     bin_counts = {f"{_bin_label(i, b)}_pass": 0 for i, b in enumerate(bins)}
     bin_counts["unclassified"] = 0
     bin_counts["failed_gof"] = 0
 
-    g_values = np.asarray(table[g_column], dtype=np.float64)
+    g_values = np.asarray(table[g_col], dtype=np.float64)
     gof_values = np.asarray(table[gof_column], dtype=np.float64)
 
     for row_index in range(len(table)):
@@ -203,27 +235,49 @@ def _enabled_crossmatches(
     return [match for match in crossmatches if match.enabled]
 
 
+def _split_join_eq(spec: str) -> tuple[str, str]:
+    if spec.count("=") != 1:
+        raise ValueError(f"join key must be 'left=right', got {spec!r}")
+    left, right = spec.split("=")
+    left, right = left.strip(), right.strip()
+    if not left or not right:
+        raise ValueError(f"join key must be 'left=right', got {spec!r}")
+    return left, right
+
+
 def build_nss_adql(dr: DRPathConfig) -> str:
-    """Build the literal ADQL for the NSS catalog + photometry cross-matches."""
+    """Build the literal ADQL for the NSS catalog + photometry cross-matches.
+
+    Astrometry (ra/dec/parallax/pm) is ``COALESCE(nss.*, gs.*)``: Orbital* rows
+    keep NSS solution values when filled; SB1 / EclipsingBinary / etc. fall back to
+    ``gaia_source`` because those solution types leave NSS astrometry null by design.
+    Thiele-Innes (A/B/F/G) stay NSS-only and are null for non-astrometric solutions.
+    """
     select_parts = [
         "nss.source_id",
         "nss.nss_solution_type",
-        "nss.ra",
-        "nss.dec",
-        "nss.parallax",
-        "nss.parallax_error",
-        "nss.pmra",
-        "nss.pmdec",
+        # NSS columns are sparsely filled by solution type; fall back to gaia_source.
+        "COALESCE(nss.ra, gs.ra) AS ra",
+        "COALESCE(nss.dec, gs.dec) AS dec",
+        "COALESCE(nss.parallax, gs.parallax) AS parallax",
+        "COALESCE(nss.parallax_error, gs.parallax_error) AS parallax_error",
+        "COALESCE(nss.pmra, gs.pmra) AS pmra",
+        "COALESCE(nss.pmdec, gs.pmdec) AS pmdec",
         "nss.period",
-        "nss.period_error",
+        # EclipsingBinary: period σ is in input_period_error, not period_error (Gaia datamodel).
+        "COALESCE(nss.period_error, nss.input_period_error) AS period_error",
+        "nss.t_periastron",
+        "nss.t_periastron_error",
         "nss.eccentricity",
         "nss.eccentricity_error",
         "nss.goodness_of_fit",
         "gs.ruwe",
     ]
-    for thiele in _THIELE_INNES_FIELDS:
-        select_parts.append(f"nss.{thiele}")
-        select_parts.append(f"nss.{thiele}{_THIELE_INNES_ERR_SUFFIX}")
+    for short, adql_stem in _THIELE_INNES_ADQL.items():
+        select_parts.append(f"nss.{adql_stem} AS {short}")
+        select_parts.append(
+            f"nss.{adql_stem}{_THIELE_INNES_ERR_SUFFIX} AS {short}{_THIELE_INNES_ERR_SUFFIX}"
+        )
 
     # MSC / gspphot atmospheric parameters for mass_derivation_bulk (ARCHITECTURE.md §4).
     for stem in _AP_PARAM_STEMS:
@@ -240,17 +294,20 @@ def build_nss_adql(dr: DRPathConfig) -> str:
             select_parts.append(f"gs.{err_col} AS {band.lower()}_mag_err")
 
     enabled = _enabled_crossmatches(dr.external_photometry_crossmatches)
+    # One JOIN chain per unique neighbour(+join)+catalog graph; bands share aliases.
     neighbour_alias: dict[str, str] = {}
+    join_alias: dict[str, str] = {}
+    catalog_alias: dict[tuple[str, str | None, str], str] = {}
+
     for match in enabled:
         if match.neighbour_table not in neighbour_alias:
             neighbour_alias[match.neighbour_table] = f"nb_{len(neighbour_alias)}"
-
-    catalog_alias: dict[tuple[str, str], str] = {}
-    for match in enabled:
-        key = (match.neighbour_table, match.catalog_table)
-        if key not in catalog_alias:
-            catalog_alias[key] = f"cat_{len(catalog_alias)}"
-        cat_ref = catalog_alias[key]
+        if match.join_table and match.join_table not in join_alias:
+            join_alias[match.join_table] = f"xj_{len(join_alias)}"
+        cat_key = (match.neighbour_table, match.join_table, match.catalog_table)
+        if cat_key not in catalog_alias:
+            catalog_alias[cat_key] = f"cat_{len(catalog_alias)}"
+        cat_ref = catalog_alias[cat_key]
         select_parts.append(f"{cat_ref}.{match.mag_column} AS {match.band}_mag")
         if match.mag_err_column is not None:
             select_parts.append(
@@ -274,14 +331,88 @@ def build_nss_adql(dr: DRPathConfig) -> str:
             f"ON nss.source_id = {alias}.source_id"
         )
 
-    for (neighbour_table, catalog_table), cat_ref in catalog_alias.items():
-        nb_ref = neighbour_alias[neighbour_table]
-        lines.append(
-            f"LEFT JOIN {catalog_table} AS {cat_ref} "
-            f"ON {nb_ref}.original_ext_source_id = {cat_ref}.original_ext_source_id"
-        )
+    emitted_joins: set[str] = set()
+    emitted_catalogs: set[tuple[str, str | None, str]] = set()
+    for match in enabled:
+        nb_ref = neighbour_alias[match.neighbour_table]
+        cat_key = (match.neighbour_table, match.join_table, match.catalog_table)
+        cat_ref = catalog_alias[cat_key]
+
+        if match.join_table:
+            xj_ref = join_alias[match.join_table]
+            if match.join_table not in emitted_joins:
+                left, right = _split_join_eq(match.neighbour_to_join or "")
+                lines.append(
+                    f"LEFT JOIN {match.join_table} AS {xj_ref} "
+                    f"ON {nb_ref}.{left} = {xj_ref}.{right}"
+                )
+                emitted_joins.add(match.join_table)
+            if cat_key not in emitted_catalogs:
+                left, right = _split_join_eq(match.join_to_catalog or "")
+                lines.append(
+                    f"LEFT JOIN {match.catalog_table} AS {cat_ref} "
+                    f"ON {xj_ref}.{left} = {cat_ref}.{right}"
+                )
+                emitted_catalogs.add(cat_key)
+        else:
+            if cat_key not in emitted_catalogs:
+                left, right = _split_join_eq(match.neighbour_to_catalog or "")
+                lines.append(
+                    f"LEFT JOIN {match.catalog_table} AS {cat_ref} "
+                    f"ON {nb_ref}.{left} = {cat_ref}.{right}"
+                )
+                emitted_catalogs.add(cat_key)
 
     return "\n".join(lines)
+
+
+def build_nss_type_smoke_adql(
+    dr: DRPathConfig,
+    *,
+    nss_solution_type: str,
+    top_n: int = 20,
+) -> str:
+    """Bounded ADQL for Archive smoke tests (one ``nss_solution_type``, async recommended).
+
+    Joins on ``(source_id, nss_solution_type)`` so a source with multiple NSS rows does
+    not leak across solution types.
+    """
+    if top_n < 1:
+        raise ValueError(f"top_n must be >= 1, got {top_n}")
+    if not nss_solution_type:
+        raise ValueError("nss_solution_type must be non-empty")
+    if "'" in nss_solution_type:
+        raise ValueError("nss_solution_type must not contain single quotes")
+
+    full = build_nss_adql(dr)
+    lines = full.split("\n")
+    from_idx = next(i for i, line in enumerate(lines) if line.startswith("FROM "))
+    select_clause = "\n".join(lines[:from_idx])
+    tail = lines[from_idx + 1 :]
+    if not tail or not tail[0].startswith("JOIN "):
+        raise ValueError("unexpected ADQL shape from build_nss_adql")
+    # Drop the implicit ``FROM nss`` — replaced by pick + keyed join below.
+    join_tail = "\n".join(tail)
+
+    pick_from = "\n".join(
+        [
+            "FROM (",
+            f"  SELECT TOP {top_n} source_id, nss_solution_type",
+            f"  FROM {dr.nss_table}",
+            f"  WHERE nss_solution_type = '{nss_solution_type}'",
+            "  ORDER BY source_id",
+            ") AS pick",
+            f"JOIN {dr.nss_table} AS nss",
+            "  ON pick.source_id = nss.source_id",
+            " AND pick.nss_solution_type = nss.nss_solution_type",
+        ]
+    )
+    return (
+        f"{select_clause}\n"
+        f"{pick_from}\n"
+        f"{join_tail}\n"
+        "ORDER BY nss.source_id"
+    )
 
 
 def _table_checksum(table: Table) -> str:
@@ -341,8 +472,16 @@ def save_gaia_snapshot(
     return meta
 
 
-def load_gaia_snapshot(meta_path: Path) -> tuple[SnapshotMeta, Table]:
-    """Load a previously saved snapshot from its ``meta.yaml``."""
+def load_gaia_snapshot(
+    meta_path: Path,
+    *,
+    verify_checksum: bool = True,
+) -> tuple[SnapshotMeta, Table]:
+    """Load a previously saved snapshot from its ``meta.yaml``.
+
+    Set ``verify_checksum=False`` when resuming a large archive download so the
+    table is not re-serialized solely to recompute the SHA-256 (slow for ~10^5 rows).
+    """
     raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     result_path = Path(raw["result_path"])
     if not result_path.is_absolute():
@@ -357,8 +496,13 @@ def load_gaia_snapshot(meta_path: Path) -> tuple[SnapshotMeta, Table]:
         result_path=result_path,
         meta_path=meta_path,
     )
-    if meta.checksum != _table_checksum(table):
+    if verify_checksum and meta.checksum != _table_checksum(table):
         raise ValueError(f"snapshot checksum mismatch for {meta_path}")
+    if meta.row_count != len(table):
+        raise ValueError(
+            f"snapshot row_count mismatch for {meta_path}: "
+            f"meta={meta.row_count} table={len(table)}"
+        )
     return meta, table
 
 
@@ -387,9 +531,27 @@ def _optional_float(row: Mapping[str, Any] | Any, key: str) -> float | None:
     if key not in mapping:
         return None
     value = mapping[key]
-    if value is None or (isinstance(value, float) and np.isnan(value)):
+    if value is None:
         return None
-    return float(value)
+    # Astropy / numpy masked nulls (common in Gaia VOTable → Table).
+    if hasattr(value, "mask"):
+        try:
+            if bool(np.ma.is_masked(value)):
+                return None
+        except (TypeError, ValueError):
+            pass
+    try:
+        if np.ma.is_masked(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(out):
+        return None
+    return out
 
 
 def _build_thiele_innes(row: Mapping[str, Any]) -> ThieleInnesElements | None:
@@ -408,11 +570,46 @@ def _build_thiele_innes(row: Mapping[str, Any]) -> ThieleInnesElements | None:
     )
 
 
+def _resolve_external_mag_err(
+    raw_err: float | None,
+    dr: DRPathConfig,
+) -> tuple[float | None, bool]:
+    """Return (mag_err, imputed). Zero/negative errors are treated as missing when configured."""
+    err = raw_err
+    if err is not None and dr.external_mag_err_zero_as_missing and err <= 0.0:
+        err = None
+    if err is not None and err > 0.0:
+        return err, False
+    if dr.impute_external_mag_err:
+        return dr.external_mag_err_floor, True
+    return None, False
+
+
+def _is_gaia_pseudo_circular(row: Mapping[str, Any], dr: DRPathConfig) -> bool:
+    """True for Gaia Orbital* rows with null σ_e and e below the pseudo-circular threshold."""
+    solution_type = row.get("nss_solution_type")
+    if hasattr(solution_type, "item"):
+        solution_type = str(solution_type.item())
+    elif solution_type is not None:
+        solution_type = str(solution_type)
+    else:
+        return False
+    if not solution_type.startswith("Orbital"):
+        return False
+    eccentricity = _optional_float(row, "eccentricity")
+    if eccentricity is None:
+        return False
+    if _optional_float(row, "eccentricity_error") is not None:
+        return False
+    return eccentricity < dr.pseudo_circular_eccentricity_max
+
+
 def _build_photometry(
     row: Mapping[str, Any],
     dr: DRPathConfig,
-) -> list[PhotometryPoint]:
+) -> tuple[list[PhotometryPoint], list[str]]:
     points: list[PhotometryPoint] = []
+    imputed_bands: list[str] = []
     for band in dr.gaia_source_photometry_bands:
         mag = _optional_float(row, f"{band.lower()}_mag")
         if mag is None:
@@ -425,16 +622,25 @@ def _build_photometry(
         if mag is None:
             continue
         err_key = f"{match.band}_mag_err"
-        err = _optional_float(row, err_key) if err_key in row else None
+        raw_err = _optional_float(row, err_key) if err_key in row else None
+        err, imputed = _resolve_external_mag_err(raw_err, dr)
+        if imputed:
+            imputed_bands.append(match.band)
         points.append(PhotometryPoint(band=match.band, mag=mag, mag_err=err))
-    return points
+    return points, imputed_bands
 
 
-def _build_nss_orbital(row: Mapping[str, Any]) -> dict[str, Any]:
+def _build_nss_orbital(
+    row: Mapping[str, Any],
+    dr: DRPathConfig,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     orbital: dict[str, Any] = {}
+    extras: dict[str, Any] = {}
     for key in (
         "period",
         "period_error",
+        "t_periastron",
+        "t_periastron_error",
         "eccentricity",
         "eccentricity_error",
         "parallax",
@@ -447,7 +653,9 @@ def _build_nss_orbital(row: Mapping[str, Any]) -> dict[str, Any]:
         value = _optional_float(row, key)
         if value is not None:
             orbital[key] = value
-    return orbital
+    if _is_gaia_pseudo_circular(row, dr):
+        extras["gaia_pseudo_circular"] = True
+    return orbital, extras
 
 
 def _build_atmosphere_extras(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -472,6 +680,13 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
     elif solution_type is not None:
         solution_type = str(solution_type)
 
+    photometry, imputed_bands = _build_photometry(mapping, dr)
+    nss_orbital, orbital_extras = _build_nss_orbital(mapping, dr)
+    extras = _build_atmosphere_extras(mapping)
+    extras.update(orbital_extras)
+    if imputed_bands:
+        extras["mag_err_imputed_bands"] = imputed_bands
+
     return CandidateRecord(
         source_id=source_id,
         nss_solution_type=solution_type,
@@ -479,9 +694,9 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         dec_deg=_optional_float(mapping, "dec"),
         parallax_mas=_optional_float(mapping, "parallax"),
         thiele_innes=_build_thiele_innes(mapping),
-        nss_orbital=_build_nss_orbital(mapping),
-        photometry=_build_photometry(mapping, dr),
-        extras=_build_atmosphere_extras(mapping),
+        nss_orbital=nss_orbital,
+        photometry=photometry,
+        extras=extras,
     )
 
 
@@ -645,7 +860,13 @@ def default_gaia_query(adql: str, dr: DRPathConfig) -> Table:
     password = os.environ.get(dr.gaia_archive_password_env)
     if user and password:
         Gaia.login(user=user, password=password)
-    job = Gaia.launch_job(adql, dump_to_file=False)
+    # astroquery injects TOP when ROW_LIMIT > 0; -1 disables the cap.
+    Gaia.ROW_LIMIT = int(dr.gaia_archive_row_limit)
+    if dr.gaia_archive_async:
+        # Sync jobs abort with ESA Error 408 on the full NSS+crossmatch ADQL.
+        job = Gaia.launch_job_async(adql, dump_to_file=False)
+    else:
+        job = Gaia.launch_job(adql, dump_to_file=False)
     result = job.get_results()
     if not isinstance(result, Table):
         raise TypeError(f"expected astropy Table from Gaia job, got {type(result)!r}")
@@ -659,8 +880,13 @@ def run_data_acquisition(
     run_path: Path,
     force_rerun: bool = False,
     query_fn: Callable[[str, DRPathConfig], Table] | None = None,
+    snapshot_meta_path: Path | None = None,
 ) -> RunManifest:
-    """Execute ``data_acquisition``: query, snapshot, quality cut, HDF5, manifest update."""
+    """Execute ``data_acquisition``: query, snapshot, quality cut, HDF5, manifest update.
+
+    Pass ``snapshot_meta_path`` to reuse an existing Gaia snapshot (skip archive query
+    and avoid writing a duplicate snapshot). Useful after a mid-stage failure.
+    """
     require_dr3_active_for_v1(config)
     spec = STAGE_REGISTRY["data_acquisition"]
     plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
@@ -673,14 +899,20 @@ def run_data_acquisition(
     save_run_manifest(manifest, run_path)
 
     dr = config.active_dr()
-    adql = build_nss_adql(dr)
-    query = query_fn or default_gaia_query
-    raw_table = query(adql, dr)
-    snapshot = save_gaia_snapshot(
-        raw_table,
-        adql,
-        snapshots_dir=gaia_snapshots_dir(config),
-    )
+    if snapshot_meta_path is not None:
+        snapshot, raw_table = load_gaia_snapshot(
+            snapshot_meta_path,
+            verify_checksum=False,
+        )
+    else:
+        adql = build_nss_adql(dr)
+        query = query_fn or default_gaia_query
+        raw_table = query(adql, dr)
+        snapshot = save_gaia_snapshot(
+            raw_table,
+            adql,
+            snapshots_dir=gaia_snapshots_dir(config),
+        )
 
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
     candidates = table_to_candidates(filtered, dr)

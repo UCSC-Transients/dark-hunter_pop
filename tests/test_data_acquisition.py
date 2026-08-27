@@ -16,6 +16,7 @@ from darkhunter_pop.data_acquisition import (
     SnapshotMeta,
     apply_quality_cuts,
     build_nss_adql,
+    build_nss_type_smoke_adql,
     format_funnel_table,
     gaia_snapshots_dir,
     load_gaia_snapshot,
@@ -122,13 +123,59 @@ def test_apply_quality_cuts_on_fixture_table() -> None:
     assert filtered["source_id"][0] == 1001
 
 
+def test_apply_quality_cuts_accepts_g_mag_alias() -> None:
+    """Production ADQL aliases Gaia G as g_mag, not phot_g_mean_mag."""
+    table = Table(
+        {
+            "source_id": [1, 2],
+            "g_mag": [12.0, 14.0],
+            "goodness_of_fit": [4.0, 8.0],
+        }
+    )
+    bins = load_config().dr3.quality_cut_bins
+    filtered, counts = apply_quality_cuts(table, bins)
+    assert len(filtered) == 1
+    assert filtered["source_id"][0] == 1
+    assert counts["unclassified"] == 0
+
+
 def test_build_nss_adql_contains_configured_tables() -> None:
     dr = _dr_config()
     adql = build_nss_adql(dr)
     assert dr.nss_table in adql
     assert dr.gaia_source_table in adql
-    assert "tmass_best_neighbour" in adql
+    assert "tmass_psc_xsc_best_neighbour" in adql
+    assert "tmass_psc_xsc_join" in adql
+    assert "gaiadr1.tmass_original_valid" in adql
+    assert "panstarrs1_best_neighbour" in adql
+    assert "g_mean_psf_mag AS g_ps1_mag" in adql
+    assert "y_mean_psf_mag AS y_ps1_mag" in adql
+    assert "g AS g_sdss_mag" in adql
+    assert "z AS z_sdss_mag" in adql
+    assert "a_thiele_innes AS A" in adql
+    assert "COALESCE(nss.ra, gs.ra) AS ra" in adql
+    assert "COALESCE(nss.period_error, nss.input_period_error) AS period_error" in adql
+    assert "nss.t_periastron" in adql
+    assert "nss.A," not in adql.replace("\n", "")
+    assert "phot_g_mean_mag_error" not in adql
     assert "LEFT JOIN" in adql
+    assert "galex_ais_best_neighbour" not in adql  # disabled
+
+
+def test_build_nss_type_smoke_adql_one_solution_type() -> None:
+    dr = _dr_config()
+    adql = build_nss_type_smoke_adql(dr, nss_solution_type="EclipsingBinary", top_n=20)
+    assert "TOP 20 source_id, nss_solution_type" in adql
+    assert "WHERE nss_solution_type = 'EclipsingBinary'" in adql
+    assert "pick.nss_solution_type = nss.nss_solution_type" in adql
+    assert "COALESCE(nss.period_error, nss.input_period_error) AS period_error" in adql
+    assert "UNION ALL" not in adql
+
+
+def test_gaia_archive_async_defaults_true() -> None:
+    cfg = load_config()
+    assert cfg.dr3.gaia_archive_async is True
+    assert cfg.dr3.gaia_archive_row_limit == -1
 
 
 def test_snapshot_round_trip(tmp_path: Path) -> None:
@@ -161,6 +208,77 @@ def test_table_row_to_candidate_maps_owned_fields() -> None:
     assert candidate.m1 is None
     assert any(point.band == "G" for point in candidate.photometry)
     assert "period" in candidate.nss_orbital
+
+
+def test_optional_float_treats_masked_as_missing() -> None:
+    from darkhunter_pop.data_acquisition import _optional_float
+
+    row = {"eccentricity_error": np.ma.masked}
+    assert _optional_float(row, "eccentricity_error") is None
+    row = {"eccentricity_error": np.ma.array([0.01], mask=[False])[0]}
+    assert _optional_float(row, "eccentricity_error") == pytest.approx(0.01)
+
+
+def test_eclipsing_binary_period_error_from_input_period_error() -> None:
+    dr = _dr_config()
+    row = {
+        "source_id": 2001,
+        "nss_solution_type": "EclipsingBinary",
+        "ra": 10.0,
+        "dec": 5.0,
+        "period": 1.5,
+        "period_error": None,
+        "eccentricity": 0.0,
+        "goodness_of_fit": 3.0,
+        "g_mag": 12.0,
+    }
+    candidate = table_row_to_candidate(row, dr)
+    assert "period_error" not in candidate.nss_orbital
+
+    row["period_error"] = 0.001
+    candidate = table_row_to_candidate(row, dr)
+    assert candidate.nss_orbital["period_error"] == pytest.approx(0.001)
+
+
+def test_pseudo_circular_orbital_flagged_in_extras() -> None:
+    dr = _dr_config()
+    row = {
+        "source_id": 3001,
+        "nss_solution_type": "Orbital",
+        "ra": 10.0,
+        "dec": 5.0,
+        "period": 100.0,
+        "eccentricity": 1.5e-7,
+        "eccentricity_error": None,
+        "goodness_of_fit": 3.0,
+        "g_mag": 12.0,
+    }
+    candidate = table_row_to_candidate(row, dr)
+    assert candidate.extras.get("gaia_pseudo_circular") is True
+
+    row["eccentricity_error"] = 0.01
+    candidate = table_row_to_candidate(row, dr)
+    assert "gaia_pseudo_circular" not in candidate.extras
+
+
+def test_external_mag_err_zero_imputed_with_floor() -> None:
+    dr = _dr_config()
+    row = {
+        "source_id": 4001,
+        "nss_solution_type": "SB1",
+        "ra": 10.0,
+        "dec": 5.0,
+        "period": 10.0,
+        "eccentricity": 0.1,
+        "goodness_of_fit": 3.0,
+        "g_mag": 12.0,
+        "g_ps1_mag": 12.1,
+        "g_ps1_mag_err": 0.0,
+    }
+    candidate = table_row_to_candidate(row, dr)
+    ps1 = next(p for p in candidate.photometry if p.band == "g_ps1")
+    assert ps1.mag_err == pytest.approx(dr.external_mag_err_floor)
+    assert candidate.extras.get("mag_err_imputed_bands") == ["g_ps1"]
 
 
 def test_write_and_read_stage_hdf5(tmp_path: Path) -> None:
@@ -232,6 +350,43 @@ def test_run_data_acquisition_writes_manifest_and_artifact(tmp_path: Path) -> No
     meta = yaml.safe_load(meta_files[0].read_text(encoding="utf-8"))
     assert "adql" in meta
     assert "checksum" in meta
+
+
+def test_run_data_acquisition_from_snapshot_skips_query(tmp_path: Path) -> None:
+    cfg = load_config()
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    manifest = create_run_manifest(cfg)
+    run_path = runs / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+
+    table = _sample_table()
+    snap_dir = tmp_path / "snaps"
+    meta = save_gaia_snapshot(table, "SELECT 1", snapshots_dir=snap_dir)
+
+    data_root = tmp_path / "data"
+    artifact_root = tmp_path / "output"
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.paths = cfg.paths.model_copy(
+        update={"data_root": str(data_root), "artifact_root": str(artifact_root)}
+    )
+
+    def boom(adql: str, dr) -> Table:  # noqa: ARG001
+        raise AssertionError("archive query must not run when snapshot is provided")
+
+    finished = run_data_acquisition(
+        manifest,
+        tweaked,
+        run_path=run_path,
+        query_fn=boom,
+        snapshot_meta_path=meta.meta_path,
+    )
+    assert finished.stages["data_acquisition"].status is StageStatus.COMPLETED
+    artifact = stage_artifact_path(
+        tweaked, STAGE_REGISTRY["data_acquisition"], run_id=finished.run_id
+    )
+    candidates, _ = read_stage_hdf5(artifact)
+    assert len(candidates) == 1
 
 
 def test_format_funnel_table_is_legible() -> None:

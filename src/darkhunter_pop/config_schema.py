@@ -751,7 +751,14 @@ class QualityCutBin(BaseModel):
 
 
 class ExternalPhotometryCrossmatch(BaseModel):
-    """One external-band cross-match via a Gaia ``*_best_neighbour`` table."""
+    """One external-band cross-match via Gaia archive precomputed tables.
+
+    Simple path (AllWISE / PanSTARRS / SDSS): ``neighbour_table`` → ``catalog_table``
+    with ``neighbour_to_catalog`` as ``neighbour_col=catalog_col``.
+
+    2MASS path: ``neighbour_table`` → ``join_table`` → ``catalog_table`` using
+    ``neighbour_to_join`` and ``join_to_catalog`` (ESA mandatory join pattern).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -761,6 +768,30 @@ class ExternalPhotometryCrossmatch(BaseModel):
     mag_column: str = Field(..., min_length=1)
     mag_err_column: str | None = None
     enabled: bool = True
+    # "neighbour_col=catalog_col" when join_table is unset.
+    neighbour_to_catalog: str | None = None
+    join_table: str | None = None
+    # "neighbour_col=join_col" when join_table is set.
+    neighbour_to_join: str | None = None
+    # "join_col=catalog_col" when join_table is set.
+    join_to_catalog: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_join_keys(self) -> ExternalPhotometryCrossmatch:
+        if not self.enabled:
+            return self
+        if self.join_table:
+            if not self.neighbour_to_join or not self.join_to_catalog:
+                raise ValueError(
+                    f"band {self.band!r}: join_table requires neighbour_to_join "
+                    "and join_to_catalog"
+                )
+        elif not self.neighbour_to_catalog:
+            raise ValueError(
+                f"band {self.band!r}: neighbour_to_catalog is required when "
+                "join_table is unset"
+            )
+        return self
 
 
 class DRPathConfig(BaseModel):
@@ -781,6 +812,16 @@ class DRPathConfig(BaseModel):
     )
     gaia_archive_user_env: str = "GAIA_ARCHIVE_USER"
     gaia_archive_password_env: str = "GAIA_ARCHIVE_PASSWORD"
+    # astroquery Gaia.ROW_LIMIT; -1 = unlimited. Use 2000 for archive smoke tests.
+    gaia_archive_row_limit: int = Field(-1, ge=-1)
+    # Sync jobs hit ESA Error 408 on large NSS+crossmatch queries; async is default.
+    gaia_archive_async: bool = True
+    # Gaia NSS Orbital pseudo-circular flag: null eccentricity_error and e below this (§7.2.5).
+    pseudo_circular_eccentricity_max: float = Field(0.0005, ge=0)
+    # External crossmatch photometry: treat err<=0 as missing; optional floor at ingest.
+    external_mag_err_floor: float = Field(0.05, gt=0)
+    external_mag_err_zero_as_missing: bool = True
+    impute_external_mag_err: bool = True
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # Reserved for DR4 epoch capabilities; ignored when inactive.
@@ -851,6 +892,12 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "external_photometry_crossmatches",
         "gaia_archive_user_env",
         "gaia_archive_password_env",
+        "gaia_archive_row_limit",
+        "gaia_archive_async",
+        "pseudo_circular_eccentricity_max",
+        "external_mag_err_floor",
+        "external_mag_err_zero_as_missing",
+        "impute_external_mag_err",
         "nss_table",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",

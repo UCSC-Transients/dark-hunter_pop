@@ -384,57 +384,134 @@ dr3:
     catalog_table: gaiadr3.galex_ais_dr3
     mag_column: nuv_mag
     mag_err_column: nuv_mag_err
+    neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+    enabled: false
+  - band: g_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: g_mean_psf_mag
+    mag_err_column: g_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
     enabled: true
   - band: r_ps1
-    neighbour_table: gaiadr3.ps1_best_neighbour
-    catalog_table: gaiadr3.panstarrs1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
     mag_column: r_mean_psf_mag
     mag_err_column: r_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
+  - band: i_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: i_mean_psf_mag
+    mag_err_column: i_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
+  - band: z_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: z_mean_psf_mag
+    mag_err_column: z_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
+    enabled: true
+  - band: y_ps1
+    neighbour_table: gaiadr3.panstarrs1_best_neighbour
+    catalog_table: gaiadr2.panstarrs1_original_valid
+    mag_column: y_mean_psf_mag
+    mag_err_column: y_mean_psf_mag_error
+    neighbour_to_catalog: original_ext_source_id=obj_id
     enabled: true
   - band: J
-    neighbour_table: gaiadr3.tmass_best_neighbour
-    catalog_table: gaiadr3.tmass
+    neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+    catalog_table: gaiadr1.tmass_original_valid
+    join_table: gaiadr3.tmass_psc_xsc_join
+    neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+    join_to_catalog: original_psc_source_id=designation
     mag_column: j_m
-    mag_err_column: j_m_err
+    mag_err_column: j_msigcom
     enabled: true
   - band: H
-    neighbour_table: gaiadr3.tmass_best_neighbour
-    catalog_table: gaiadr3.tmass
+    neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+    catalog_table: gaiadr1.tmass_original_valid
+    join_table: gaiadr3.tmass_psc_xsc_join
+    neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+    join_to_catalog: original_psc_source_id=designation
     mag_column: h_m
-    mag_err_column: h_m_err
+    mag_err_column: h_msigcom
     enabled: true
   - band: Ks
-    neighbour_table: gaiadr3.tmass_best_neighbour
-    catalog_table: gaiadr3.tmass
-    mag_column: k_m
-    mag_err_column: k_m_err
+    neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+    catalog_table: gaiadr1.tmass_original_valid
+    join_table: gaiadr3.tmass_psc_xsc_join
+    neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+    join_to_catalog: original_psc_source_id=designation
+    mag_column: ks_m
+    mag_err_column: ks_msigcom
     enabled: true
   - band: W1
     neighbour_table: gaiadr3.allwise_best_neighbour
-    catalog_table: gaiadr3.allwise
+    catalog_table: gaiadr1.allwise_original_valid
     mag_column: w1mpro
     mag_err_column: w1mpro_error
+    neighbour_to_catalog: allwise_oid=allwise_oid
     enabled: true
   - band: W2
     neighbour_table: gaiadr3.allwise_best_neighbour
-    catalog_table: gaiadr3.allwise
+    catalog_table: gaiadr1.allwise_original_valid
     mag_column: w2mpro
     mag_err_column: w2mpro_error
+    neighbour_to_catalog: allwise_oid=allwise_oid
     enabled: true
   - band: u_sdss
-    neighbour_table: gaiadr3.sdss_best_neighbour
-    catalog_table: gaiadr3.sdss_dr13
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
     mag_column: u
-    mag_err_column: u_err
+    mag_err_column: err_u
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: g_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: g
+    mag_err_column: err_g
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: r_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: r
+    mag_err_column: err_r
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: i_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: i
+    mag_err_column: err_i
+    neighbour_to_catalog: original_ext_source_id=objid
+    enabled: true
+  - band: z_sdss
+    neighbour_table: gaiadr3.sdssdr13_best_neighbour
+    catalog_table: external.sdssdr13_photoprimary
+    mag_column: z
+    mag_err_column: err_z
+    neighbour_to_catalog: original_ext_source_id=objid
     enabled: true
   - band: u_decam
     neighbour_table: gaiadr3.decam_best_neighbour
     catalog_table: gaiadr3.decam_dr2
     mag_column: mag_u
     mag_err_column: magerr_u
+    neighbour_to_catalog: original_ext_source_id=original_ext_source_id
     enabled: false
   gaia_archive_user_env: GAIA_ARCHIVE_USER
   gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
+  gaia_archive_row_limit: -1
+  gaia_archive_async: true
+  pseudo_circular_eccentricity_max: 0.0005
+  external_mag_err_floor: 0.05
+  external_mag_err_zero_as_missing: true
+  impute_external_mag_err: true
   nss_table: gaiadr3.nss_two_body_orbit
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
@@ -470,6 +547,12 @@ dr4:
   external_photometry_crossmatches: []
   gaia_archive_user_env: GAIA_ARCHIVE_USER
   gaia_archive_password_env: GAIA_ARCHIVE_PASSWORD
+  gaia_archive_row_limit: -1
+  gaia_archive_async: true
+  pseudo_circular_eccentricity_max: 0.0005
+  external_mag_err_floor: 0.05
+  external_mag_err_zero_as_missing: true
+  impute_external_mag_err: true
   nss_table: gaiadr4.nss_two_body_orbit
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true
