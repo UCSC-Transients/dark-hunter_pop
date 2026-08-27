@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -39,6 +39,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.schemas import (
     CandidateRecord,
     FitTier,
@@ -658,6 +659,7 @@ def run_bulk_on_candidates(
 def write_bulk_diagnostic_artifacts(
     diagnostics: BulkDiagnostics,
     artifact_path: Path,
+    config: PipelineConfig,
 ) -> list[Path]:
     """Write funnel text and optional M2 histograms beside the stage HDF5."""
     out_dir = artifact_path.parent / f"{artifact_path.stem}_diagnostics"
@@ -667,27 +669,29 @@ def write_bulk_diagnostic_artifacts(
     funnel_path.write_text(format_bulk_funnel_table(diagnostics), encoding="utf-8")
     written.append(funnel_path)
 
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
+    diag = config.diagnostics
+    if not diag.write_figures:
         return written
 
-    for name, values in (
-        ("m2_pre_cut", diagnostics.m2_pre_cut_msun),
-        ("m2_post_cut", diagnostics.m2_post_cut_msun),
+    dpi = int(diag.figure_dpi)
+    max_bins = int(diag.histogram_max_bins)
+    style = config.plotting
+    for name, values, title in (
+        ("m2_pre_cut", diagnostics.m2_pre_cut_msun, "M2 pre-cut"),
+        ("m2_post_cut", diagnostics.m2_post_cut_msun, "M2 post-cut"),
     ):
-        if values is None or len(values) == 0:
-            continue
-        fig, axis = plt.subplots(figsize=(6, 4))
-        axis.hist(values, bins="auto", color="steelblue", edgecolor="white")
-        axis.set_xlabel("M2 [Msun]")
-        axis.set_ylabel("count")
-        axis.set_title(name)
-        path = out_dir / f"{name}.png"
-        fig.tight_layout()
-        fig.savefig(path, dpi=120)
-        plt.close(fig)
-        written.append(path)
+        path = plot_histogram(
+            values,
+            out_dir / f"{name}.png",
+            xlabel=r"companion mass (M$_\odot$)",
+            ylabel="count",
+            title=title,
+            dpi=dpi,
+            max_bins=max_bins,
+            style=style,
+        )
+        if path is not None:
+            written.append(path)
     return written
 
 
@@ -776,6 +780,53 @@ def _load_upstream_candidates(manifest: RunManifest, stage_name: str) -> list[Ca
     return candidates
 
 
+def iter_upstream_candidates(
+    manifest: RunManifest,
+    stage_name: str,
+    *,
+    chunk_size: int = 1024,
+) -> Iterator[CandidateRecord]:
+    """Stream ``CandidateRecord``s from an upstream stage's HDF5 artifact.
+
+    Reads the shared ``candidates/records_json`` dataset (the layout is
+    identical whether the artifact was written by ``data_acquisition`` or by
+    this module — only the ``meta``/``diagnostics`` groups differ) in
+    ``chunk_size``-row slices rather than materializing the whole array, so a
+    consumer that only needs one candidate at a time doesn't have to hold the
+    full catalog in memory. At full NSS-catalog scale (tens of thousands of
+    rows now, more with DR4) that matters; for anything that genuinely needs
+    the full list at once, ``_load_upstream_candidates`` remains available.
+
+    Parameters
+    ----------
+    manifest:
+        The run manifest whose ``stages[stage_name]`` records the upstream
+        artifact path.
+    stage_name:
+        Name of the upstream stage to read (e.g. ``"data_acquisition"``,
+        ``"mass_derivation_bulk"``).
+    chunk_size:
+        Number of rows to read from the HDF5 dataset per slice. Must be >= 1.
+        This only bounds peak memory use during iteration; it does not change
+        what is yielded.
+
+    Yields
+    ------
+    CandidateRecord
+        One record at a time, in on-disk order.
+    """
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    path = _upstream_artifact(manifest, stage_name)
+    with h5py.File(path, "r") as handle:
+        strings = handle["candidates"]["records_json"].asstr()
+        n_rows = strings.shape[0]
+        for start in range(0, n_rows, chunk_size):
+            stop = min(start + chunk_size, n_rows)
+            for raw in strings[start:stop]:
+                yield CandidateRecord.model_validate(json.loads(raw))
+
+
 def _default_sed_summary_loader(source_id: int) -> dict[str, Any] | None:
     """Load ``darkhunter_sed`` sed_summary.json when the package is available."""
     if not _SED_AVAILABLE or _sed_summary_path is None or _sed_read_summary is None:
@@ -847,7 +898,7 @@ def run_mass_derivation_bulk(
             "m2_post_cut_msun": diagnostics.m2_post_cut_msun,
         },
     )
-    write_bulk_diagnostic_artifacts(diagnostics, artifact)
+    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
 
     manifest = mark_stage_finished(
         manifest,

@@ -10,6 +10,8 @@ import pytest
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.config_schema import MassCalibrationMethod
 from darkhunter_pop.mass_derivation import (
+    BulkDiagnostics,
+    BulkFunnel,
     apply_santos_correction,
     approaches_uberms_m1_prior_cap,
     companion_mass_m2,
@@ -26,8 +28,10 @@ from darkhunter_pop.mass_derivation import (
     run_mass_derivation_refined,
     run_refined_on_candidates,
     tag10_log_mass_radius,
+    write_bulk_diagnostic_artifacts,
     write_stage_hdf5,
 )
+from darkhunter_pop.plotting import matplotlib_available
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     create_run_manifest,
@@ -411,3 +415,50 @@ def test_hdf5_round_trip(tmp_path: Path) -> None:
     loaded, meta = read_stage_hdf5(path)
     assert loaded[0].source_id == cand.source_id
     assert meta["n_candidates"] == 1
+
+
+def _sample_bulk_diagnostics() -> BulkDiagnostics:
+    return BulkDiagnostics(
+        funnel=BulkFunnel(
+            input_candidates=3,
+            atmosphere_ok=3,
+            m1_ok=3,
+            m2_ok=2,
+            after_m2_cut=2,
+            skipped_no_atmosphere=0,
+            skipped_no_orbit=0,
+            skipped_m2_failed=1,
+        ),
+        m2_pre_cut_msun=np.array([0.5, 1.0, 1.5], dtype=np.float64),
+        m2_post_cut_msun=np.array([0.5, 1.0], dtype=np.float64),
+    )
+
+
+def test_write_bulk_diagnostic_artifacts_respects_write_figures_flag(
+    tmp_path: Path,
+) -> None:
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "diagnostics": cfg.diagnostics.model_copy(update={"write_figures": False}),
+        }
+    )
+    artifact = tmp_path / "mass_derivation_bulk.h5"
+    artifact.write_bytes(b"")
+    written = write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
+    assert any(p.name == "funnel.txt" for p in written)
+    assert not any(p.suffix == ".png" for p in written)
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_write_bulk_diagnostic_artifacts_uses_shared_plotting(tmp_path: Path) -> None:
+    cfg = load_config()
+    artifact = tmp_path / "mass_derivation_bulk.h5"
+    artifact.write_bytes(b"")
+    written = write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
+    pngs = [p for p in written if p.suffix == ".png"]
+    assert {p.name for p in pngs} == {"m2_pre_cut.png", "m2_post_cut.png"}
+    diag_dir = tmp_path / "mass_derivation_bulk_diagnostics"
+    assert diag_dir.is_dir()
+    for path in pngs:
+        assert path.is_file() and path.stat().st_size > 0

@@ -94,6 +94,16 @@ DEFAULT_ELBADRY_PANEL_ORDER: tuple[str, ...] = (
     "cos_inclination",
 )
 
+# Axis labels with units (docs/PLOTS.md); keys match ``DEFAULT_ELBADRY_PANEL_ORDER``.
+ELBADRY_PANEL_XLABELS: dict[str, str] = {
+    "P_orb_days": "orbital period (day)",
+    "G_mag": r"$G$ magnitude (mag)",
+    "inv_parallax_mas_inv": r"inverse parallax (mas$^{-1}$)",
+    "eccentricity": "eccentricity",
+    "f_m_msun": r"companion mass fraction ($M_\odot$)",
+    "cos_inclination": r"$\cos i$",
+}
+
 DiagnosticHelper = Callable[..., Any]
 DIAGNOSTICS_SCHEMA_VERSION = 2
 
@@ -790,7 +800,9 @@ def emit_elbadry_six_panel(
                 panels,
                 dirs.figures / "elbadry_six_panel.png",
                 panel_order=panel_order,
+                panel_xlabels=ELBADRY_PANEL_XLABELS,
                 dpi=diag.figure_dpi,
+                max_bins=int(diag.histogram_max_bins),
                 title=title,
                 style=config.plotting,
             ),
@@ -806,9 +818,10 @@ def emit_elbadry_six_panel(
                     lambda: plot_overlay_histograms(
                         series,
                         dirs.figures / f"elbadry_panel_{first}.png",
-                        xlabel=first,
+                        xlabel=ELBADRY_PANEL_XLABELS.get(first, first),
                         title=first,
                         dpi=diag.figure_dpi,
+                        max_bins=int(diag.histogram_max_bins),
                         style=config.plotting,
                     ),
                 )
@@ -929,7 +942,7 @@ def emit_gate_pass_rate(
                 lambda: plot_histogram(
                     chi2_dof_values,
                     dirs.figures / f"{gate_name}_chi2_dof.png",
-                    xlabel="chi2/dof",
+                    xlabel="chi2 per dof",
                     title=f"{gate_name} chi2/dof",
                     dpi=diag.figure_dpi,
                     max_bins=int(diag.histogram_max_bins),

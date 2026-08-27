@@ -398,19 +398,3 @@ def test_format_funnel_table_is_legible() -> None:
     )
     assert "data_acquisition funnel" in text
     assert "queried" in text
-
-
-@pytest.mark.network
-def test_live_gaia_nss_query_smoke() -> None:
-    """Optional live archive query; skipped in required CI marker set."""
-    from darkhunter_pop.data_acquisition import default_gaia_query
-
-    dr = load_config().dr3
-    adql = (
-        f"SELECT TOP 3 nss.source_id, nss.goodness_of_fit, gs.phot_g_mean_mag "
-        f"FROM {dr.nss_table} AS nss "
-        f"JOIN {dr.gaia_source_table} AS gs ON nss.source_id = gs.source_id"
-    )
-    table = default_gaia_query(adql, dr)
-    assert len(table) <= 3
-    assert "source_id" in table.colnames

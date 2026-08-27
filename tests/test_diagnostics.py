@@ -633,7 +633,7 @@ def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
     path = plot_histogram(
         values,
         tmp_path / "period_capped.png",
-        xlabel="period [day]",
+        xlabel="period (day)",
         title="period_day",
         dpi=80,
         max_bins=80,
