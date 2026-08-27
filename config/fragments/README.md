@@ -15,5 +15,6 @@
 # children #69/#70/#71 landed. Loader still merges fragments first (canonical wins).
 # Phase 7 final checkpoint (#81): no new domain fragments; fragments ≡ canonical
 # config/config.yaml (verified at Review/Integration).
+# Plotting style defaults: config/fragments/plotting.yaml (docs/PLOTS.md); display-only.
 #
 # Do not put secrets in fragments. See ARCHITECTURE.md §7.

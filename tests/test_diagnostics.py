@@ -48,6 +48,7 @@ from darkhunter_pop.forward_model import (
     run_solution_type_validation,
 )
 from darkhunter_pop.plotting import (
+    apply_axes_style,
     matplotlib_available,
     plot_categorical_bars,
     plot_grouped_bars,
@@ -56,7 +57,9 @@ from darkhunter_pop.plotting import (
     plot_overlay_histograms,
     plot_six_panel_grid,
     plot_sky_mollweide,
+    require_pyplot,
     resolve_histogram_bins,
+    series_style,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -134,6 +137,20 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.hooks.sbc_recovery is True
     assert cfg.diagnostics.sbc.enabled is True
     assert cfg.diagnostics.sbc.run_in_stage is False
+
+
+def test_config_loads_plotting_style_fragment() -> None:
+    cfg = load_config()
+    assert cfg.plotting.font_family == "serif"
+    assert cfg.plotting.axes_label_fontsize == pytest.approx(18.0)
+    assert cfg.plotting.tick_label_fontsize == pytest.approx(14.0)
+    assert cfg.plotting.tick_direction == "in"
+    assert cfg.plotting.tick_width == pytest.approx(2.0)
+    assert cfg.plotting.tick_major_length == pytest.approx(8.0)
+    assert cfg.plotting.tick_minor_length == pytest.approx(4.0)
+    assert cfg.plotting.line_width == pytest.approx(2.0)
+    assert "#0072B2" in cfg.plotting.color_cycle
+    assert cfg.plotting.figsize_portrait == (5.0, 7.0)
 
 
 def test_registry_fingerprints_diagnostics_config() -> None:
@@ -460,6 +477,33 @@ def test_solution_type_validation_gate_still_green() -> None:
     real[SolutionType.FIVE_PARAMETER.value] = 0.5
     result = run_solution_type_validation(records, real, max_abs_delta=0.05)
     assert result.passed is True
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_apply_axes_style_inward_ticks_and_serif() -> None:
+    cfg = load_config().plotting
+    plt = require_pyplot()
+    fig, axis = plt.subplots()
+    apply_axes_style(
+        axis,
+        cfg,
+        xlabel=r"Right Ascension (deg)",
+        ylabel=r"Declination (deg)",
+        title="sky",
+    )
+    family = axis.xaxis.get_label().get_fontfamily()
+    if isinstance(family, str):
+        assert family == cfg.font_family
+    else:
+        assert cfg.font_family in family
+    assert axis.xaxis.get_label().get_fontsize() == pytest.approx(cfg.axes_label_fontsize)
+    assert axis.xaxis.majorTicks[0].tick1line.get_markeredgewidth() == pytest.approx(
+        cfg.tick_width
+    )
+    sty = series_style(1, cfg)
+    assert sty["color"] == cfg.color_cycle[1]
+    assert sty["linestyle"] == cfg.linestyle_cycle[1 % len(cfg.linestyle_cycle)]
+    plt.close(fig)
 
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")

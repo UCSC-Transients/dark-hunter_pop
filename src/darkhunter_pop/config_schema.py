@@ -143,6 +143,7 @@ class DiagnosticsConfig(BaseModel):
     live under ``sbc`` (issue #69). Known-truth / comparison fixture values live
     under ``benchmarks`` (issue #70). Required diagnostic-suite hooks are #71.
     Stage science thresholds (KS, chi2/dof, MC noise) remain in owning stage configs.
+    Visual style defaults (fonts, ticks, Okabe–Ito colors) live under ``plotting``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -163,6 +164,60 @@ class DiagnosticsConfig(BaseModel):
     sampler_logz_sigma_tol: float = Field(3.0, gt=0)
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
     sbc: SBCConfig = Field(default_factory=SBCConfig)
+
+
+class PlottingStyleConfig(BaseModel):
+    """Shared figure style for ``darkhunter_pop.plotting`` (see ``docs/PLOTS.md``).
+
+    Typography, tick geometry, line weights, and colorblind-safe cycle live here —
+    never hardcoded in call sites. Layout/DPI/hook enable flags remain under
+    ``diagnostics``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    font_family: str = "serif"
+    axes_label_fontsize: float = Field(18.0, gt=0)
+    tick_label_fontsize: float = Field(14.0, gt=0)
+    title_fontsize: float = Field(18.0, gt=0)
+    legend_fontsize: float = Field(14.0, gt=0)
+    # Tick geometry (inward ticks on all sides; minor ticks enabled).
+    tick_width: float = Field(2.0, gt=0)
+    tick_major_length: float = Field(8.0, gt=0)
+    tick_minor_length: float = Field(4.0, gt=0)
+    tick_direction: Literal["in", "out", "inout"] = "in"
+    spines_width: float = Field(2.0, gt=0)
+    # Line / marker defaults (thick enough to read in print).
+    line_width: float = Field(2.0, gt=0)
+    marker_size: float = Field(6.0, gt=0)
+    # Default panel sizes (inches). Portrait preferred for light curves.
+    figsize_landscape: tuple[float, float] = (7.0, 5.0)
+    figsize_portrait: tuple[float, float] = (5.0, 7.0)
+    figsize_wide: tuple[float, float] = (8.0, 4.0)
+    # Okabe–Ito palette (https://jfly.uni-koeln.de/color/) — colorblind + B/W safe
+    # when combined with linestyle / marker cycling.
+    color_cycle: list[str] = Field(
+        default_factory=lambda: [
+            "#000000",  # black
+            "#E69F00",  # orange
+            "#56B4E9",  # sky blue
+            "#009E73",  # bluish green
+            "#F0E442",  # yellow
+            "#0072B2",  # blue
+            "#D55E00",  # vermillion
+            "#CC79A7",  # reddish purple
+        ]
+    )
+    linestyle_cycle: list[str] = Field(
+        default_factory=lambda: ["-", "--", "-.", ":"]
+    )
+    marker_cycle: list[str] = Field(
+        default_factory=lambda: ["o", "s", "^", "D", "v", "P", "X", "*"]
+    )
+    hist_face_color: str = "#0072B2"
+    hist_edge_color: str = "#000000"
+    threshold_color: str = "#D55E00"
+    threshold_linestyle: str = "--"
 
 
 class BenchmarkCatalogEntry(BaseModel):
@@ -871,6 +926,7 @@ class PipelineConfig(BaseModel):
     )
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
+    plotting: PlottingStyleConfig = Field(default_factory=PlottingStyleConfig)
     benchmarks: BenchmarksConfig = Field(default_factory=BenchmarksConfig)
     triples: TriplesConfig = Field(default_factory=TriplesConfig)
     dr3: DRPathConfig
