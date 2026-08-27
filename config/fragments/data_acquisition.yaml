@@ -9,6 +9,12 @@ dr3:
   gaia_archive_row_limit: -1
   # Sync jobs → ESA Error 408 on full NSS+crossmatch; keep async for production queries.
   gaia_archive_async: true
+  # Gaia Orbital pseudo-circular: null eccentricity_error with e below this (DR3 §7.2.5).
+  pseudo_circular_eccentricity_max: 0.0005
+  # EclipsingBinary period σ lives in input_period_error; external XM err 0/blank → floor.
+  external_mag_err_floor: 0.05
+  external_mag_err_zero_as_missing: true
+  impute_external_mag_err: true
   external_photometry_crossmatches:
     # No gaiadr3 GALEX AIS best_neighbour in the public TAP — leave disabled.
     - band: NUV
@@ -146,4 +152,8 @@ dr4:
   gaia_source_photometry_bands: [G, BP, RP]
   gaia_archive_row_limit: -1
   gaia_archive_async: true
+  pseudo_circular_eccentricity_max: 0.0005
+  external_mag_err_floor: 0.05
+  external_mag_err_zero_as_missing: true
+  impute_external_mag_err: true
   external_photometry_crossmatches: []

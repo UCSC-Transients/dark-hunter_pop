@@ -816,6 +816,12 @@ class DRPathConfig(BaseModel):
     gaia_archive_row_limit: int = Field(-1, ge=-1)
     # Sync jobs hit ESA Error 408 on large NSS+crossmatch queries; async is default.
     gaia_archive_async: bool = True
+    # Gaia NSS Orbital pseudo-circular flag: null eccentricity_error and e below this (§7.2.5).
+    pseudo_circular_eccentricity_max: float = Field(0.0005, ge=0)
+    # External crossmatch photometry: treat err<=0 as missing; optional floor at ingest.
+    external_mag_err_floor: float = Field(0.05, gt=0)
+    external_mag_err_zero_as_missing: bool = True
+    impute_external_mag_err: bool = True
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # Reserved for DR4 epoch capabilities; ignored when inactive.
@@ -886,6 +892,12 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "external_photometry_crossmatches",
         "gaia_archive_user_env",
         "gaia_archive_password_env",
+        "gaia_archive_row_limit",
+        "gaia_archive_async",
+        "pseudo_circular_eccentricity_max",
+        "external_mag_err_floor",
+        "external_mag_err_zero_as_missing",
+        "impute_external_mag_err",
         "nss_table",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",
