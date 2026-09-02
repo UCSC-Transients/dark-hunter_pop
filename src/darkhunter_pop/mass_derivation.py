@@ -687,6 +687,11 @@ def write_bulk_diagnostic_artifacts(
     dpi = int(diag.figure_dpi)
     max_bins = int(diag.histogram_max_bins)
     style = config.plotting
+    md = config.mass_derivation
+    m2_xlim = (
+        float(md.bulk_m2_histogram_xmin_msun),
+        float(md.bulk_m2_histogram_xmax_msun),
+    )
     for name, values, title in (
         ("m2_pre_cut", diagnostics.m2_pre_cut_msun, "M2 pre-cut"),
         ("m2_post_cut", diagnostics.m2_post_cut_msun, "M2 post-cut"),
@@ -700,6 +705,8 @@ def write_bulk_diagnostic_artifacts(
             dpi=dpi,
             max_bins=max_bins,
             style=style,
+            xlim=m2_xlim,
+            log_y=bool(md.bulk_m2_histogram_log_y),
         )
         if path is not None:
             written.append(path)

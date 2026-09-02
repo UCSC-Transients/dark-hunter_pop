@@ -624,6 +624,32 @@ def test_plot_histogram_drops_nonfinite_values(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_xlim_filters_and_clips_axis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = np.array([1.0, 2.0, 5.0, 50_000.0], dtype=np.float64)
+    titles: list[str] = []
+
+    def _capture_title(axis: object, cfg: object, **kwargs: object) -> None:
+        titles.append(str(kwargs.get("title", "")))
+        apply_axes_style(axis, cfg, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("darkhunter_pop.plotting.apply_axes_style", _capture_title)
+    path = plot_histogram(
+        values,
+        tmp_path / "m2.png",
+        xlabel="mass",
+        title="M2",
+        dpi=80,
+        max_bins=10,
+        xlim=(0.0, 30.0),
+        log_y=True,
+    )
+    assert path is not None and path.is_file()
+    assert titles == ["M2 (1 > 30 M$_\\odot$ omitted)"]
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
 def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
     rng = np.random.default_rng(96)
     values = np.concatenate(

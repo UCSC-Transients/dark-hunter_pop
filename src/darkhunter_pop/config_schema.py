@@ -323,6 +323,11 @@ class MassDerivationConfig(BaseModel):
     require_sed_package: bool = False
     # Log bulk-stage progress every N input candidates; 0 disables heartbeat logs.
     bulk_progress_log_interval: int = Field(10_000, ge=0)
+    # Companion-mass diagnostic histogram display range (Msun); outliers beyond
+    # xmax are counted in the plot title, not binned.
+    bulk_m2_histogram_xmin_msun: float = Field(0.0, ge=0)
+    bulk_m2_histogram_xmax_msun: float = Field(30.0, gt=0)
+    bulk_m2_histogram_log_y: bool = True
 
 
 class RvConsistencyConfig(BaseModel):

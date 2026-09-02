@@ -9,3 +9,6 @@ mass_derivation:
   sed_queue_max_stars: null
   require_sed_package: false
   bulk_progress_log_interval: 10000
+  bulk_m2_histogram_xmin_msun: 0.0
+  bulk_m2_histogram_xmax_msun: 30.0
+  bulk_m2_histogram_log_y: true
