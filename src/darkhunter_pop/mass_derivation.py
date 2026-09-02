@@ -24,7 +24,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from darkhunter_pop import constants
-from darkhunter_pop.config_loader import require_dr3_active_for_v1
+from darkhunter_pop.config_loader import require_dr3_active_for_v1, repo_root
 from darkhunter_pop.config_schema import (
     MassCalibrationMethod,
     PipelineConfig,
@@ -845,6 +845,55 @@ def iter_upstream_candidates(
                 yield CandidateRecord.model_validate(json.loads(raw))
 
 
+def _resolve_sed_summary_path(config: PipelineConfig, source_id: int) -> Path | None:
+    root_spec = config.mass_derivation.sed_summary_root
+    if root_spec is None:
+        return None
+    root = Path(root_spec)
+    if not root.is_absolute():
+        root = repo_root() / root
+    return root / config.mass_derivation.sed_summary_filename_template.format(
+        source_id=source_id
+    )
+
+
+def _load_sed_summary_json(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(f"sed summary must be a JSON object: {path}")
+    return data
+
+
+def _sed_summary_loader_for_config(
+    config: PipelineConfig,
+) -> Callable[[int], dict[str, Any] | None]:
+    """Prefer fixture/snapshot ``sed_summary.json`` when ``sed_summary_root`` is set."""
+
+    def loader(source_id: int) -> dict[str, Any] | None:
+        path = _resolve_sed_summary_path(config, source_id)
+        if path is not None and path.is_file():
+            return _load_sed_summary_json(path)
+        return _default_sed_summary_loader(source_id)
+
+    return loader
+
+
+def _sed_needs_update_for_config(
+    config: PipelineConfig,
+) -> Callable[[int], tuple[bool, str]]:
+    loader = _sed_summary_loader_for_config(config)
+
+    def needs_update(source_id: int) -> tuple[bool, str]:
+        if config.mass_derivation.sed_summary_root is not None:
+            if loader(source_id) is not None:
+                return False, "up to date"
+            return False, "sed_summary_missing"
+        return _default_sed_needs_update(source_id)
+
+    return needs_update
+
+
 def _default_sed_summary_loader(source_id: int) -> dict[str, Any] | None:
     """Load ``darkhunter_sed`` sed_summary.json when the package is available."""
     if not _SED_AVAILABLE or _sed_summary_path is None or _sed_read_summary is None:
@@ -1008,8 +1057,8 @@ def run_refined_on_candidates(
             "is not importable"
         )
 
-    loader = summary_loader or _default_sed_summary_loader
-    needs_update = needs_update_fn or _default_sed_needs_update
+    loader = summary_loader or _sed_summary_loader_for_config(config)
+    needs_update = needs_update_fn or _sed_needs_update_for_config(config)
     fit = fit_fn or _default_sed_fit
 
     ordered = sorted(
@@ -1142,8 +1191,8 @@ def run_mass_derivation_refined(
     updated, diagnostics = run_refined_on_candidates(
         candidates,
         config,
-        summary_loader=summary_loader,
-        needs_update_fn=needs_update_fn,
+        summary_loader=summary_loader or _sed_summary_loader_for_config(config),
+        needs_update_fn=needs_update_fn or _sed_needs_update_for_config(config),
         fit_fn=fit_fn,
     )
     write_stage_hdf5(

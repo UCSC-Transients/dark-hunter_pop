@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_id": 424242,
+  "instruments": ["APF"],
+  "n_epochs": 6,
+  "nss_orbital": {
+    "period_day": 200.0,
+    "eccentricity": 0.2,
+    "t_periastron_day": 100.0,
+    "semi_amp_primary_kms": 15.0,
+    "arg_periastron_deg": 40.0,
+    "inclination_deg": 60.0
+  },
+  "pipeline_epochs": [
+    {"mjd": 58000.0, "rv_kms": 30.0, "rv_err_kms": 0.5, "instrument": "APF"},
+    {"mjd": 58020.0, "rv_kms": 32.0, "rv_err_kms": 0.5, "instrument": "APF"},
+    {"mjd": 58040.0, "rv_kms": 28.5, "rv_err_kms": 0.5, "instrument": "APF"},
+    {"mjd": 58060.0, "rv_kms": 31.0, "rv_err_kms": 0.5, "instrument": "APF"},
+    {"mjd": 58080.0, "rv_kms": 29.5, "rv_err_kms": 0.5, "instrument": "APF"},
+    {"mjd": 58100.0, "rv_kms": 30.5, "rv_err_kms": 0.5, "instrument": "APF"}
+  ],
+  "external_rvs": [],
+  "joker_fit": {
+    "variants": {
+      "full": {
+        "fit_variant": "full",
+        "P_days": 200.0,
+        "K_kms": 15.0,
+        "e": 0.2,
+        "omega_rad": 0.7,
+        "t_periastron_mjd": 57488.5,
+        "skip_reason": null
+      }
+    }
+  }
+}

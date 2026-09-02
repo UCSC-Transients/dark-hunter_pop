@@ -43,6 +43,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.rv_adapter import attach_rv_summaries
 from darkhunter_pop.schemas import (
     CandidateRecord,
     PhotometryPoint,
@@ -1025,6 +1026,7 @@ def run_data_acquisition(
 
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
     candidates = table_to_candidates(filtered, dr)
+    candidates, _rv_stats = attach_rv_summaries(candidates, config)
     funnel = FunnelCounts(
         queried=len(raw_table),
         after_quality_cut=len(filtered),

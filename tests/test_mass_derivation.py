@@ -425,6 +425,22 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert refined[0].fit_tier is FitTier.FULL_UBERMS
 
 
+def test_sed_summary_root_fixture_loader() -> None:
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
+    from darkhunter_pop.mass_derivation import (
+        _sed_summary_loader_for_config,
+        parameterset_from_sed_summary,
+    )
+
+    doc = _sed_summary_loader_for_config(tweaked)(515151)
+    assert doc is not None
+    ps = parameterset_from_sed_summary(doc)
+    assert ps is not None
+    assert ps.marginal("M1").value == pytest.approx(1.2)
+
+
 def test_hdf5_round_trip(tmp_path: Path) -> None:
     cand = _candidate()
     cand = cand.model_copy(
