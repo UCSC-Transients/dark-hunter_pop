@@ -647,9 +647,13 @@ def run_selection_function_astrometric(
     gaiamock = import_gaiamock_mod(verify=True)
 
     if data_acquisition_artifact is not None and data_acquisition_artifact.is_file():
-        real_panels, real_st = load_real_panels_from_data_acquisition(
-            data_acquisition_artifact
-        )
+        try:
+            real_panels, real_st = load_real_panels_from_data_acquisition(
+                data_acquisition_artifact
+            )
+        except KeyError:
+            # Older data_acquisition artifacts may predate nss_panels persistence.
+            real_panels, real_st = load_reference_panels(config)
     else:
         real_panels, real_st = load_reference_panels(config)
 
