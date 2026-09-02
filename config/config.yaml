@@ -25,6 +25,8 @@ mass_derivation:
   uberms_m1_watchlist_fraction: 0.95
   information_gain_sigma_floor_msun: 0.01
   sed_queue_max_stars: null
+  sed_summary_root: null
+  sed_summary_filename_template: "{source_id}.json"
   require_sed_package: false
   bulk_progress_log_interval: 10000
   bulk_m2_histogram_xmin_msun: 0.0
@@ -103,13 +105,29 @@ selection_function_astrometric:
     solution_type_fraction_max_abs_delta: 0.05
     reference_path: null
   mock_population:
+    sampling: elbadry_prior
+    random_seed: 42
     period_days: 1000.0
     Mg_tot: 4.0
     flux_ratio: 0.01
     m1_msun: 1.0
     m2_msun: 0.5
     eccentricity: 0.3
-    N_realizations: 100
+    period_days_min: 60.0
+    period_days_max: 8500.0
+    eccentricity_max: 0.65
+    m1_msun_min: 0.7
+    m1_msun_max: 2.8
+    m2_msun_min: 0.08
+    m2_msun_max: 3.5
+    flux_ratio_min: 1.0e-4
+    flux_ratio_max: 0.15
+    Mg_tot_min: 3.0
+    Mg_tot_max: 6.5
+    faint_draw_fraction: 0.45
+    faint_Mg_tot_min: 8.0
+    faint_Mg_tot_max: 11.5
+    N_realizations: 500
     ruwe_min: 1.4
     skip_acceleration: false
     hz_pc: 300.0
@@ -408,6 +426,8 @@ dr3:
   - Ks
   - W1
   - W2
+  rv_summary_root: null
+  rv_summary_filename_template: '{source_id}.json'
   quality_cut_bins:
   - g_min: null
     g_max: 13.0
@@ -557,8 +577,8 @@ dr3:
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
   selection_function_astrometric:
-    d_min_pc: 100.0
-    d_max_pc: 500.0
+    d_min_pc: 50.0
+    d_max_pc: 1200.0
   selection_function_followup:
     accel_jerk_catalog_id: dr3_accel_jerk_pinned
 dr4:
@@ -574,6 +594,8 @@ dr4:
   - Ks
   - W1
   - W2
+  rv_summary_root: null
+  rv_summary_filename_template: '{source_id}.json'
   quality_cut_bins:
   - g_min: null
     g_max: 13.0
@@ -598,7 +620,7 @@ dr4:
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true
   selection_function_astrometric:
-    d_min_pc: 100.0
-    d_max_pc: 500.0
+    d_min_pc: 50.0
+    d_max_pc: 1200.0
   selection_function_followup:
     accel_jerk_catalog_id: dr4_accel_jerk_pinned
