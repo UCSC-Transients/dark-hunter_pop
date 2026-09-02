@@ -175,6 +175,16 @@ def test_classify_orbital_fails_cuts() -> None:
     assert not rec_bad.accepted_orbital
 
 
+def test_classify_negative_parallax_not_sentinel_is_failed_cuts() -> None:
+    bad = _orbital_cascade()
+    bad[0] = -0.12
+    rec = classify_cascade_result(
+        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01
+    )
+    assert rec.solution_type is SolutionType.ORBITAL_FAILED_CUTS
+    assert not rec.accepted_orbital
+
+
 def test_solution_type_fractions_sum_to_one() -> None:
     records = [
         MockRealizationRecord(SolutionType.FIVE_PARAMETER, False),
@@ -345,7 +355,7 @@ def test_validation_gate_elbadry_prior_against_fixture(tmp_path: Path) -> None:
     tweaked.selection_function_astrometric.extinction_model = ExtinctionModel.NONE
     tweaked.selection_function_astrometric.mock_population = (
         tweaked.selection_function_astrometric.mock_population.model_copy(
-            update={"N_realizations": 40}
+            update={"N_realizations": 80}
         )
     )
     verify_gaiamock_versions(tweaked)

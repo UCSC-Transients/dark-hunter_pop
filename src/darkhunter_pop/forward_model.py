@@ -280,15 +280,25 @@ def classify_cascade_result(
             accepted_orbital=False,
         )
     if plx < 0:
-        mapping = {
-            -1.0: SolutionType.FIVE_PARAMETER,
-            -7.0: SolutionType.SEVEN_PARAMETER,
-            -9.0: SolutionType.NINE_PARAMETER,
-        }
-        stype = mapping.get(plx)
-        if stype is None:
-            raise ValueError(f"unexpected cascade sentinel plx={plx}")
-        return MockRealizationRecord(solution_type=stype, accepted_orbital=False)
+        if np.isclose(plx, -1.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.FIVE_PARAMETER,
+                accepted_orbital=False,
+            )
+        if np.isclose(plx, -7.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.SEVEN_PARAMETER,
+                accepted_orbital=False,
+            )
+        if np.isclose(plx, -9.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.NINE_PARAMETER,
+                accepted_orbital=False,
+            )
+        return MockRealizationRecord(
+            solution_type=SolutionType.ORBITAL_FAILED_CUTS,
+            accepted_orbital=False,
+        )
 
     if period <= 0 or sig_parallax <= 0 or sigma_a0_mas <= 0:
         return MockRealizationRecord(
