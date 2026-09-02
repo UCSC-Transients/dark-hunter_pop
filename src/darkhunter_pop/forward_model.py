@@ -95,6 +95,7 @@ class MockBinaryDraw:
     omega_rad: float
     w_rad: float
     inc_deg: float
+    faint_draw: bool = False
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,8 @@ def draw_mock_binary_params(
         flux = float(
             np.exp(rng.uniform(np.log(pop.flux_ratio_min), np.log(pop.flux_ratio_max)))
         )
-        if rng.uniform() < pop.faint_draw_fraction:
+        faint_draw = bool(rng.uniform() < pop.faint_draw_fraction)
+        if faint_draw:
             mg = float(rng.uniform(pop.faint_Mg_tot_min, pop.faint_Mg_tot_max))
         else:
             mg = float(rng.uniform(pop.Mg_tot_min, pop.Mg_tot_max))
@@ -222,6 +224,9 @@ def draw_mock_binary_params(
     omega_rad = float(rng.uniform(0.0, 2.0 * np.pi))
     w_rad = float(rng.uniform(0.0, 2.0 * np.pi))
     inc_deg = float(np.degrees(np.arccos(rng.uniform(-1.0, 1.0))))
+    faint_flag = False
+    if pop.sampling is MockPopulationSampling.ELBADRY_PRIOR:
+        faint_flag = faint_draw
     return MockBinaryDraw(
         period_days=period,
         m1_msun=m1,
@@ -233,6 +238,7 @@ def draw_mock_binary_params(
         omega_rad=omega_rad,
         w_rad=w_rad,
         inc_deg=inc_deg,
+        faint_draw=faint_flag,
     )
 
 
@@ -500,6 +506,14 @@ def _run_single_mock_realization(
     draw: MockBinaryDraw,
 ) -> MockRealizationRecord:
     pop = config.selection_function_astrometric.mock_population
+    if draw.faint_draw:
+        # gaiamock DR3 scanning-law mocks retain >=12 visibility periods even for
+        # faint G; NSS ``insufficient_visibility`` is modeled as a separate draw.
+        return MockRealizationRecord(
+            solution_type=SolutionType.INSUFFICIENT_VISIBILITY,
+            accepted_orbital=False,
+        )
+
     parallax = 1000.0 / d_pc
 
     data_release = config.active_dr_mode.value

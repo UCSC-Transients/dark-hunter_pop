@@ -677,7 +677,7 @@ class MockPopulationConfig(BaseModel):
     flux_ratio_max: float = Field(0.15, gt=0)
     Mg_tot_min: float = 3.0
     Mg_tot_max: float = 6.5
-    # Fraction of draws placed on a faint absolute-magnitude tail (insufficient_visibility).
+    # Fraction of draws tagged as NSS insufficient_visibility (not gaiamock plx==0).
     faint_draw_fraction: float = Field(0.45, ge=0.0, le=1.0)
     faint_Mg_tot_min: float = 8.0
     faint_Mg_tot_max: float = 11.5

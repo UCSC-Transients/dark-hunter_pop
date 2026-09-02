@@ -21,6 +21,7 @@ from darkhunter_pop.forward_model import (
     format_validation_gate_report,
     load_real_panels_from_data_acquisition,
     load_reference_panels,
+    _run_single_mock_realization,
     run_mock_injections,
     run_selection_function_astrometric,
     run_six_panel_validation,
@@ -97,6 +98,26 @@ def test_draw_mock_binary_params_spreads_elbadry_prior() -> None:
     periods = [d.period_days for d in draws]
     assert min(periods) < max(periods)
     assert min(d.m1_msun for d in draws) < max(d.m1_msun for d in draws)
+    assert sum(d.faint_draw for d in draws) >= 10
+
+
+def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
+    cfg = load_config()
+    pop = cfg.selection_function_astrometric.mock_population
+    draw = draw_mock_binary_params(pop, np.random.default_rng(0))
+    faint = draw.__class__(**{**draw.__dict__, "faint_draw": True})
+    rec = _run_single_mock_realization(
+        gaiamock=None,  # type: ignore[arg-type]
+        ra=0.0,
+        dec=0.0,
+        d_pc=200.0,
+        phot_g_mean_mag=18.0,
+        config=cfg,
+        c_funcs=None,
+        draw=faint,
+    )
+    assert rec.solution_type is SolutionType.INSUFFICIENT_VISIBILITY
+    assert not rec.accepted_orbital
 
 
 def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
