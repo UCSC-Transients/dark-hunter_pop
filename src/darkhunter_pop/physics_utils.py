@@ -71,6 +71,78 @@ def solar_masses_to_kg(mass_msun: ArrayLike) -> NDArray[np.floating]:
 
 
 # ---------------------------------------------------------------------------
+# Thiele–Innes geometry (no gaiamock dependency)
+# ---------------------------------------------------------------------------
+
+
+def thiele_innes_to_campbell(
+    A: ArrayLike,
+    B: ArrayLike,
+    F: ArrayLike,
+    G: ArrayLike,
+) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+    """Convert Thiele–Innes elements (mas) to Campbell ``(a0, omega, inc)`` in radians.
+
+    Follows Halbwachs et al. (2023) / NSSTools, matching ``gaiamock_mod.get_Campbell_elements``.
+    """
+    a = np.asarray(A, dtype=np.float64)
+    b = np.asarray(B, dtype=np.float64)
+    f = np.asarray(F, dtype=np.float64)
+    g = np.asarray(G, dtype=np.float64)
+
+    wp_minus_omega = np.arctan2(b - f, a + g)
+    wm_minus_omega = np.arctan2(-b - f, a - g)
+    omega = (wp_minus_omega + wm_minus_omega) / 2.0
+    omega_node = (wp_minus_omega - wm_minus_omega) / 2.0
+
+    adjust = omega_node < 0
+    omega = np.where(adjust, omega + np.pi, omega)
+    omega_node = np.where(adjust, omega_node + np.pi, omega_node)
+
+    tan2_i_ag = np.abs((a + g) * np.cos(wm_minus_omega))
+    tan2_i_bf = np.abs((f - b) * np.sin(wm_minus_omega))
+    use_ag = tan2_i_ag > tan2_i_bf
+    inc = np.where(
+        use_ag,
+        2.0
+        * np.arctan2(
+            np.sqrt(np.abs((a - g) * np.cos(wp_minus_omega))),
+            np.sqrt(np.maximum(tan2_i_ag, 0.0)),
+        ),
+        2.0
+        * np.arctan2(
+            np.sqrt(np.abs((b + f) * np.sin(wp_minus_omega))),
+            np.sqrt(np.maximum(tan2_i_bf, 0.0)),
+        ),
+    )
+
+    u = (a**2 + b**2 + f**2 + g**2) / 2.0
+    v = a * g - b * f
+    radicand = np.maximum((u + v) * (u - v), 0.0)
+    a0 = np.sqrt(u + np.sqrt(radicand))
+
+    omega = np.mod(omega, 2.0 * np.pi)
+    return a0, omega, inc
+
+
+def astrometric_mass_function(
+    a0_mas: ArrayLike,
+    parallax_mas: ArrayLike,
+    period_day: ArrayLike,
+) -> NDArray[np.floating]:
+    """Observational mass function ``f(m) = (a0/ϖ)³ / P_yr²`` (no M1 assumption)."""
+    a0 = np.asarray(a0_mas, dtype=np.float64)
+    plx = np.asarray(parallax_mas, dtype=np.float64)
+    period = np.asarray(period_day, dtype=np.float64)
+    out = np.full(a0.shape, np.nan, dtype=np.float64)
+    valid = (plx > 0.0) & (period > 0.0) & np.isfinite(a0) & (a0 > 0.0)
+    if np.any(valid):
+        p_yr = period[valid] / 365.25
+        out[valid] = (a0[valid] / plx[valid]) ** 3 / p_yr**2
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Inhomogeneous Poisson point-process primitives
 # ---------------------------------------------------------------------------
 

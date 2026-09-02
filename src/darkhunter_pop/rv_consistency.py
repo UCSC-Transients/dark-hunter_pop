@@ -35,6 +35,7 @@ from darkhunter_pop.diagnostics import (
 )
 from darkhunter_pop.mass_derivation import read_stage_hdf5 as read_mass_stage_hdf5
 from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mass_stage_hdf5
+from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -1221,6 +1222,20 @@ def write_gate_diagnostic_artifacts(
     )
     written.extend(hook.reports)
     written.extend(hook.figures)
+
+    if config.diagnostics.write_figures and diagnostics.chi2_dof_values:
+        fig_path = plot_histogram(
+            np.asarray(diagnostics.chi2_dof_values, dtype=np.float64),
+            dirs.figures / "rv_gate_chi2_dof.png",
+            xlabel=r"$\chi^2 / \mathrm{dof}$",
+            ylabel="count",
+            title="rv_astrometry_gate: χ²/dof for scored systems",
+            dpi=int(config.diagnostics.figure_dpi),
+            max_bins=int(config.diagnostics.histogram_max_bins),
+            style=config.plotting,
+        )
+        if fig_path is not None:
+            written.append(fig_path)
     return written
 
 

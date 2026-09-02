@@ -311,6 +311,52 @@ def test_write_and_read_stage_hdf5(tmp_path: Path) -> None:
     assert CandidateRecord.model_validate(loaded[0].model_dump(mode="json"))
 
 
+def test_nss_panels_round_trip(tmp_path: Path) -> None:
+    from darkhunter_pop.data_acquisition import FunnelCounts, compute_stage_diagnostics
+    from darkhunter_pop.forward_model import SIX_PANEL_NAMES, load_real_panels_from_data_acquisition
+
+    table = _sample_table()
+    dr = _dr_config()
+    candidates = table_to_candidates(table[:2], dr)
+    snapshot = SnapshotMeta(
+        snapshot_id="test_snap",
+        query_date=datetime.now(tz=timezone.utc),
+        adql="SELECT 1",
+        checksum="abc",
+        row_count=len(table),
+        result_path=tmp_path / "query.ecsv",
+        meta_path=tmp_path / "meta.yaml",
+    )
+    funnel = FunnelCounts(queried=3, after_quality_cut=2, candidates_written=2)
+    diagnostics = compute_stage_diagnostics(
+        candidates,
+        funnel=funnel,
+        quality_cut_bin_counts={"bin0": 2},
+    )
+    assert diagnostics.nss_panels
+    assert "f_m_msun" in diagnostics.nss_panels
+    assert "cos_inclination" in diagnostics.nss_panels
+    assert len(diagnostics.nss_panels["f_m_msun"]) == 2
+    assert diagnostics.solution_type_fractions["twelve_parameter_orbital"] == pytest.approx(1.0)
+
+    artifact = tmp_path / "stage.h5"
+    write_stage_hdf5(artifact, candidates, snapshot=snapshot, diagnostics=diagnostics)
+    panels, st_frac = load_real_panels_from_data_acquisition(artifact)
+    for name in SIX_PANEL_NAMES:
+        if name in diagnostics.nss_panels:
+            assert name in panels
+            assert len(panels[name]) == len(diagnostics.nss_panels[name])
+    assert st_frac["twelve_parameter_orbital"] == pytest.approx(1.0)
+
+
+def test_nss_solution_type_mapping() -> None:
+    from darkhunter_pop.data_acquisition import nss_solution_type_to_cascade_label
+
+    assert nss_solution_type_to_cascade_label("Orbital") == "twelve_parameter_orbital"
+    assert nss_solution_type_to_cascade_label("Orbital9") == "nine_parameter"
+    assert nss_solution_type_to_cascade_label("EclipsingBinary") == "insufficient_visibility"
+
+
 def test_run_data_acquisition_writes_manifest_and_artifact(tmp_path: Path) -> None:
     cfg = load_config()
     runs = tmp_path / "runs"

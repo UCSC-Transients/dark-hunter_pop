@@ -31,6 +31,7 @@ from darkhunter_pop.config_schema import (
 )
 from darkhunter_pop.mass_derivation import read_stage_hdf5 as read_mass_stage_hdf5
 from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mass_stage_hdf5
+from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -1056,13 +1057,15 @@ def format_companion_nature_report(
 def write_diagnostic_artifacts(
     diagnostics: CompanionNatureDiagnostics,
     artifact_path: Path,
+    config: PipelineConfig,
 ) -> list[Path]:
-    """Write funnel + age-bin report beside the HDF5 artifact."""
-    report_dir = artifact_path.parent / "reports"
+    """Write funnel + age-bin report and optional ΔBIC histogram beside the HDF5."""
+    out_dir = artifact_path.parent / f"{artifact_path.stem}_diagnostics"
+    report_dir = out_dir / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / "companion_nature_funnel.txt"
     path.write_text(format_companion_nature_report(diagnostics) + "\n", encoding="utf-8")
-    written = [path]
+    written: list[Path] = [path]
     if diagnostics.age_diagnostic is not None:
         age_path = report_dir / "companion_nature_age_bins.json"
         age_path.write_text(
@@ -1071,6 +1074,26 @@ def write_diagnostic_artifacts(
             encoding="utf-8",
         )
         written.append(age_path)
+
+    diag_cfg = config.diagnostics
+    if (
+        diag_cfg.write_figures
+        and diagnostics.delta_bic_wd_vs_dark
+    ):
+        figures_dir = out_dir / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        fig_path = plot_histogram(
+            np.asarray(diagnostics.delta_bic_wd_vs_dark, dtype=np.float64),
+            figures_dir / "delta_bic_wd_vs_dark.png",
+            xlabel="ΔBIC (WD − dark); negative ⇒ data prefer WD",
+            ylabel="count",
+            title="Companion nature: ΔBIC(WD − dark)",
+            dpi=int(diag_cfg.figure_dpi),
+            max_bins=int(diag_cfg.histogram_max_bins),
+            style=config.plotting,
+        )
+        if fig_path is not None:
+            written.append(fig_path)
     return written
 
 
@@ -1102,7 +1125,7 @@ def run_companion_nature_likelihood(
         candidates, config, tracks=tracks
     )
     write_stage_hdf5(artifact, updated, diagnostics=diagnostics.as_dict())
-    write_diagnostic_artifacts(diagnostics, artifact)
+    write_diagnostic_artifacts(diagnostics, artifact, config)
 
     manifest = mark_stage_finished(
         manifest,
