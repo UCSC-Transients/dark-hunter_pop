@@ -321,6 +321,8 @@ class MassDerivationConfig(BaseModel):
     sed_queue_max_stars: int | None = Field(default=None, ge=1)
     # When true, refined stage raises if darkhunter_sed is not importable.
     require_sed_package: bool = False
+    # Log bulk-stage progress every N input candidates; 0 disables heartbeat logs.
+    bulk_progress_log_interval: int = Field(10_000, ge=0)
 
 
 class RvConsistencyConfig(BaseModel):

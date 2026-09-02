@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -596,52 +596,63 @@ def process_bulk_candidate(
 
 
 def run_bulk_on_candidates(
-    candidates: Sequence[CandidateRecord],
+    candidates: Iterable[CandidateRecord],
     config: PipelineConfig,
     *,
     gaiamock: GaiamockMassAPI | None = None,
 ) -> tuple[list[CandidateRecord], BulkDiagnostics]:
-    """Apply bulk TAG10 + M2 cut to an in-memory candidate list."""
+    """Apply bulk TAG10 + M2 cut to a candidate list or upstream iterator."""
     api = gaiamock if gaiamock is not None else import_gaiamock_mod()
     kept: list[CandidateRecord] = []
     m2_pre: list[float] = []
     m2_post: list[float] = []
+    input_candidates = 0
     atmosphere_ok = 0
     m1_ok = 0
     m2_ok = 0
     skipped_no_atmosphere = 0
     skipped_no_orbit = 0
     skipped_m2_failed = 0
+    progress_interval = config.mass_derivation.bulk_progress_log_interval
 
     for candidate in candidates:
+        input_candidates += 1
         updated, reason, m2_pre_val = process_bulk_candidate(candidate, config, api)
         if reason == "no_atmosphere":
             skipped_no_atmosphere += 1
-            continue
-        atmosphere_ok += 1
-        if reason == "m1_failed":
-            continue
-        m1_ok += 1
-        if reason == "no_orbit":
-            skipped_no_orbit += 1
-            continue
-        if reason == "m2_failed":
-            skipped_m2_failed += 1
-            continue
-        if m2_pre_val is not None:
-            m2_pre.append(m2_pre_val)
-            m2_ok += 1
-        if reason == "m2_cut":
-            continue
-        if updated is None:
-            continue
-        kept.append(updated)
-        if updated.m2 is not None:
-            m2_post.append(updated.m2.marginal("M2").value)
+        else:
+            atmosphere_ok += 1
+            if reason == "m1_failed":
+                pass
+            else:
+                m1_ok += 1
+                if reason == "no_orbit":
+                    skipped_no_orbit += 1
+                elif reason == "m2_failed":
+                    skipped_m2_failed += 1
+                else:
+                    if m2_pre_val is not None:
+                        m2_pre.append(m2_pre_val)
+                        m2_ok += 1
+                    if reason != "m2_cut" and updated is not None:
+                        kept.append(updated)
+                        if updated.m2 is not None:
+                            m2_post.append(updated.m2.marginal("M2").value)
+
+        if (
+            progress_interval > 0
+            and input_candidates % progress_interval == 0
+        ):
+            print(
+                "[mass_derivation_bulk] processed "
+                f"{input_candidates} candidates "
+                f"(after_m2_cut={len(kept)})",
+                flush=True,
+            )
 
     diagnostics = BulkDiagnostics(
         funnel=BulkFunnel(
-            input_candidates=len(candidates),
+            input_candidates=input_candidates,
             atmosphere_ok=atmosphere_ok,
             m1_ok=m1_ok,
             m2_ok=m2_ok,
@@ -883,10 +894,14 @@ def run_mass_derivation_bulk(
     save_run_manifest(manifest, run_path)
 
     if candidates is None:
-        candidates = _load_upstream_candidates(manifest, "data_acquisition")
+        candidate_source: Iterable[CandidateRecord] = iter_upstream_candidates(
+            manifest, "data_acquisition"
+        )
+    else:
+        candidate_source = candidates
 
     kept, diagnostics = run_bulk_on_candidates(
-        candidates, config, gaiamock=gaiamock
+        candidate_source, config, gaiamock=gaiamock
     )
     write_stage_hdf5(
         artifact,
@@ -898,8 +913,6 @@ def run_mass_derivation_bulk(
             "m2_post_cut_msun": diagnostics.m2_post_cut_msun,
         },
     )
-    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
-
     manifest = mark_stage_finished(
         manifest,
         spec,
@@ -907,6 +920,7 @@ def run_mass_derivation_bulk(
         artifact_path=artifact,
     )
     save_run_manifest(manifest, run_path)
+    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
     return manifest
 
 

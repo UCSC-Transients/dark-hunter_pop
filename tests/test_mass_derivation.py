@@ -203,6 +203,36 @@ def test_bulk_pipeline_keeps_high_m2_rejects_low() -> None:
     assert "after_m2_cut" in text
 
 
+def test_bulk_stream_matches_list_on_fixture() -> None:
+    cfg = load_config()
+    gaiamock = FakeGaiamock()
+    candidates = [
+        _candidate(1, m2_boost_a0=True),
+        _candidate(2, m2_boost_a0=False),
+        _candidate(
+            3,
+            extras={
+                "teff_gspphot": 5500.0,
+                "logg_gspphot": 4.2,
+                "mh_gspphot": 0.0,
+            },
+            m2_boost_a0=True,
+        ),
+    ]
+    list_keepers, list_diag = run_bulk_on_candidates(
+        candidates, cfg, gaiamock=gaiamock
+    )
+    stream_keepers, stream_diag = run_bulk_on_candidates(
+        iter(candidates), cfg, gaiamock=gaiamock
+    )
+    assert list_diag.funnel == stream_diag.funnel
+    assert np.allclose(list_diag.m2_pre_cut_msun, stream_diag.m2_pre_cut_msun)
+    assert np.allclose(list_diag.m2_post_cut_msun, stream_diag.m2_post_cut_msun)
+    assert [c.source_id for c in list_keepers] == [
+        c.source_id for c in stream_keepers
+    ]
+
+
 def test_companion_mass_parameterset_provenance() -> None:
     ps = companion_mass_m2(
         1.0,

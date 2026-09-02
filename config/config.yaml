@@ -26,6 +26,7 @@ mass_derivation:
   information_gain_sigma_floor_msun: 0.01
   sed_queue_max_stars: null
   require_sed_package: false
+  bulk_progress_log_interval: 10000
 rv_consistency:
   chi2_dof_threshold: 5.0
   min_epochs_per_instrument: 3
