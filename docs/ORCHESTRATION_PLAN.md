@@ -110,6 +110,12 @@ Applies uniformly to `dark-hunter_pop`, `dark-hunter_rv`, `dark-hunter_sed`:
 Branch protection on `main`: PR required, required status check `tests`, zero required reviews,
 admin bypass allowed.
 
-## 7. Open items
+## 7. Continuation
 
-None currently flagged. See `ARCHITECTURE.md` §8.
+Phases 0–7 are complete. Phase 8 onward — per-sample literature selection functions, NSS covariance
+ingestion, and the subagent roster/kickoff prompts that go with them — lives in
+`CONTINUATION_PLAN.md`, which extends both this document and `ARCHITECTURE.md`.
+
+## 8. Open items
+
+None currently flagged. See `ARCHITECTURE.md` §8 and `CONTINUATION_PLAN.md` §15.
