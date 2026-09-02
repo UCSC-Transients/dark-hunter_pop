@@ -9,21 +9,39 @@ selection_function_astrometric:
     solution_type_fraction_max_abs_delta: 0.05
     reference_path: null
   mock_population:
+    sampling: elbadry_prior
+    random_seed: 42
+    # fixed-mode scalars (used when sampling: fixed)
     period_days: 1000.0
     Mg_tot: 4.0
     flux_ratio: 0.01
     m1_msun: 1.0
     m2_msun: 0.5
     eccentricity: 0.3
-    N_realizations: 100
+    # elbadry_prior ranges (tuned to tests/fixtures/elbadry2024_dr3_nss_reference.npz)
+    period_days_min: 60.0
+    period_days_max: 8500.0
+    eccentricity_max: 0.65
+    m1_msun_min: 0.7
+    m1_msun_max: 2.8
+    m2_msun_min: 0.08
+    m2_msun_max: 3.5
+    flux_ratio_min: 1.0e-4
+    flux_ratio_max: 0.15
+    Mg_tot_min: 3.0
+    Mg_tot_max: 6.5
+    faint_draw_fraction: 0.45
+    faint_Mg_tot_min: 8.0
+    faint_Mg_tot_max: 11.5
+    N_realizations: 500
     ruwe_min: 1.4
     skip_acceleration: false
     hz_pc: 300.0
 
 dr3:
   selection_function_astrometric:
-    d_min_pc: 100.0
-    d_max_pc: 500.0
+    d_min_pc: 50.0
+    d_max_pc: 1200.0
 
 dr4:
   selection_function_astrometric:

@@ -41,6 +41,7 @@ from darkhunter_pop.diagnostics import (
     run_diagnostics_stage,
     write_diagnostics_artifact,
     _ensure_builtin_helpers_registered,
+    _hydrate_diagnostics_from_manifest,
 )
 from darkhunter_pop.forward_model import (
     SOLUTION_TYPE_LABELS,
@@ -73,6 +74,7 @@ from darkhunter_pop.schemas import (
     CandidateRecord,
     FitTier,
     ParameterSet,
+    StageRecord,
     StageStatus,
 )
 from darkhunter_pop.sensitivity_analysis import run_mc_noise_convergence
@@ -622,6 +624,32 @@ def test_plot_histogram_drops_nonfinite_values(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
+def test_plot_histogram_xlim_filters_and_clips_axis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = np.array([1.0, 2.0, 5.0, 50_000.0], dtype=np.float64)
+    titles: list[str] = []
+
+    def _capture_title(axis: object, cfg: object, **kwargs: object) -> None:
+        titles.append(str(kwargs.get("title", "")))
+        apply_axes_style(axis, cfg, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("darkhunter_pop.plotting.apply_axes_style", _capture_title)
+    path = plot_histogram(
+        values,
+        tmp_path / "m2.png",
+        xlabel="mass",
+        title="M2",
+        dpi=80,
+        max_bins=10,
+        xlim=(0.0, 30.0),
+        log_y=True,
+    )
+    assert path is not None and path.is_file()
+    assert titles == ["M2 (1 > 30 M$_\\odot$ omitted)"]
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
 def test_plot_histogram_max_bins_keeps_visible_bars(tmp_path: Path) -> None:
     rng = np.random.default_rng(96)
     values = np.concatenate(
@@ -724,6 +752,39 @@ def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
     assert "diagnostics stage (full suite)" in report
     assert "Phase 6" in report or "SBC recovery" in report or "known-truth" in report
     assert "sbc_config:" in report
+
+
+def test_hydrate_diagnostics_from_companion_nature(tmp_path: Path) -> None:
+    from darkhunter_pop.companion_nature import write_stage_hdf5 as write_cn_hdf5
+
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path / "out")}),
+        }
+    )
+    manifest = create_run_manifest(cfg)
+    cn_path = tmp_path / "companion_nature.h5"
+    write_cn_hdf5(
+        cn_path,
+        [_candidate(source_id=1), _candidate(source_id=2)],
+        diagnostics={"n_input": 2, "n_weighted": 2},
+    )
+    manifest = manifest.model_copy(
+        update={
+            "stages": {
+                **manifest.stages,
+                "companion_nature_likelihood": StageRecord(
+                    stage_name="companion_nature_likelihood",
+                    status=StageStatus.COMPLETED,
+                    artifact_path=str(cn_path),
+                ),
+            }
+        }
+    )
+    hydrated = _hydrate_diagnostics_from_manifest(manifest, cfg)
+    assert hydrated["candidates"] is not None
+    assert len(hydrated["candidates"]) == 2
 
 
 def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:

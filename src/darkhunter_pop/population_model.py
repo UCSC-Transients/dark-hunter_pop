@@ -841,7 +841,49 @@ def read_population_model_artifact(path: Path) -> dict[str, Any]:
             text = raw.decode("utf-8")
         else:
             text = str(raw)
-        return json.loads(text)
+        payload: dict[str, Any] = json.loads(text)
+        if "system_weights" in handle and "source_id" in handle["system_weights"]:
+            wt = handle["system_weights"]
+            source_ids = np.asarray(wt["source_id"], dtype=np.int64)
+            m2_arr = np.asarray(wt["m2_msun"], dtype=np.float64) if "m2_msun" in wt else None
+            rows: list[dict[str, Any]] = []
+            for i, sid in enumerate(source_ids):
+                responsibilities = {
+                    key.removeprefix("responsibility_"): float(wt[key][i])
+                    for key in wt.keys()
+                    if str(key).startswith("responsibility_")
+                }
+                row: dict[str, Any] = {
+                    "source_id": int(sid),
+                    "responsibilities": responsibilities,
+                }
+                if m2_arr is not None:
+                    m2_val = float(m2_arr[i])
+                    row["m2_msun"] = m2_val if math.isfinite(m2_val) else None
+                rows.append(row)
+            payload["system_weight_rows"] = rows
+    return payload
+
+
+def _upstream_artifact(manifest: RunManifest, stage_name: str) -> Path:
+    record = manifest.stages.get(stage_name)
+    if record is None or not record.artifact_path:
+        raise FileNotFoundError(
+            f"upstream stage {stage_name!r} has no artifact_path on the run manifest"
+        )
+    path = Path(record.artifact_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"upstream artifact missing: {path}")
+    return path
+
+
+def _load_upstream_candidates(manifest: RunManifest) -> list[CandidateRecord]:
+    """Load weighted candidates from ``companion_nature_likelihood``."""
+    from darkhunter_pop.companion_nature import read_stage_hdf5
+
+    path = _upstream_artifact(manifest, "companion_nature_likelihood")
+    candidates, _meta = read_stage_hdf5(path)
+    return candidates
 
 
 def format_population_model_report(result: PopulationModelResult) -> str:
@@ -899,6 +941,13 @@ def run_population_model_stage(
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
+
+    if candidates is None:
+        candidates = _load_upstream_candidates(manifest)
+    if sensitivity_artifact_path is None:
+        sa_rec = manifest.stages.get("sensitivity_analysis")
+        if sa_rec is not None and sa_rec.artifact_path:
+            sensitivity_artifact_path = Path(sa_rec.artifact_path)
 
     result = run_population_model(
         config,

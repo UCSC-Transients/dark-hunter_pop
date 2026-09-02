@@ -33,6 +33,8 @@ from darkhunter_pop.diagnostics import (
     format_funnel_report,
     resolve_diagnostic_dirs,
 )
+from darkhunter_pop.forward_model import SIX_PANEL_NAMES, SOLUTION_TYPE_LABELS
+from darkhunter_pop.physics_utils import astrometric_mass_function, thiele_innes_to_campbell
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -41,6 +43,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.rv_adapter import attach_rv_summaries
 from darkhunter_pop.schemas import (
     CandidateRecord,
     PhotometryPoint,
@@ -117,6 +120,8 @@ class StageDiagnostics:
     eccentricity: NDArray[np.floating] | None
     ra_deg: NDArray[np.floating] | None
     dec_deg: NDArray[np.floating] | None
+    nss_panels: dict[str, NDArray[np.floating]]
+    solution_type_fractions: dict[str, float]
 
 
 def gaia_snapshots_dir(config: PipelineConfig) -> Path:
@@ -704,18 +709,65 @@ def table_to_candidates(table: Table, dr: DRPathConfig) -> list[CandidateRecord]
     return [table_row_to_candidate(row, dr) for row in table]
 
 
+def nss_solution_type_to_cascade_label(nss_solution_type: str | None) -> str:
+    """Map Gaia DR3 ``nss_solution_type`` strings to gaiamock cascade labels.
+
+    Used for ``solution_type_fractions`` in the DA artifact (SF validation gate).
+    """
+    if not nss_solution_type:
+        return "insufficient_visibility"
+    upper = nss_solution_type.upper()
+    if "ORBITAL12" in upper:
+        return "twelve_parameter_orbital"
+    if "ORBITAL9" in upper:
+        return "nine_parameter"
+    if "ORBITAL7" in upper:
+        return "seven_parameter"
+    if "ORBITAL5" in upper:
+        return "five_parameter"
+    if upper.startswith("ORBITAL"):
+        return "twelve_parameter_orbital"
+    return "insufficient_visibility"
+
+
+def _phot_g_mag(candidate: CandidateRecord) -> float | None:
+    for point in candidate.photometry:
+        if point.band.upper() == "G":
+            return float(point.mag)
+    orb = candidate.nss_orbital
+    g = orb.get("phot_g_mean_mag")
+    if g is not None:
+        return float(g)
+    return None
+
+
+def _compute_solution_type_fractions(
+    candidates: Sequence[CandidateRecord],
+) -> dict[str, float]:
+    counts = {label: 0 for label in SOLUTION_TYPE_LABELS}
+    for candidate in candidates:
+        label = nss_solution_type_to_cascade_label(candidate.nss_solution_type)
+        counts[label] += 1
+    n = float(len(candidates))
+    if n == 0:
+        return {label: 0.0 for label in SOLUTION_TYPE_LABELS}
+    return {label: counts[label] / n for label in SOLUTION_TYPE_LABELS}
+
+
 def compute_stage_diagnostics(
     candidates: Sequence[CandidateRecord],
     *,
     funnel: FunnelCounts,
     quality_cut_bin_counts: Mapping[str, int],
 ) -> StageDiagnostics:
-    """Build histogram inputs for RUWE / period / eccentricity and sky coverage."""
+    """Build histogram inputs for RUWE / period / eccentricity, sky, and NSS panels."""
     ruwe = []
     period = []
     ecc = []
     ra = []
     dec = []
+    panel_lists: dict[str, list[float]] = {name: [] for name in SIX_PANEL_NAMES}
+
     for candidate in candidates:
         ra_val = candidate.ra_deg
         dec_val = candidate.dec_deg
@@ -727,11 +779,54 @@ def compute_stage_diagnostics(
             ruwe.append(float(orb["ruwe"]))
         if "period" in orb and orb["period"] is not None:
             period.append(float(orb["period"]))
+            panel_lists["P_orb_days"].append(float(orb["period"]))
         if "eccentricity" in orb and orb["eccentricity"] is not None:
             ecc.append(float(orb["eccentricity"]))
+            panel_lists["eccentricity"].append(float(orb["eccentricity"]))
+
+        g_mag = _phot_g_mag(candidate)
+        if g_mag is not None:
+            panel_lists["G_mag"].append(g_mag)
+
+        plx = candidate.parallax_mas
+        if plx is None:
+            plx_val = orb.get("parallax")
+            if plx_val is not None:
+                plx = float(plx_val)
+        if plx is not None and plx > 0.0:
+            panel_lists["inv_parallax_mas_inv"].append(1.0 / plx)
+
+        nss_type = candidate.nss_solution_type or ""
+        ti = candidate.thiele_innes
+        if nss_type.startswith("Orbital") and ti is not None:
+            if (
+                ti.A is not None
+                and ti.B is not None
+                and ti.F is not None
+                and ti.G is not None
+            ):
+                a0, _omega, inc = thiele_innes_to_campbell(ti.A, ti.B, ti.F, ti.G)
+                a0_f = float(a0)
+                inc_f = float(inc)
+                if np.isfinite(a0_f) and np.isfinite(inc_f):
+                    panel_lists["cos_inclination"].append(float(np.cos(inc_f)))
+                    period_day = orb.get("period")
+                    plx_use = plx if plx is not None else candidate.parallax_mas
+                    if period_day is not None and plx_use is not None and plx_use > 0:
+                        fm = float(
+                            astrometric_mass_function(a0_f, plx_use, float(period_day))
+                        )
+                        if np.isfinite(fm):
+                            panel_lists["f_m_msun"].append(fm)
 
     def _arr(values: list[float]) -> NDArray[np.floating] | None:
         return np.asarray(values, dtype=np.float64) if values else None
+
+    nss_panels = {
+        name: np.asarray(panel_lists[name], dtype=np.float64)
+        for name in SIX_PANEL_NAMES
+        if panel_lists[name]
+    }
 
     return StageDiagnostics(
         funnel=funnel,
@@ -741,6 +836,8 @@ def compute_stage_diagnostics(
         eccentricity=_arr(ecc),
         ra_deg=_arr(ra),
         dec_deg=_arr(dec),
+        nss_panels=nss_panels,
+        solution_type_fractions=_compute_solution_type_fractions(candidates),
     )
 
 
@@ -838,6 +935,19 @@ def write_stage_hdf5(
             data=np.array([c.source_id for c in candidates], dtype=np.int64),
         )
 
+        da_grp = handle.create_group("data_acquisition")
+        panels_grp = da_grp.create_group("nss_panels")
+        for name in SIX_PANEL_NAMES:
+            values = diagnostics.nss_panels.get(name)
+            if values is not None and len(values) > 0:
+                panels_grp.create_dataset(name, data=values)
+        st_grp = da_grp.create_group("solution_type_fractions")
+        for label in SOLUTION_TYPE_LABELS:
+            st_grp.create_dataset(
+                label,
+                data=np.float64(diagnostics.solution_type_fractions.get(label, 0.0)),
+            )
+
 
 def read_stage_hdf5(path: Path) -> tuple[list[CandidateRecord], dict[str, Any]]:
     """Load candidates and meta from a ``data_acquisition`` stage HDF5."""
@@ -916,6 +1026,7 @@ def run_data_acquisition(
 
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
     candidates = table_to_candidates(filtered, dr)
+    candidates, _rv_stats = attach_rv_summaries(candidates, config)
     funnel = FunnelCounts(
         queried=len(raw_table),
         after_quality_cut=len(filtered),

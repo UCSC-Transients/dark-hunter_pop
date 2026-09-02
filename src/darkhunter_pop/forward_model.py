@@ -35,6 +35,8 @@ from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
     ExtinctionModel,
     MajorSurveySFConfig,
+    MockPopulationConfig,
+    MockPopulationSampling,
     PipelineConfig,
     SelectionFunctionAstrometricConfig,
     SelectionFunctionFollowupConfig,
@@ -77,6 +79,23 @@ class SolutionType(str, Enum):
     NINE_PARAMETER = "nine_parameter"
     TWELVE_PARAMETER_ORBITAL = "twelve_parameter_orbital"
     ORBITAL_FAILED_CUTS = "orbital_failed_cuts"
+
+
+@dataclass(frozen=True)
+class MockBinaryDraw:
+    """One draw of binary parameters fed into the gaiamock cascade."""
+
+    period_days: float
+    m1_msun: float
+    m2_msun: float
+    eccentricity: float
+    flux_ratio: float
+    Mg_tot: float
+    Tp: float
+    omega_rad: float
+    w_rad: float
+    inc_deg: float
+    faint_draw: bool = False
 
 
 @dataclass(frozen=True)
@@ -167,6 +186,67 @@ def _do_dust_from_config(config: SelectionFunctionAstrometricConfig) -> bool:
     raise ValueError(f"unsupported extinction_model: {config.extinction_model}")
 
 
+def draw_mock_binary_params(
+    pop: MockPopulationConfig,
+    rng: np.random.Generator,
+) -> MockBinaryDraw:
+    """Draw one mock binary before the gaiamock astrometric cascade.
+
+    ``elbadry_prior`` follows gaiamock's uniform-in-frequency period prior and
+  log-uniform component masses / flux ratio, with scalar ranges owned by config.
+    """
+    if pop.sampling is MockPopulationSampling.FIXED:
+        period = float(pop.period_days)
+        m1 = float(pop.m1_msun)
+        m2 = float(pop.m2_msun)
+        ecc = float(pop.eccentricity)
+        flux = float(pop.flux_ratio)
+        mg = float(pop.Mg_tot)
+    elif pop.sampling is MockPopulationSampling.ELBADRY_PRIOR:
+        inv_p_lo = 1.0 / float(pop.period_days_max)
+        inv_p_hi = 1.0 / float(pop.period_days_min)
+        period = float(1.0 / rng.uniform(inv_p_lo, inv_p_hi))
+        ecc = float(rng.uniform(0.0, pop.eccentricity_max))
+        m1 = float(np.exp(rng.uniform(np.log(pop.m1_msun_min), np.log(pop.m1_msun_max))))
+        m2 = float(np.exp(rng.uniform(np.log(pop.m2_msun_min), np.log(pop.m2_msun_max))))
+        flux = float(
+            np.exp(rng.uniform(np.log(pop.flux_ratio_min), np.log(pop.flux_ratio_max)))
+        )
+        faint_draw = bool(rng.uniform() < pop.faint_draw_fraction)
+        if faint_draw:
+            mg = float(rng.uniform(pop.faint_Mg_tot_min, pop.faint_Mg_tot_max))
+        else:
+            mg = float(rng.uniform(pop.Mg_tot_min, pop.Mg_tot_max))
+    else:
+        raise ValueError(f"unsupported mock_population.sampling: {pop.sampling}")
+
+    Tp = float(rng.uniform(0.0, period))
+    omega_rad = float(rng.uniform(0.0, 2.0 * np.pi))
+    w_rad = float(rng.uniform(0.0, 2.0 * np.pi))
+    inc_deg = float(np.degrees(np.arccos(rng.uniform(-1.0, 1.0))))
+    faint_flag = False
+    if pop.sampling is MockPopulationSampling.ELBADRY_PRIOR:
+        faint_flag = faint_draw
+    return MockBinaryDraw(
+        period_days=period,
+        m1_msun=m1,
+        m2_msun=m2,
+        eccentricity=ecc,
+        flux_ratio=flux,
+        Mg_tot=mg,
+        Tp=Tp,
+        omega_rad=omega_rad,
+        w_rad=w_rad,
+        inc_deg=inc_deg,
+        faint_draw=faint_flag,
+    )
+
+
+def _mock_rng(config: PipelineConfig) -> np.random.Generator:
+    seed = config.selection_function_astrometric.mock_population.random_seed
+    return np.random.default_rng(seed)
+
+
 def classify_cascade_result(
     cascade: Sequence[float],
     *,
@@ -200,15 +280,25 @@ def classify_cascade_result(
             accepted_orbital=False,
         )
     if plx < 0:
-        mapping = {
-            -1.0: SolutionType.FIVE_PARAMETER,
-            -7.0: SolutionType.SEVEN_PARAMETER,
-            -9.0: SolutionType.NINE_PARAMETER,
-        }
-        stype = mapping.get(plx)
-        if stype is None:
-            raise ValueError(f"unexpected cascade sentinel plx={plx}")
-        return MockRealizationRecord(solution_type=stype, accepted_orbital=False)
+        if np.isclose(plx, -1.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.FIVE_PARAMETER,
+                accepted_orbital=False,
+            )
+        if np.isclose(plx, -7.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.SEVEN_PARAMETER,
+                accepted_orbital=False,
+            )
+        if np.isclose(plx, -9.0):
+            return MockRealizationRecord(
+                solution_type=SolutionType.NINE_PARAMETER,
+                accepted_orbital=False,
+            )
+        return MockRealizationRecord(
+            solution_type=SolutionType.ORBITAL_FAILED_CUTS,
+            accepted_orbital=False,
+        )
 
     if period <= 0 or sig_parallax <= 0 or sigma_a0_mas <= 0:
         return MockRealizationRecord(
@@ -389,6 +479,9 @@ def load_reference_panels(config: PipelineConfig) -> tuple[dict[str, NDArray[np.
     return panels, st_frac
 
 
+load_elbadry_reference_panels = load_reference_panels
+
+
 def load_real_panels_from_data_acquisition(
     artifact_path: Path,
 ) -> tuple[dict[str, NDArray[np.float64]], dict[str, float]]:
@@ -420,13 +513,18 @@ def _run_single_mock_realization(
     phot_g_mean_mag: float,
     config: PipelineConfig,
     c_funcs: Any,
+    draw: MockBinaryDraw,
 ) -> MockRealizationRecord:
     pop = config.selection_function_astrometric.mock_population
+    if draw.faint_draw:
+        # gaiamock DR3 scanning-law mocks retain >=12 visibility periods even for
+        # faint G; NSS ``insufficient_visibility`` is modeled as a separate draw.
+        return MockRealizationRecord(
+            solution_type=SolutionType.INSUFFICIENT_VISIBILITY,
+            accepted_orbital=False,
+        )
+
     parallax = 1000.0 / d_pc
-    Tp = float(np.random.uniform(0.0, pop.period_days))
-    omega = float(np.random.uniform(0.0, 2.0 * np.pi))
-    w = float(np.random.uniform(0.0, 2.0 * np.pi))
-    inc_deg = float(np.degrees(np.arccos(np.random.uniform(-1.0, 1.0))))
 
     data_release = config.active_dr_mode.value
     cascade = gaiamock.run_full_astrometric_cascade(
@@ -435,16 +533,16 @@ def _run_single_mock_realization(
         parallax=parallax,
         pmra=0.0,
         pmdec=0.0,
-        m1=pop.m1_msun,
-        m2=pop.m2_msun,
-        period=pop.period_days,
-        Tp=Tp,
-        ecc=pop.eccentricity,
-        omega=omega,
-        inc_deg=inc_deg,
-        w=w,
+        m1=draw.m1_msun,
+        m2=draw.m2_msun,
+        period=draw.period_days,
+        Tp=draw.Tp,
+        ecc=draw.eccentricity,
+        omega=draw.omega_rad,
+        inc_deg=draw.inc_deg,
+        w=draw.w_rad,
         phot_g_mean_mag=phot_g_mean_mag,
-        f=pop.flux_ratio,
+        f=draw.flux_ratio,
         data_release=data_release,
         c_funcs=c_funcs,
         verbose=False,
@@ -454,9 +552,9 @@ def _run_single_mock_realization(
     )
     rec = classify_cascade_result(
         cascade,
-        m1_msun=pop.m1_msun,
-        m2_msun=pop.m2_msun,
-        flux_ratio=pop.flux_ratio,
+        m1_msun=draw.m1_msun,
+        m2_msun=draw.m2_msun,
+        flux_ratio=draw.flux_ratio,
         gaiamock=gaiamock,
     )
     if rec.accepted_orbital:
@@ -485,6 +583,7 @@ def run_mock_injections(
     pop = config.selection_function_astrometric.mock_population
     path_cfg = config.active_dr().selection_function_astrometric
     do_dust = _do_dust_from_config(config.selection_function_astrometric)
+    rng = _mock_rng(config)
 
     ra, dec, d_pc, _x, _y, _z = (
         gaiamock.generate_coordinates_at_a_given_distance_exponential_disk(
@@ -495,6 +594,8 @@ def run_mock_injections(
         )
     )
     l_deg, b_deg = gaiamock.xyz_to_galactic(x=_x, y=_y, z=_z)
+
+    draws = [draw_mock_binary_params(pop, rng) for _ in range(pop.N_realizations)]
 
     if do_dust:
         try:
@@ -510,7 +611,13 @@ def run_mock_injections(
     else:
         a_g = np.zeros(pop.N_realizations)
 
-    phot_g = pop.Mg_tot + 5.0 * np.log10(d_pc / 10.0) + a_g
+    phot_g = np.array(
+        [
+            draw.Mg_tot + 5.0 * np.log10(d_pc[i] / 10.0) + a_g[i]
+            for i, draw in enumerate(draws)
+        ],
+        dtype=np.float64,
+    )
     c_funcs = gaiamock.read_in_C_functions()
 
     records: list[MockRealizationRecord] = []
@@ -524,9 +631,10 @@ def run_mock_injections(
                 phot_g_mean_mag=float(phot_g[i]),
                 config=config,
                 c_funcs=c_funcs,
+                draw=draws[i],
             )
         )
-    return records, np.asarray(phot_g, dtype=np.float64)
+    return records, phot_g
 
 
 def run_validation_gate(
@@ -647,9 +755,13 @@ def run_selection_function_astrometric(
     gaiamock = import_gaiamock_mod(verify=True)
 
     if data_acquisition_artifact is not None and data_acquisition_artifact.is_file():
-        real_panels, real_st = load_real_panels_from_data_acquisition(
-            data_acquisition_artifact
-        )
+        try:
+            real_panels, real_st = load_real_panels_from_data_acquisition(
+                data_acquisition_artifact
+            )
+        except KeyError:
+            # Older data_acquisition artifacts may predate nss_panels persistence.
+            real_panels, real_st = load_reference_panels(config)
     else:
         real_panels, real_st = load_reference_panels(config)
 

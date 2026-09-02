@@ -203,6 +203,36 @@ def test_bulk_pipeline_keeps_high_m2_rejects_low() -> None:
     assert "after_m2_cut" in text
 
 
+def test_bulk_stream_matches_list_on_fixture() -> None:
+    cfg = load_config()
+    gaiamock = FakeGaiamock()
+    candidates = [
+        _candidate(1, m2_boost_a0=True),
+        _candidate(2, m2_boost_a0=False),
+        _candidate(
+            3,
+            extras={
+                "teff_gspphot": 5500.0,
+                "logg_gspphot": 4.2,
+                "mh_gspphot": 0.0,
+            },
+            m2_boost_a0=True,
+        ),
+    ]
+    list_keepers, list_diag = run_bulk_on_candidates(
+        candidates, cfg, gaiamock=gaiamock
+    )
+    stream_keepers, stream_diag = run_bulk_on_candidates(
+        iter(candidates), cfg, gaiamock=gaiamock
+    )
+    assert list_diag.funnel == stream_diag.funnel
+    assert np.allclose(list_diag.m2_pre_cut_msun, stream_diag.m2_pre_cut_msun)
+    assert np.allclose(list_diag.m2_post_cut_msun, stream_diag.m2_post_cut_msun)
+    assert [c.source_id for c in list_keepers] == [
+        c.source_id for c in stream_keepers
+    ]
+
+
 def test_companion_mass_parameterset_provenance() -> None:
     ps = companion_mass_m2(
         1.0,
@@ -395,6 +425,22 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert refined[0].fit_tier is FitTier.FULL_UBERMS
 
 
+def test_sed_summary_root_fixture_loader() -> None:
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
+    from darkhunter_pop.mass_derivation import (
+        _sed_summary_loader_for_config,
+        parameterset_from_sed_summary,
+    )
+
+    doc = _sed_summary_loader_for_config(tweaked)(515151)
+    assert doc is not None
+    ps = parameterset_from_sed_summary(doc)
+    assert ps is not None
+    assert ps.marginal("M1").value == pytest.approx(1.2)
+
+
 def test_hdf5_round_trip(tmp_path: Path) -> None:
     cand = _candidate()
     cand = cand.model_copy(
@@ -462,3 +508,64 @@ def test_write_bulk_diagnostic_artifacts_uses_shared_plotting(tmp_path: Path) ->
     assert diag_dir.is_dir()
     for path in pngs:
         assert path.is_file() and path.stat().st_size > 0
+
+
+def test_write_bulk_diagnostic_artifacts_m2_histogram_axes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def _capture_hist(
+        values: object, path: Path, /, **kwargs: object
+    ) -> Path:
+        captured.append({"path": path, **kwargs})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+        return path
+
+    monkeypatch.setattr("darkhunter_pop.mass_derivation.plot_histogram", _capture_hist)
+    cfg = load_config()
+    artifact = tmp_path / "mass_derivation_bulk.h5"
+    artifact.write_bytes(b"")
+    write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
+    m2_calls = [c for c in captured if "m2_" in c["path"].name]
+    assert len(m2_calls) == 2
+    for call in m2_calls:
+        assert call.get("xlim") == (0.0, 30.0)
+        assert call.get("log_y") is True
+
+
+def test_write_bulk_diagnostic_artifacts_m2_histogram_axes_from_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def _capture_hist(
+        values: object, path: Path, /, **kwargs: object
+    ) -> Path:
+        captured.append({"path": path, **kwargs})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+        return path
+
+    monkeypatch.setattr("darkhunter_pop.mass_derivation.plot_histogram", _capture_hist)
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "mass_derivation": cfg.mass_derivation.model_copy(
+                update={
+                    "bulk_m2_histogram_xmin_msun": 0.5,
+                    "bulk_m2_histogram_xmax_msun": 10.0,
+                    "bulk_m2_histogram_log_y": False,
+                }
+            ),
+        }
+    )
+    artifact = tmp_path / "mass_derivation_bulk.h5"
+    artifact.write_bytes(b"")
+    write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
+    m2_calls = [c for c in captured if "m2_" in c["path"].name]
+    assert len(m2_calls) == 2
+    for call in m2_calls:
+        assert call.get("xlim") == (0.5, 10.0)
+        assert call.get("log_y") is False

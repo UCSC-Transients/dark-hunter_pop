@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,7 +24,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from darkhunter_pop import constants
-from darkhunter_pop.config_loader import require_dr3_active_for_v1
+from darkhunter_pop.config_loader import require_dr3_active_for_v1, repo_root
 from darkhunter_pop.config_schema import (
     MassCalibrationMethod,
     PipelineConfig,
@@ -596,52 +596,63 @@ def process_bulk_candidate(
 
 
 def run_bulk_on_candidates(
-    candidates: Sequence[CandidateRecord],
+    candidates: Iterable[CandidateRecord],
     config: PipelineConfig,
     *,
     gaiamock: GaiamockMassAPI | None = None,
 ) -> tuple[list[CandidateRecord], BulkDiagnostics]:
-    """Apply bulk TAG10 + M2 cut to an in-memory candidate list."""
+    """Apply bulk TAG10 + M2 cut to a candidate list or upstream iterator."""
     api = gaiamock if gaiamock is not None else import_gaiamock_mod()
     kept: list[CandidateRecord] = []
     m2_pre: list[float] = []
     m2_post: list[float] = []
+    input_candidates = 0
     atmosphere_ok = 0
     m1_ok = 0
     m2_ok = 0
     skipped_no_atmosphere = 0
     skipped_no_orbit = 0
     skipped_m2_failed = 0
+    progress_interval = config.mass_derivation.bulk_progress_log_interval
 
     for candidate in candidates:
+        input_candidates += 1
         updated, reason, m2_pre_val = process_bulk_candidate(candidate, config, api)
         if reason == "no_atmosphere":
             skipped_no_atmosphere += 1
-            continue
-        atmosphere_ok += 1
-        if reason == "m1_failed":
-            continue
-        m1_ok += 1
-        if reason == "no_orbit":
-            skipped_no_orbit += 1
-            continue
-        if reason == "m2_failed":
-            skipped_m2_failed += 1
-            continue
-        if m2_pre_val is not None:
-            m2_pre.append(m2_pre_val)
-            m2_ok += 1
-        if reason == "m2_cut":
-            continue
-        if updated is None:
-            continue
-        kept.append(updated)
-        if updated.m2 is not None:
-            m2_post.append(updated.m2.marginal("M2").value)
+        else:
+            atmosphere_ok += 1
+            if reason == "m1_failed":
+                pass
+            else:
+                m1_ok += 1
+                if reason == "no_orbit":
+                    skipped_no_orbit += 1
+                elif reason == "m2_failed":
+                    skipped_m2_failed += 1
+                else:
+                    if m2_pre_val is not None:
+                        m2_pre.append(m2_pre_val)
+                        m2_ok += 1
+                    if reason != "m2_cut" and updated is not None:
+                        kept.append(updated)
+                        if updated.m2 is not None:
+                            m2_post.append(updated.m2.marginal("M2").value)
+
+        if (
+            progress_interval > 0
+            and input_candidates % progress_interval == 0
+        ):
+            print(
+                "[mass_derivation_bulk] processed "
+                f"{input_candidates} candidates "
+                f"(after_m2_cut={len(kept)})",
+                flush=True,
+            )
 
     diagnostics = BulkDiagnostics(
         funnel=BulkFunnel(
-            input_candidates=len(candidates),
+            input_candidates=input_candidates,
             atmosphere_ok=atmosphere_ok,
             m1_ok=m1_ok,
             m2_ok=m2_ok,
@@ -676,6 +687,11 @@ def write_bulk_diagnostic_artifacts(
     dpi = int(diag.figure_dpi)
     max_bins = int(diag.histogram_max_bins)
     style = config.plotting
+    md = config.mass_derivation
+    m2_xlim = (
+        float(md.bulk_m2_histogram_xmin_msun),
+        float(md.bulk_m2_histogram_xmax_msun),
+    )
     for name, values, title in (
         ("m2_pre_cut", diagnostics.m2_pre_cut_msun, "M2 pre-cut"),
         ("m2_post_cut", diagnostics.m2_post_cut_msun, "M2 post-cut"),
@@ -689,6 +705,8 @@ def write_bulk_diagnostic_artifacts(
             dpi=dpi,
             max_bins=max_bins,
             style=style,
+            xlim=m2_xlim,
+            log_y=bool(md.bulk_m2_histogram_log_y),
         )
         if path is not None:
             written.append(path)
@@ -827,6 +845,55 @@ def iter_upstream_candidates(
                 yield CandidateRecord.model_validate(json.loads(raw))
 
 
+def _resolve_sed_summary_path(config: PipelineConfig, source_id: int) -> Path | None:
+    root_spec = config.mass_derivation.sed_summary_root
+    if root_spec is None:
+        return None
+    root = Path(root_spec)
+    if not root.is_absolute():
+        root = repo_root() / root
+    return root / config.mass_derivation.sed_summary_filename_template.format(
+        source_id=source_id
+    )
+
+
+def _load_sed_summary_json(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(f"sed summary must be a JSON object: {path}")
+    return data
+
+
+def _sed_summary_loader_for_config(
+    config: PipelineConfig,
+) -> Callable[[int], dict[str, Any] | None]:
+    """Prefer fixture/snapshot ``sed_summary.json`` when ``sed_summary_root`` is set."""
+
+    def loader(source_id: int) -> dict[str, Any] | None:
+        path = _resolve_sed_summary_path(config, source_id)
+        if path is not None and path.is_file():
+            return _load_sed_summary_json(path)
+        return _default_sed_summary_loader(source_id)
+
+    return loader
+
+
+def _sed_needs_update_for_config(
+    config: PipelineConfig,
+) -> Callable[[int], tuple[bool, str]]:
+    loader = _sed_summary_loader_for_config(config)
+
+    def needs_update(source_id: int) -> tuple[bool, str]:
+        if config.mass_derivation.sed_summary_root is not None:
+            if loader(source_id) is not None:
+                return False, "up to date"
+            return False, "sed_summary_missing"
+        return _default_sed_needs_update(source_id)
+
+    return needs_update
+
+
 def _default_sed_summary_loader(source_id: int) -> dict[str, Any] | None:
     """Load ``darkhunter_sed`` sed_summary.json when the package is available."""
     if not _SED_AVAILABLE or _sed_summary_path is None or _sed_read_summary is None:
@@ -883,10 +950,14 @@ def run_mass_derivation_bulk(
     save_run_manifest(manifest, run_path)
 
     if candidates is None:
-        candidates = _load_upstream_candidates(manifest, "data_acquisition")
+        candidate_source: Iterable[CandidateRecord] = iter_upstream_candidates(
+            manifest, "data_acquisition"
+        )
+    else:
+        candidate_source = candidates
 
     kept, diagnostics = run_bulk_on_candidates(
-        candidates, config, gaiamock=gaiamock
+        candidate_source, config, gaiamock=gaiamock
     )
     write_stage_hdf5(
         artifact,
@@ -898,8 +969,6 @@ def run_mass_derivation_bulk(
             "m2_post_cut_msun": diagnostics.m2_post_cut_msun,
         },
     )
-    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
-
     manifest = mark_stage_finished(
         manifest,
         spec,
@@ -907,6 +976,7 @@ def run_mass_derivation_bulk(
         artifact_path=artifact,
     )
     save_run_manifest(manifest, run_path)
+    write_bulk_diagnostic_artifacts(diagnostics, artifact, config)
     return manifest
 
 
@@ -987,8 +1057,8 @@ def run_refined_on_candidates(
             "is not importable"
         )
 
-    loader = summary_loader or _default_sed_summary_loader
-    needs_update = needs_update_fn or _default_sed_needs_update
+    loader = summary_loader or _sed_summary_loader_for_config(config)
+    needs_update = needs_update_fn or _sed_needs_update_for_config(config)
     fit = fit_fn or _default_sed_fit
 
     ordered = sorted(
@@ -1121,8 +1191,8 @@ def run_mass_derivation_refined(
     updated, diagnostics = run_refined_on_candidates(
         candidates,
         config,
-        summary_loader=summary_loader,
-        needs_update_fn=needs_update_fn,
+        summary_loader=summary_loader or _sed_summary_loader_for_config(config),
+        needs_update_fn=needs_update_fn or _sed_needs_update_for_config(config),
         fit_fn=fit_fn,
     )
     write_stage_hdf5(

@@ -319,8 +319,18 @@ class MassDerivationConfig(BaseModel):
     information_gain_sigma_floor_msun: float = Field(0.01, gt=0)
     # Cap queue length; null = process all candidates passing the bulk cut.
     sed_queue_max_stars: int | None = Field(default=None, ge=1)
+    # Optional fixture / snapshot root for sed_summary.json (before darkhunter_sed package).
+    sed_summary_root: str | None = None
+    sed_summary_filename_template: str = "{source_id}.json"
     # When true, refined stage raises if darkhunter_sed is not importable.
     require_sed_package: bool = False
+    # Log bulk-stage progress every N input candidates; 0 disables heartbeat logs.
+    bulk_progress_log_interval: int = Field(10_000, ge=0)
+    # Companion-mass diagnostic histogram display range (Msun); outliers beyond
+    # xmax are counted in the plot title, not binned.
+    bulk_m2_histogram_xmin_msun: float = Field(0.0, ge=0)
+    bulk_m2_histogram_xmax_msun: float = Field(30.0, gt=0)
+    bulk_m2_histogram_log_y: bool = True
 
 
 class RvConsistencyConfig(BaseModel):
@@ -635,21 +645,62 @@ class ValidationGateConfig(BaseModel):
     reference_path: str | None = None
 
 
+class MockPopulationSampling(str, Enum):
+    """How mock binary parameters are drawn before the gaiamock cascade."""
+
+    FIXED = "fixed"
+    ELBADRY_PRIOR = "elbadry_prior"
+
+
 class MockPopulationConfig(BaseModel):
     """Fiducial binary used for mock injection / validation (one realization set)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    sampling: MockPopulationSampling = MockPopulationSampling.ELBADRY_PRIOR
+    random_seed: int = 42
+    # ``fixed`` mode uses the scalar fields below; ``elbadry_prior`` draws from the ranges.
     period_days: float = Field(1000.0, gt=0)
     Mg_tot: float = 4.0
     flux_ratio: float = Field(0.01, gt=0)
     m1_msun: float = Field(1.0, gt=0)
     m2_msun: float = Field(0.5, gt=0)
     eccentricity: float = Field(0.3, ge=0, lt=1)
-    N_realizations: int = Field(100, ge=1)
+    period_days_min: float = Field(60.0, gt=0)
+    period_days_max: float = Field(8500.0, gt=0)
+    eccentricity_max: float = Field(0.65, gt=0, lt=1)
+    m1_msun_min: float = Field(0.7, gt=0)
+    m1_msun_max: float = Field(2.8, gt=0)
+    m2_msun_min: float = Field(0.08, gt=0)
+    m2_msun_max: float = Field(3.5, gt=0)
+    flux_ratio_min: float = Field(1e-4, gt=0)
+    flux_ratio_max: float = Field(0.15, gt=0)
+    Mg_tot_min: float = 3.0
+    Mg_tot_max: float = 6.5
+    # Fraction of draws tagged as NSS insufficient_visibility (not gaiamock plx==0).
+    faint_draw_fraction: float = Field(0.45, ge=0.0, le=1.0)
+    faint_Mg_tot_min: float = 8.0
+    faint_Mg_tot_max: float = 11.5
+    N_realizations: int = Field(500, ge=1)
     ruwe_min: float = Field(1.4, gt=0)
     skip_acceleration: bool = False
     hz_pc: float = Field(300.0, gt=0)
+
+    @model_validator(mode="after")
+    def _mock_population_bounds(self) -> MockPopulationConfig:
+        if self.period_days_min >= self.period_days_max:
+            raise ValueError("period_days_min must be < period_days_max")
+        if self.m1_msun_min >= self.m1_msun_max:
+            raise ValueError("m1_msun_min must be < m1_msun_max")
+        if self.m2_msun_min >= self.m2_msun_max:
+            raise ValueError("m2_msun_min must be < m2_msun_max")
+        if self.flux_ratio_min >= self.flux_ratio_max:
+            raise ValueError("flux_ratio_min must be < flux_ratio_max")
+        if self.Mg_tot_min >= self.Mg_tot_max:
+            raise ValueError("Mg_tot_min must be < Mg_tot_max")
+        if self.faint_Mg_tot_min >= self.faint_Mg_tot_max:
+            raise ValueError("faint_Mg_tot_min must be < faint_Mg_tot_max")
+        return self
 
 
 class SelectionFunctionAstrometricConfig(BaseModel):
@@ -884,6 +935,9 @@ class DRPathConfig(BaseModel):
     impute_external_mag_err: bool = True
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
+    # Optional dark-hunter_rv JSON summary tree (``{source_id}.json`` per star).
+    rv_summary_root: str | None = None
+    rv_summary_filename_template: str = "{source_id}.json"
     # Reserved for DR4 epoch capabilities; ignored when inactive.
     allow_astrometric_epoch_outliers: bool = False
     selection_function_astrometric: DRSelectionFunctionPathConfig = Field(

@@ -61,6 +61,29 @@ def test_impossible_counts_when_mu_zero() -> None:
     assert P.binned_poisson_log_likelihood([1.0], [0.0]) == float("-inf")
 
 
+def test_thiele_innes_to_campbell_round_trip() -> None:
+    # Campbell elements → TI (Wikipedia) → recover a0.
+    a0 = 17.57  # mas
+    omega = np.deg2rad(231.65)
+    inc = np.deg2rad(79.205)
+    node = np.deg2rad(204.85)
+    a = a0
+    A = a * (np.cos(omega) * np.cos(node) - np.sin(omega) * np.sin(node) * np.cos(inc))
+    B = a * (np.cos(omega) * np.sin(node) + np.sin(omega) * np.cos(node) * np.cos(inc))
+    F = a * (-np.sin(omega) * np.cos(node) - np.cos(omega) * np.sin(node) * np.cos(inc))
+    G = a * (-np.sin(omega) * np.sin(node) + np.cos(omega) * np.cos(node) * np.cos(inc))
+    a0_out, omega_out, inc_out = P.thiele_innes_to_campbell(A, B, F, G)
+    assert a0_out == pytest.approx(a0, rel=1e-4)
+    assert inc_out == pytest.approx(inc, abs=0.05)
+    assert np.isfinite(omega_out)
+
+
+def test_astrometric_mass_function_basic() -> None:
+    fm = P.astrometric_mass_function(1.0, 2.0, 365.25)
+    assert fm == pytest.approx(0.125)
+    assert np.isnan(P.astrometric_mass_function(1.0, 0.0, 365.25))
+
+
 def test_physics_utils_does_not_import_gaiamock() -> None:
     """Scope guard: residual module must not import orbital gaiamock APIs."""
     src_path = Path(P.__file__)

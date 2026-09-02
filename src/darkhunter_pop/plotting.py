@@ -187,11 +187,15 @@ def plot_histogram(
     max_bins: int | None = None,
     color: str | None = None,
     style: PlottingStyleConfig | None = None,
+    xlim: tuple[float, float] | None = None,
+    log_y: bool = False,
 ) -> Path | None:
     """Write a one-dimensional histogram PNG. Returns None when values are empty.
 
     Non-finite entries are dropped so ``bins="auto"`` does not raise on NaN ranges
-    (e.g. missing eccentricities in NSS orbital blocks).
+    (e.g. missing eccentricities in NSS orbital blocks). When ``xlim`` is set, only
+    values inside ``[xlim[0], xlim[1]]`` are binned and the axis is fixed; counts
+    outside the range are appended to the title so heavy tails are not hidden.
     """
     if values is None:
         return None
@@ -202,18 +206,51 @@ def plot_histogram(
     if finite.size == 0:
         return None
     cfg = resolve_plotting_style(style)
-    resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
     face = color if color is not None else cfg.hist_face_color
     plt = require_pyplot()
     fig, axis = plt.subplots(figsize=tuple(cfg.figsize_landscape))
-    axis.hist(
-        finite,
-        bins=resolved,
-        color=face,
-        edgecolor=cfg.hist_edge_color,
-        linewidth=cfg.spines_width * 0.5,
-    )
-    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
+
+    display_title = title
+    if xlim is not None:
+        xmin, xmax = xlim
+        if xmin >= xmax:
+            raise ValueError(f"xlim must satisfy xmin < xmax, got {xlim}")
+        n_above = int(np.sum(finite > xmax))
+        n_below = int(np.sum(finite < xmin))
+        in_range = finite[(finite >= xmin) & (finite <= xmax)]
+        if in_range.size == 0:
+            plt.close(fig)
+            return None
+        n_bins = int(max_bins) if max_bins is not None else 40
+        bin_edges = np.linspace(xmin, xmax, n_bins + 1)
+        axis.hist(
+            in_range,
+            bins=bin_edges,
+            color=face,
+            edgecolor=cfg.hist_edge_color,
+            linewidth=cfg.spines_width * 0.5,
+        )
+        axis.set_xlim(xmin, xmax)
+        omitted: list[str] = []
+        if n_above:
+            omitted.append(f"{n_above} > {xmax:g} M$_\\odot$")
+        if n_below:
+            omitted.append(f"{n_below} < {xmin:g} M$_\\odot$")
+        if omitted:
+            display_title = f"{title} ({'; '.join(omitted)} omitted)"
+    else:
+        resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
+        axis.hist(
+            finite,
+            bins=resolved,
+            color=face,
+            edgecolor=cfg.hist_edge_color,
+            linewidth=cfg.spines_width * 0.5,
+        )
+
+    if log_y:
+        axis.set_yscale("log")
+    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=display_title)
     return save_figure(fig, path, dpi=dpi)
 
 

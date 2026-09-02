@@ -246,6 +246,7 @@ def test_stage_runner_hdf5_and_report(tmp_path: Path) -> None:
     tweaked = cfg.model_copy(deep=True)
     tweaked.paths.artifact_root = str(tmp_path / "output")
     tweaked.physics.cooling_tracks_path = str(FIXTURE_TRACKS)
+    tweaked.diagnostics = cfg.diagnostics.model_copy(update={"write_figures": True})
 
     manifest = create_run_manifest(tweaked)
     run_path = tmp_path / "runs" / f"{manifest.run_id}.yaml"
@@ -296,13 +297,15 @@ def test_stage_runner_hdf5_and_report(tmp_path: Path) -> None:
     assert len(loaded) == 2
     assert all(c.companion_nature_weights is not None for c in loaded)
     assert meta.get("stage") == STAGE_NAME or meta.get("stage") == STAGE_NAME
-    report = path.parent / "reports" / "companion_nature_funnel.txt"
-    age_json = path.parent / "reports" / "companion_nature_age_bins.json"
+    report = path.parent / f"{path.stem}_diagnostics" / "reports" / "companion_nature_funnel.txt"
+    age_json = path.parent / f"{path.stem}_diagnostics" / "reports" / "companion_nature_age_bins.json"
     assert report.is_file()
     assert age_json.is_file()
     text = report.read_text(encoding="utf-8")
     assert "none discarded" in text
     assert "age-bin diagnostic" in text.lower()
+    fig = path.parent / f"{path.stem}_diagnostics" / "figures" / "delta_bic_wd_vs_dark.png"
+    assert fig.is_file()
 
 
 def test_config_fingerprint_changes_artifact_path() -> None:

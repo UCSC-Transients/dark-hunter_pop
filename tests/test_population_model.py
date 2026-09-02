@@ -36,6 +36,8 @@ from darkhunter_pop.schemas import (
     COMPANION_NATURE_WEIGHT_KEYS,
     CandidateRecord,
     ParameterSet,
+    StageRecord,
+    StageStatus,
 )
 
 pytestmark = pytest.mark.unit
@@ -235,6 +237,7 @@ def test_hdf5_round_trip_and_stage(tmp_path: Path) -> None:
     assert payload["external_co_mf_priors"] is False
     assert payload["weight_schema"]["keys"] == list(COMPANION_NATURE_WEIGHT_KEYS)
     assert "raw_total_co_dndm" in payload["two_tier_dndm"]
+    assert len(payload.get("system_weight_rows") or []) == 1
     with h5py.File(path, "r") as handle:
         assert handle.attrs["stage"] == "population_model"
         assert handle.attrs["p_triple"] == 0.0
@@ -258,6 +261,46 @@ def test_hdf5_round_trip_and_stage(tmp_path: Path) -> None:
     assert Path(rec.artifact_path).resolve() == artifact.resolve()
     again = run_population_model_stage(updated, cfg, run_path=run_path)
     assert again.stages["population_model"].artifact_path == rec.artifact_path
+
+
+def test_population_model_stage_loads_companion_nature_upstream(tmp_path: Path) -> None:
+    from darkhunter_pop.companion_nature import write_stage_hdf5 as write_cn_hdf5
+
+    cfg = load_config()
+    cfg = cfg.model_copy(deep=True)
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    run_path = tmp_path / "run.yaml"
+    manifest = create_run_manifest(cfg)
+    cn_spec = STAGE_REGISTRY["companion_nature_likelihood"]
+    cn_path = stage_artifact_path(cfg, cn_spec, run_id=manifest.run_id)
+    cands = [
+        CandidateRecord(
+            source_id=1,
+            companion_nature_weights=_uniform_weights(WD=1.0),
+        ),
+        CandidateRecord(
+            source_id=2,
+            companion_nature_weights=_uniform_weights(NS=1.0),
+        ),
+    ]
+    write_cn_hdf5(cn_path, cands, diagnostics={"n_input": 2, "n_weighted": 2})
+    manifest = manifest.model_copy(
+        update={
+            "stages": {
+                **manifest.stages,
+                "companion_nature_likelihood": StageRecord(
+                    stage_name="companion_nature_likelihood",
+                    status=StageStatus.COMPLETED,
+                    artifact_path=str(cn_path),
+                ),
+            }
+        }
+    )
+    save_run_manifest(manifest, run_path)
+    updated = run_population_model_stage(manifest, cfg, run_path=run_path, force_rerun=True)
+    pop_path = Path(updated.stages["population_model"].artifact_path)
+    payload = read_population_model_artifact(pop_path)
+    assert payload["n_systems"] == 2
 
 
 def test_forbid_external_co_mf_priors_in_schema() -> None:

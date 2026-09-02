@@ -10,15 +10,18 @@ import numpy as np
 import pytest
 
 from darkhunter_pop.config_loader import load_config, require_dr3_active_for_v1
-from darkhunter_pop.config_schema import ExtinctionModel
+from darkhunter_pop.config_schema import ExtinctionModel, MockPopulationSampling
 from darkhunter_pop.forward_model import (
     SIX_PANEL_NAMES,
     SOLUTION_TYPE_LABELS,
     MockRealizationRecord,
     SolutionType,
     classify_cascade_result,
+    draw_mock_binary_params,
     format_validation_gate_report,
+    load_real_panels_from_data_acquisition,
     load_reference_panels,
+    _run_single_mock_realization,
     run_mock_injections,
     run_selection_function_astrometric,
     run_six_panel_validation,
@@ -79,11 +82,59 @@ def _orbital_cascade(
 def test_config_loads_selection_function_fragment() -> None:
     cfg = load_config()
     assert cfg.selection_function_astrometric.extinction_model is ExtinctionModel.COMBINED19
-    assert cfg.dr3.selection_function_astrometric.d_min_pc == pytest.approx(100.0)
-    assert cfg.selection_function_astrometric.mock_population.period_days == pytest.approx(
-        1000.0
-    )
+    assert cfg.dr3.selection_function_astrometric.d_min_pc == pytest.approx(50.0)
+    pop = cfg.selection_function_astrometric.mock_population
+    assert pop.sampling is MockPopulationSampling.ELBADRY_PRIOR
+    assert pop.period_days == pytest.approx(1000.0)
+    assert pop.N_realizations >= 100
     require_dr3_active_for_v1(cfg)
+
+
+def test_draw_mock_binary_params_spreads_elbadry_prior() -> None:
+    cfg = load_config()
+    pop = cfg.selection_function_astrometric.mock_population
+    rng = np.random.default_rng(0)
+    draws = [draw_mock_binary_params(pop, rng) for _ in range(64)]
+    periods = [d.period_days for d in draws]
+    assert min(periods) < max(periods)
+    assert min(d.m1_msun for d in draws) < max(d.m1_msun for d in draws)
+    assert sum(d.faint_draw for d in draws) >= 10
+
+
+def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
+    cfg = load_config()
+    pop = cfg.selection_function_astrometric.mock_population
+    draw = draw_mock_binary_params(pop, np.random.default_rng(0))
+    faint = draw.__class__(**{**draw.__dict__, "faint_draw": True})
+    rec = _run_single_mock_realization(
+        gaiamock=None,  # type: ignore[arg-type]
+        ra=0.0,
+        dec=0.0,
+        d_pc=200.0,
+        phot_g_mean_mag=18.0,
+        config=cfg,
+        c_funcs=None,
+        draw=faint,
+    )
+    assert rec.solution_type is SolutionType.INSUFFICIENT_VISIBILITY
+    assert not rec.accepted_orbital
+
+
+def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
+    cfg = load_config()
+    panels_ref, st_ref = load_reference_panels(cfg)
+    artifact = tmp_path / "da.h5"
+    with h5py.File(artifact, "w") as handle:
+        grp = handle.create_group("data_acquisition/nss_panels")
+        for name in SIX_PANEL_NAMES:
+            if name in panels_ref:
+                grp.create_dataset(name, data=panels_ref[name])
+        st_grp = handle.create_group("data_acquisition/solution_type_fractions")
+        for label in SOLUTION_TYPE_LABELS:
+            st_grp.create_dataset(label, data=np.float64(st_ref[label]))
+    panels, st = load_real_panels_from_data_acquisition(artifact)
+    assert set(panels) == set(SIX_PANEL_NAMES)
+    assert set(st) == set(SOLUTION_TYPE_LABELS)
 
 
 def test_classify_cascade_sentinels() -> None:
@@ -122,6 +173,16 @@ def test_classify_orbital_fails_cuts() -> None:
     )
     assert rec_bad.solution_type is SolutionType.ORBITAL_FAILED_CUTS
     assert not rec_bad.accepted_orbital
+
+
+def test_classify_negative_parallax_not_sentinel_is_failed_cuts() -> None:
+    bad = _orbital_cascade()
+    bad[0] = -0.12
+    rec = classify_cascade_result(
+        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01
+    )
+    assert rec.solution_type is SolutionType.ORBITAL_FAILED_CUTS
+    assert not rec.accepted_orbital
 
 
 def test_solution_type_fractions_sum_to_one() -> None:
@@ -281,6 +342,32 @@ def test_run_selection_function_astrometric_smoke(tmp_path: Path) -> None:
     assert len(result.records) == 2
     report = format_validation_gate_report(result)
     assert "validation gate" in report
+
+
+@pytest.mark.gaiamock
+@pytest.mark.slow
+def test_validation_gate_elbadry_prior_against_fixture(tmp_path: Path) -> None:
+    """El-Badry prior mocks should populate insufficient_visibility and accepted orbits."""
+    if not is_overlay_ready():
+        pytest.skip("run scripts/install_gaiamock_mod.sh first")
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_astrometric.extinction_model = ExtinctionModel.NONE
+    tweaked.selection_function_astrometric.mock_population = (
+        tweaked.selection_function_astrometric.mock_population.model_copy(
+            update={"N_realizations": 80}
+        )
+    )
+    verify_gaiamock_versions(tweaked)
+    artifact = tmp_path / "sel_elbadry.h5"
+    result = run_selection_function_astrometric(tweaked, artifact)
+    insuf = result.validation.solution_type.mock_fractions.get(
+        "insufficient_visibility", 0.0
+    )
+    assert insuf > 0.1
+    # El-Badry priors yield a low DR3 orbital acceptance rate (~few percent); one
+    # accepted realization is enough to prove the cascade path is wired.
+    assert len([r for r in result.records if r.accepted_orbital]) >= 1
 
 
 @pytest.mark.gaiamock

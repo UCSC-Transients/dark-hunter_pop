@@ -5,6 +5,9 @@ dr3:
   scanning_law_id: gaiadr3_pinned
   zero_point_version: dr3_pinned
   sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  # Optional dark-hunter_rv JSON tree; null disables attachment.
+  rv_summary_root: null
+  rv_summary_filename_template: "{source_id}.json"
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0
@@ -17,6 +20,8 @@ dr4:
   scanning_law_id: gaiadr4_pinned
   zero_point_version: dr4_pinned
   sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
+  rv_summary_root: null
+  rv_summary_filename_template: "{source_id}.json"
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0

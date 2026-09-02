@@ -320,6 +320,9 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     )
     assert (diag_dir / "reports" / "rv_astrometry_gate_funnel.txt").is_file()
     assert (diag_dir / "reports" / "rv_astrometry_gate_pass_rate.txt").is_file()
+    scored = [c for c in gate_cands if c.extras.get("rv_astrometry_gate_chi2_dof") is not None]
+    if scored:
+        assert (diag_dir / "figures" / "rv_gate_chi2_dof.png").is_file()
 
     manifest = run_joint_orbit_fit(manifest, cfg, run_path=run_path)
     joint_rec = manifest.stages["joint_orbit_fit"]
