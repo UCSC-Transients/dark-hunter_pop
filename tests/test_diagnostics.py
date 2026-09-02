@@ -41,6 +41,7 @@ from darkhunter_pop.diagnostics import (
     run_diagnostics_stage,
     write_diagnostics_artifact,
     _ensure_builtin_helpers_registered,
+    _hydrate_diagnostics_from_manifest,
 )
 from darkhunter_pop.forward_model import (
     SOLUTION_TYPE_LABELS,
@@ -73,6 +74,7 @@ from darkhunter_pop.schemas import (
     CandidateRecord,
     FitTier,
     ParameterSet,
+    StageRecord,
     StageStatus,
 )
 from darkhunter_pop.sensitivity_analysis import run_mc_noise_convergence
@@ -724,6 +726,39 @@ def test_scaffolding_stage_writes_hdf5_and_report(tmp_path: Path) -> None:
     assert "diagnostics stage (full suite)" in report
     assert "Phase 6" in report or "SBC recovery" in report or "known-truth" in report
     assert "sbc_config:" in report
+
+
+def test_hydrate_diagnostics_from_companion_nature(tmp_path: Path) -> None:
+    from darkhunter_pop.companion_nature import write_stage_hdf5 as write_cn_hdf5
+
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path / "out")}),
+        }
+    )
+    manifest = create_run_manifest(cfg)
+    cn_path = tmp_path / "companion_nature.h5"
+    write_cn_hdf5(
+        cn_path,
+        [_candidate(source_id=1), _candidate(source_id=2)],
+        diagnostics={"n_input": 2, "n_weighted": 2},
+    )
+    manifest = manifest.model_copy(
+        update={
+            "stages": {
+                **manifest.stages,
+                "companion_nature_likelihood": StageRecord(
+                    stage_name="companion_nature_likelihood",
+                    status=StageStatus.COMPLETED,
+                    artifact_path=str(cn_path),
+                ),
+            }
+        }
+    )
+    hydrated = _hydrate_diagnostics_from_manifest(manifest, cfg)
+    assert hydrated["candidates"] is not None
+    assert len(hydrated["candidates"]) == 2
 
 
 def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:

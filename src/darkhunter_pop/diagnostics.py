@@ -1774,6 +1774,167 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
     return "\n".join(lines)
 
 
+def _optional_artifact_path(manifest: RunManifest, stage_name: str) -> Path | None:
+    record = manifest.stages.get(stage_name)
+    if record is None or not record.artifact_path:
+        return None
+    path = Path(record.artifact_path)
+    return path if path.is_file() else None
+
+
+def _read_mc_noise_from_sensitivity(path: Path) -> MCNoiseConvergenceDiagnostic | None:
+    from darkhunter_pop.sensitivity_analysis import BinMCNoiseResult
+
+    with h5py.File(path, "r") as handle:
+        mc = handle.get("mc_noise_convergence")
+        if mc is None:
+            return None
+        n_mock_final = int(handle.attrs.get("n_mock_final", 0))
+        per_bin: tuple[BinMCNoiseResult, ...] = ()
+        if "bin_expected_count" in mc:
+            expected = np.asarray(mc["bin_expected_count"], dtype=np.float64)
+            ratios = np.asarray(mc["bin_ratio"], dtype=np.float64)
+            passed = np.asarray(mc["bin_passed"], dtype=bool)
+            per_bin = tuple(
+                BinMCNoiseResult(
+                    bin_index=i,
+                    expected_count=float(expected[i]),
+                    n_mock=n_mock_final,
+                    sigma_mc=float("nan"),
+                    sigma_poisson=float("nan"),
+                    ratio=float(ratios[i]),
+                    passed=bool(passed[i]),
+                )
+                for i in range(len(expected))
+            )
+        return MCNoiseConvergenceDiagnostic(
+            threshold=float(mc.attrs.get("threshold", 0.0)),
+            n_mock_final=n_mock_final,
+            all_bins_passed=bool(mc.attrs.get("all_bins_passed", False)),
+            per_bin=per_bin,
+            schedule_n_mock=tuple(int(x) for x in np.asarray(mc["schedule_n_mock"])),
+            schedule_max_ratio=tuple(float(x) for x in np.asarray(mc["schedule_max_ratio"])),
+            message=str(mc.attrs.get("message", "")),
+        )
+
+
+def _read_solution_types_from_sf(path: Path) -> SolutionTypeFractionResult | None:
+    with h5py.File(path, "r") as handle:
+        st = handle.get("validation_gate/solution_type_fractions")
+        if st is None:
+            return None
+        mock_frac = {
+            label: float(st.attrs.get(f"mock_{label}", 0.0)) for label in SOLUTION_TYPE_LABELS
+        }
+        real_frac = {
+            label: float(st.attrs.get(f"real_{label}", 0.0)) for label in SOLUTION_TYPE_LABELS
+        }
+        return SolutionTypeFractionResult(
+            mock_fractions=mock_frac,
+            real_fractions=real_frac,
+            max_abs_delta=float(st.attrs.get("max_abs_delta", 0.0)),
+            passed=bool(st.attrs.get("passed", False)),
+        )
+
+
+def _read_elbadry_panels_from_manifest(
+    manifest: RunManifest,
+    config: PipelineConfig,
+) -> dict[str, Mapping[str, NDArray[np.floating]]] | None:
+    da_path = _optional_artifact_path(manifest, "data_acquisition")
+    if da_path is None:
+        return None
+    try:
+        from darkhunter_pop.forward_model import (
+            SIX_PANEL_NAMES,
+            load_real_panels_from_data_acquisition,
+            load_reference_panels,
+        )
+
+        real_panels, _ = load_real_panels_from_data_acquisition(da_path)
+        mock_panels, _ = load_reference_panels(config)
+        return {
+            name: {"mock": mock_panels[name], "real": real_panels[name]}
+            for name in SIX_PANEL_NAMES
+            if name in real_panels and name in mock_panels
+        }
+    except (KeyError, ValueError, FileNotFoundError, OSError):
+        return None
+
+
+def _hydrate_diagnostics_from_manifest(
+    manifest: RunManifest,
+    config: PipelineConfig,
+) -> dict[str, Any]:
+    """Load upstream stage artifacts for the diagnostic suite when not passed explicitly."""
+    hydrated: dict[str, Any] = {}
+
+    cn_path = _optional_artifact_path(manifest, "companion_nature_likelihood")
+    if cn_path is not None:
+        from darkhunter_pop.companion_nature import AgeBinDiagnostic, read_stage_hdf5
+
+        candidates, meta = read_stage_hdf5(cn_path)
+        hydrated["candidates"] = candidates
+        age_raw = meta.get("diagnostics.age_diagnostic")
+        if isinstance(age_raw, str):
+            hydrated["age_diagnostic"] = AgeBinDiagnostic(**json.loads(age_raw))
+        elif isinstance(age_raw, Mapping):
+            hydrated["age_diagnostic"] = AgeBinDiagnostic(**dict(age_raw))
+
+    da_path = _optional_artifact_path(manifest, "data_acquisition")
+    if da_path is not None:
+        with h5py.File(da_path, "r") as handle:
+            if "diagnostics" in handle:
+                funnel = {
+                    str(key): int(handle["diagnostics"].attrs[key])
+                    for key in handle["diagnostics"].attrs
+                }
+                if funnel:
+                    hydrated["funnel_counts"] = funnel
+
+    gate_path = _optional_artifact_path(manifest, "rv_astrometry_gate")
+    if gate_path is not None:
+        from darkhunter_pop.rv_consistency import read_stage_hdf5 as read_rv_hdf5
+
+        _, meta = read_rv_hdf5(gate_path)
+        hydrated["gate_counts"] = {
+            "passed": int(meta.get("diagnostics.n_passed", 0)),
+            "failed": int(meta.get("diagnostics.n_failed", 0)),
+            "skipped": int(meta.get("diagnostics.n_skipped_no_rv", 0))
+            + int(meta.get("diagnostics.n_skipped_elements", 0)),
+        }
+        chi2_key = "diagnostics.chi2_dof_values"
+        if chi2_key in meta:
+            hydrated["chi2_dof_values"] = list(np.asarray(meta[chi2_key], dtype=np.float64))
+
+    inf_path = _optional_artifact_path(manifest, "inference")
+    if inf_path is not None:
+        from darkhunter_pop.inference import read_inference_artifact
+
+        payload = read_inference_artifact(inf_path)
+        runs = payload.get("sampler_run_summaries")
+        if runs:
+            hydrated["sampler_runs"] = runs
+
+    sa_path = _optional_artifact_path(manifest, "sensitivity_analysis")
+    if sa_path is not None:
+        mc_noise = _read_mc_noise_from_sensitivity(sa_path)
+        if mc_noise is not None:
+            hydrated["mc_noise"] = mc_noise
+
+    sf_path = _optional_artifact_path(manifest, "selection_function_astrometric")
+    if sf_path is not None:
+        solution_types = _read_solution_types_from_sf(sf_path)
+        if solution_types is not None:
+            hydrated["solution_types"] = solution_types
+
+    elbadry = _read_elbadry_panels_from_manifest(manifest, config)
+    if elbadry is not None:
+        hydrated["elbadry_panels"] = elbadry
+
+    return hydrated
+
+
 def run_diagnostics_stage(
     manifest: RunManifest,
     config: PipelineConfig,
@@ -1799,16 +1960,35 @@ def run_diagnostics_stage(
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
 
+    hydrated = _hydrate_diagnostics_from_manifest(manifest, config)
+    resolved_candidates = candidates if candidates is not None else hydrated.get("candidates")
+    resolved_sampler_runs = (
+        sampler_runs if sampler_runs is not None else hydrated.get("sampler_runs")
+    )
+    resolved_gate_counts = gate_counts if gate_counts is not None else hydrated.get("gate_counts")
+    resolved_chi2 = (
+        chi2_dof_values if chi2_dof_values is not None else hydrated.get("chi2_dof_values")
+    )
+    resolved_mc_noise = mc_noise if mc_noise is not None else hydrated.get("mc_noise")
+    resolved_solution_types = (
+        solution_types if solution_types is not None else hydrated.get("solution_types")
+    )
+
     result = run_diagnostic_suite(
         config,
         run_id=manifest.run_id,
-        candidates=candidates,
-        sampler_runs=sampler_runs,
-        mc_noise=mc_noise,
-        solution_types=solution_types,
-        gate_counts=gate_counts,
-        chi2_dof_values=chi2_dof_values,
-        demo_missing=demo_hooks and candidates is None and sampler_runs is None,
+        candidates=resolved_candidates,
+        funnel_counts=hydrated.get("funnel_counts"),
+        elbadry_panels=hydrated.get("elbadry_panels"),
+        gate_counts=resolved_gate_counts,
+        chi2_dof_values=resolved_chi2,
+        age_diagnostic=hydrated.get("age_diagnostic"),
+        sampler_runs=resolved_sampler_runs,
+        mc_noise=resolved_mc_noise,
+        solution_types=resolved_solution_types,
+        demo_missing=demo_hooks
+        and resolved_candidates is None
+        and resolved_sampler_runs is None,
     )
     write_diagnostics_artifact(artifact, result)
     write_report(
