@@ -140,7 +140,9 @@ reviewed.
   Stage outputs are stored as **one HDF5 file per stage** under `paths.artifact_root` (`output/`
   by default).
 - **`CandidateRecord`** — one row per Gaia source: identifiers, NSS solution type, Thiele-Innes
-  elements where available; the full field set from the RV pipeline's per-star summary output
+  elements where available, reconstructed NSS fitted-parameter ``ParameterSet``
+  (``nss_solution`` from ``corr_vec``/``bit_index``; absent on reconstruction failure — never a
+  diagonal-only fallback); the full field set from the RV pipeline's per-star summary output
   (Gaia metadata block, NSS orbital parameters, external literature RV rows, internal pipeline RV
   epoch results, ideally ingested from a JSON version of `dark-hunter_rv`'s summary output); static
   (single/average, not epoch) photometry across all bands in use; a TESS block holding only
@@ -166,7 +168,12 @@ reviewed.
   supports arbitrary bin counts, since DR4 may need a different scheme).
 - Snapshot: raw query result + checksum + literal ADQL text + query date. Full accounting
   standard, not bitwise-exact reproducibility.
-- **Diagnostics:** funnel table, sky-coverage map, RUWE/period/eccentricity histograms.
+- Reconstruct NSS fitted-parameter covariance from ``corr_vec`` + ``bit_index`` + per-parameter
+  ``*_error`` columns; store as ``CandidateRecord.nss_solution`` and under
+  ``data_acquisition/nss_covariance/`` in the stage HDF5. Failures are counted in the funnel
+  (``covariance_health``); no diagonal-only fallback.
+- **Diagnostics:** funnel table (incl. covariance health), sky-coverage map, RUWE/period/eccentricity
+  histograms.
 
 ### `mass_derivation_bulk`
 

@@ -213,6 +213,10 @@ class CandidateRecord(BaseModel):
     (``BH``, ``NS``, ``WD``, ``other``, ``outlier``). Values are non-negative unnormalized
     responsibilities or probabilities; ``population_model`` normalizes. Never used as a
     pre-filter — every system remains in the sample with contamination included.
+
+    ``nss_solution`` (issue #105): fitted NSS parameter vector + covariance from archive
+    ``corr_vec``/``bit_index``. Absent when reconstruction fails; never replaced by
+    independent (diagonal-only) errors.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -224,6 +228,9 @@ class CandidateRecord(BaseModel):
     parallax_mas: float | None = None
     thiele_innes: ThieleInnesElements | None = None
     nss_orbital: dict[str, Any] = Field(default_factory=dict)
+    # Full NSS fitted-parameter vector + covariance (corr_vec/bit_index unpack).
+    # Absent when reconstruction fails — never replaced by a diagonal-only fallback.
+    nss_solution: ParameterSet | None = None
     rv_summary: dict[str, Any] = Field(default_factory=dict)
     photometry: list[PhotometryPoint] = Field(default_factory=list)
     tess: TessBlock | None = None

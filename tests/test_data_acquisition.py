@@ -156,6 +156,9 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "COALESCE(nss.ra, gs.ra) AS ra" in adql
     assert "COALESCE(nss.period_error, nss.input_period_error) AS period_error" in adql
     assert "nss.t_periastron" in adql
+    assert "nss.corr_vec" in adql
+    assert "nss.bit_index" in adql
+    assert "nss.ra_error" in adql
     assert "nss.A," not in adql.replace("\n", "")
     assert "phot_g_mean_mag_error" not in adql
     assert "LEFT JOIN" in adql
@@ -437,10 +440,25 @@ def test_run_data_acquisition_from_snapshot_skips_query(tmp_path: Path) -> None:
 
 def test_format_funnel_table_is_legible() -> None:
     from darkhunter_pop.data_acquisition import FunnelCounts
+    from darkhunter_pop.nss_covariance import CovarianceHealth
 
+    health = CovarianceHealth()
+    health.ok = 2
+    health.missing_corr = 1
+    health.by_solution_type = {"Orbital": {"ok": 2}, "SB1": {"missing_corr": 1}}
     text = format_funnel_table(
-        FunnelCounts(queried=10, after_quality_cut=4, candidates_written=4),
+        FunnelCounts(
+            queried=10,
+            after_quality_cut=4,
+            candidates_written=4,
+            covariance_ok=2,
+            covariance_failed=1,
+        ),
         {"bin0": 4},
+        covariance_health=health,
     )
     assert "data_acquisition funnel" in text
     assert "queried" in text
+    assert "covariance_ok" in text
+    assert "covariance_health (by solution type)" in text
+    assert "Orbital" in text
