@@ -218,8 +218,13 @@ def test_canonical_load_lists_two_andrews_variants() -> None:
     by_name = {entry.name: entry for entry in cfg.sample_selection.samples}
     assert by_name["andrews2022"].mode is SampleSelectionMode.REPRODUCTION
     assert by_name["andrews2022_modified"].mode is SampleSelectionMode.FORWARD_MODEL
-    assert by_name["andrews2022"].enabled is False
-    assert by_name["andrews2022_modified"].enabled is False
+    assert by_name["andrews2022"].enabled is True
+    assert by_name["andrews2022_modified"].enabled is True
+    assert by_name["andrews2022"].path == "config/selections/andrews2022.yaml"
+    assert (
+        by_name["andrews2022_modified"].path
+        == "config/selections/andrews2022_modified.yaml"
+    )
 
 
 def test_checksum_includes_sample_selection() -> None:
@@ -242,8 +247,25 @@ def test_stage_sits_between_bulk_and_followup() -> None:
 
 
 def test_plan_skips_when_no_enabled_samples() -> None:
-    cfg = load_config()
+    cfg = load_config().model_copy(deep=True)
+    cfg.sample_selection.samples = [
+        entry.model_copy(update={"enabled": False})
+        for entry in cfg.sample_selection.samples
+    ]
     manifest = create_run_manifest(cfg)
+    entry = plan_stage(STAGE_REGISTRY["sample_selection"], manifest, cfg)
+    assert entry.action is StageAction.SKIP_REASON
+    assert entry.detail == SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON
+    assert (
+        stage_default_skip_reason(STAGE_REGISTRY["sample_selection"], cfg)
+        == SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON
+    )
+    disabled = cfg.model_copy(deep=True)
+    disabled.sample_selection.enabled = False
+    assert (
+        stage_default_skip_reason(STAGE_REGISTRY["sample_selection"], disabled)
+        == SAMPLE_SELECTION_DISABLED_SKIP_REASON
+    )
     entry = plan_stage(STAGE_REGISTRY["sample_selection"], manifest, cfg)
     assert entry.action is StageAction.SKIP_REASON
     assert entry.detail == SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON
@@ -498,6 +520,10 @@ def test_hdf5_producer_consumer_round_trip(tmp_path: Path) -> None:
 def test_stage_runner_skip_and_run(tmp_path: Path) -> None:
     cfg = load_config().model_copy(deep=True)
     cfg.paths.artifact_root = str(tmp_path / "output")
+    cfg.sample_selection.samples = [
+        entry.model_copy(update={"enabled": False})
+        for entry in cfg.sample_selection.samples
+    ]
     manifest = create_run_manifest(cfg)
     run_path = tmp_path / f"{manifest.run_id}.yaml"
     save_run_manifest(manifest, run_path)
