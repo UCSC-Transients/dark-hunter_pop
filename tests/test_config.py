@@ -222,6 +222,7 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
 
 def test_checksum_includes_phase2_shared_sections() -> None:
     assert "mass_derivation" in SHARED_CHECKSUM_SECTIONS
+    assert "spectroscopic_mass_function" in SHARED_CHECKSUM_SECTIONS
     assert "rv_consistency" in SHARED_CHECKSUM_SECTIONS
     assert "companion_nature" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS

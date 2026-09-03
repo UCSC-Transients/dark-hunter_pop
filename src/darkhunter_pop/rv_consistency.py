@@ -35,6 +35,7 @@ from darkhunter_pop.diagnostics import (
 )
 from darkhunter_pop.mass_derivation import read_stage_hdf5 as read_mass_stage_hdf5
 from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mass_stage_hdf5
+from darkhunter_pop.physics_utils import spectroscopic_mass_function
 from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -75,20 +76,13 @@ def t_periastron_to_mjd(t_periastron: float) -> float:
 def spectroscopic_mass_function_msun(
     period_day: float, k_kms: float, eccentricity: float
 ) -> float:
-    """Binary mass function f(M) in solar masses (P days, K km/s)."""
-    if period_day <= 0 or k_kms <= 0 or not np.isfinite(eccentricity):
-        return float("nan")
-    ecc = float(np.clip(eccentricity, 0.0, 0.999))
-    one_minus_e2 = 1.0 - ecc * ecc
-    if one_minus_e2 <= 0.0:
-        return float("nan")
-    val = (
-        constants.SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS
-        * (k_kms**3)
-        * period_day
-        * (one_minus_e2**1.5)
-    )
-    return float(val) if np.isfinite(val) else float("nan")
+    """Binary mass function f(M) in solar masses (P days, K km/s).
+
+    Scalar wrapper around ``physics_utils.spectroscopic_mass_function`` so the
+    RV-gate path cannot drift from the SB1 primitive.
+    """
+    value = spectroscopic_mass_function(period_day, k_kms, eccentricity)
+    return float(np.asarray(value, dtype=np.float64))
 
 
 def solve_m2_with_inclination_msun(

@@ -1,0 +1,22 @@
+# Spectroscopic (SB1/SB1C) mass-function primitives (CONTINUATION_PLAN.md §8.4).
+# Distinct from the §5.2 astrometric mass function. v1 is reproduction +
+# validation only: do not feed these systems into the population likelihood
+# (§8.4.1). The El-Badry 2026 cut chain itself is sample_selection (#25).
+
+spectroscopic_mass_function:
+  nss_solution_types: [SB1, SB1C]
+  circular_solution_types: [SB1C]
+  v1_inference_eligible: false
+  v1_role: reproduction_and_validation_only
+  published_table_path: config/selections/external/elbadry2026_table8.yaml
+  # Paper text is ``significance > 10``; Table 8 values are 1-decimal, so the
+  # reproduction gate against the frozen fixture is ``>=`` (one row is 10.0).
+  k1_significance_min: 10.0
+  fm_msun_min: 3.0
+  m2_min_msun_floor: 1.4
+  expected_union_n: 151
+  expected_n_ms_min_companion: 136
+  expected_n_high_fm: 30
+  expected_n_both_routes: 15
+  inversion_max_m2_msun: 500.0
+  inversion_n_bisection: 200

@@ -1,8 +1,13 @@
-"""Unit conversions and inhomogeneous Poisson point-process primitives.
+"""Unit conversions, mass-function primitives, and Poisson point-process helpers.
 
 ARCHITECTURE.md §2; residual scope from ``docs/GAIAMOCK_API.md``. Deliberately **not** a
 Kepler solver, RUWE predictor, or astrometric cascade — those come from ``gaiamock_mod`` via
 ``darkhunter_pop.gaiamock_vendor.import_gaiamock_mod``.
+
+Astrometric (``astrometric_mass_function`` / ``invert_astrometric_companion_mass``) and
+spectroscopic (``spectroscopic_mass_function`` /
+``invert_spectroscopic_minimum_companion_mass``) mass paths live here as **separate**
+named primitives. Do not share inversion code between them.
 """
 
 from __future__ import annotations
@@ -150,7 +155,11 @@ def astrometric_mass_function(
     parallax_mas: ArrayLike,
     period_day: ArrayLike,
 ) -> NDArray[np.floating]:
-    """Observational mass function ``f(m) = (a0/ϖ)³ / P_yr²`` (no M1 assumption)."""
+    """Observational astrometric mass function ``f(m) = (a0/ϖ)³ / P_yr²``.
+
+    This is the §5.2 photocenter statistic. It is **not** the spectroscopic binary
+    mass function; see :func:`spectroscopic_mass_function`.
+    """
     a0 = np.asarray(a0_mas, dtype=np.float64)
     plx = np.asarray(parallax_mas, dtype=np.float64)
     period = np.asarray(period_day, dtype=np.float64)
@@ -315,28 +324,31 @@ def spectroscopic_mass_function(
 
     Distinct from :func:`astrometric_mass_function` (§5.2). Same module, own
     name, own inversion (:func:`invert_spectroscopic_minimum_companion_mass`).
+
+    Invalid entries (non-positive period/K1, eccentricity outside ``[0, 1)``)
+    are NaN — eccentricity is not silently clipped.
     """
     period = np.asarray(period_day, dtype=np.float64)
     k1 = np.asarray(k1_kms, dtype=np.float64)
     ecc = np.asarray(eccentricity, dtype=np.float64)
     period_b, k1_b, ecc_b = np.broadcast_arrays(period, k1, ecc)
     out = np.full(period_b.shape, np.nan, dtype=np.float64)
-    ecc_clip = np.clip(ecc_b, 0.0, 0.999)
-    one_minus_e2 = 1.0 - ecc_clip * ecc_clip
     valid = (
         np.isfinite(period_b)
         & np.isfinite(k1_b)
         & np.isfinite(ecc_b)
         & (period_b > 0.0)
         & (k1_b > 0.0)
-        & (one_minus_e2 > 0.0)
+        & (ecc_b >= 0.0)
+        & (ecc_b < 1.0)
     )
     if np.any(valid):
+        one_minus_e2 = 1.0 - ecc_b[valid] ** 2
         out[valid] = (
             constants.SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS
             * (k1_b[valid] ** 3)
             * period_b[valid]
-            * (one_minus_e2[valid] ** 1.5)
+            * (one_minus_e2**1.5)
         )
     return out
 
@@ -345,34 +357,71 @@ def invert_spectroscopic_minimum_companion_mass(
     f_m_msun: ArrayLike,
     m1_msun: ArrayLike,
     *,
+    max_m2_msun: float = 500.0,
     n_bisect: int = 200,
 ) -> NDArray[np.floating]:
     """Edge-on ``M2,min`` from the spectroscopic mass function.
 
     Solves ``f_m = M2^3 / (M1 + M2)^2`` (i = 90°) with bisection. This is
-    *not* :func:`invert_astrometric_companion_mass`; the two inversions are
-    kept independent per roster #26.
+    *not* :func:`invert_astrometric_companion_mass` and is *not* ``sin^3 i``
+    inclination marginalization (CONTINUATION_PLAN.md §8.4.1; that is v2).
+
+    ``max_m2_msun`` / ``n_bisect`` are numerical bracket knobs — prefer passing
+    them from ``spectroscopic_mass_function`` config rather than relying on
+    the defaults.
     """
+    if max_m2_msun <= 0.0:
+        raise ValueError("max_m2_msun must be > 0")
+    if n_bisect < 1:
+        raise ValueError("n_bisect must be >= 1")
+
     fm = np.asarray(f_m_msun, dtype=np.float64)
     m1 = np.asarray(m1_msun, dtype=np.float64)
     fm_b, m1_b = np.broadcast_arrays(fm, m1)
     out = np.full(fm_b.shape, np.nan, dtype=np.float64)
     valid = np.isfinite(fm_b) & np.isfinite(m1_b) & (fm_b > 0.0) & (m1_b > 0.0)
-    for idx in np.ndindex(fm_b.shape):
-        if not valid[idx]:
-            continue
-        f_i = float(fm_b[idx])
-        m1_i = float(m1_b[idx])
-        lo, hi = 1e-8, 500.0
-        for _ in range(n_bisect):
-            mid = 0.5 * (lo + hi)
-            g = (mid**3) / ((m1_i + mid) ** 2) - f_i
-            if g > 0.0:
-                hi = mid
-            else:
-                lo = mid
-        out[idx] = 0.5 * (lo + hi)
-    return out
+    if not np.any(valid):
+        return out
+
+    lo = np.full(fm_b.shape, 1e-12, dtype=np.float64)
+    hi = np.full(fm_b.shape, float(max_m2_msun), dtype=np.float64)
+
+    def _residual(mass: NDArray[np.floating]) -> NDArray[np.floating]:
+        return mass**3 - fm_b * (m1_b + mass) ** 2
+
+    g_hi = _residual(hi)
+    bracketed = valid & np.isfinite(g_hi) & (g_hi >= 0.0)
+    if not np.any(bracketed):
+        return out
+
+    for _ in range(int(n_bisect)):
+        mid = 0.5 * (lo + hi)
+        g_mid = _residual(mid)
+        go_low = bracketed & (g_mid < 0.0)
+        go_high = bracketed & ~go_low
+        lo = np.where(go_low, mid, lo)
+        hi = np.where(go_high, mid, hi)
+
+    return np.where(bracketed, 0.5 * (lo + hi), out)
+
+
+def spectroscopic_minimum_companion_mass(
+    f_m_msun: ArrayLike,
+    m1_msun: ArrayLike,
+    *,
+    max_m2_msun: float,
+    n_bisection: int,
+) -> NDArray[np.floating]:
+    """Config-required alias of :func:`invert_spectroscopic_minimum_companion_mass`.
+
+    Requires explicit numerical knobs so callers do not silently pick defaults.
+    """
+    return invert_spectroscopic_minimum_companion_mass(
+        f_m_msun,
+        m1_msun,
+        max_m2_msun=max_m2_msun,
+        n_bisect=n_bisection,
+    )
 
 
 # ---------------------------------------------------------------------------
