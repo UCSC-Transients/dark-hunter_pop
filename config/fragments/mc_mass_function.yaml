@@ -1,0 +1,11 @@
+# Shared Monte Carlo mass-function knobs (CONTINUATION_PLAN §11).
+# Per-sample files may override n_draws / random_seed via monte_carlo:.
+# The MC/Poisson subdominance gate still reads physics.mc_noise_threshold.
+
+mc_mass_function:
+  n_draws: 10000
+  random_seed: 19
+  covariance: full_12x12
+  eig_rel_floor: 1.0e-12
+  eig_abs_floor: 1.0e-18
+  boundary_n_sigma: 1.0

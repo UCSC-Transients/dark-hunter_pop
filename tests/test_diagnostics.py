@@ -137,6 +137,7 @@ def test_config_loads_diagnostics_fragment() -> None:
     assert cfg.diagnostics.hooks.known_truth_benchmarks is True
     assert cfg.diagnostics.hooks.comparison_catalogs is True
     assert cfg.diagnostics.hooks.sbc_recovery is True
+    assert cfg.diagnostics.hooks.m2_posterior_convergence is True
     assert cfg.diagnostics.sbc.enabled is True
     assert cfg.diagnostics.sbc.run_in_stage is False
 
@@ -184,6 +185,7 @@ def test_builtin_helpers_registered() -> None:
     assert "emit_known_truth_benchmarks" in names
     assert "emit_comparison_catalogs" in names
     assert "emit_sbc_recovery" in names
+    assert "emit_m2_posterior_convergence" in names
     assert callable(get_diagnostic_helper("emit_funnel_sky"))
 
 

@@ -98,6 +98,13 @@ physics:
   cooling_tracks_path: null
   imf: kroupa
   mc_noise_threshold: 0.1
+mc_mass_function:
+  n_draws: 10000
+  random_seed: 19
+  covariance: full_12x12
+  eig_rel_floor: 1.0e-12
+  eig_abs_floor: 1.0e-18
+  boundary_n_sigma: 1.0
 selection_function_astrometric:
   extinction_model: combined19
   validation_gate:
@@ -318,6 +325,7 @@ diagnostics:
     known_truth_benchmarks: true
     comparison_catalogs: true
     sbc_recovery: true
+    m2_posterior_convergence: true
   sbc:
     enabled: true
     # Stage stays fast by default; tests call run_sbc_suite directly.

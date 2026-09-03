@@ -578,3 +578,49 @@ def plot_line_with_threshold(
         axis.set_xscale("log")
     apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
     return save_figure(fig, path, dpi=dpi)
+
+
+def plot_m2_posterior_convergence(
+    probabilities: Sequence[float] | NDArray[np.floating],
+    sigmas: Sequence[float] | NDArray[np.floating],
+    path: Path,
+    *,
+    probability_cut: float,
+    dpi: int,
+    xlabel: str = r"$P(M_2 > M_{\mathrm{lim}})$",
+    ylabel: str = r"MC $\sigma_P$",
+    title: str = "m2_posterior_convergence",
+    style: PlottingStyleConfig | None = None,
+) -> Path | None:
+    """Scatter of per-system probability vs binomial MC error, with the cut line."""
+    pp = np.asarray(probabilities, dtype=np.float64)
+    ss = np.asarray(sigmas, dtype=np.float64)
+    finite = np.isfinite(pp) & np.isfinite(ss)
+    if not np.any(finite):
+        return None
+    cfg = resolve_plotting_style(style)
+    sty = series_style(0, cfg)
+    plt = require_pyplot()
+    fig, axis = plt.subplots(figsize=tuple(cfg.figsize_landscape))
+    axis.scatter(
+        pp[finite],
+        ss[finite],
+        marker=sty["marker"],
+        s=max(sty["markersize"] ** 2, 16.0),
+        color=sty["color"],
+        linewidths=0.0,
+    )
+    axis.axvline(
+        float(probability_cut),
+        color=cfg.threshold_color,
+        linestyle=cfg.threshold_linestyle,
+        linewidth=cfg.line_width,
+        label=f"cut={probability_cut:g}",
+    )
+    axis.legend(
+        loc="best",
+        fontsize=cfg.legend_fontsize,
+        prop={"family": cfg.font_family},
+    )
+    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
+    return save_figure(fig, path, dpi=dpi)

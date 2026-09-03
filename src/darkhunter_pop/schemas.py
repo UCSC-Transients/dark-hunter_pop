@@ -316,6 +316,8 @@ class RunManifest(BaseModel):
     gaiamock_mod_release: str | None = None
     gaiamock_mod_sha256: str | None = None
     gaiamock_git_commit: str | None = None
+    # Sampler / MC seeds actually used (accounting, not bitwise replay).
+    random_seeds: dict[str, Any] = Field(default_factory=dict)
     stages: dict[str, StageRecord] = Field(default_factory=dict)
 
     @field_validator("run_id")
