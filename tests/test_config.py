@@ -223,6 +223,7 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     assert "rv_consistency" in SHARED_CHECKSUM_SECTIONS
     assert "companion_nature" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
+    assert "sample_selection" in SHARED_CHECKSUM_SECTIONS
     assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
     assert "population_model" in SHARED_CHECKSUM_SECTIONS
     assert "triples" in SHARED_CHECKSUM_SECTIONS
@@ -257,3 +258,6 @@ def test_checksum_includes_phase2_shared_sections() -> None:
         cfg.population_model.m_tov_soft_width_msun + 0.01
     )
     assert config_checksum(pop_altered) != base
+    ss_flip = cfg.model_copy(deep=True)
+    ss_flip.sample_selection.enabled = False
+    assert config_checksum(ss_flip) != base

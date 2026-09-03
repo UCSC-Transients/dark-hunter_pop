@@ -1,0 +1,17 @@
+schema_version: 1
+name: paper_a_modified
+provenance:
+  reference: "Fixture paper A, with one documented correction"
+  derived_from: tests/fixtures/selections/paper_a.yaml
+  published_n: null
+  expected_n: 2
+  data_release: dr3
+inherits: paper_a
+mode: forward_model
+exclusions: []
+correction:
+  restores_source_id: 99
+  identification: "fixture restored source"
+  rationale: >-
+    The frozen paper_a exclusion is kept for reproduction; this independent
+    named sample restores source 99 so both variants can be enabled together.

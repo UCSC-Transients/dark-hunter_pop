@@ -31,6 +31,7 @@ MODULES = [
     "darkhunter_pop.inference",
     "darkhunter_pop.plotting",
     "darkhunter_pop.diagnostics",
+    "darkhunter_pop.sample_selection",
 ]
 
 

@@ -50,6 +50,7 @@ from darkhunter_pop.rv_consistency import (
     run_joint_orbit_fit,
     run_rv_astrometry_gate,
 )
+from darkhunter_pop.sample_selection import run_sample_selection_stage
 from darkhunter_pop.schemas import RunManifest, StageStatus
 from darkhunter_pop.sensitivity_analysis import run_sensitivity_analysis_stage
 from darkhunter_pop.triples import run_triples_stage
@@ -133,6 +134,7 @@ def _run_selection_function_followup_stage(
 STAGE_RUNNERS: Mapping[str, StageRunner] = {
     "data_acquisition": run_data_acquisition,
     "mass_derivation_bulk": run_mass_derivation_bulk,
+    "sample_selection": run_sample_selection_stage,
     "mass_derivation_refined": run_mass_derivation_refined,
     "rv_astrometry_gate": run_rv_astrometry_gate,
     "joint_orbit_fit": run_joint_orbit_fit,

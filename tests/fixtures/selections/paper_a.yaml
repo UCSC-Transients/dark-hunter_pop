@@ -1,0 +1,61 @@
+schema_version: 1
+name: paper_a
+provenance:
+  reference: "Fixture paper A (not a literature sample)"
+  section: "tests"
+  published_n: 2
+  data_release: dr3
+mode: reproduction
+primary_mass:
+  method: fixed
+  value_msun: 1.0
+parent_query:
+  dr3:
+    adql: |
+      SELECT source_id
+      FROM gaiadr3.nss_two_body_orbit
+      WHERE nss_solution_type = 'Orbital'
+    expected_parent_n: 4
+    nss_table: gaiadr3.nss_two_body_orbit
+    solution_types:
+      - Orbital
+  dr4:
+    adql: |
+      SELECT source_id
+      FROM gaiadr4.nss_two_body_orbit
+      WHERE nss_solution_type = 'Orbital'
+    expected_parent_n: null
+    nss_table: gaiadr4.nss_two_body_orbit
+    solution_types:
+      - Orbital
+monte_carlo:
+  n_draws: 32
+  covariance: full_12x12
+cuts:
+  - id: goodness_of_fit
+    kind: column
+    expression: "goodness_of_fit < goodness_of_fit_max"
+    expected_n_after: 3
+    parameters:
+      goodness_of_fit_max: 5.0
+  - id: m1_tilde_floor
+    kind: derived
+    expression: "m1_tilde_msun >= m1_tilde_min_msun"
+    undefined_when: "m1_tilde_msun is not_applicable"
+    requires_defined:
+      - m1_tilde_msun
+    expected_n_after: 2
+    parameters:
+      m1_tilde_min_msun: 0.5
+  - id: m2_probability
+    kind: probability
+    expression: "P(M2 > m2_threshold_msun) >= m2_probability_min"
+    expected_n_after: 2
+    parameters:
+      m2_threshold_msun: 1.4
+      m2_probability_min: 0.95
+      probability_column: p_m2_above
+exclusions:
+  - source_id: 99
+    reason: "fixture: explicit exclusion of a scanning-law-like contaminant"
+    expected_n_after: 1

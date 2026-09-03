@@ -1,0 +1,30 @@
+# Draft registry for sample_selection (CONTINUATION_PLAN §12.1).
+# Review/Integration merges this into config/config.yaml at the checkpoint.
+# Thresholds do NOT live here — they live in frozen per-sample files under
+# config/selections/ (transcribed by #107 / #108 / #110). Literature samples
+# are listed as independent named entries; all start disabled until those
+# files exist. Two Andrews variants are two registry rows, not a flag.
+
+sample_selection:
+  enabled: true
+  samples:
+    - name: andrews2022
+      enabled: false
+      path: config/selections/andrews2022.yaml
+      mode: reproduction
+    - name: andrews2022_modified
+      enabled: false
+      path: config/selections/andrews2022_modified.yaml
+      mode: forward_model
+    - name: elbadry2024
+      enabled: false
+      path: config/selections/elbadry2024.yaml
+      mode: reproduction
+    - name: elbadry2026
+      enabled: false
+      path: config/selections/elbadry2026.yaml
+      mode: reproduction
+    - name: accel_jerk
+      enabled: false
+      path: config/selections/accel_jerk.yaml
+      mode: forward_model

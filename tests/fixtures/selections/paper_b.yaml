@@ -1,0 +1,42 @@
+schema_version: 1
+name: paper_b
+provenance:
+  reference: "Fixture paper B (depends on paper_a published membership)"
+  section: "tests"
+  published_n: 1
+  data_release: dr3
+mode: reproduction
+depends_on:
+  - paper_a
+primary_mass:
+  method: pipeline_ignored_in_reproduction
+  value_msun: 2.0
+parent_query:
+  dr3:
+    adql: |
+      SELECT source_id
+      FROM gaiadr3.nss_two_body_orbit
+      WHERE nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+    expected_parent_n: 4
+    nss_table: gaiadr3.nss_two_body_orbit
+    solution_types:
+      - Orbital
+      - AstroSpectroSB1
+  dr4:
+    adql: |
+      SELECT source_id
+      FROM gaiadr4.nss_two_body_orbit
+      WHERE nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+    expected_parent_n: null
+    nss_table: gaiadr4.nss_two_body_orbit
+    solution_types:
+      - Orbital
+      - AstroSpectroSB1
+cuts:
+  - id: paper_a_import
+    kind: column
+    from_sample: paper_a
+    expression: "in_sample('paper_a') and phot_g_mean_mag < g_mag_faint_limit"
+    expected_n_after: 1
+    parameters:
+      g_mag_faint_limit: 15.0
