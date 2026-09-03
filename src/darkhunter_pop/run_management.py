@@ -19,6 +19,7 @@ import yaml
 from darkhunter_pop.config_loader import (
     assert_config_checksum,
     config_checksum,
+    enabled_selection_content_fingerprint,
     repo_root,
 )
 from darkhunter_pop.config_schema import PipelineConfig
@@ -51,6 +52,7 @@ class StageSpec:
 STAGE_ORDER: tuple[str, ...] = (
     "data_acquisition",
     "mass_derivation_bulk",
+    "sample_selection",
     "mass_derivation_refined",
     "rv_astrometry_gate",
     "joint_orbit_fit",
@@ -116,6 +118,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "classification.n_sigma_mass_cut",
             ),
             uses_gaiamock=True,
+        ),
+        _spec(
+            "sample_selection",
+            "darkhunter_pop.sample_selection",
+            inputs_from=("mass_derivation_bulk",),
+            config_keys=("sample_selection",),
         ),
         _spec(
             "mass_derivation_refined",
@@ -264,6 +272,9 @@ class StageAction(str, Enum):
 
 # Canonical skip detail when ``config.triples.enabled`` is false (ARCHITECTURE.md §4).
 TRIPLES_DISABLED_SKIP_REASON = "triples.enabled=false"
+# Canonical skip details for ``sample_selection`` (CONTINUATION_PLAN §12.3).
+SAMPLE_SELECTION_DISABLED_SKIP_REASON = "sample_selection.enabled=false"
+SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON = "sample_selection: no enabled samples"
 
 
 @dataclass(frozen=True)
@@ -284,6 +295,11 @@ def stage_default_skip_reason(
     """
     if spec.name == "triples" and not config.triples.enabled:
         return TRIPLES_DISABLED_SKIP_REASON
+    if spec.name == "sample_selection":
+        if not config.sample_selection.enabled:
+            return SAMPLE_SELECTION_DISABLED_SKIP_REASON
+        if not any(entry.enabled for entry in config.sample_selection.samples):
+            return SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON
     return None
 
 
@@ -334,6 +350,12 @@ def config_subset_for_stage(
         subset[key] = _dig(dump, key)
     # Always include active mode so DR switches cannot reuse paths.
     subset["active_dr_mode"] = config.active_dr_mode.value
+    # CONTINUATION_PLAN §12.3: artifact path keyed on the content hash of every
+    # enabled selection file plus its mode, so a threshold edit cannot reuse cache.
+    if spec.name == "sample_selection":
+        subset["enabled_selection_content_sha256"] = (
+            enabled_selection_content_fingerprint(config)
+        )
     return subset
 
 

@@ -81,12 +81,14 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `triples.*` | Off by default (`enabled: false`); TESS + rotation-consistency channel flags (stub) |
 | `diagnostics.*` | figure/report layout + hook flags; Phase 6 SBC knobs under `diagnostics.sbc` (#69; still excluded from checksum) |
 | `benchmarks.*` | known-truth + comparison catalog paths / RUWE match tolerance (issue #70); fixture YAML holds system values + provenance; comparison-only never priors |
+| `sample_selection.*` | Per-sample literature cut-chain registry (on/off + path + mode). Thresholds live in frozen `config/selections/*.yaml` files, not here. |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
 `companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
-`selection_function_astrometric`, `selection_function_followup`, `sensitivity_analysis`,
+`selection_function_astrometric`, `selection_function_followup`, `sample_selection`,
+`sensitivity_analysis`,
 `population_model`, `triples` (`config_loader.config_checksum`).
 `diagnostics` and `benchmarks` are intentionally excluded (layout + SBC tooling /
 validation fixtures; not resume science). Inactive DR changes do not affect the checksum.
@@ -107,6 +109,7 @@ Canonical names and order: `run_management.STAGE_ORDER` / `STAGE_REGISTRY`.
 |---|---|---|
 | `data_acquisition` | `data_acquisition` | — |
 | `mass_derivation_bulk` | `mass_derivation` | `data_acquisition` |
+| `sample_selection` | `sample_selection` | `mass_derivation_bulk` |
 | `mass_derivation_refined` | `mass_derivation` | `mass_derivation_bulk` |
 | `rv_astrometry_gate` | `rv_consistency` | `mass_derivation_refined` |
 | `joint_orbit_fit` | `rv_consistency` | `rv_astrometry_gate` |

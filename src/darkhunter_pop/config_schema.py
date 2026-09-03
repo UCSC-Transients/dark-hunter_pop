@@ -8,11 +8,16 @@ under ``physics``, ``mass_calibration``, ``classification``, etc.
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from darkhunter_pop.schemas import ActiveDRMode
+
+# JSON-scalar knobs on a cut / primary-mass block. Thresholds live in the
+# per-sample YAML ``parameters`` map — never inline in Python.
+CutParameterValue = float | int | bool | str | None
 
 
 class MassCalibrationMethod(str, Enum):
@@ -272,6 +277,277 @@ class TriplesConfig(BaseModel):
     enabled: bool = False
     tess_variability_channel: bool = True
     rotation_consistency_channel: bool = True
+
+
+class SampleSelectionMode(str, Enum):
+    """Per-sample execution path (CONTINUATION_PLAN §4.2).
+
+    Dispatch over this enum must raise on an unhandled member rather than
+    falling through to a default (Python analogue of exhaustive switch).
+    """
+
+    REPRODUCTION = "reproduction"
+    FORWARD_MODEL = "forward_model"
+
+
+class CutKind(str, Enum):
+    """Ordered cut-chain entry kinds (CONTINUATION_PLAN §4.6)."""
+
+    COLUMN = "column"
+    DERIVED = "derived"
+    PROBABILITY = "probability"
+    EXCLUSION = "exclusion"
+
+
+class SampleCut(BaseModel):
+    """One ordered post-query cut. Thresholds live in ``parameters``, not Python."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    kind: CutKind
+    expression: str = Field(..., min_length=1)
+    applies_to: list[SampleSelectionMode] = Field(
+        default_factory=lambda: [
+            SampleSelectionMode.REPRODUCTION,
+            SampleSelectionMode.FORWARD_MODEL,
+        ],
+        min_length=1,
+    )
+    expected_n_after: int | None = Field(default=None, ge=0)
+    # If this predicate is true, the cut is NOT_APPLICABLE (CONTINUATION_PLAN §15 Q10).
+    undefined_when: str | None = None
+    # Columns that must be defined (not null / NaN / NotApplicable) else N/A.
+    requires_defined: list[str] = Field(default_factory=list)
+    # Cross-sample membership import (CONTINUATION_PLAN §8.7).
+    from_sample: str | None = None
+    parameters: dict[str, CutParameterValue] = Field(default_factory=dict)
+
+
+class SampleExclusion(BaseModel):
+    """Explicit source_id removal with a stated reason (CONTINUATION_PLAN §4.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: int
+    reason: str = Field(..., min_length=1)
+    expected_n_after: int | None = Field(default=None, ge=0)
+
+
+class PrimaryMassSpec(BaseModel):
+    """Per-sample primary-mass assumption; ignored under ``forward_model`` (§4.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: str = Field(..., min_length=1)
+    value_msun: float | None = Field(default=None, gt=0)
+    table: str | None = None
+    propagate_fit_uncertainty: bool | None = None
+    ab_correlation: float | None = None
+    applies_only_when: str | None = None
+    parameters: dict[str, CutParameterValue] = Field(default_factory=dict)
+
+
+class MonteCarloSpec(BaseModel):
+    """Per-sample Monte Carlo settings (CONTINUATION_PLAN §11)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(..., ge=1)
+    covariance: str = Field(..., min_length=1)
+
+
+class ParentQueryVerification(BaseModel):
+    """Archive-count verification block for a parent ADQL query (§4.5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["unverified", "verified"] = "unverified"
+    confirmed_count: int | None = Field(default=None, ge=0)
+    confirming_query: str | None = None
+    verified_on: str | None = None
+
+
+class ParentQueryDRSpec(BaseModel):
+    """DR-path-specific parent catalog query (workflow §6 / CONTINUATION_PLAN §12.4).
+
+    ``adql``, ``nss_table``, and ``solution_types`` are independent under ``dr3`` /
+    ``dr4`` even when the values happen to match.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    adql: str = Field(..., min_length=1)
+    expected_parent_n: int | None = Field(default=None, ge=0)
+    nss_table: str | None = None
+    solution_types: list[str] = Field(default_factory=list)
+    verification: ParentQueryVerification | None = None
+
+
+class ParentQuerySpec(BaseModel):
+    """Parent catalog as literal ADQL, independently for each Gaia DR."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dr3: ParentQueryDRSpec
+    dr4: ParentQueryDRSpec
+
+
+class SampleProvenance(BaseModel):
+    """Frozen literature pointer for a named sample file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reference: str = Field(..., min_length=1)
+    section: str | None = None
+    published_n: int | None = Field(default=None, ge=0)
+    expected_n: int | None = Field(default=None, ge=0)
+    data_release: Literal["dr3", "dr4"] = "dr3"
+    frozen_on: str | None = None
+    derived_from: str | None = None
+    arxiv: str | None = None
+
+
+class SampleCorrection(BaseModel):
+    """Documented correction for a modified named-sample variant (§6.6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    restores_source_id: int | None = None
+    identification: str | None = None
+    rationale: str | None = None
+
+
+class SampleSelectionFile(BaseModel):
+    """Body of one frozen file under ``config/selections/`` (CONTINUATION_PLAN §4.4).
+
+    ``inherits`` lets a variant reuse another file's parent query and cuts
+    (e.g. ``andrews2022_modified``). After inherit resolution, ``parent_query``
+    and ``cuts`` are required.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(1, ge=1)
+    name: str = Field(..., min_length=1)
+    provenance: SampleProvenance
+    mode: SampleSelectionMode
+    inherits: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+    primary_mass: PrimaryMassSpec | None = None
+    parent_query: ParentQuerySpec | None = None
+    cuts: list[SampleCut] | None = None
+    exclusions: list[SampleExclusion] | None = None
+    monte_carlo: MonteCarloSpec | None = None
+    correction: SampleCorrection | None = None
+
+    @model_validator(mode="after")
+    def _inherits_or_complete(self) -> SampleSelectionFile:
+        if self.inherits is None:
+            if self.parent_query is None:
+                raise ValueError(
+                    f"sample {self.name!r}: parent_query is required unless inherits is set"
+                )
+            if self.cuts is None:
+                raise ValueError(
+                    f"sample {self.name!r}: cuts is required unless inherits is set"
+                )
+        if self.inherits is not None and self.inherits == self.name:
+            raise ValueError(f"sample {self.name!r}: inherits cannot reference itself")
+        if len(self.depends_on) != len(set(self.depends_on)):
+            raise ValueError(f"sample {self.name!r}: duplicate depends_on entries")
+        if self.name in self.depends_on:
+            raise ValueError(f"sample {self.name!r}: depends_on cannot include itself")
+        cut_ids = [c.id for c in (self.cuts or [])]
+        if len(cut_ids) != len(set(cut_ids)):
+            raise ValueError(f"sample {self.name!r}: duplicate cut ids")
+        return self
+
+
+class SampleSelectionEntry(BaseModel):
+    """On/off switch + path + mode for one named sample (CONTINUATION_PLAN §12.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    enabled: bool = False
+    path: str = Field(..., min_length=1)
+    mode: SampleSelectionMode
+
+
+def default_sample_selection_entries() -> list[SampleSelectionEntry]:
+    """Registry names from CONTINUATION_PLAN §12.1; disabled until cut files land."""
+
+    return [
+        SampleSelectionEntry(
+            name="andrews2022",
+            enabled=False,
+            path="config/selections/andrews2022.yaml",
+            mode=SampleSelectionMode.REPRODUCTION,
+        ),
+        SampleSelectionEntry(
+            name="andrews2022_modified",
+            enabled=False,
+            path="config/selections/andrews2022_modified.yaml",
+            mode=SampleSelectionMode.FORWARD_MODEL,
+        ),
+        SampleSelectionEntry(
+            name="elbadry2024",
+            enabled=False,
+            path="config/selections/elbadry2024.yaml",
+            mode=SampleSelectionMode.REPRODUCTION,
+        ),
+        SampleSelectionEntry(
+            name="elbadry2026",
+            enabled=False,
+            path="config/selections/elbadry2026.yaml",
+            mode=SampleSelectionMode.REPRODUCTION,
+        ),
+        SampleSelectionEntry(
+            name="accel_jerk",
+            enabled=False,
+            path="config/selections/accel_jerk.yaml",
+            mode=SampleSelectionMode.FORWARD_MODEL,
+        ),
+    ]
+
+
+class SampleSelectionConfig(BaseModel):
+    """Pipeline registry for literature sample-selection functions (§12.1–§12.2).
+
+    Thresholds do not live here — they live in the frozen per-sample files.
+    Two variants of one paper are independent named entries (not a flag).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    samples: list[SampleSelectionEntry] = Field(
+        default_factory=default_sample_selection_entries
+    )
+
+    @model_validator(mode="after")
+    def _unique_names_and_enabled_files(self) -> SampleSelectionConfig:
+        names = [entry.name for entry in self.samples]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ValueError(f"sample_selection.samples has duplicate names: {dupes}")
+        repo = Path(__file__).resolve().parents[2]
+        missing: list[str] = []
+        for entry in self.samples:
+            if not entry.enabled:
+                continue
+            path = Path(entry.path)
+            if not path.is_absolute():
+                path = repo / path
+            if not path.is_file():
+                missing.append(f"{entry.name} ({entry.path})")
+        if missing:
+            raise ValueError(
+                "enabled sample_selection entries missing selection files: "
+                + ", ".join(missing)
+            )
+        return self
 
 
 class GaiamockConfig(BaseModel):
@@ -983,6 +1259,9 @@ class PipelineConfig(BaseModel):
     plotting: PlottingStyleConfig = Field(default_factory=PlottingStyleConfig)
     benchmarks: BenchmarksConfig = Field(default_factory=BenchmarksConfig)
     triples: TriplesConfig = Field(default_factory=TriplesConfig)
+    sample_selection: SampleSelectionConfig = Field(
+        default_factory=SampleSelectionConfig
+    )
     dr3: DRPathConfig
     dr4: DRPathConfig
 
@@ -1043,6 +1322,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "paths",
     "selection_function_astrometric",
     "selection_function_followup",
+    "sample_selection",
     "sensitivity_analysis",
     "population_model",
     "triples",

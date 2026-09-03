@@ -124,6 +124,31 @@ def load_config(
     return PipelineConfig.model_validate(merged)
 
 
+def enabled_selection_content_fingerprint(
+    config: PipelineConfig, *, repo: Path | None = None
+) -> str:
+    """SHA256 over every enabled selection file's bytes plus its registry mode.
+
+    CONTINUATION_PLAN §12.3: changing a threshold in an enabled per-sample file
+    must produce a different ``sample_selection`` artifact path.
+    """
+    root = repo if repo is not None else repo_root()
+    digest = hashlib.sha256()
+    for entry in config.sample_selection.samples:
+        if not entry.enabled:
+            continue
+        path = Path(entry.path)
+        if not path.is_absolute():
+            path = root / path
+        digest.update(entry.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(entry.mode.value.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def config_checksum(config: PipelineConfig) -> str:
     """SHA256 over canonical JSON of the active-DR + shared-physics payload."""
     payload = checksum_payload(config)
