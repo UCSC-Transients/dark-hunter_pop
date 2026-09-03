@@ -5,8 +5,10 @@ named selection with its own frozen YAML file, per-sample ``reproduction`` /
 ``forward_model`` mode, ordered cut chain, parent ADQL, and optional
 ``depends_on`` / ``inherits`` links.
 
-This module owns the interface later Phase 8 slots build against. Per-sample
-literature cut transcription is out of scope (#107 / #108 / #110).
+This module owns the interface later Phase 8 slots build against. Single-parent
+samples use top-level ``parent_query`` + ``cuts``. Multi-parent samples such as
+El-Badry 2026 use ``branches``: each branch is one #17 parent+cut (or subsample
+union) object, and the named sample is the union of branch survivors.
 """
 
 from __future__ import annotations
@@ -31,11 +33,13 @@ from darkhunter_pop.config_schema import (
     CutKind,
     ParentQueryDRSpec,
     PipelineConfig,
+    SampleBranch,
     SampleCut,
     SampleSelectionConfig,
     SampleSelectionEntry,
     SampleSelectionFile,
     SampleSelectionMode,
+    SampleSubsample,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -126,18 +130,45 @@ def mass_source_for_mode(mode: SampleSelectionMode) -> str:
     )
 
 
+def _branch_for_parent(
+    spec: SampleSelectionFile, branch_id: str | None
+) -> SampleBranch | None:
+    if not spec.branches:
+        return None
+    if branch_id is not None:
+        for branch in spec.branches:
+            if branch.id == branch_id:
+                return branch
+        raise SampleSelectionError(
+            f"sample {spec.name!r}: unknown branch {branch_id!r}"
+        )
+    inferred = list(spec.inference_branches)
+    if inferred:
+        return _branch_for_parent(spec, inferred[0])
+    return spec.branches[0]
+
+
 def parent_query_for_mode(
-    spec: SampleSelectionFile, dr_mode: ActiveDRMode
+    spec: SampleSelectionFile,
+    dr_mode: ActiveDRMode,
+    *,
+    branch_id: str | None = None,
 ) -> ParentQueryDRSpec:
-    """Return the DR-path-specific parent ADQL block (§4.5, §12.4)."""
-    if spec.parent_query is None:
+    """Return the DR-path-specific parent ADQL block (§4.5, §12.4).
+
+    Branched samples own one ADQL per branch. The default parent is the first
+    ``inference_branches`` entry (v1 likelihood entry point, §8.4.1).
+    """
+    branch = _branch_for_parent(spec, branch_id)
+    query = branch.parent_query if branch is not None else spec.parent_query
+    if query is None:
         raise SampleSelectionError(
             f"sample {spec.name!r}: parent_query unresolved (inherits not applied?)"
         )
     if dr_mode is ActiveDRMode.DR3:
-        return spec.parent_query.dr3
+        return query.dr3
     if dr_mode is ActiveDRMode.DR4:
-        return spec.parent_query.dr4
+        return query.dr4
     raise ValueError(f"unsupported active_dr_mode: {dr_mode!r}")
 
 
@@ -198,6 +229,10 @@ class SampleEvaluationResult:
     outcomes_by_source: dict[int, list[tuple[str, CutOutcome, str | None]]] = field(
         default_factory=dict
     )
+    inference_source_ids: tuple[int, ...] = ()
+    branch_surviving: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    subsample_surviving: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    route_counts: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -206,6 +241,14 @@ class SampleEvaluationResult:
             "mass_source": self.mass_source,
             "parent_adql": self.parent_adql,
             "surviving_source_ids": list(self.surviving_source_ids),
+            "inference_source_ids": list(self.inference_source_ids),
+            "branch_surviving": {
+                key: list(ids) for key, ids in self.branch_surviving.items()
+            },
+            "subsample_surviving": {
+                key: list(ids) for key, ids in self.subsample_surviving.items()
+            },
+            "route_counts": dict(self.route_counts),
             "attrition": [row.as_dict() for row in self.attrition],
             "n_parent": self.n_parent,
             "n_surviving": self.n_surviving,
@@ -230,7 +273,9 @@ class SampleSelection:
         mode: SampleSelectionMode,
         dr_mode: ActiveDRMode = ActiveDRMode.DR3,
     ) -> None:
-        if spec.parent_query is None or spec.cuts is None:
+        if spec.branches:
+            pass
+        elif spec.parent_query is None or spec.cuts is None:
             raise SampleSelectionError(
                 f"sample {spec.name!r}: inherit resolution did not fill "
                 "parent_query/cuts"
@@ -246,7 +291,8 @@ class SampleSelection:
 
     def cuts_for_mode(self) -> list[SampleCut]:
         """Ordered cuts whose ``applies_to`` includes the current mode."""
-        assert self.spec.cuts is not None
+        if self.spec.cuts is None:
+            return []
         return [cut for cut in self.spec.cuts if self.mode in cut.applies_to]
 
     def bind_row(
@@ -258,6 +304,14 @@ class SampleSelection:
         """Copy a row and bind ``m1_msun`` according to the mode switch (§4.2)."""
         bound = dict(row)
         bound["_membership"] = membership or {}
+        if "phot_g_mean_mag" not in bound and "g_mag" in bound:
+            bound["phot_g_mean_mag"] = bound["g_mag"]
+        if "g_mag" not in bound and "phot_g_mean_mag" in bound:
+            bound["g_mag"] = bound["phot_g_mean_mag"]
+        if "period_day" not in bound and "period" in bound:
+            bound["period_day"] = bound["period"]
+        if "k1_significance" not in bound and "significance" in bound:
+            bound["k1_significance"] = bound["significance"]
         if self.mass_source == PAPER_MASS_SOURCE:
             paper = bound.get("paper_m1_msun", bound.get("m1_msun"))
             primary = self.spec.primary_mass
@@ -284,10 +338,15 @@ class SampleSelection:
     ) -> SampleEvaluationResult:
         """Apply the ordered cut chain; survivors are AND of every cut.
 
+        Branched samples union branch survivors. Subsamples inside a branch
+        are OR-groups of AND cut chains (El-Badry 2026 astrometric union).
         Not-applicable and failed are both non-survivors of a cut, but they
         are counted separately in the attrition waterfall.
         """
-        dep_membership = membership or {}
+        dep_membership = dict(membership or {})
+        dep_membership.update(self._external_membership())
+        if self.spec.branches:
+            return self._evaluate_branched(rows, dep_membership)
         remaining = [self.bind_row(row, membership=dep_membership) for row in rows]
         n_parent = len(remaining)
         attrition: list[CutAttrition] = []
@@ -305,26 +364,9 @@ class SampleSelection:
                 if outcomes[int(row["source_id"])][-1][1] is CutOutcome.PASSED
             ]
 
-        exclusions = list(self.spec.exclusions or [])
-        if exclusions:
-            exclusion_cut = SampleCut(
-                id=EXPLICIT_EXCLUSIONS_CUT_ID,
-                kind=CutKind.EXCLUSION,
-                expression="source_id not in exclusion_ids",
-                expected_n_after=exclusions[-1].expected_n_after,
-                parameters={
-                    "exclusion_ids": ",".join(str(e.source_id) for e in exclusions)
-                },
-            )
-            attrition.append(
-                self._apply_cut(exclusion_cut, remaining, outcomes, dep_membership)
-            )
-            remaining = [
-                row
-                for row in remaining
-                if outcomes[int(row["source_id"])][-1][1] is CutOutcome.PASSED
-            ]
-
+        remaining, attrition = self._apply_exclusions(
+            remaining, attrition, outcomes, dep_membership
+        )
         surviving = tuple(int(row["source_id"]) for row in remaining)
         return SampleEvaluationResult(
             name=self.spec.name,
@@ -336,7 +378,234 @@ class SampleSelection:
             n_parent=n_parent,
             n_surviving=len(surviving),
             outcomes_by_source=outcomes,
+            inference_source_ids=surviving,
         )
+
+    def _evaluate_branched(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        membership: dict[str, frozenset[int]],
+    ) -> SampleEvaluationResult:
+        assert self.spec.branches is not None
+        attrition: list[CutAttrition] = []
+        outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]] = {}
+        branch_surviving: dict[str, tuple[int, ...]] = {}
+        subsample_surviving: dict[str, tuple[int, ...]] = {}
+        inference_ids: set[int] = set()
+        union_ids: set[int] = set()
+        route_counts: dict[str, int] = {}
+        bound_all = [self.bind_row(row, membership=membership) for row in rows]
+        for row in bound_all:
+            outcomes.setdefault(int(row["source_id"]), [])
+
+        for branch in self.spec.branches:
+            parent = parent_query_for_mode(
+                self.spec, self.dr_mode, branch_id=branch.id
+            )
+            types = set(parent.solution_types)
+            if types:
+                branch_rows = [
+                    row
+                    for row in bound_all
+                    if str(row.get("nss_solution_type", "")) in types
+                ]
+            else:
+                branch_rows = list(bound_all)
+            if branch.subsamples:
+                ids, sub_map, sub_attr = self._evaluate_subsample_union(
+                    branch, branch_rows, outcomes, membership
+                )
+                attrition.extend(sub_attr)
+                subsample_surviving.update(sub_map)
+            else:
+                ids, chain_attr = self._evaluate_and_chain(
+                    list(branch.cuts or []),
+                    branch_rows,
+                    outcomes,
+                    membership,
+                    cut_id_prefix=f"{branch.id}:",
+                )
+                attrition.extend(chain_attr)
+                if branch.expected_n_by_route is not None:
+                    route_counts.update(
+                        self._spectroscopic_route_counts(branch_rows, set(ids))
+                    )
+            branch_surviving[branch.id] = ids
+            union_ids.update(ids)
+            if branch.inference or branch.id in self.spec.inference_branches:
+                inference_ids.update(ids)
+
+        remaining = [row for row in bound_all if int(row["source_id"]) in union_ids]
+        remaining, attrition = self._apply_exclusions(
+            remaining, attrition, outcomes, membership
+        )
+        surviving = tuple(sorted(int(row["source_id"]) for row in remaining))
+        inference_kept = tuple(
+            sid for sid in surviving if sid in inference_ids
+        )
+        return SampleEvaluationResult(
+            name=self.spec.name,
+            mode=self.mode,
+            mass_source=self.mass_source,
+            parent_adql=self.parent_adql(),
+            surviving_source_ids=surviving,
+            attrition=attrition,
+            n_parent=len(bound_all),
+            n_surviving=len(surviving),
+            outcomes_by_source=outcomes,
+            inference_source_ids=inference_kept,
+            branch_surviving=branch_surviving,
+            subsample_surviving=subsample_surviving,
+            route_counts=route_counts,
+        )
+
+    def _evaluate_and_chain(
+        self,
+        cuts: Sequence[SampleCut],
+        rows: Sequence[Mapping[str, Any]],
+        outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]],
+        membership: Mapping[str, frozenset[int]],
+        *,
+        cut_id_prefix: str = "",
+    ) -> tuple[tuple[int, ...], list[CutAttrition]]:
+        remaining = list(rows)
+        attrition: list[CutAttrition] = []
+        for cut in cuts:
+            if self.mode not in cut.applies_to:
+                continue
+            tagged = cut if not cut_id_prefix else cut.model_copy(
+                update={"id": f"{cut_id_prefix}{cut.id}"}
+            )
+            attrition.append(
+                self._apply_cut(tagged, remaining, outcomes, membership)
+            )
+            remaining = [
+                row
+                for row in remaining
+                if outcomes[int(row["source_id"])][-1][1] is CutOutcome.PASSED
+            ]
+        return tuple(int(row["source_id"]) for row in remaining), attrition
+
+    def _evaluate_subsample_union(
+        self,
+        branch: SampleBranch,
+        rows: Sequence[Mapping[str, Any]],
+        outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]],
+        membership: Mapping[str, frozenset[int]],
+    ) -> tuple[tuple[int, ...], dict[str, tuple[int, ...]], list[CutAttrition]]:
+        union: set[int] = set()
+        sub_map: dict[str, tuple[int, ...]] = {}
+        attrition: list[CutAttrition] = []
+        for sub in branch.subsamples or []:
+            extra = dict(membership)
+            if sub.external_table:
+                extra[sub.id] = self._source_ids_from_external_table(sub.external_table)
+            ids, chain_attr = self._evaluate_and_chain(
+                sub.cuts,
+                rows,
+                outcomes,
+                extra,
+                cut_id_prefix=f"{branch.id}:{sub.id}:",
+            )
+            attrition.extend(chain_attr)
+            sub_map[sub.id] = ids
+            union.update(ids)
+            attrition.append(
+                CutAttrition(
+                    cut_id=f"{branch.id}:union:{sub.id}",
+                    kind=CutKind.DERIVED,
+                    n_in=len(rows),
+                    n_passed=len(ids),
+                    n_failed=len(rows) - len(ids),
+                    n_not_applicable=0,
+                    n_out=len(ids),
+                    expected_n_after=sub.expected_n,
+                )
+            )
+        return tuple(sorted(union)), sub_map, attrition
+
+    def _spectroscopic_route_counts(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        surviving: set[int],
+    ) -> dict[str, int]:
+        """136 / 30 / 15 breakdown on SB1 survivors (catalog-level only)."""
+        ms_route = 0
+        fm_route = 0
+        both = 0
+        for row in rows:
+            sid = int(row["source_id"])
+            if sid not in surviving:
+                continue
+            fm = row.get("fm_msun")
+            m2 = row.get("m2_min_msun")
+            m1 = row.get("m1_tilde_msun", row.get("m1_msun"))
+            high_fm = isinstance(fm, (int, float)) and float(fm) > 3.0
+            ms_ok = (
+                isinstance(m2, (int, float))
+                and isinstance(m1, (int, float))
+                and float(m2) > 1.4
+                and float(m2) > float(m1)
+            )
+            if ms_ok:
+                ms_route += 1
+            if high_fm:
+                fm_route += 1
+            if ms_ok and high_fm:
+                both += 1
+        return {
+            "main_sequence_min_companion_mass": ms_route,
+            "high_mass_function": fm_route,
+            "both": both,
+        }
+
+    def _apply_exclusions(
+        self,
+        remaining: list[dict[str, Any]],
+        attrition: list[CutAttrition],
+        outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]],
+        membership: Mapping[str, frozenset[int]],
+    ) -> tuple[list[dict[str, Any]], list[CutAttrition]]:
+        exclusions = list(self.spec.exclusions or [])
+        if not exclusions:
+            return remaining, attrition
+        exclusion_cut = SampleCut(
+            id=EXPLICIT_EXCLUSIONS_CUT_ID,
+            kind=CutKind.EXCLUSION,
+            expression="source_id not in exclusion_ids",
+            expected_n_after=exclusions[-1].expected_n_after,
+            parameters={
+                "exclusion_ids": ",".join(str(e.source_id) for e in exclusions)
+            },
+        )
+        attrition.append(
+            self._apply_cut(exclusion_cut, remaining, outcomes, membership)
+        )
+        remaining = [
+            row
+            for row in remaining
+            if outcomes[int(row["source_id"])][-1][1] is CutOutcome.PASSED
+        ]
+        return remaining, attrition
+
+    def _external_membership(self) -> dict[str, frozenset[int]]:
+        found: dict[str, frozenset[int]] = {}
+        for branch in self.spec.branches or []:
+            for sub in branch.subsamples or []:
+                if sub.external_table:
+                    found[sub.id] = self._source_ids_from_external_table(
+                        sub.external_table
+                    )
+        return found
+
+    def _source_ids_from_external_table(self, relative: str) -> frozenset[int]:
+        path = Path(relative)
+        if not path.is_absolute():
+            path = repo_root() / path
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or "data" not in raw:
+            raise SampleSelectionError(f"external table missing data: {relative}")
+        return frozenset(int(row["source_id"]) for row in raw["data"])
 
     def _apply_cut(
         self,
@@ -903,6 +1172,8 @@ def write_sample_selection_artifact(
             grp.attrs["parent_adql"] = sample.parent_adql
             ids = np.asarray(sample.surviving_source_ids, dtype=np.int64)
             grp.create_dataset("source_id", data=ids)
+            inf = np.asarray(sample.inference_source_ids, dtype=np.int64)
+            grp.create_dataset("inference_source_id", data=inf)
             attrition_grp = grp.create_group("attrition")
             for row in sample.attrition:
                 cut_grp = attrition_grp.create_group(row.cut_id)

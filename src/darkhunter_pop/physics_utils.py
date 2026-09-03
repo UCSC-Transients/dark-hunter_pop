@@ -262,6 +262,119 @@ def invert_astrometric_companion_mass(
     return (q * m1_r).reshape(out_shape)
 
 
+def astrometric_mass_ratio_function_from_mass_function(
+    m_f_msun: ArrayLike,
+    m1_msun: ArrayLike,
+) -> NDArray[np.floating]:
+    """AMRF identity ``A = (m_f / M1)^{1/3}`` (CONTINUATION_PLAN §8.3).
+
+    This is the same quantity as the Shahaf et al. (2019) AMRF written in
+    mass-function variables. Do not implement a second photocenter inversion.
+    """
+    mf = np.asarray(m_f_msun, dtype=np.float64)
+    m1 = np.asarray(m1_msun, dtype=np.float64)
+    mf_b, m1_b = np.broadcast_arrays(mf, m1)
+    out = np.full(mf_b.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(mf_b) & np.isfinite(m1_b) & (mf_b > 0.0) & (m1_b > 0.0)
+    out[valid] = (mf_b[valid] / m1_b[valid]) ** (1.0 / 3.0)
+    return out
+
+
+def astrometric_mass_ratio_function(
+    a0_mas: ArrayLike,
+    parallax_mas: ArrayLike,
+    period_day: ArrayLike,
+    m1_msun: ArrayLike,
+) -> NDArray[np.floating]:
+    """AMRF from observables via §5.2: ``A^3 = m_f / M1``."""
+    m_f = astrometric_mass_function(a0_mas, parallax_mas, period_day)
+    return astrometric_mass_ratio_function_from_mass_function(m_f, m1_msun)
+
+
+def companion_mass_from_amrf(
+    amrf: ArrayLike,
+    m1_msun: ArrayLike,
+    flux_ratio: ArrayLike = 0.0,
+) -> NDArray[np.floating]:
+    """Dark-companion ``M2`` from AMRF by inverting §5.3 via ``m_f = A^3 M1``."""
+    a = np.asarray(amrf, dtype=np.float64)
+    m1 = np.asarray(m1_msun, dtype=np.float64)
+    a_b, m1_b = np.broadcast_arrays(a, m1)
+    m_f = np.full(a_b.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(a_b) & np.isfinite(m1_b) & (a_b > 0.0) & (m1_b > 0.0)
+    m_f[valid] = (a_b[valid] ** 3) * m1_b[valid]
+    return invert_astrometric_companion_mass(m1_b, m_f, flux_ratio)
+
+
+def spectroscopic_mass_function(
+    period_day: ArrayLike,
+    k1_kms: ArrayLike,
+    eccentricity: ArrayLike,
+) -> NDArray[np.floating]:
+    """Classical SB1 mass function ``f_m = P K1^3 (1-e^2)^{3/2} / (2 π G)``.
+
+    Distinct from :func:`astrometric_mass_function` (§5.2). Same module, own
+    name, own inversion (:func:`invert_spectroscopic_minimum_companion_mass`).
+    """
+    period = np.asarray(period_day, dtype=np.float64)
+    k1 = np.asarray(k1_kms, dtype=np.float64)
+    ecc = np.asarray(eccentricity, dtype=np.float64)
+    period_b, k1_b, ecc_b = np.broadcast_arrays(period, k1, ecc)
+    out = np.full(period_b.shape, np.nan, dtype=np.float64)
+    ecc_clip = np.clip(ecc_b, 0.0, 0.999)
+    one_minus_e2 = 1.0 - ecc_clip * ecc_clip
+    valid = (
+        np.isfinite(period_b)
+        & np.isfinite(k1_b)
+        & np.isfinite(ecc_b)
+        & (period_b > 0.0)
+        & (k1_b > 0.0)
+        & (one_minus_e2 > 0.0)
+    )
+    if np.any(valid):
+        out[valid] = (
+            constants.SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS
+            * (k1_b[valid] ** 3)
+            * period_b[valid]
+            * (one_minus_e2[valid] ** 1.5)
+        )
+    return out
+
+
+def invert_spectroscopic_minimum_companion_mass(
+    f_m_msun: ArrayLike,
+    m1_msun: ArrayLike,
+    *,
+    n_bisect: int = 200,
+) -> NDArray[np.floating]:
+    """Edge-on ``M2,min`` from the spectroscopic mass function.
+
+    Solves ``f_m = M2^3 / (M1 + M2)^2`` (i = 90°) with bisection. This is
+    *not* :func:`invert_astrometric_companion_mass`; the two inversions are
+    kept independent per roster #26.
+    """
+    fm = np.asarray(f_m_msun, dtype=np.float64)
+    m1 = np.asarray(m1_msun, dtype=np.float64)
+    fm_b, m1_b = np.broadcast_arrays(fm, m1)
+    out = np.full(fm_b.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(fm_b) & np.isfinite(m1_b) & (fm_b > 0.0) & (m1_b > 0.0)
+    for idx in np.ndindex(fm_b.shape):
+        if not valid[idx]:
+            continue
+        f_i = float(fm_b[idx])
+        m1_i = float(m1_b[idx])
+        lo, hi = 1e-8, 500.0
+        for _ in range(n_bisect):
+            mid = 0.5 * (lo + hi)
+            g = (mid**3) / ((m1_i + mid) ** 2) - f_i
+            if g > 0.0:
+                hi = mid
+            else:
+                lo = mid
+        out[idx] = 0.5 * (lo + hi)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Inhomogeneous Poisson point-process primitives
 # ---------------------------------------------------------------------------
