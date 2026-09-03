@@ -78,10 +78,50 @@ def test_thiele_innes_to_campbell_round_trip() -> None:
     assert np.isfinite(omega_out)
 
 
+def test_photocenter_a0_halbwachs_formula() -> None:
+    a0 = 17.57
+    omega = np.deg2rad(231.65)
+    inc = np.deg2rad(79.205)
+    node = np.deg2rad(204.85)
+    A = a0 * (np.cos(omega) * np.cos(node) - np.sin(omega) * np.sin(node) * np.cos(inc))
+    B = a0 * (np.cos(omega) * np.sin(node) + np.sin(omega) * np.cos(node) * np.cos(inc))
+    F = a0 * (-np.sin(omega) * np.cos(node) - np.cos(omega) * np.sin(node) * np.cos(inc))
+    G = a0 * (-np.sin(omega) * np.sin(node) + np.cos(omega) * np.cos(node) * np.cos(inc))
+    u = (A**2 + B**2 + F**2 + G**2) / 2.0
+    v = A * G - B * F
+    expected = np.sqrt(u + np.sqrt(u**2 - v**2))
+    assert P.photocenter_a0_from_thiele_innes(A, B, F, G) == pytest.approx(expected)
+    a0_c, _, _ = P.thiele_innes_to_campbell(A, B, F, G)
+    assert a0_c == pytest.approx(expected)
+
+
 def test_astrometric_mass_function_basic() -> None:
     fm = P.astrometric_mass_function(1.0, 2.0, 365.25)
     assert fm == pytest.approx(0.125)
     assert np.isnan(P.astrometric_mass_function(1.0, 0.0, 365.25))
+
+
+def test_dark_companion_inversion_round_trip() -> None:
+    m1 = 1.0
+    m2 = 1.6
+    q = m2 / m1
+    mf = m1 * (q**3 / (1.0 + q) ** 2)
+    recovered = P.invert_astrometric_companion_mass(m1, mf, 0.0)
+    assert recovered == pytest.approx(m2, rel=1e-8)
+
+
+def test_luminous_companion_uses_one_plus_f_not_f1() -> None:
+    q = 1.2
+    flux = 0.25
+    y = P.luminous_companion_mass_function_over_m1(q, flux)
+    expected = (q - flux) ** 3 / ((1.0 + flux) ** 3 * (1.0 + q) ** 2)
+    wrong_f1 = (q - flux) ** 3 / ((1.0 + 1.0) ** 3 * (1.0 + q) ** 2)
+    assert y == pytest.approx(expected)
+    assert y != pytest.approx(wrong_f1, rel=1e-3)
+    m1 = 1.1
+    mf = y * m1
+    m2 = P.invert_astrometric_companion_mass(m1, mf, flux)
+    assert m2 == pytest.approx(q * m1, rel=1e-6)
 
 
 def test_physics_utils_does_not_import_gaiamock() -> None:

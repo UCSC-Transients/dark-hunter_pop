@@ -33,6 +33,7 @@ MODULES = [
     "darkhunter_pop.plotting",
     "darkhunter_pop.diagnostics",
     "darkhunter_pop.sample_selection",
+    "darkhunter_pop.mc_mass_function",
 ]
 
 

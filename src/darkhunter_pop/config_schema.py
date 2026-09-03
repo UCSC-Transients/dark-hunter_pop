@@ -62,6 +62,7 @@ class DiagnosticsHooksConfig(BaseModel):
     known_truth_benchmarks: bool = True
     comparison_catalogs: bool = True
     sbc_recovery: bool = True
+    m2_posterior_convergence: bool = True
 
 
 class InjectedMassFunctionProfile(BaseModel):
@@ -355,6 +356,16 @@ class MonteCarloSpec(BaseModel):
 
     n_draws: int = Field(..., ge=1)
     covariance: str = Field(..., min_length=1)
+    random_seed: int | None = None
+
+    @model_validator(mode="after")
+    def _full_covariance_only(self) -> MonteCarloSpec:
+        if self.covariance != "full_12x12":
+            raise ValueError(
+                "monte_carlo.covariance must be 'full_12x12' "
+                "(no diagonal-only fallback)"
+            )
+        return self
 
 
 class ParentQueryVerification(BaseModel):
@@ -723,6 +734,31 @@ class PhysicsConfig(BaseModel):
     cooling_tracks_path: str | None = None  # local files when present
     imf: Literal["kroupa"] = "kroupa"
     mc_noise_threshold: float = Field(0.1, gt=0)
+
+
+class McMassFunctionConfig(BaseModel):
+    """Shared Monte Carlo mass-function knobs (CONTINUATION_PLAN §11).
+
+    Per-sample files may override ``n_draws`` / ``random_seed`` via ``MonteCarloSpec``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(10_000, ge=1)
+    random_seed: int = 19
+    covariance: str = "full_12x12"
+    eig_rel_floor: float = Field(1.0e-12, ge=0.0)
+    eig_abs_floor: float = Field(1.0e-18, ge=0.0)
+    boundary_n_sigma: float = Field(1.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def _full_covariance_only(self) -> McMassFunctionConfig:
+        if self.covariance != "full_12x12":
+            raise ValueError(
+                "mc_mass_function.covariance must be 'full_12x12' "
+                "(no diagonal-only fallback)"
+            )
+        return self
 
 
 class SensitivityAnalysisConfig(BaseModel):
@@ -1242,6 +1278,7 @@ class PipelineConfig(BaseModel):
     )
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
+    mc_mass_function: McMassFunctionConfig = Field(default_factory=McMassFunctionConfig)
     selection_function_astrometric: SelectionFunctionAstrometricConfig = Field(
         default_factory=SelectionFunctionAstrometricConfig
     )
@@ -1307,6 +1344,7 @@ SHARED_PHYSICS_SECTIONS: frozenset[str] = frozenset(
         "mass_calibration",
         "classification",
         "physics",
+        "mc_mass_function",
     }
 )
 
@@ -1318,6 +1356,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "companion_nature",
     "classification",
     "physics",
+    "mc_mass_function",
     "gaiamock",
     "paths",
     "selection_function_astrometric",

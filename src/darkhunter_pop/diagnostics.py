@@ -55,9 +55,17 @@ from darkhunter_pop.plotting import (
     plot_grouped_bars,
     plot_histogram,
     plot_line_with_threshold,
+    plot_m2_posterior_convergence,
     plot_overlay_histograms,
     plot_six_panel_grid,
     plot_sky_mollweide,
+)
+from darkhunter_pop.mc_mass_function import (
+    M2PosteriorConvergenceDiagnostic,
+    format_m2_posterior_convergence_report,
+    propagate_nss_solution,
+    run_m2_posterior_convergence,
+    synthetic_orbital_solution,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -1267,6 +1275,53 @@ def emit_mc_noise_convergence(
     return result
 
 
+def emit_m2_posterior_convergence(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    diagnostic: M2PosteriorConvergenceDiagnostic | None = None,
+) -> HookEmissionResult:
+    """Hook: MC noise on ``P(M2 > threshold)`` plus systems near the 95% cut."""
+    diag = config.diagnostics
+    if not diag.hooks.m2_posterior_convergence:
+        return HookEmissionResult(
+            hook_name="m2_posterior_convergence",
+            skipped_reason="diagnostics.hooks.m2_posterior_convergence=false",
+        )
+    if diagnostic is None:
+        return HookEmissionResult(
+            hook_name="m2_posterior_convergence",
+            skipped_reason="no M2PosteriorConvergenceDiagnostic provided",
+        )
+    result = HookEmissionResult(
+        hook_name="m2_posterior_convergence",
+        payload=diagnostic.as_dict(),
+    )
+    if diag.write_reports:
+        result.reports.append(
+            write_report(
+                dirs.reports / "m2_posterior_convergence.txt",
+                format_m2_posterior_convergence_report(diagnostic),
+            )
+        )
+    if diag.write_figures and diagnostic.per_system:
+        path = _maybe_plot(
+            True,
+            lambda: plot_m2_posterior_convergence(
+                [row["p_m2_above"] for row in diagnostic.per_system],
+                [row["p_sigma"] for row in diagnostic.per_system],
+                dirs.figures / "m2_posterior_convergence.png",
+                probability_cut=float(diagnostic.probability_cut),
+                dpi=diag.figure_dpi,
+                title="MC noise on P(M2 > threshold)",
+                style=config.plotting,
+            ),
+        )
+        if path is not None:
+            result.figures.append(path)
+    return result
+
+
 def emit_solution_type_fractions(
     config: PipelineConfig,
     dirs: DiagnosticDirs,
@@ -1445,6 +1500,7 @@ def _ensure_builtin_helpers_registered() -> None:
         "emit_info_gain_followup": emit_info_gain_followup,
         "emit_sampler_consistency": emit_sampler_consistency,
         "emit_mc_noise_convergence": emit_mc_noise_convergence,
+        "emit_m2_posterior_convergence": emit_m2_posterior_convergence,
         "emit_solution_type_fractions": emit_solution_type_fractions,
         "emit_known_truth_benchmarks": emit_known_truth_benchmarks,
         "emit_comparison_catalogs": emit_comparison_catalogs,
@@ -1458,6 +1514,7 @@ def _ensure_builtin_helpers_registered() -> None:
         "format_info_gain_report": format_info_gain_report,
         "format_sampler_consistency_report": format_sampler_consistency_report,
         "format_mc_noise_convergence_report": format_mc_noise_convergence_report,
+        "format_m2_posterior_convergence_report": format_m2_posterior_convergence_report,
         "format_solution_type_fraction_report": format_solution_type_fraction_report,
         "format_known_truth_report": format_known_truth_report,
         "format_comparison_catalog_report": format_comparison_catalog_report,
@@ -1489,6 +1546,7 @@ def run_diagnostic_suite(
     triples_metrics_without: Mapping[str, float] | None = None,
     sampler_runs: Sequence[Mapping[str, Any]] | None = None,
     mc_noise: MCNoiseConvergenceDiagnostic | None = None,
+    m2_posterior: M2PosteriorConvergenceDiagnostic | None = None,
     solution_types: SolutionTypeFractionResult | None = None,
     demo_missing: bool = False,
     run_sbc: bool | None = None,
@@ -1587,6 +1645,31 @@ def run_diagnostic_suite(
         hooks.append(emit_mc_noise_convergence(config, dirs, diagnostic=mc))
     else:
         hooks.append(emit_mc_noise_convergence(config, dirs, diagnostic=None))
+
+    if m2_posterior is not None or demo_missing:
+        m2c = m2_posterior
+        if m2c is None:
+            mc_cfg = config.mc_mass_function
+            demo_draws = propagate_nss_solution(
+                synthetic_orbital_solution(relative_error=0.03, seed=mc_cfg.random_seed),
+                m1_msun=1.0,
+                n_draws=min(256, int(mc_cfg.n_draws)),
+                random_seed=int(mc_cfg.random_seed),
+                eig_rel_floor=float(mc_cfg.eig_rel_floor),
+                eig_abs_floor=float(mc_cfg.eig_abs_floor),
+                source_id=0,
+                covariance_mode=mc_cfg.covariance,
+            )
+            m2c = run_m2_posterior_convergence(
+                [demo_draws],
+                m2_threshold_msun=1.4,
+                probability_cut=0.95,
+                mc_noise_threshold=float(config.physics.mc_noise_threshold),
+                boundary_n_sigma=float(mc_cfg.boundary_n_sigma),
+            )
+        hooks.append(emit_m2_posterior_convergence(config, dirs, diagnostic=m2c))
+    else:
+        hooks.append(emit_m2_posterior_convergence(config, dirs, diagnostic=None))
 
     if solution_types is not None or demo_missing:
         st = solution_types
