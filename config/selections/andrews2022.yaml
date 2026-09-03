@@ -1,0 +1,114 @@
+# Frozen Andrews et al. (2022) reproduction sample (CONTINUATION_PLAN §6).
+# Target N = 24. Do not edit numeric thresholds without a schema_version bump.
+#
+# The 1.4 Msun limiting mass is chosen specifically to avoid contamination by
+# massive white dwarfs.
+# Cuts giant_reject_logg and giant_reject_cmd remove giant donors. The paper
+# acknowledges this as arguably over-restrictive (giants with NS/BH companions
+# do exist), but large giant luminosities can hide even massive non-degenerate
+# companions.
+# The CMD cut uses absolute magnitudes derived from apparent magnitudes and
+# parallax, with no extinction correction applied — reproduced as-published,
+# including the omission.
+# The excluded source has m_f ~ 11.6 Msun and P_orb = 186 d, roughly three
+# times Gaia's scanning period; Halbwachs et al. (2022) identify large-m_f
+# systems at harmonics of the scanning law as probable contaminants.
+#
+# Parent verification (solution-type set only; no quality cuts):
+#   Working hypothesis (user-supplied, unverified at dispatch): all 12-parameter
+#   orbital astrometric types that are not SB1/SB2, excluding AstroSpectroSB1
+#   — Orbital + OrbitalAlternative + OrbitalAlternativeValidated +
+#   OrbitalTargetedSearch + OrbitalTargetedSearchValidated.
+#   ESA TAP 2026-09-03: that set returns 135760, not 134598.
+#   Orbital only returns 134598 and is frozen below.
+# Verification lives under parent_query.dr3.verification (SampleProvenance
+# forbids extra keys; #104 schema).
+
+schema_version: 1
+name: andrews2022
+provenance:
+  reference: "Andrews et al. (2022)"
+  section: "Sample selection"
+  published_n: 24
+  data_release: dr3
+  frozen_on: "2026-09-03"
+  arxiv: "2207.00680"
+mode: reproduction
+primary_mass:
+  method: fixed
+  value_msun: 1.0
+  # Andrews et al. (2022) first-cut assumption; refined later in their analysis.
+parent_query:
+  dr3:
+    adql: |
+      SELECT nss.source_id, nss.nss_solution_type
+      FROM gaiadr3.nss_two_body_orbit AS nss
+      WHERE nss.nss_solution_type = 'Orbital'
+    expected_parent_n: 134598
+    nss_table: gaiadr3.nss_two_body_orbit
+    solution_types:
+      - Orbital
+    verification:
+      status: verified
+      confirmed_count: 134598
+      confirming_query: |
+        SELECT COUNT(*) AS n
+        FROM gaiadr3.nss_two_body_orbit AS nss
+        WHERE nss.nss_solution_type = 'Orbital'
+      verified_on: "2026-09-03"
+  dr4:
+    adql: |
+      SELECT nss.source_id, nss.nss_solution_type
+      FROM gaiadr4.nss_two_body_orbit AS nss
+      WHERE nss.nss_solution_type = 'Orbital'
+    expected_parent_n: null
+    nss_table: gaiadr4.nss_two_body_orbit
+    solution_types:
+      - Orbital
+    verification:
+      status: unverified
+      confirmed_count: null
+      confirming_query: null
+      verified_on: null
+monte_carlo:
+  n_draws: 10000
+  covariance: full_12x12
+cuts:
+  - id: m2_probability
+    kind: probability
+    expression: "P(M2 > m2_threshold_msun) >= m2_probability_min"
+    expected_n_after: 106
+    parameters:
+      m2_threshold_msun: 1.4
+      m2_probability_min: 0.95
+  - id: goodness_of_fit
+    kind: column
+    expression: "goodness_of_fit < goodness_of_fit_max"
+    expected_n_after: null
+    parameters:
+      goodness_of_fit_max: 5.0
+  - id: m2_snr
+    kind: derived
+    expression: "m2_msun / m2_msun_error > m2_snr_min"
+    expected_n_after: null
+    parameters:
+      m2_snr_min: 3.0
+  - id: giant_reject_logg
+    kind: derived
+    # Sketch used SQL-ish `null`; evaluator accepts Python `None`.
+    expression: "logg_apsis is None or logg_apsis >= logg_dwarf_min"
+    expected_n_after: null
+    parameters:
+      logg_dwarf_min: 3.6
+  - id: giant_reject_cmd
+    kind: derived
+    expression: "abs_g_mag > cmd_slope * bp_rp + cmd_intercept"
+    expected_n_after: null
+    parameters:
+      cmd_slope: 3.14
+      cmd_intercept: -0.43
+      extinction_corrected: false
+exclusions:
+  - source_id: 4373465352415301632
+    reason: "m_f ~ 11.6 Msun at P_orb = 186 d ~ 3x Gaia scanning period; probable scanning-law harmonic contaminant (Halbwachs et al. 2022)."
+    expected_n_after: 24

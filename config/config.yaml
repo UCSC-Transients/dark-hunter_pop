@@ -201,6 +201,29 @@ selection_function_followup:
     revision_history_incompleteness_caveat: true
     weekly_snapshot_relative_dir: target_lists/snapshots
     derived_adoption_dates_relative_dir: config/target_lists/derived
+sample_selection:
+  enabled: true
+  samples:
+  - name: andrews2022
+    enabled: true
+    path: config/selections/andrews2022.yaml
+    mode: reproduction
+  - name: andrews2022_modified
+    enabled: true
+    path: config/selections/andrews2022_modified.yaml
+    mode: forward_model
+  - name: elbadry2024
+    enabled: false
+    path: config/selections/elbadry2024.yaml
+    mode: reproduction
+  - name: elbadry2026
+    enabled: false
+    path: config/selections/elbadry2026.yaml
+    mode: reproduction
+  - name: accel_jerk
+    enabled: false
+    path: config/selections/accel_jerk.yaml
+    mode: forward_model
 sensitivity_analysis:
   population_classes:
   - BH

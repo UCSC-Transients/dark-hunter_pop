@@ -1,0 +1,31 @@
+# Andrews et al. (2022) modified variant (CONTINUATION_PLAN §6.6).
+# Independent named sample. Does not edit the frozen andrews2022 file.
+# Drops harmonic_exclusion (empty exclusions) and restores Gaia BH1.
+# Target N = 25. This variant feeds forward-modeling and inference.
+#
+# Do NOT generalize Andrews' one-source exclusion into a period-near-harmonic
+# cut: (1) it would discard genuine systems — Gaia BH1 is the proof; (2) whether
+# proximity to a scanning-law harmonic predicts spuriousness belongs to the
+# shared spuriousness model, not a selection-file threshold.
+
+schema_version: 1
+name: andrews2022_modified
+provenance:
+  reference: "Andrews et al. (2022), with one documented correction"
+  derived_from: config/selections/andrews2022.yaml
+  published_n: null
+  expected_n: 25
+  data_release: dr3
+  frozen_on: "2026-09-03"
+inherits: andrews2022
+mode: forward_model
+exclusions: []
+correction:
+  restores_source_id: 4373465352415301632
+  identification: "Gaia BH1 (El-Badry et al. 2023a)"
+  rationale: >-
+    Andrews et al. (2022) removed this source as a probable Gaia scanning-law
+    harmonic contaminant (P = 185.8 d, ~3x the scanning period, m_f ~ 11.6
+    Msun). It is in fact Gaia BH1, confirmed by El-Badry et al. (2023a) and
+    listed as such in El-Badry et al. (2026) Table 7. The exclusion was a
+    false positive.
