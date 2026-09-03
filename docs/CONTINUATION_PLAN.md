@@ -1749,10 +1749,23 @@ Copy-pasteable working prompts, one per roster item plus the orchestrator. House
 Phase 2 prompts: terse, imperative, dense; the reading list carries the detail so the prompt does
 not have to.
 
-**Issue numbers do not exist yet.** Every prompt uses the placeholder `#TBD-<roster>`. **The
-orchestrator opens the umbrella issue and its children, then substitutes the real numbers into both
-the `Issue:` URL and the `Closes` line before dispatching.** A prompt dispatched with `TBD` in it
-will not close its issue.
+**GitHub issue map** (roster → issue). Umbrella: [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103).
+#22 was not opened (blocked, §9). Slot F still carries `TBD-22` by design.
+
+| Roster | Slot | Issue |
+|---|---|---|
+| 17 | A | [#104](https://github.com/UCSC-Transients/dark-hunter_pop/issues/104) |
+| 18 | B | [#105](https://github.com/UCSC-Transients/dark-hunter_pop/issues/105) |
+| 19 | C | [#106](https://github.com/UCSC-Transients/dark-hunter_pop/issues/106) |
+| 20 | D | [#107](https://github.com/UCSC-Transients/dark-hunter_pop/issues/107) |
+| 21 | E | [#108](https://github.com/UCSC-Transients/dark-hunter_pop/issues/108) |
+| 23 | J | [#112](https://github.com/UCSC-Transients/dark-hunter_pop/issues/112) |
+| 24 | K | [#113](https://github.com/UCSC-Transients/dark-hunter_pop/issues/113) |
+| 25 | H | [#110](https://github.com/UCSC-Transients/dark-hunter_pop/issues/110) |
+| 26 | G | [#109](https://github.com/UCSC-Transients/dark-hunter_pop/issues/109) |
+| 27 | I | [#111](https://github.com/UCSC-Transients/dark-hunter_pop/issues/111) |
+
+Placeholders `#TBD-<roster>` in the prompts below have been substituted with these numbers.
 
 Conventions carried from `ORCHESTRATION_PLAN.md`: one worktree/branch per subagent, PRs to `main`,
 `Closes #N` alone on a line, ≤3 concurrent sessions. Skills active in every session:
@@ -1822,8 +1835,8 @@ config.yaml is merged and green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Deep effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-17
-Branch: phase8/sample-selection-framework (worktree). PR → main. Closes #TBD-17 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/104
+Branch: phase8/sample-selection-framework (worktree). PR → main. Closes #104 alone on a line.
 Labels: phase-8, enhancement.
 
 Read docs/CONTINUATION_PLAN.md §4, §12, §13, docs/ARCHITECTURE.md §4 mass_derivation_bulk and
@@ -1856,8 +1869,8 @@ justification in the PR. Full required pytest before PR. Stop when PR open + CI 
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (mid-tier, Standard effort).
 Model: claude-4-sonnet
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-18
-Branch: phase8/nss-covariance (worktree). PR → main. Closes #TBD-18 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/105
+Branch: phase8/nss-covariance (worktree). PR → main. Closes #105 alone on a line.
 Labels: phase-8, enhancement.
 
 Read docs/CONTINUATION_PLAN.md §10, §11, docs/ARCHITECTURE.md §4 data_acquisition, four skills.
@@ -1888,8 +1901,8 @@ pytest before PR. Stop when PR open + CI green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Deep effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-19
-Branch: phase8/mc-mass-function (worktree). PR → main. Closes #TBD-19 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/106
+Branch: phase8/mc-mass-function (worktree). PR → main. Closes #106 alone on a line.
 Labels: phase-8, enhancement.
 
 Read docs/CONTINUATION_PLAN.md §5, §11, §13, four skills. Depends on #17 and #18 merged.
@@ -1920,8 +1933,8 @@ required pytest before PR. Stop when PR open + CI green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (mid-tier, Light effort).
 Model: claude-4-sonnet
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-20
-Branch: phase8/selection-andrews2022 (worktree). PR → main. Closes #TBD-20 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/107
+Branch: phase8/selection-andrews2022 (worktree). PR → main. Closes #107 alone on a line.
 Labels: phase-8.
 
 Read docs/CONTINUATION_PLAN.md §4, §5, §6 (all of it, including §6.6), §11, four skills.
@@ -1957,8 +1970,8 @@ attrition table rather than tuning. Full required pytest before PR. Stop when PR
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Standard effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-21
-Branch: phase8/selection-elbadry2024 (worktree). PR → main. Closes #TBD-21 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/108
+Branch: phase8/selection-elbadry2024 (worktree). PR → main. Closes #108 alone on a line.
 Labels: phase-8.
 
 Read docs/CONTINUATION_PLAN.md §4, §4.8, §7, four skills. Source: arXiv:2405.00089v2 §2.
@@ -2036,8 +2049,8 @@ Effort contract (Standard). Full required pytest before PR. Stop when PR open + 
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (mid-tier, Standard effort).
 Model: claude-4-sonnet
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-26
-Branch: phase8/sb1-mass-function (worktree). PR → main. Closes #TBD-26 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/109
+Branch: phase8/sb1-mass-function (worktree). PR → main. Closes #109 alone on a line.
 Labels: phase-8, enhancement.
 
 Read docs/CONTINUATION_PLAN.md §8.1, §8.4, §8.4.1, docs/ARCHITECTURE.md §4 data_acquisition, four
@@ -2069,8 +2082,8 @@ Stop when PR open + CI green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Deep effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-25
-Branch: phase8/selection-elbadry2026 (worktree). PR → main. Closes #TBD-25 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/110
+Branch: phase8/selection-elbadry2026 (worktree). PR → main. Closes #110 alone on a line.
 Labels: phase-8.
 
 Read docs/CONTINUATION_PLAN.md §4, §4.8, §5, §8 in full, four skills. Source: arXiv:2608.06453v1 §2.
@@ -2121,8 +2134,8 @@ PR. Full required pytest before PR. Stop when PR open + CI green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Deep effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-27
-Branch: phase8/spuriousness-model (worktree). PR → main. Closes #TBD-27 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/111
+Branch: phase8/spuriousness-model (worktree). PR → main. Closes #111 alone on a line.
 Labels: phase-8, enhancement.
 
 Read docs/CONTINUATION_PLAN.md §4.8 in full, plus §6.4, §6.6, §7.3, §8.5, §8.6, §13, four skills.
@@ -2186,8 +2199,8 @@ Stop when PR open + CI green.
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (top-tier, Deep effort).
 Model: claude-opus-5-thinking-medium
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-23
-Branch: phase8/sample-selection-inference (worktree). PR → main. Closes #TBD-23 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/112
+Branch: phase8/sample-selection-inference (worktree). PR → main. Closes #112 alone on a line.
 Labels: phase-8.
 
 Read docs/CONTINUATION_PLAN.md §4.7, §4.8, §6.6, §8.4.1, §8.7, §13, §15, docs/ARCHITECTURE.md §4
@@ -2222,8 +2235,8 @@ recovery evidence in the PR. Full required pytest before PR. Stop when PR open +
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop (mid-tier fast, Standard effort).
 Model: cursor-grok-4.6-high-fast
 
-Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/TBD-24
-Branch: phase8/sample-diagnostics (worktree). PR → main. Closes #TBD-24 alone on a line.
+Issue: https://github.com/UCSC-Transients/dark-hunter_pop/issues/113
+Branch: phase8/sample-diagnostics (worktree). PR → main. Closes #113 alone on a line.
 Labels: phase-8.
 
 Read docs/CONTINUATION_PLAN.md §13, §8.2, §8.3, §8.9, docs/PLOTS.md, docs/ARCHITECTURE.md §4

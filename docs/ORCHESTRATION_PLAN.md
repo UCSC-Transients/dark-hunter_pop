@@ -115,6 +115,8 @@ admin bypass allowed.
 Phases 0–7 are complete. Phase 8 onward — per-sample literature selection functions, NSS covariance
 ingestion, and the subagent roster/kickoff prompts that go with them — lives in
 `CONTINUATION_PLAN.md`, which extends both this document and `ARCHITECTURE.md`.
+Kickoff issues: umbrella [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103);
+children #104–#113 (roster #17–#21, #23–#27). Roster #22 skipped (blocked, §9).
 
 ## 8. Open items
 
