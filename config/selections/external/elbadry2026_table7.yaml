@@ -1,0 +1,1036 @@
+# El-Badry et al. (2026), Table 7 --- "Astrometrically selected Gaia DR3 compact-object
+# candidates."  arXiv:2608.06453v1.
+#
+# Frozen external fixture, machine-transcribed from the published PDF. All 76 rows of the
+# astrometric branch (CONTINUATION_PLAN.md section 8.3), which is the published N of 76.
+#
+# LABELED SET for the shared spuriousness model (section 4.8). Three-valued `verdict`;
+# `nature` is a separate axis; `censor_reason` non-null exactly when undetermined.
+
+schema_version: 1
+name: elbadry2026_table7
+
+provenance:
+  reference: "El-Badry et al. (2026), Table 7"
+  arxiv: "2608.06453v1"
+  supplied_by: user
+  transcribed_from: pdf
+  frozen_on: "2026-09-02"
+  completeness: complete
+  rows_transcribed: 76
+  scope: "Astrometric branch: the 76 candidates of section 8.3."
+  used_by:
+    - config/spuriousness_model.yaml
+    - config/selections/elbadry2026.yaml
+
+roles: [spuriousness_labels, branch_membership]
+
+label_counts:
+  genuine: 46
+  spurious: 23
+  undetermined: 7
+
+columns:
+  source_id: "Gaia DR3 source ID"
+  period_days: "orbital period [d]"
+  eccentricity: "orbital eccentricity"
+  amrf: "A, dimensionless astrometric mass-ratio function (section 8.3)"
+  m1_msun: "M1-tilde [Msun]; null where the main-sequence cut is not satisfied"
+  m2_msun: "M2-tilde [Msun], dark-companion assumption; null likewise"
+  significance: "astrometric solution significance"
+  g_mag: "apparent G [mag]"
+  ebv_mag: "E(B-V) [mag]"
+  spectroscopy: "archival or follow-up spectroscopy sources; empty where none"
+  notes: "published Notes column, verbatim"
+  verdict: "genuine | spurious | undetermined"
+  nature: "companion-nature axis; null where not stated"
+  censor_reason: "why no verdict was reached; null unless verdict == undetermined"
+
+data:
+  - source_id: 3640889032890567040
+    period_days: 1076.223
+    eccentricity: 0.953
+    amrf: 4.711
+    m1_msun: 1.162
+    m2_msun: 123.762
+    significance: 7.7
+    g_mag: 9.19
+    ebv_mag: 0.0
+    notes: "BH candidate ruled out by Simon et al. (2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 4373465352415301632
+    period_days: 185.766
+    eccentricity: 0.489
+    amrf: 2.186
+    m1_msun: 1.062
+    m2_msun: 12.98
+    significance: 13.6
+    g_mag: 13.77
+    ebv_mag: 0.335
+    spectroscopy: ["LAMOST", "TRES", "FEROS", "MagE"]
+    notes: "Gaia BH1 (El-Badry et al. 2023a)"
+    verdict: "genuine"
+    nature: "confirmed_black_hole"
+  - source_id: 6281177228434199296
+    period_days: 153.947
+    eccentricity: 0.18
+    amrf: 2.071
+    m1_msun: 1.149
+    m2_msun: 12.218
+    significance: 24.3
+    g_mag: 11.26
+    ebv_mag: 0.095
+    spectroscopy: ["RAVE", "MagE", "FEROS"]
+    notes: "BH candidate ruled out by Simon et al. (2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5870569352746779008
+    period_days: 1352.289
+    eccentricity: 0.532
+    amrf: 1.43
+    m1_msun: 2.3
+    m2_msun: 10.119
+    significance: 39.8
+    g_mag: 12.28
+    ebv_mag: 0.158
+    spectroscopy: ["FEROS"]
+    notes: "Gaia BH2 (El-Badry et al. 2023b)"
+    verdict: "genuine"
+    nature: "confirmed_black_hole"
+  - source_id: 3664684869697065984
+    period_days: 1220.455
+    eccentricity: 0.456
+    amrf: 0.854
+    m1_msun: 5.198
+    m2_msun: 8.455
+    significance: 6.1
+    g_mag: 11.56
+    ebv_mag: 0.0
+    notes: "BH candidate ruled out by El-Badry et al. (2023a)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 2278534305772981504
+    period_days: 788.822
+    eccentricity: 0.801
+    amrf: 1.128
+    m1_msun: 1.453
+    m2_msun: 3.92
+    significance: 5.9
+    g_mag: 14.59
+    ebv_mag: 0.33
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 3509370326763016704
+    period_days: 109.392
+    eccentricity: 0.237
+    amrf: 1.545
+    m1_msun: 0.713
+    m2_msun: 3.733
+    significance: 76.1
+    g_mag: 12.47
+    ebv_mag: 0.0
+    spectroscopy: ["FEROS", "MagE"]
+    notes: "BH candidate ruled out by Simon et al. (2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 1925560664891372544
+    period_days: 1022.904
+    eccentricity: 0.879
+    amrf: 0.711
+    m1_msun: 2.561
+    m2_msun: 3.086
+    significance: 6.2
+    g_mag: 13.01
+    ebv_mag: 0.09
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 3263804373319076480
+    period_days: 510.728
+    eccentricity: 0.278
+    amrf: 1.09
+    m1_msun: 1.16
+    m2_msun: 2.925
+    significance: 18.1
+    g_mag: 12.67
+    ebv_mag: 0.08
+    spectroscopy: ["LAMOST", "APOGEE", "TRES"]
+    notes: "BH candidate ruled out by Simon et al. (2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 6802634430521968000
+    period_days: 584.305
+    eccentricity: 0.871
+    amrf: 1.006
+    m1_msun: 1.33
+    m2_msun: 2.889
+    significance: 20.2
+    g_mag: 13.35
+    ebv_mag: 0.085
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 2010172929375186304
+    period_days: 736.167
+    eccentricity: 0.814
+    amrf: 0.882
+    m1_msun: 1.558
+    m2_msun: 2.674
+    significance: 6.9
+    g_mag: 13.76
+    ebv_mag: 0.28
+    spectroscopy: ["ESI", "PEPSI"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 6328149636482597888
+    period_days: 736.018
+    eccentricity: 0.135
+    amrf: 0.958
+    m1_msun: 1.336
+    m2_msun: 2.656
+    significance: 89.9
+    g_mag: 13.34
+    ebv_mag: 0.09
+    spectroscopy: ["MagE", "TRES", "FEROS"]
+    notes: "Gaia NS1 (El-Badry et al. 2024c)"
+    verdict: "genuine"
+    nature: "confirmed_neutron_star"
+  - source_id: 5593444799901901696
+    period_days: 1038.79
+    eccentricity: 0.442
+    amrf: 0.914
+    m1_msun: 1.447
+    m2_msun: 2.645
+    significance: 6.5
+    g_mag: 14.42
+    ebv_mag: 0.04
+    spectroscopy: ["FEROS"]
+    notes: "RVs inconsistent with orbital solution (Simon et al. 2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 6588211521163024640
+    period_days: 943.333
+    eccentricity: 0.974
+    amrf: 0.995
+    m1_msun: 1.156
+    m2_msun: 2.459
+    significance: 10.4
+    g_mag: 14.19
+    ebv_mag: 0.016
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution (Simon et al. 2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 6001459821083925120
+    period_days: 563.833
+    eccentricity: 0.474
+    amrf: 0.825
+    m1_msun: 1.522
+    m2_msun: 2.336
+    significance: 19.7
+    g_mag: 13.6
+    ebv_mag: 0.13
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5644387063402978304
+    period_days: 879.926
+    eccentricity: 0.604
+    amrf: 0.748
+    m1_msun: 1.779
+    m2_msun: 2.322
+    significance: 6.9
+    g_mag: 13.96
+    ebv_mag: 0.005
+    spectroscopy: ["FEROS"]
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 1007185297091149824
+    period_days: 1120.136
+    eccentricity: 0.655
+    amrf: 0.859
+    m1_msun: 1.405
+    m2_msun: 2.306
+    significance: 9.8
+    g_mag: 14.62
+    ebv_mag: 0.11
+    spectroscopy: ["ESI", "DEIMOS", "TRES", "PEPSI"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1749013354127453696
+    period_days: 932.08
+    eccentricity: 0.508
+    amrf: 0.816
+    m1_msun: 1.457
+    m2_msun: 2.194
+    significance: 7.9
+    g_mag: 14.49
+    ebv_mag: 0.092
+    spectroscopy: ["MagE", "PEPSI", "TRES", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5954343888087990656
+    period_days: 702.452
+    eccentricity: 0.769
+    amrf: 0.769
+    m1_msun: 1.589
+    m2_msun: 2.17
+    significance: 7.1
+    g_mag: 12.87
+    ebv_mag: 0.085
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 4590978336125467776
+    period_days: 682.323
+    eccentricity: 0.716
+    amrf: 0.775
+    m1_msun: 1.566
+    m2_msun: 2.167
+    significance: 6.6
+    g_mag: 14.28
+    ebv_mag: 0.085
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 6152333294796189568
+    period_days: 1093.379
+    eccentricity: 0.555
+    amrf: 0.793
+    m1_msun: 1.467
+    m2_msun: 2.106
+    significance: 5.7
+    g_mag: 14.69
+    ebv_mag: 0.051
+    spectroscopy: ["1 MagE"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 4384513795007410048
+    period_days: 745.201
+    eccentricity: 0.671
+    amrf: 0.795
+    m1_msun: 1.433
+    m2_msun: 2.063
+    significance: 16.7
+    g_mag: 13.5
+    ebv_mag: 0.105
+    spectroscopy: ["MagE", "PEPSI", "TRES", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5580526947012630912
+    period_days: 654.326
+    eccentricity: 0.761
+    amrf: 0.79
+    m1_msun: 1.374
+    m2_msun: 1.961
+    significance: 12.9
+    g_mag: 13.36
+    ebv_mag: 0.069
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6054379247042197504
+    period_days: 807.552
+    eccentricity: 0.793
+    amrf: 0.846
+    m1_msun: 1.221
+    m2_msun: 1.955
+    significance: 7.4
+    g_mag: 14.87
+    ebv_mag: 0.201
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6687541573416724608
+    period_days: 1125.071
+    eccentricity: 0.781
+    amrf: 0.868
+    m1_msun: 1.128
+    m2_msun: 1.886
+    significance: 20.1
+    g_mag: 12.07
+    ebv_mag: 0.029
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RV follow-up incomplete"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "campaign_incomplete"
+  - source_id: 4099356347737522432
+    period_days: 718.34
+    eccentricity: 0.75
+    amrf: 0.755
+    m1_msun: 1.411
+    m2_msun: 1.868
+    significance: 9.4
+    g_mag: 13.81
+    ebv_mag: 0.33
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 3869650535947137920
+    period_days: 570.036
+    eccentricity: 0.183
+    amrf: 0.827
+    m1_msun: 1.187
+    m2_msun: 1.829
+    significance: 34.0
+    g_mag: 12.94
+    ebv_mag: 0.005
+    spectroscopy: ["LAMOST", "TRES"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 3649963989549165440
+    period_days: 892.531
+    eccentricity: 0.357
+    amrf: 0.924
+    m1_msun: 0.972
+    m2_msun: 1.81
+    significance: 40.2
+    g_mag: 14.3
+    ebv_mag: 0.05
+    spectroscopy: ["MagE", "ESI", "FEROS"]
+    notes: "NS candidate with an sdB primary (Geier et al. 2023)"
+    verdict: "genuine"
+    nature: "sdb_primary"
+  - source_id: 6593763230249162112
+    period_days: 679.888
+    eccentricity: 0.613
+    amrf: 0.823
+    m1_msun: 1.18
+    m2_msun: 1.799
+    significance: 23.3
+    g_mag: 13.54
+    ebv_mag: 0.01
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution (Simon et al. 2026)"
+    verdict: "spurious"
+    nature: null
+  - source_id: 1058875159778407808
+    period_days: 835.682
+    eccentricity: 0.417
+    amrf: 0.848
+    m1_msun: 1.117
+    m2_msun: 1.794
+    significance: 33.0
+    g_mag: 14.52
+    ebv_mag: 0.005
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1350295047363872512
+    period_days: 657.242
+    eccentricity: 0.656
+    amrf: 0.757
+    m1_msun: 1.314
+    m2_msun: 1.747
+    significance: 34.1
+    g_mag: 13.52
+    ebv_mag: 0.055
+    spectroscopy: ["PEPSI", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1732878914341314944
+    period_days: 648.097
+    eccentricity: 0.549
+    amrf: 0.738
+    m1_msun: 1.352
+    m2_msun: 1.727
+    significance: 6.8
+    g_mag: 13.94
+    ebv_mag: 0.16
+    spectroscopy: ["MagE", "PEPSI", "TRES", "FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 809741149368202752
+    period_days: 922.389
+    eccentricity: 0.351
+    amrf: 0.964
+    m1_msun: 0.849
+    m2_msun: 1.706
+    significance: 13.5
+    g_mag: 14.91
+    ebv_mag: 0.005
+    spectroscopy: ["LAMOST", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6092954989675820416
+    period_days: 883.079
+    eccentricity: 0.138
+    amrf: 0.732
+    m1_msun: 1.333
+    m2_msun: 1.682
+    significance: 14.1
+    g_mag: 13.67
+    ebv_mag: 0.109
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 3662912491312811008
+    period_days: 237.156
+    eccentricity: 0.938
+    amrf: 0.854
+    m1_msun: 1.013
+    m2_msun: 1.647
+    significance: 7.9
+    g_mag: 12.61
+    ebv_mag: 0.005
+    spectroscopy: ["APOGEE", "FEROS"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5839182174066052224
+    period_days: 331.777
+    eccentricity: 0.897
+    amrf: 0.834
+    m1_msun: 1.05
+    m2_msun: 1.638
+    significance: 11.0
+    g_mag: 12.99
+    ebv_mag: 0.13
+    spectroscopy: ["GALAH", "MagE"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 1695294922548180224
+    period_days: 601.178
+    eccentricity: 0.571
+    amrf: 0.737
+    m1_msun: 1.277
+    m2_msun: 1.627
+    significance: 79.9
+    g_mag: 13.12
+    ebv_mag: 0.01
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2080945469200565248
+    period_days: 196.64
+    eccentricity: 0.045
+    amrf: 0.664
+    m1_msun: 1.486
+    m2_msun: 1.608
+    significance: 54.3
+    g_mag: 13.29
+    ebv_mag: 0.341
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2426116249713980416
+    period_days: 711.703
+    eccentricity: 0.398
+    amrf: 0.768
+    m1_msun: 1.169
+    m2_msun: 1.593
+    significance: 24.8
+    g_mag: 13.02
+    ebv_mag: 0.005
+    spectroscopy: ["MagE", "PEPSI", "TRES", "FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1028887114002082432
+    period_days: 994.417
+    eccentricity: 0.657
+    amrf: 0.802
+    m1_msun: 1.062
+    m2_msun: 1.551
+    significance: 24.5
+    g_mag: 13.59
+    ebv_mag: 0.065
+    spectroscopy: ["LAMOST", "TRES", "PEPSI"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6791860144283753984
+    period_days: 935.83
+    eccentricity: 0.704
+    amrf: 0.745
+    m1_msun: 1.191
+    m2_msun: 1.544
+    significance: 12.0
+    g_mag: 12.8
+    ebv_mag: 0.042
+    spectroscopy: ["GALAH", "FEROS", "MagE"]
+    notes: "RVs inconsistent with orbital solution"
+    verdict: "spurious"
+    nature: null
+  - source_id: 5136025521527939072
+    period_days: 536.9
+    eccentricity: 0.651
+    amrf: 0.728
+    m1_msun: 1.223
+    m2_msun: 1.528
+    significance: 60.3
+    g_mag: 12.05
+    ebv_mag: 0.03
+    spectroscopy: ["FEROS", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2397135910639986304
+    period_days: 916.016
+    eccentricity: 0.564
+    amrf: 0.842
+    m1_msun: 0.96
+    m2_msun: 1.522
+    significance: 43.8
+    g_mag: 13.35
+    ebv_mag: 0.0
+    spectroscopy: ["MagE", "FEROS", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1144019690966028928
+    period_days: 1401.86
+    eccentricity: 0.381
+    amrf: 0.861
+    m1_msun: 0.923
+    m2_msun: 1.522
+    significance: 23.6
+    g_mag: 13.57
+    ebv_mag: 0.028
+    spectroscopy: ["PEPSI", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 4524807699152454144
+    period_days: 947.201
+    eccentricity: 0.483
+    amrf: 0.718
+    m1_msun: 1.244
+    m2_msun: 1.52
+    significance: 15.9
+    g_mag: 14.8
+    ebv_mag: 0.147
+    spectroscopy: ["MagE", "TRES", "FEROS"]
+    notes: "Solution OK; some residual scatter"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 5530442371304582912
+    period_days: 498.831
+    eccentricity: 0.285
+    amrf: 0.773
+    m1_msun: 1.102
+    m2_msun: 1.518
+    significance: 29.0
+    g_mag: 14.6
+    ebv_mag: 0.115
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 4637171465304969216
+    period_days: 639.151
+    eccentricity: 0.375
+    amrf: 0.767
+    m1_msun: 1.116
+    m2_msun: 1.516
+    significance: 55.0
+    g_mag: 14.01
+    ebv_mag: 0.041
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1871419337958702720
+    period_days: 479.313
+    eccentricity: 0.432
+    amrf: 0.771
+    m1_msun: 1.093
+    m2_msun: 1.499
+    significance: 72.1
+    g_mag: 13.7
+    ebv_mag: 0.088
+    spectroscopy: ["LAMOST", "TRES", "ESI"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1854241667792418304
+    period_days: 1430.334
+    eccentricity: 0.59
+    amrf: 1.065
+    m1_msun: 0.62
+    m2_msun: 1.499
+    significance: 55.5
+    g_mag: 14.87
+    ebv_mag: 0.0
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 3494029910469026432
+    period_days: 632.53
+    eccentricity: 0.552
+    amrf: 0.686
+    m1_msun: 1.293
+    m2_msun: 1.472
+    significance: 77.6
+    g_mag: 12.66
+    ebv_mag: 0.065
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 5820382041374661888
+    period_days: 311.14
+    eccentricity: 0.414
+    amrf: 0.783
+    m1_msun: 1.04
+    m2_msun: 1.46
+    significance: 39.2
+    g_mag: 14.19
+    ebv_mag: 0.07
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 4922744974687373440
+    period_days: 562.381
+    eccentricity: 0.813
+    amrf: 0.919
+    m1_msun: 0.788
+    m2_msun: 1.455
+    significance: 15.4
+    g_mag: 14.48
+    ebv_mag: 0.01
+    spectroscopy: ["MagE", "FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 465093354131112960
+    period_days: 1046.37
+    eccentricity: 0.763
+    amrf: 0.756
+    m1_msun: 1.085
+    m2_msun: 1.44
+    significance: 24.2
+    g_mag: 13.09
+    ebv_mag: 0.26
+    spectroscopy: ["ESI", "PEPSI", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1748901959855337472
+    period_days: 991.847
+    eccentricity: 0.398
+    amrf: 0.717
+    m1_msun: 1.156
+    m2_msun: 1.41
+    significance: 6.1
+    g_mag: 12.55
+    ebv_mag: 0.1
+    spectroscopy: ["TRES"]
+    notes: "EB with Porb = 1.02 d (Schanche et al. 2019)"
+    verdict: "genuine"
+    nature: "hierarchical_triple"
+  - source_id: 747174436620510976
+    period_days: 999.436
+    eccentricity: 0.707
+    amrf: 0.885
+    m1_msun: 0.808
+    m2_msun: 1.397
+    significance: 48.7
+    g_mag: 13.99
+    ebv_mag: 0.03
+    spectroscopy: ["LAMOST", "TRES"]
+    notes: "RVs marginally consistent with astrometric orbit"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 5446310318525312768
+    period_days: 866.558
+    eccentricity: 0.247
+    amrf: 0.69
+    m1_msun: 1.208
+    m2_msun: 1.387
+    significance: 47.0
+    g_mag: 10.37
+    ebv_mag: 0.019
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 1581117310088807552
+    period_days: 927.314
+    eccentricity: 0.52
+    amrf: 1.0
+    m1_msun: 0.644
+    m2_msun: 1.383
+    significance: 175.6
+    g_mag: 14.51
+    ebv_mag: 0.0
+    spectroscopy: ["LAMOST", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6037767138131854592
+    period_days: 804.701
+    eccentricity: 0.768
+    amrf: 0.792
+    m1_msun: 0.965
+    m2_msun: 1.383
+    significance: 29.6
+    g_mag: 14.28
+    ebv_mag: 0.165
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 1434445448240677376
+    period_days: 572.423
+    eccentricity: 0.301
+    amrf: 0.717
+    m1_msun: 1.114
+    m2_msun: 1.361
+    significance: 82.5
+    g_mag: 13.65
+    ebv_mag: 0.055
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1801110822095134848
+    period_days: 893.583
+    eccentricity: 0.588
+    amrf: 0.82
+    m1_msun: 0.892
+    m2_msun: 1.354
+    significance: 92.2
+    g_mag: 12.19
+    ebv_mag: 0.016
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 4240540718818313984
+    period_days: 691.168
+    eccentricity: 0.618
+    amrf: 0.854
+    m1_msun: 0.834
+    m2_msun: 1.354
+    significance: 85.2
+    g_mag: 14.61
+    ebv_mag: 0.175
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1694708646628402048
+    period_days: 632.034
+    eccentricity: 0.259
+    amrf: 0.73
+    m1_msun: 1.073
+    m2_msun: 1.348
+    significance: 114.9
+    g_mag: 13.2
+    ebv_mag: 0.02
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1522897482203494784
+    period_days: 45.517
+    eccentricity: 0.046
+    amrf: 0.9
+    m1_msun: 0.752
+    m2_msun: 1.339
+    significance: 156.6
+    g_mag: 11.05
+    ebv_mag: 0.0
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 6481502062263141504
+    period_days: 229.684
+    eccentricity: 0.304
+    amrf: 0.746
+    m1_msun: 1.002
+    m2_msun: 1.301
+    significance: 48.5
+    g_mag: 13.58
+    ebv_mag: 0.02
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2995961897685517312
+    period_days: 189.763
+    eccentricity: 0.366
+    amrf: 0.744
+    m1_msun: 0.998
+    m2_msun: 1.293
+    significance: 39.9
+    g_mag: 13.0
+    ebv_mag: 0.095
+    spectroscopy: ["FEROS", "TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 3184078579032750464
+    period_days: 614.895
+    eccentricity: 0.153
+    amrf: 0.682
+    m1_msun: 1.102
+    m2_msun: 1.242
+    significance: 87.4
+    g_mag: 13.73
+    ebv_mag: 0.065
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2032579979951732736
+    period_days: 215.447
+    eccentricity: 0.146
+    amrf: 0.787
+    m1_msun: 0.877
+    m2_msun: 1.242
+    significance: 63.1
+    g_mag: 14.21
+    ebv_mag: 0.057
+    notes: "Possible EB (Chen et al. 2020; Czavalinga et al. 2023)"
+    verdict: "genuine"
+    nature: "possible_eclipsing_binary"
+  - source_id: 5355633933885075328
+    period_days: 574.74
+    eccentricity: 0.111
+    amrf: 0.663
+    m1_msun: 1.139
+    m2_msun: 1.232
+    significance: 76.8
+    g_mag: 13.73
+    ebv_mag: 0.1
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 4466767229088016256
+    period_days: 776.604
+    eccentricity: 0.154
+    amrf: 0.685
+    m1_msun: 1.082
+    m2_msun: 1.229
+    significance: 116.1
+    g_mag: 13.78
+    ebv_mag: 0.0
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 3389767036738482432
+    period_days: 717.231
+    eccentricity: 0.142
+    amrf: 0.768
+    m1_msun: 0.897
+    m2_msun: 1.222
+    significance: 55.5
+    g_mag: 14.72
+    ebv_mag: 0.322
+    spectroscopy: ["FEROS", "TRES", "PEPSI"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 2919995917769953408
+    period_days: 456.774
+    eccentricity: 0.752
+    amrf: 0.852
+    m1_msun: 0.739
+    m2_msun: 1.196
+    significance: 23.2
+    g_mag: 14.97
+    ebv_mag: 0.035
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 5039979680444075392
+    period_days: 553.305
+    eccentricity: 0.181
+    amrf: 0.72
+    m1_msun: 0.971
+    m2_msun: 1.193
+    significance: 83.8
+    g_mag: 12.72
+    ebv_mag: 0.0
+    spectroscopy: ["FEROS"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1683575679079854848
+    period_days: 795.566
+    eccentricity: 0.621
+    amrf: 0.724
+    m1_msun: 0.939
+    m2_msun: 1.163
+    significance: 49.6
+    g_mag: 14.3
+    ebv_mag: 0.0
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 1579254496872812032
+    period_days: 601.462
+    eccentricity: 0.308
+    amrf: 0.745
+    m1_msun: 0.863
+    m2_msun: 1.12
+    significance: 64.8
+    g_mag: 14.5
+    ebv_mag: 0.0
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"
+  - source_id: 5283631903842076032
+    period_days: 90.754
+    eccentricity: 0.314
+    amrf: 0.772
+    m1_msun: 0.815
+    m2_msun: 1.119
+    significance: 31.3
+    g_mag: 13.31
+    ebv_mag: 0.018
+    notes: "No RV follow-up"
+    verdict: "undetermined"
+    nature: null
+    censor_reason: "no_followup_obtained"
+  - source_id: 220012968211559296
+    period_days: 196.341
+    eccentricity: 0.412
+    amrf: 0.787
+    m1_msun: 0.785
+    m2_msun: 1.113
+    significance: 25.3
+    g_mag: 13.93
+    ebv_mag: 0.105
+    spectroscopy: ["TRES"]
+    notes: "Good solution"
+    verdict: "genuine"
+    nature: "compact_object_candidate"

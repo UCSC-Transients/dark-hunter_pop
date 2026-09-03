@@ -1,0 +1,150 @@
+# El-Badry et al. (2023a), Table E1.
+#
+# Frozen external fixture. Supplied directly by the user; NOT fetched or re-derived.
+#
+# DUAL PURPOSE --- do not trim this file to a source-ID list:
+#   1. Membership for El-Badry 2026 astrometric subsample 2 (CONTINUATION_PLAN.md section 8.3).
+#   2. LABELED SET for the shared spuriousness model (section 4.8). The columns are candidate
+#      covariates and `verdict` is the spuriousness label.
+#
+# COMPLETE at six rows: Table E1 covers only the BH candidates, which is why it is small
+# (section 15 Q13 resolved). The NS candidates are in elbadry2024_table3.yaml, and the full
+# El-Badry 2026 candidate lists are in elbadry2026_table7.yaml and elbadry2026_table8.yaml.
+#
+# Schema matches the other three label fixtures: three-valued `verdict`, a separate `nature`
+# axis, and `censor_reason` non-null exactly when verdict == undetermined.
+
+schema_version: 2
+name: elbadry2023_table_e1
+
+provenance:
+  reference: "El-Badry et al. (2023a), Table E1"
+  supplied_by: user
+  frozen_on: "2026-09-02"
+  completeness: complete
+  rows_transcribed: 6
+  scope: "BH candidates only."
+  used_by:
+    - config/selections/elbadry2026.yaml      # subsample 2 membership
+    - config/spuriousness_model.yaml          # labeled set
+
+roles: [subsample_membership, spuriousness_labels]
+
+label_counts:
+  genuine: 1
+  spurious: 4
+  undetermined: 1
+
+# Every source here that also appears in El-Badry 2026 Table 7 carries the same verdict, and the
+# one `undetermined` row resolved to Gaia BH2. Cross-table agreement is exact.
+cross_table_agreement:
+  overlapping_with_elbadry2026_table7: 5
+  disagreements: 0
+
+verdict_encoding:
+  # Published glyphs, mapped onto the shared three-valued taxonomy.
+  spurious: "X"
+  genuine: "check"
+  undetermined: "shrug"
+
+columns:
+  source_id: "Gaia DR3 source ID"
+  g_mag: "G [mag]"
+  m_tilde_msun: "M-tilde [Msun], with 1-sigma uncertainty"
+  period_days: "P_orb [d], with 1-sigma uncertainty"
+  a0_times_d_au: "a0 x d [au], with 1-sigma uncertainty"
+  gof: "goodness of fit"
+  rv_amplitude_robust_kms: "observed robust RV amplitude [km/s]; null where not measured"
+  rv_amplitude_expected_kms: "expected RV amplitude [km/s], with 1-sigma uncertainty"
+  verdict: "genuine | spurious | undetermined"
+  nature: "companion-nature axis; null where not stated"
+  censor_reason: "why no verdict was reached; null unless verdict == undetermined"
+
+data:
+  - source_id: 3640889032890567040
+    g_mag: 9.2
+    m_tilde_msun: {value: 122.0, err: 47.0}
+    period_days: {value: 1076.0, err: 12.0}
+    a0_times_d_au: {value: 10.2, err: 1.3}
+    gof: 10.3
+    rv_amplitude_robust_kms: 12.9
+    rv_amplitude_expected_kms: {value: 674.0, err: 154.0}
+    verdict: spurious
+    nature: null
+    censor_reason: null
+
+  - source_id: 4467000291193143808
+    g_mag: 15.5
+    m_tilde_msun: {value: 119.0, err: 71.0}
+    period_days: {value: 1647.0, err: 520.0}
+    a0_times_d_au: {value: 13.4, err: 2.2}
+    gof: 4.9
+    rv_amplitude_robust_kms: null
+    rv_amplitude_expected_kms: {value: 358.0, err: 182.0}
+    verdict: spurious
+    nature: null
+    censor_reason: null
+
+  # GAIA BH1. Andrews et al. (2022) excluded this source as a probable scanning-law harmonic
+  # (P = 185.8 d, ~3x the scanning period). That exclusion was WRONG: El-Badry et al. (2026)
+  # Table 7 lists it as Gaia BH1. Handled by the andrews2022_modified variant, not by editing
+  # the frozen Andrews file. See CONTINUATION_PLAN.md section 6.6 and section 15 Q14.
+  - source_id: 4373465352415301632
+    g_mag: 13.8
+    m_tilde_msun: {value: 11.5, err: 2.5}
+    period_days: {value: 185.8, err: 0.3}
+    a0_times_d_au: {value: 1.44, err: 0.10}
+    gof: 0.3
+    rv_amplitude_robust_kms: null
+    rv_amplitude_expected_kms: {value: 165.0, err: 20.0}
+    verdict: genuine
+    nature: confirmed_black_hole
+    censor_reason: null
+    identification: "Gaia BH1"
+    label_conflict:
+      andrews2022: excluded
+      resolution: >-
+        Andrews' exclusion was a false positive. This source is Gaia BH1. Retained as genuine.
+
+  - source_id: 6281177228434199296
+    g_mag: 11.3
+    m_tilde_msun: {value: 10.8, err: 1.6}
+    period_days: {value: 153.9, err: 0.4}
+    a0_times_d_au: {value: 1.24, err: 0.06}
+    gof: 8.0
+    rv_amplitude_robust_kms: 20.1
+    rv_amplitude_expected_kms: {value: 171.0, err: 10.0}
+    verdict: spurious
+    nature: null
+    censor_reason: null
+
+  # Published verdict is the shrug glyph. Later resolved: this is Gaia BH2. The published
+  # `undetermined` is kept as the label of record so the fixture stays faithful to Table E1;
+  # `resolved_by` carries the later information for cross-checking.
+  - source_id: 5870569352746779008
+    g_mag: 12.3
+    m_tilde_msun: {value: 6.7, err: 0.5}
+    period_days: {value: 1352.0, err: 45.0}
+    a0_times_d_au: {value: 4.52, err: 0.13}
+    gof: 3.1
+    rv_amplitude_robust_kms: 37.0
+    rv_amplitude_expected_kms: {value: 50.0, err: 2.0}
+    verdict: undetermined
+    nature: confirmed_black_hole
+    censor_reason: no_verdict_reported
+    identification: "Gaia BH2"
+    resolved_by:
+      source: "El-Badry et al. (2026), Table 7"
+      verdict: genuine
+
+  - source_id: 3664684869697065984
+    g_mag: 11.6
+    m_tilde_msun: {value: 3.5, err: 2.6}
+    period_days: {value: 1220.0, err: 233.0}
+    a0_times_d_au: {value: 3.35, err: 1.13}
+    gof: 3.6
+    rv_amplitude_robust_kms: 18.3
+    rv_amplitude_expected_kms: {value: 54.0, err: 14.0}
+    verdict: spurious
+    nature: null
+    censor_reason: null
