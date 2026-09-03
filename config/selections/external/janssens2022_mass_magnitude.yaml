@@ -1,0 +1,70 @@
+# Janssens et al. (2022), Table 1 --- "Fit parameters for the mass-magnitude relation of
+# dwarfs in different mass regimes."
+#
+# Frozen external fixture. Supplied directly by the user; NOT fetched, digitized, or re-fit.
+# Consumed by config/selections/elbadry2026.yaml as its primary-mass assumption.
+# Specification: docs/CONTINUATION_PLAN.md section 8.2.
+#
+# Functional form was verified, not assumed (see `form_verification` below).
+
+schema_version: 1
+name: janssens2022_mass_magnitude
+
+provenance:
+  reference: "Janssens et al. (2022), Table 1"
+  description: "Fit parameters for the mass-magnitude relation of dwarfs in different mass regimes"
+  supplied_by: user
+  frozen_on: "2026-09-02"
+  used_by:
+    - config/selections/elbadry2026.yaml
+
+# M_G = a * log10(M / M_sun) + b, piecewise in eight mass regimes.
+form: "M_G = a * log10(M / M_sun) + b"
+
+form_verification:
+  # Recorded so a future reader can see the form was checked rather than guessed.
+  solar_anchor:
+    note: "0.87-1.55 Msun segment gives M_G(1 Msun) = b = 4.73 against an observed solar M_G ~ 4.67."
+  continuity_max_delta_mag: 0.0094   # worst internal-boundary disagreement, at 1.55 and 1.8 Msun
+  figure_endpoints:
+    mg_at_0p2_msun: 11.90            # figure shows ~11.6
+    mg_at_57p95_msun: -5.96          # figure shows ~-6
+  monotonic: true                    # every a < 0, so the inversion is single-valued
+
+applies_to: dwarfs                   # main-sequence only; M_tilde1 is undefined otherwise
+mass_range_msun: [0.02, 57.95]
+
+segments:
+  # Ordered high mass -> low mass, as published.
+  - {m_low: 22.90, m_up: 57.95, a:  -3.31, a_err: 0.08, b: -0.12, b_err: 0.11}
+  - {m_low: 15.55, m_up: 22.90, a:  -4.22, a_err: 0.43, b:  1.12, b_err: 0.59}
+  - {m_low:  7.60, m_up: 15.55, a:  -6.07, a_err: 0.25, b:  3.33, b_err: 0.31}
+  - {m_low:  1.80, m_up:  7.60, a:  -6.83, a_err: 0.06, b:  4.00, b_err: 0.12}
+  # Nearly uninformative: 54% fractional uncertainty on a, and the propagated mass
+  # uncertainty (~0.19 dex) is wider than the segment itself (0.065 dex). Flag occupants.
+  - {m_low:  1.55, m_up:  1.80, a: -10.51, a_err: 5.66, b:  4.93, b_err: 1.45}
+  - {m_low:  0.87, m_up:  1.55, a:  -9.41, a_err: 0.42, b:  4.73, b_err: 0.39}
+  - {m_low:  0.60, m_up:  0.87, a: -19.58, a_err: 0.93, b:  4.11, b_err: 0.40}
+  - {m_low:  0.02, m_up:  0.60, a:  -7.23, a_err: 0.21, b:  6.85, b_err: 0.43}
+
+inversion:
+  # We enter with M_G and need mass: M = 10 ** ((M_G - b) / a).
+  expression: "M = 10 ** ((M_G - b) / a)"
+  segment_selection: by_mg_interval
+  boundary_tolerance_mag: 0.01
+  boundary_tie_break: lower_mass_segment
+  report_boundary_resolved: true     # surfaced in the janssens_segment_occupancy diagnostic
+
+extrapolation: forbid                # out of range -> "not applicable", never clamped
+
+uncertainty:
+  # sigma_log10M^2 = (sigma_b / a)^2 + (log10(M) * sigma_a / a)^2 + cross-term
+  ab_correlation: 0.0                # unpublished; see CONTINUATION_PLAN.md section 15 Q11
+  ab_correlation_is_default: true
+  propagate_fit_uncertainty: false   # reproduction path; see section 15 Q12
+
+caveats:
+  - "Photometric only; does not model each source's detailed evolutionary state."
+  - "Does not model light contributions from possible luminous companions."
+  - "Suitable for initial candidate selection, not for final masses."
+  - "1.55-1.80 Msun segment is nearly uninformative (a = -10.51 +/- 5.66)."
