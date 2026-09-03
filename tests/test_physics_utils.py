@@ -124,6 +124,18 @@ def test_luminous_companion_uses_one_plus_f_not_f1() -> None:
     assert m2 == pytest.approx(q * m1, rel=1e-6)
 
 
+def test_spectroscopic_mass_function_and_independent_inversion() -> None:
+    p, k, e, m1 = 10.0, 50.0, 0.1, 1.2
+    fm = float(P.spectroscopic_mass_function(p, k, e))
+    assert fm > 0.0
+    m2 = float(P.invert_spectroscopic_minimum_companion_mass(fm, m1))
+    recovered = m2**3 / (m1 + m2) ** 2
+    assert recovered == pytest.approx(fm, rel=1e-6)
+    assert "invert_astrometric_companion_mass" not in (
+        P.invert_spectroscopic_minimum_companion_mass.__code__.co_names
+    )
+
+
 def test_physics_utils_does_not_import_gaiamock() -> None:
     """Scope guard: residual module must not import orbital gaiamock APIs."""
     src_path = Path(P.__file__)

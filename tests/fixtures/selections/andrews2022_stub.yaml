@@ -1,0 +1,28 @@
+schema_version: 1
+name: andrews2022
+provenance:
+  reference: "Stub Andrews membership for El-Badry 2026 depends_on tests"
+  published_n: 24
+  data_release: dr3
+mode: reproduction
+primary_mass:
+  method: fixed
+  value_msun: 1.0
+parent_query:
+  dr3:
+    adql: |
+      SELECT source_id FROM gaiadr3.nss_two_body_orbit
+    expected_parent_n: null
+    nss_table: gaiadr3.nss_two_body_orbit
+    solution_types: [Orbital]
+  dr4:
+    adql: |
+      SELECT source_id FROM gaiadr4.nss_two_body_orbit
+    expected_parent_n: null
+    nss_table: gaiadr4.nss_two_body_orbit
+    solution_types: [Orbital]
+cuts:
+  - id: stub_membership
+    kind: derived
+    expression: "andrews_member == True"
+    expected_n_after: 24

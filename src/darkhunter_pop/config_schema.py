@@ -412,11 +412,175 @@ class SampleProvenance(BaseModel):
     reference: str = Field(..., min_length=1)
     section: str | None = None
     published_n: int | None = Field(default=None, ge=0)
+    published_n_by_branch: dict[str, int] | None = None
     expected_n: int | None = Field(default=None, ge=0)
     data_release: Literal["dr3", "dr4"] = "dr3"
     frozen_on: str | None = None
     derived_from: str | None = None
     arxiv: str | None = None
+
+
+class ExtinctionHemisphereSpec(BaseModel):
+    """Declination-split dust map (per-sample; do not consolidate across papers)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    applies_when: str = Field(..., min_length=1)
+    map: str = Field(..., min_length=1)
+
+
+class ExtinctionSpec(BaseModel):
+    """Per-sample extinction policy (CONTINUATION_PLAN §7.6 / §8.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    north: ExtinctionHemisphereSpec
+    south: ExtinctionHemisphereSpec
+    coefficients: dict[str, float] = Field(default_factory=dict)
+
+
+class MainSequenceCutSpec(BaseModel):
+    """Extinction-corrected CMD main-sequence gate (El-Badry 2026 §8.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mg_floor: float
+    cmd_intercept: float
+    cmd_slope: float
+
+
+class SpuriousFractionTargets(BaseModel):
+    """Quoted literature rates recorded as outputs, never selection inputs (§4.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    astrometric: float | None = None
+    spectroscopic: float | None = None
+    source: str | None = None
+    role: Literal["acceptance_test"] = "acceptance_test"
+
+
+class ValidationTargetsSpec(BaseModel):
+    """Acceptance-test rates. Selection/likelihood code must not read these."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    spurious_fraction: SpuriousFractionTargets | None = None
+    purity: dict[str, float] = Field(default_factory=dict)
+    dominant_residual_contaminants: list[str] = Field(default_factory=list)
+
+
+class Simon2026ExclusionBreakdown(BaseModel):
+    """Required El-Badry 2026 acceptance test (CONTINUATION_PLAN §8.9)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sb1_fails_significance: int = Field(..., ge=0)
+    astrometric_f2_above_max: int = Field(..., ge=0)
+    fainter_than_g_limit: int = Field(..., ge=0)
+    fails_m2_over_m1: int = Field(..., ge=0)
+
+
+class AcceptanceTestsSpec(BaseModel):
+    """Named reproduction checks attached to a frozen sample file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    simon2026_exclusion_breakdown: Simon2026ExclusionBreakdown | None = None
+
+
+class OpenItemRecord(BaseModel):
+    """Escalated decision recorded in-file; not resolved by this slot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    status: Literal["escalated", "resolved"]
+    summary: str = Field(..., min_length=1)
+
+
+class InclusionOperatorSpec(BaseModel):
+    """Outcome-dependent follow-up notes. Not a catalog cut chain (§8.5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_level_only: bool = True
+    notes: str | None = None
+    astrometric_followup_outcomes: dict[str, int] = Field(default_factory=dict)
+    spectroscopic_followup_outcomes: dict[str, int] = Field(default_factory=dict)
+    prioritization: list[str] = Field(default_factory=list)
+
+
+class SampleSubsample(BaseModel):
+    """One OR-group of AND cuts (El-Badry 2026 astrometric union)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    cuts: list[SampleCut]
+    expected_n: int | None = Field(default=None, ge=0)
+    expected_n_new: int | None = Field(default=None, ge=0)
+    from_sample: str | None = None
+    external_table: str | None = None
+    require_main_sequence: bool | None = None
+    apply_goodness_of_fit_cut: bool | None = None
+
+    @model_validator(mode="after")
+    def _unique_cut_ids(self) -> SampleSubsample:
+        ids = [cut.id for cut in self.cuts]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"subsample {self.id!r}: duplicate cut ids")
+        return self
+
+
+class SpectroscopicRouteCounts(BaseModel):
+    """Published SB1 route breakdown (CONTINUATION_PLAN §8.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    main_sequence_min_companion_mass: int | None = Field(default=None, ge=0)
+    high_mass_function: int | None = Field(default=None, ge=0)
+    both: int | None = Field(default=None, ge=0)
+
+
+class SampleBranch(BaseModel):
+    """One parent catalog + cut machinery inside a multi-parent sample.
+
+    Maps onto #17 by keeping each branch a ``parent_query`` plus either an
+    ordered AND ``cuts`` list or a union of AND ``subsamples``. The named
+    sample is the union of branch survivors. ``inference`` is the v1
+    likelihood gate (§8.4.1): spectroscopic stays reproduction-only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    parent_query: ParentQuerySpec
+    inference: bool = True
+    statistic: str | None = None
+    a0_method: str | None = None
+    cuts: list[SampleCut] | None = None
+    subsamples: list[SampleSubsample] | None = None
+    expected_union_n: int | None = Field(default=None, ge=0)
+    expected_n_by_route: SpectroscopicRouteCounts | None = None
+
+    @model_validator(mode="after")
+    def _cuts_or_subsamples(self) -> SampleBranch:
+        has_cuts = self.cuts is not None and len(self.cuts) > 0
+        has_subs = self.subsamples is not None and len(self.subsamples) > 0
+        if has_cuts == has_subs:
+            raise ValueError(
+                f"branch {self.id!r}: provide exactly one of cuts or subsamples"
+            )
+        if has_cuts:
+            ids = [cut.id for cut in (self.cuts or [])]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"branch {self.id!r}: duplicate cut ids")
+        if has_subs:
+            ids = [sub.id for sub in (self.subsamples or [])]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"branch {self.id!r}: duplicate subsample ids")
+        return self
 
 
 class SampleCorrection(BaseModel):
@@ -433,8 +597,8 @@ class SampleSelectionFile(BaseModel):
     """Body of one frozen file under ``config/selections/`` (CONTINUATION_PLAN §4.4).
 
     ``inherits`` lets a variant reuse another file's parent query and cuts
-    (e.g. ``andrews2022_modified``). After inherit resolution, ``parent_query``
-    and ``cuts`` are required.
+    (e.g. ``andrews2022_modified``). After inherit resolution, either
+    top-level ``parent_query`` + ``cuts`` or ``branches`` is required.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -445,24 +609,39 @@ class SampleSelectionFile(BaseModel):
     mode: SampleSelectionMode
     inherits: str | None = None
     depends_on: list[str] = Field(default_factory=list)
+    inference_branches: list[str] = Field(default_factory=list)
     primary_mass: PrimaryMassSpec | None = None
     parent_query: ParentQuerySpec | None = None
     cuts: list[SampleCut] | None = None
+    branches: list[SampleBranch] | None = None
     exclusions: list[SampleExclusion] | None = None
     monte_carlo: MonteCarloSpec | None = None
     correction: SampleCorrection | None = None
+    extinction: ExtinctionSpec | None = None
+    main_sequence_cut: MainSequenceCutSpec | None = None
+    validation_targets: ValidationTargetsSpec | None = None
+    acceptance_tests: AcceptanceTestsSpec | None = None
+    inclusion_operator: InclusionOperatorSpec | None = None
+    open_items: list[OpenItemRecord] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _inherits_or_complete(self) -> SampleSelectionFile:
-        if self.inherits is None:
+        branched = self.branches is not None and len(self.branches) > 0
+        if self.inherits is None and not branched:
             if self.parent_query is None:
                 raise ValueError(
-                    f"sample {self.name!r}: parent_query is required unless inherits is set"
+                    f"sample {self.name!r}: parent_query is required unless "
+                    "inherits or branches is set"
                 )
             if self.cuts is None:
                 raise ValueError(
-                    f"sample {self.name!r}: cuts is required unless inherits is set"
+                    f"sample {self.name!r}: cuts is required unless "
+                    "inherits or branches is set"
                 )
+        if branched and self.inherits is not None:
+            raise ValueError(
+                f"sample {self.name!r}: inherits is incompatible with branches"
+            )
         if self.inherits is not None and self.inherits == self.name:
             raise ValueError(f"sample {self.name!r}: inherits cannot reference itself")
         if len(self.depends_on) != len(set(self.depends_on)):
@@ -472,6 +651,19 @@ class SampleSelectionFile(BaseModel):
         cut_ids = [c.id for c in (self.cuts or [])]
         if len(cut_ids) != len(set(cut_ids)):
             raise ValueError(f"sample {self.name!r}: duplicate cut ids")
+        if branched:
+            branch_ids = [branch.id for branch in (self.branches or [])]
+            if len(branch_ids) != len(set(branch_ids)):
+                raise ValueError(f"sample {self.name!r}: duplicate branch ids")
+            if self.inference_branches:
+                unknown = [
+                    name for name in self.inference_branches if name not in branch_ids
+                ]
+                if unknown:
+                    raise ValueError(
+                        f"sample {self.name!r}: inference_branches {unknown} "
+                        "are not branch ids"
+                    )
         return self
 
 

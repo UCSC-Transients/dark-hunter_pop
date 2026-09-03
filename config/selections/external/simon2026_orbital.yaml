@@ -1,0 +1,214 @@
+# Simon et al. (2026) sources with DR3 orbital solutions (arXiv:2603.20371 Table 1).
+# Twenty systems besides Gaia BH1, BH2, and NS1 — the §8.9 acceptance-test list.
+# Transcribed for the El-Badry 2026 exclusion breakdown 5/2/1/1. Not a labeled
+# spuriousness set.
+
+schema_version: 1
+name: simon2026_orbital
+provenance:
+  reference: "Simon et al. (2026), Table 1"
+  arxiv: "2603.20371"
+  supplied_by: transcription
+  frozen_on: "2026-09-03"
+  used_by:
+    - config/selections/elbadry2026.yaml
+  notes: >-
+    El-Badry 2026 §2.3.1: 20 sources with DR3 orbital solutions besides BH1/BH2/NS1;
+    11 overlap (7 astrometric + 4 SB1); 9 excluded 5/2/1/1.
+
+exclude_confirmed:
+  - 4373465352415301632  # Gaia BH1
+  - 6328149636482597888  # Gaia NS1
+  - 5870569352746779008  # Gaia BH2
+
+columns:
+  source_id: "Gaia DR3 source_id"
+  g_mag: "G [mag]"
+  period_days: "P [d]"
+  m1_msun: "catalog M1 [Msun]; null where unpublished"
+  m2_lower_msun: "catalog m2_lower [Msun]"
+  significance: "NSS significance"
+  goodness_of_fit: "F2"
+  nss_solution_type: "Orbital | SB1 | AstroSpectroSB1"
+
+data:
+  - source_id: 5593444799901901696
+    g_mag: 14.42
+    period_days: 1038.8
+    m1_msun: 1.28
+    m2_lower_msun: 1.8
+    m2_over_m1: 1.406
+    significance: 6.5
+    goodness_of_fit: 0.2
+    nss_solution_type: Orbital
+  - source_id: 3509370326763016704
+    g_mag: 12.47
+    period_days: 109.4
+    m1_msun: 0.68
+    m2_lower_msun: 3.6
+    m2_over_m1: 5.294
+    significance: 76.1
+    goodness_of_fit: 5.2
+    nss_solution_type: Orbital
+  - source_id: 3640889032890567040
+    g_mag: 9.19
+    period_days: 1076.2
+    m1_msun: 1.01
+    m2_lower_msun: 79.4
+    m2_over_m1: 78.614
+    significance: 7.7
+    goodness_of_fit: 10.3
+    nss_solution_type: Orbital
+  - source_id: 6281177228434199296
+    g_mag: 11.26
+    period_days: 153.9
+    m1_msun: 0.95
+    m2_lower_msun: 10.6
+    m2_over_m1: 11.158
+    significance: 24.3
+    goodness_of_fit: 8.0
+    nss_solution_type: Orbital
+  - source_id: 6802561484797464832
+    g_mag: 12.88
+    period_days: 574.8
+    m1_msun: 1.18
+    m2_lower_msun: 2.3
+    m2_over_m1: 1.949
+    significance: 6.8
+    goodness_of_fit: 11.0
+    nss_solution_type: Orbital
+  - source_id: 6588211521163024640
+    g_mag: 14.19
+    period_days: 943.3
+    m1_msun: 1.09
+    m2_lower_msun: 2.0
+    m2_over_m1: 1.835
+    significance: 10.4
+    goodness_of_fit: 4.9
+    nss_solution_type: Orbital
+  - source_id: 6601396177408279040
+    g_mag: 14.07
+    period_days: 533.5
+    m1_msun: 0.99
+    m2_lower_msun: 2.1
+    m2_over_m1: 2.121
+    significance: 10.8
+    goodness_of_fit: 13.8
+    nss_solution_type: Orbital
+  - source_id: 4314242838679237120
+    g_mag: 17.02
+    period_days: 1146.0
+    m1_msun: 0.62
+    m2_lower_msun: 1.4
+    m2_over_m1: 2.258
+    significance: 8.2
+    goodness_of_fit: -0.8
+    nss_solution_type: Orbital
+  - source_id: 6593763230249162112
+    g_mag: 13.54
+    period_days: 679.9
+    m1_msun: 1.02
+    m2_lower_msun: 1.5
+    m2_over_m1: 1.471
+    significance: 23.3
+    goodness_of_fit: 1.7
+    nss_solution_type: Orbital
+  - source_id: 2000733415898027264
+    g_mag: 11.86
+    period_days: 53.8
+    m1_msun: 2.26
+    m2_lower_msun: 5.0
+    m2_over_m1: 2.212
+    significance: 7.1
+    goodness_of_fit: 0.0
+    nss_solution_type: SB1
+  - source_id: 2086448353089047808
+    g_mag: 11.96
+    period_days: 69.6
+    m1_msun: 1.59
+    m2_lower_msun: 7.4
+    m2_over_m1: 4.654
+    significance: 15.9
+    goodness_of_fit: -1.8
+    nss_solution_type: SB1
+  - source_id: 2226444358294583680
+    g_mag: 12.20
+    period_days: 97.2
+    m1_msun: 2.09
+    m2_lower_msun: 29.2
+    m2_over_m1: 13.971
+    significance: 5.9
+    goodness_of_fit: 0.6
+    nss_solution_type: SB1
+  - source_id: 4060365702574410752
+    g_mag: 12.52
+    period_days: 518.2
+    m1_msun: 1.00
+    m2_lower_msun: 8.3
+    m2_over_m1: 8.3
+    significance: 10.2
+    goodness_of_fit: 2.1
+    nss_solution_type: SB1
+  - source_id: 5625482713303185408
+    g_mag: 12.23
+    period_days: 687.0
+    m1_msun: 1.74
+    m2_lower_msun: 6.8
+    m2_over_m1: 3.908
+    significance: 5.8
+    goodness_of_fit: -2.1
+    nss_solution_type: SB1
+  - source_id: 5846362195472084992
+    g_mag: 11.95
+    period_days: 764.1
+    m1_msun: 1.74
+    m2_lower_msun: 10.5
+    m2_over_m1: 6.034
+    significance: 7.0
+    goodness_of_fit: 0.2
+    nss_solution_type: SB1
+  - source_id: 6059985721200365184
+    g_mag: 11.86
+    period_days: 910.1
+    m1_msun: 2.28
+    m2_lower_msun: 11.8
+    m2_over_m1: 5.175
+    significance: 5.5
+    goodness_of_fit: -1.2
+    nss_solution_type: SB1
+  - source_id: 6102598776102841344
+    g_mag: 11.67
+    period_days: 225.8
+    m1_msun: 1.60
+    m2_lower_msun: 8.3
+    m2_over_m1: 5.188
+    significance: 12.9
+    goodness_of_fit: -0.1
+    nss_solution_type: SB1
+  - source_id: 5352109964757046528
+    g_mag: 11.77
+    period_days: 9.9
+    m1_msun: 4.39
+    m2_lower_msun: 6.6
+    m2_over_m1: 1.503
+    significance: 13.3
+    goodness_of_fit: 0.7
+    nss_solution_type: SB1
+  - source_id: 1864406790238257536
+    g_mag: 12.72
+    period_days: 875.8
+    m1_msun: 2.40
+    m2_lower_msun: 12.2
+    m2_over_m1: 5.083
+    significance: 19.6
+    goodness_of_fit: 3.3
+    nss_solution_type: AstroSpectroSB1
+  - source_id: 3263804373319076480
+    g_mag: 12.67
+    period_days: 510.7
+    m1_msun: 0.97
+    m2_lower_msun: 0.73
+    m2_over_m1: 0.753
+    significance: 18.1
+    goodness_of_fit: 5.6
+    nss_solution_type: AstroSpectroSB1

@@ -1,0 +1,318 @@
+# El-Badry et al. (2026) — frozen reproduction selection (CONTINUATION_PLAN §8 / §8.10).
+# Source: arXiv:2608.06453v1 §2.
+#
+# TWO parent branches mapped onto the #17 SampleSelection interface:
+#   - each branch is one parent_query plus either AND cuts or an OR-union of
+#     AND subsamples (the existing cut evaluator, no second predicate language);
+#   - the named sample is the union of branch survivors (227 = 76 + 151);
+#   - only `inference_branches: [astrometric]` feeds v1 likelihood (§8.4.1).
+#
+# Catalog-level only: follow-up outcomes live under inclusion_operator, never here.
+# Quoted ~40%/~50% rates live under validation_targets and MUST NOT be read as inputs.
+
+schema_version: 1
+name: elbadry2026
+provenance:
+  reference: "El-Badry et al. (2026)"
+  arxiv: "2608.06453v1"
+  section: "2. Sample selection"
+  published_n: 227
+  published_n_by_branch:
+    astrometric: 76
+    spectroscopic: 151
+  data_release: dr3
+  frozen_on: "2026-09-03"
+mode: reproduction
+depends_on: [andrews2022]
+inference_branches: [astrometric]
+primary_mass:
+  method: janssens2022_mass_magnitude
+  table: config/selections/external/janssens2022_mass_magnitude.yaml
+  propagate_fit_uncertainty: false
+  ab_correlation: 0.0
+  applies_only_when: "main_sequence == true"
+extinction:
+  north: {applies_when: "dec_deg > -28.0", map: green2019}
+  south: {applies_when: "dec_deg <= -28.0", map: lallement2019}
+  coefficients: {e_bp_rp_over_e_bv: 1.33, a_g_over_e_bv: 2.66}
+main_sequence_cut:
+  mg_floor: 4.5
+  cmd_intercept: -9.37
+  cmd_slope: 13.42
+monte_carlo:
+  n_draws: 10000
+  covariance: full_12x12
+open_items:
+  - id: Q7
+    status: escalated
+    summary: >-
+      Paper uses nsstools for ã0. This file records a0_method: nsstools as the
+      paper's choice and implements a0 via photocenter_a0_from_thiele_innes
+      (§5.1 / existing thiele_innes_to_campbell). Do not vendor nsstools or
+      treat the two as interchangeable until the difference is measured.
+  - id: Q9
+    status: escalated
+    summary: >-
+      Andrews G<15 must yield exactly 16 against frozen andrews2022 (N=24).
+      A mismatch fails both reproductions and is not to be tuned.
+  - id: Q11
+    status: escalated
+    summary: >-
+      Janssens a–b covariance unpublished; ab_correlation defaults to 0.0
+      and is reported as a default. Bound the effect; do not invent a covariance.
+inclusion_operator:
+  catalog_level_only: true
+  notes: >-
+    Follow-up outcomes and prioritization are Poisson inclusion-operator
+    territory (§8.5). They are not catalog cuts.
+  astrometric_followup_outcomes:
+    characterized: 70
+    spurious_before_many_epoch_orbit: 16
+    secure_short_period_eb_triple: 1
+    additional_possible_eclipsing: 1
+    many_epoch_measured_orbit: 51
+  spectroscopic_followup_outcomes:
+    two_temperature_seds: 52
+    algol_type: 20
+    eclipsing_tess_asassn: 25
+    eclipse_period_much_less_than_gaia: 14
+    eclipse_may_produce_gaia_solution: 11
+    obviously_sb2: 15
+    rvs_inconsistent_with_gaia: 23
+    multi_epoch_followup: 24
+    independent_rv_orbits: 19
+  prioritization:
+    - deprioritize_rvs_inconsistent_with_gaia
+    - prioritize_closer_to_zams
+    - generally_avoid_detected_eclipses
+branches:
+  - id: astrometric
+    inference: true
+    statistic: amrf
+    a0_method: nsstools
+    expected_union_n: 76
+    parent_query:
+      dr3:
+        nss_table: gaiadr3.nss_two_body_orbit
+        solution_types: [Orbital, AstroSpectroSB1]
+        expected_parent_n: null
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.goodness_of_fit,
+            nss.significance,
+            nss.a_thiele_innes,
+            nss.b_thiele_innes,
+            nss.f_thiele_innes,
+            nss.g_thiele_innes,
+            COALESCE(nss.parallax, gs.parallax) AS parallax,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr3.nss_two_body_orbit AS nss
+          JOIN gaiadr3.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+      dr4:
+        nss_table: gaiadr4.nss_two_body_orbit
+        solution_types: [Orbital, AstroSpectroSB1]
+        expected_parent_n: null
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.goodness_of_fit,
+            nss.significance,
+            nss.a_thiele_innes,
+            nss.b_thiele_innes,
+            nss.f_thiele_innes,
+            nss.g_thiele_innes,
+            COALESCE(nss.parallax, gs.parallax) AS parallax,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr4.nss_two_body_orbit AS nss
+          JOIN gaiadr4.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+    subsamples:
+      - id: primary_ns_bh
+        require_main_sequence: true
+        expected_n: 47
+        expected_n_new: 47
+        cuts:
+          - id: main_sequence
+            kind: derived
+            expression: "main_sequence == True"
+          - id: m2_floor
+            kind: derived
+            expression: "m2_tilde_msun > m2_msun_min"
+            undefined_when: "m2_tilde_msun is not_applicable"
+            requires_defined: [m2_tilde_msun]
+            parameters: {m2_msun_min: 1.4}
+          - id: m2_over_m1
+            kind: derived
+            expression: "m2_tilde_msun / m1_tilde_msun > m2_over_m1_min"
+            undefined_when: "m2_tilde_msun is not_applicable or m1_tilde_msun is not_applicable"
+            requires_defined: [m2_tilde_msun, m1_tilde_msun]
+            parameters: {m2_over_m1_min: 1.2}
+          - id: goodness_of_fit
+            kind: column
+            expression: "goodness_of_fit < goodness_of_fit_max"
+            parameters: {goodness_of_fit_max: 10.0}
+          - id: period
+            kind: column
+            expression: "period_day < period_days_max"
+            parameters: {period_days_max: 1200.0}
+          - id: g_mag
+            kind: column
+            expression: "phot_g_mean_mag < g_mag_faint_limit"
+            parameters: {g_mag_faint_limit: 15.0}
+      - id: elbadry2023_table_e1
+        external_table: config/selections/external/elbadry2023_table_e1.yaml
+        require_main_sequence: false
+        apply_goodness_of_fit_cut: false
+        expected_n: 5
+        expected_n_new: 3
+        cuts:
+          - id: table_e1_membership
+            kind: derived
+            expression: "in_sample('elbadry2023_table_e1')"
+          - id: g_mag
+            kind: column
+            expression: "phot_g_mean_mag < g_mag_faint_limit"
+            parameters: {g_mag_faint_limit: 15.0}
+      - id: andrews2022_import
+        from_sample: andrews2022
+        expected_n: 16
+        expected_n_new: 4
+        cuts:
+          - id: andrews2022_membership
+            kind: derived
+            from_sample: andrews2022
+            expression: "in_sample('andrews2022')"
+          - id: g_mag
+            kind: column
+            expression: "phot_g_mean_mag < g_mag_faint_limit"
+            parameters: {g_mag_faint_limit: 15.0}
+      - id: sub_chandrasekhar
+        require_main_sequence: true
+        expected_n: 22
+        expected_n_new: 22
+        cuts:
+          - id: main_sequence
+            kind: derived
+            expression: "main_sequence == True"
+          - id: m2_range
+            kind: derived
+            expression: "m2_tilde_msun >= m2_msun_min and m2_tilde_msun <= m2_msun_max"
+            undefined_when: "m2_tilde_msun is not_applicable"
+            requires_defined: [m2_tilde_msun]
+            parameters: {m2_msun_min: 1.05, m2_msun_max: 1.40}
+          - id: m2_error
+            kind: derived
+            expression: "sigma_m2_astrometric_msun <= m2_msun_error_max"
+            undefined_when: "sigma_m2_astrometric_msun is not_applicable"
+            requires_defined: [sigma_m2_astrometric_msun]
+            parameters: {m2_msun_error_max: 0.105}
+          - id: period
+            kind: column
+            expression: "period_day <= period_days_max"
+            parameters: {period_days_max: 900.0}
+          - id: g_mag
+            kind: column
+            expression: "phot_g_mean_mag < g_mag_faint_limit"
+            parameters: {g_mag_faint_limit: 15.0}
+  - id: spectroscopic
+    inference: false
+    statistic: spectroscopic_mass_function
+    expected_union_n: 151
+    expected_n_by_route:
+      main_sequence_min_companion_mass: 136
+      high_mass_function: 30
+      both: 15
+    parent_query:
+      dr3:
+        nss_table: gaiadr3.nss_two_body_orbit
+        solution_types: [SB1, SB1C]
+        expected_parent_n: null
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.semi_amplitude_primary,
+            nss.semi_amplitude_primary_error,
+            nss.significance,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr3.nss_two_body_orbit AS nss
+          JOIN gaiadr3.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('SB1', 'SB1C')
+      dr4:
+        nss_table: gaiadr4.nss_two_body_orbit
+        solution_types: [SB1, SB1C]
+        expected_parent_n: null
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.semi_amplitude_primary,
+            nss.semi_amplitude_primary_error,
+            nss.significance,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr4.nss_two_body_orbit AS nss
+          JOIN gaiadr4.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('SB1', 'SB1C')
+    cuts:
+      - id: k1_significance
+        kind: derived
+        expression: "k1_significance > k1_significance_min"
+        requires_defined: [k1_significance]
+        parameters: {k1_significance_min: 10.0}
+      - id: mass_route
+        kind: derived
+        expression: "fm_msun > fm_msun_min or (main_sequence == True and m2_min_msun > m2_min_msun_floor and m2_min_msun > m1_tilde_msun)"
+        undefined_when: "m2_min_msun is not_applicable and not (fm_msun > fm_msun_min)"
+        parameters:
+          fm_msun_min: 3.0
+          m2_min_msun_floor: 1.4
+          second_route_requires_main_sequence: true
+validation_targets:
+  spurious_fraction:
+    astrometric: 0.40
+    spectroscopic: 0.50
+    source: "El-Badry et al. (2026)"
+    role: acceptance_test
+  purity:
+    astrometric_reliable_and_compact_object_fraction: 0.60
+  dominant_residual_contaminants:
+    - post_mass_transfer_binaries
+    - hierarchical_triples
+acceptance_tests:
+  simon2026_exclusion_breakdown:
+    sb1_fails_significance: 5
+    astrometric_f2_above_max: 2
+    fainter_than_g_limit: 1
+    fails_m2_over_m1: 1
