@@ -24,7 +24,9 @@ Phase 8 adds:
    propagation requires (§10).
 3. **Spectroscopic (SB1) mass-function support**, the pipeline's first non-astrometric mass path,
    required by El-Badry 2026's second parent branch (§8.4).
-4. The **config/preset machinery** to enable or disable matching each published sample
+4. A **shared, sample-independent spuriousness model** `P(spurious | ·)`, replacing the three
+   per-sample contamination constants the literature quotes (§4.8).
+5. The **config/preset machinery** to enable or disable matching each published sample
    independently (§12).
 
 ## 2. Subagent dispatch: model tier × effort level
@@ -77,21 +79,27 @@ Extends the `ORCHESTRATION_PLAN.md` §4 roster; numbering continues from #16.
 | 17 | **Sample-selection framework** (`sample_selection.py`, registry, `SampleSelection` interface, dual-path mode switch, config schema) | — (first, blocking) | Top | Deep | Every per-sample module builds against this interface; the reproduction/forward-model split is a contract, not an implementation detail. |
 | 18 | **NSS covariance ingestion** (`corr_vec`/`bit_index` → 12×12 matrices in `data_acquisition`) | — (parallel with #17) | Mid | Standard | Well-specified ETL against a documented Gaia data model; correctness is checkable against Gaia's published matrix layout. |
 | 19 | **Monte Carlo mass-function propagation** (1e4 draws, per-system posterior over `m_f` and `M2`) | #17, #18 | Top | Deep | Sampling from a rank-deficient / near-singular covariance needs real care; downstream probability cuts depend on it being right. |
-| 20 | **Andrews et al. (2022) selection** (`config/selections/andrews2022.yaml` + module) | #17, #19 | Mid | Light | Cut chain is fully specified in §6; success criterion is reproducing N = 24 exactly. |
+| 20 | **Andrews et al. (2022) selection** (`config/selections/andrews2022.yaml` + module) | #17, #19 | Mid | Light | Cut chain is fully specified in §6; success criteria are the blocking parent count of 134,598 and then N = 24 exactly. |
 | 21 | **El-Badry et al. (2024) selection** (`config/selections/elbadry2024.yaml` + module) | #17, #19 | Top | Standard | Outcome-dependent criteria (§7.3) are a genuine statistical hazard, not a transcription job. |
-| 22 | **Acceleration/jerk sample selection** (`config/selections/accel_jerk.yaml` + module) | #17 | Mid | Standard | Aggregate-level matching only (`ARCHITECTURE.md` §4); no per-system orbital solution to reproduce. |
-| 23 | **Selection-function integration into `inference`** (per-sample terms in the Poisson rate) | #20, #21, #22 | Top | Deep | Changes the core likelihood; the multi-sample overlap/double-counting question is the hard part. |
-| 24 | **Sample-reproduction diagnostics** (published-N waterfall per sample, cut-by-cut attrition) | #20, #21, #22 | Mid | Standard | Well-specified reporting; this is the artifact that proves the reproduction path works. |
+| 22 | **Acceleration/jerk sample selection** (`config/selections/accel_jerk.yaml` + module) — **BLOCKED** | #17 **+ user-supplied selection function (§9)** | Mid | Standard | Aggregate-level matching only (`ARCHITECTURE.md` §4). The selection is unpublished; there is nothing to build until the user supplies it. Do not derive one from the target list. |
+| 23 | **Selection-function integration into `inference`** (per-sample terms in the Poisson rate) | #20, #21, #25, #27 | Top | Deep | Changes the core likelihood; the multi-sample overlap/double-counting question is the hard part, and the inclusion operator needs #27's spuriousness model to evaluate "not spurious" on mocks. |
+| 24 | **Sample-reproduction diagnostics** (published-N waterfall per sample, cut-by-cut attrition) | #20, #21, #25 | Mid | Standard | Well-specified reporting; this is the artifact that proves the reproduction path works. |
 | 25 | **El-Badry et al. (2026) selection** (`config/selections/elbadry2026.yaml` + module; two parent branches) | #17, #19, #20, #26 | Top | Deep | Two parallel branches (astrometric + SB1) with different mass-function machinery; the SB1 branch is new to this pipeline and subsample 3 imports Andrews' evaluated membership (§8.7). |
-| 26 | **SB1 spectroscopic mass-function support** (`SB1`/`SB1C` ingestion, `K1`/`σ_K1`/`e`, `f_m` primitive) | #18 | Mid | Standard | Well-specified ETL plus one closed-form statistic; scope decision in §15 Q6 gates whether it feeds inference or stays reproduction-only. |
+| 26 | **SB1 spectroscopic mass-function support** (`SB1`/`SB1C` ingestion, `K1`/`σ_K1`/`e`, `f_m` primitive) | #18 | Mid | Standard | Well-specified ETL plus one closed-form statistic. Scope is now settled (§8.4.1): reproduction and validation only, no inference entry point in v1. |
+| 27 | **Spuriousness model** (`spuriousness_model.py`, `config/spuriousness_model.yaml`; shared `P(spurious \| ·)`) | #18, #19, Table E1 staged | Top | Deep | Sample-independent model replacing three per-sample constants (§4.8). Covariate set must come from the sensitivity-analysis module, not be hand-picked, and one model must reproduce ~25% / ~40% / ~50%. Blocks the #23 inclusion operator. |
 
 Review/Integration (#15) continues, merging `config/fragments/` into `config/config.yaml` at each
 checkpoint as before.
 
 **Sequencing.** #17 and #18 first and in parallel (both blocking). Then #19 and #26 in parallel.
-Then #20–#22 in parallel (≤3 concurrent per `ORCHESTRATION_PLAN.md` §1). Then #25, which needs
-#20 merged because it imports Andrews' evaluated membership (§8.7). Then #23 and #24, which need
-every sample landed.
+Then #20, #21, and #27 in parallel (≤3 concurrent per `ORCHESTRATION_PLAN.md` §1) — #22 is **not** in
+this wave, being blocked on user input (§9). Then #25, which needs #20 merged because it imports
+Andrews' evaluated membership (§8.7). Then #23 and #24, which need every unblocked sample landed;
+#23 additionally needs #27.
+
+**Blocked work.** #22 does not start until the user supplies the accel/jerk selection function.
+#23 and #24 proceed without it rather than waiting; the registry (§12.1) simply carries `accel_jerk`
+disabled until then.
 
 ## 4. Sample selection functions — architecture
 
@@ -151,13 +159,15 @@ config/
 ├── config.yaml                       # merged canonical config; holds only the on/off switches
 ├── fragments/
 │   └── sample_selection.yaml         # dev-time fragment for the registry block
+├── spuriousness_model.yaml           # NEW: sample-INdependent; deliberately not under selections/
 └── selections/                       # NEW: one frozen file per published sample
     ├── andrews2022.yaml
     ├── elbadry2024.yaml
     ├── elbadry2026.yaml
     ├── accel_jerk.yaml
-    └── external/                     # frozen published tables a selection depends on
-        └── elbadry2023_table_e1.yaml
+    └── external/                     # frozen published tables, supplied by the user
+        ├── elbadry2023_table_e1.yaml         # source list AND spuriousness labels (§4.8)
+        └── janssens2022_mass_magnitude.yaml  # MG-mass fit parameters (§8.2)
 ```
 
 Each file under `config/selections/` is **versioned and frozen**: once a sample's reproduction path
@@ -235,6 +245,137 @@ sample `s`'s cut chain, estimated by pushing mock realizations through the ident
 processes with separate rate functions, or unified with an inclusion-indicator per sample. They
 overlap (El-Badry drew candidates from Andrews' sample), so naive summation double-counts.
 
+### 4.8 Spuriousness is one shared model, not a per-sample constant
+
+> **This supersedes the per-sample contamination-constant design.** Earlier drafts of this document
+> stored each paper's quoted spurious fraction as a *modeled parameter* in that sample's selection
+> file. That was wrong, and the rest of this section explains why and what replaces it.
+
+#### The problem with per-sample rates
+
+The literature gives us three numbers: **~25%** of El-Badry 2024's good-quality-flag candidates were
+spurious (§7.3); **~40%** for El-Badry 2026's astrometric branch and **~50%** for its SB1 branch
+(§8.6). Treating each as a parameter attached to its sample confounds two different things:
+
+1. the **underlying propensity** of a Gaia astrometric or spectroscopic solution to be spurious,
+   which is a function of the source's physical and observational properties; and
+2. the **particular cut chain** each paper applied, which reweights that propensity by preferentially
+   admitting sources from regions of parameter space where it is high or low.
+
+El-Badry 2024 says this explicitly: the spurious fraction among their candidates is *higher* than
+among astrometric binaries generally, **because spurious solutions are over-represented where genuine
+binaries are rare**. That is a statement about how a selection interacts with an underlying rate, not
+about an intrinsic sample property. A sample does not *have* a spurious rate; a sample's spurious
+rate is *produced* by pushing its cuts through the underlying propensity.
+
+Two further consequences make the per-sample-constant design untenable:
+
+- **A constant cannot be applied to a mock.** The inclusion operator (§4.7) has to evaluate, for each
+  mock realization, whether that realization would have been flagged spurious. A scalar attached to a
+  real sample has nothing to condition on. A parametric function of observables does.
+- **Three samples give three numbers and no cross-checks.** Three constants fit three observations
+  exactly and predict nothing. One shared model fit to the same information is heavily
+  over-determined, and reproducing all three rates becomes a real test.
+
+#### The replacement
+
+Specify a single, **sample-independent** model:
+
+```
+P(spurious | physical and observational parameters)
+```
+
+Every sample's selection integrates over it. For sample `s` with cut chain `C_s`, the predicted
+aggregate rate is
+
+```
+f_spurious(s) = E_{x ~ p(x | C_s)} [ P(spurious | x) ]
+```
+
+i.e. the expectation of the shared model over the parameter distribution of sources that survive that
+sample's cuts. One model, three (and later, arbitrarily many) predicted rates.
+
+#### Candidate covariates
+
+The features below are the ones the literature and the labeled data (see "Labeled data" below, and
+§8.3) actually implicate. They are a **candidate set to test, not a hand-picked final set** — see
+the sensitivity requirement immediately after.
+
+| Covariate | Why it plausibly drives spuriousness |
+|---|---|
+| `period_days`, and proximity to **Gaia scanning-law harmonics** | Andrews excluded a source at `P = 186 d ≈ 3 ×` the scanning period on exactly this basis (§6.4); Halbwachs et al. (2022) identify large-`m_f` solutions at scanning-law harmonics as probable contaminants. This should enter as a *distance to nearest harmonic*, not raw period. |
+| `goodness_of_fit` (F2) | Both El-Badry papers cut on it; §8.9 shows two Simon et al. sources excluded by `F2 > 10` alone. |
+| Parallax S/N `varpi / sigma_varpi` | Spurious solutions cluster at low astrometric S/N. |
+| `a0 / sigma_a0` | Directly controls whether the photocenter wobble is a detection. |
+| `phot_g_mean_mag` | Sets per-epoch astrometric precision; also the axis along which the samples' `G < 15` cuts bite. |
+| Implied `m_f` or `M̃2` | The `122 ± 47 M☉` and `119 ± 71 M☉` rows of Table E1 are verdicted spurious essentially on implausibility of the implied mass. |
+| `visibility_periods_used` | Few visibility periods → poorly constrained orbit → spurious solution. |
+| **RV consistency**: observed vs. expected RV semi-amplitude | The single sharpest discriminant in the labeled data (below). Available only where follow-up RVs exist, so it must be modeled as *missing-at-selection*, not imputed. |
+
+> **Do not hand-pick the covariate set.** Per `dark-hunter-pop-workflow`, every population class is a
+> rate function of the relevant covariates, with covariates admitted **only where the sensitivity-
+> analysis module shows they matter**. Spec running that module over the candidate set above and
+> retaining what it justifies. A covariate that survives because it was in this table rather than
+> because the sensitivity analysis kept it is a specification failure.
+
+#### Labeled data
+
+**Table E1 of El-Badry et al. (2023a)** (staged at
+`config/selections/external/elbadry2023_table_e1.yaml`, §8.3) is not merely a source list for
+El-Badry 2026's astrometric subsample 2. Its columns *are* candidate covariates — `G`, `M̃`,
+`P_orb`, `a0 × d`, `GoF`, observed `rv_amplitude_robust`, expected RV amplitude — and its **Verdict**
+column (`✗` spurious / `✓` genuine / uncertain) is a **spuriousness label**. It is therefore a
+**labeled validation set for this model**, and must be registered as such in the config, not only as
+subsample 2's membership list.
+
+The labeled rows already show the structure the model must capture. Of the six visible rows, the four
+verdicted `✗` either imply an absurd mass (`M̃ = 122 ± 47`, `119 ± 71 M☉`) or have an observed RV
+amplitude an order of magnitude below the expected one (12.9 vs. 674; 20.1 vs. 171; 18.3 vs. 54
+km s⁻¹). The single `✓` row has `GoF = 0.3` and no discrepant RV. The one uncertain row has the
+*least* discrepant ratio of the RV-measured rows (37.0 vs. 50 ± 2 km s⁻¹). A ratio-based RV
+consistency feature is clearly informative and should be constructed explicitly rather than left for
+the model to discover from the two raw columns.
+
+> **The visible table may be a subset.** Six rows are legible in the supplied image. If the published
+> Table E1 has more rows, **we need the complete version** — six labels is far too few to fit a
+> multi-covariate model, and would restrict us to using it as a spot-check rather than a training or
+> validation set. Flag this as blocking for the quantitative use of the table (§15 Q13).
+
+> **A labeled disagreement worth preserving.** Table E1 verdicts source `4373465352415301632`
+> (`P = 185.8 d`, `M̃ = 11.5 ± 2.5 M☉`, `GoF = 0.3`) as **`✓` genuine**. Andrews et al. (2022)
+> **excluded that exact source** from their sample as a probable scanning-law harmonic contaminant
+> (§6.4) — it is the sole entry in their `exclusions` block. Two papers, opposite verdicts, same
+> source. This is a real conflict in the labels, not a transcription error, and it sits precisely at
+> the intersection of two proposed covariates (harmonic proximity and goodness-of-fit). Do not
+> silently adopt either verdict; carry both and let the fitted model adjudicate. See §15 Q14.
+
+#### Validation targets, not inputs
+
+Each paper's quoted rate becomes an **acceptance test**:
+
+| Sample | Population the rate applies to | Target |
+|---|---|---|
+| El-Badry 2024 (§7.3) | Candidates with good astrometric quality flags | ~25% |
+| El-Badry 2026 astrometric (§8.6) | The 76-source astrometric branch | ~40% |
+| El-Badry 2026 SB1 (§8.6) | The 151-source spectroscopic branch | ~50% |
+
+Integrating the one shared model over each sample's selection must reproduce all three. **Reproducing
+~25%, ~40%, and ~50% from a single model is a strong check** — the three selections differ in
+magnitude limit, mass floor, goodness-of-fit treatment, and (for SB1) in the detection modality
+itself, so agreement is not achievable by tuning an overall normalization.
+
+The rates stay recorded in each per-sample selection file, but **relabeled**: they live under a
+`validation_targets:` block, explicitly as outputs to be reproduced, never read by the selection or
+likelihood code. A rate that is read as an input is a bug.
+
+#### Where it lives
+
+- **Model:** `spuriousness_model.py`, config at `config/spuriousness_model.yaml`. It is
+  sample-independent, so it does **not** live under `config/selections/`.
+- **Consumers:** the Poisson inclusion operator (§4.7), which evaluates it per mock realization; and
+  the §7.3 / §8.5 outcome-dependent criteria, whose "not spurious" conditions this model supplies.
+- **Roster:** #27 (§3), a **dependency of #23**, the likelihood-integration work.
+
 ## 5. Shared astrometric formulae
 
 These are shared primitives, not per-sample. They belong in `physics_utils.py` alongside the
@@ -310,9 +451,31 @@ only** — explicitly avoiding spectroscopic and photometric binaries, which are
 the literature (El-Badry & Rix 2022; Gomel et al. 2022; Mazeh et al. 2022).
 
 - **Expected parent N: 134,598.**
-- The ADQL restricts `nss_solution_type` to the astrometry-only solution types. The exact set of
-  type strings that reproduces 134,598 must be verified against the archive and then frozen in the
-  file; `AstroSpectroSB1` is excluded because it is a joint astrometric+spectroscopic solution.
+- The ADQL restricts `nss_solution_type` to the astrometry-only solution types.
+
+> **Working hypothesis (user-supplied, unverified).** The parent is **all 12-parameter (orbital)
+> astrometric solutions that are not SB1/SB2** — i.e. the purely astrometric orbital solution types,
+> excluding the spectroscopic (`SB1`, `SB1C`, `SB2`, …) and astro-spectroscopic
+> (`AstroSpectroSB1`) types. This matches the paper's own framing ("detected using astrometry only",
+> avoiding spectroscopic and photometric binaries) and is consistent with §7, where El-Badry 2024's
+> inclusion of `AstroSpectroSB1` is called out as a *difference* from Andrews.
+>
+> The user expressed this with explicit uncertainty, so **it is a starting point for #20, not a
+> settled fact.** Write it into `andrews2022.yaml` as the initial `nss_solution_type` set, then
+> verify.
+
+> **Blocking acceptance test.** The parent query must return **exactly 134,598** rows against the
+> Gaia archive before *any* downstream Andrews cut is trusted. This gates the whole sample: an
+> attrition waterfall that starts from the wrong parent can still land on 24 by coincidence of
+> compensating errors, and that would be worse than failing. Concretely, #20 must:
+>
+> 1. Start from the working hypothesis above.
+> 2. Run the count against the archive. If it is not 134,598, iterate over the solution-type set —
+>    and **only** the solution-type set; do not add ancillary quality cuts to reach the number.
+> 3. Freeze the verified set in `andrews2022.yaml`, together with the **literal archive query that
+>    confirmed it** and the returned count, under the file's `provenance` block.
+> 4. If no solution-type set reproduces 134,598, **STOP and escalate** with the counts tried. Do not
+>    proceed to the cut chain.
 
 ### 6.2 Derived quantities
 
@@ -375,11 +538,18 @@ primary_mass:
   method: fixed
   value_msun: 1.0
 parent_query:
+  # Working hypothesis: 12-parameter orbital astrometric solutions, excluding SB1/SB2 and
+  # AstroSpectroSB1. MUST be verified to return exactly 134,598 before the cut chain is trusted.
   adql: |
     SELECT ...
     FROM gaiadr3.nss_two_body_orbit AS nss
     WHERE nss.nss_solution_type IN ( ... astrometry-only types ... )
   expected_parent_n: 134598
+  verification:
+    status: unverified          # -> verified once the archive returns 134598
+    confirmed_count: null
+    confirming_query: null      # literal ADQL text that returned the count
+    verified_on: null
 monte_carlo:
   n_draws: 10000
   covariance: full_12x12
@@ -495,9 +665,14 @@ all systems that:
 > - Criterion (c) requires forward-modeling the **spurious-solution rate**: the paper reports that
 >   **about a quarter of candidates with good astrometric quality flags turned out to be spurious**,
 >   and notes this fraction is higher than for astrometric binaries generally, because spurious
->   solutions are over-represented where genuine binaries are rare. The 25% figure is a
->   candidate-population-specific rate and belongs in the per-sample file as a modeled parameter,
->   not as a global constant.
+>   solutions are over-represented where genuine binaries are rare.
+>
+>   Per **§4.8**, the 25% is **not** a parameter of this sample. It is what you get when this
+>   sample's cut chain is integrated over the shared `P(spurious | ·)` model, and the paper's own
+>   explanation for why it exceeds the general rate — over-representation where genuine binaries are
+>   rare — is precisely a statement that the underlying rate depends on where in parameter space the
+>   cuts land you. Record 25% in `elbadry2024.yaml` under `validation_targets:` as a number to be
+>   reproduced, and satisfy criterion (c) by evaluating the shared model.
 
 ### 7.4 Additional context to encode
 
@@ -558,17 +733,27 @@ outcomes. This is a materially better forward-modeling target than §7, whose co
 were outcome-dependent. The outcome-dependence in this paper enters only when modeling the
 *follow-up subsets* rather than the initial sample (§8.5).
 
+> **v1 scope boundary (decided; §15 Q6 resolved).** Both branches get a **reproduction** path and
+> must match their published counts. **Only the astrometric branch (76) has an inference entry
+> point in v1.** The SB1 branch (151) is reproduction-and-validation only: it proves our cut chain
+> and catalog handling are correct, but it does not contribute to the population likelihood. See
+> §8.4.1 for the reason and for exactly what a v2 would have to add.
+>
+> Per `dark-hunter-pop-workflow` §7, this is a **scope boundary decision, not a limitation to route
+> around**. Do not silently upgrade the SB1 branch to an inference input mid-implementation; that
+> is a separately scoped v2 decision.
+
 ### 8.1 Parent samples and shared preprocessing
 
 Both branches draw from `gaiadr3.nss_two_body_orbit`:
 
-| Branch | `nss_solution_type` |
-|---|---|
-| Astrometric | `Orbital`, `AstroSpectroSB1` |
-| Spectroscopic | `SB1`, `SB1C` |
+| Branch | `nss_solution_type` | Published N | v1 paths |
+|---|---|---|---|
+| Astrometric | `Orbital`, `AstroSpectroSB1` | 76 | reproduction + forward_model + inference |
+| Spectroscopic | `SB1`, `SB1C` | 151 | reproduction only (§8.4.1) |
 
 The astrometric branch's solution types match §7 exactly. The SB1 branch is **new machinery for this
-pipeline** — see §15 Q6.
+pipeline**; roster #26 builds the ingestion and the `f_m` primitive it needs.
 
 Shared preprocessing applied before either branch's cuts:
 
@@ -606,17 +791,139 @@ estimate (§8.2).
 ### 8.2 Primary-mass assumption — owned by this sample
 
 For sources classified as main sequence, the primary mass `M̃1` comes from the **empirical
-`MG,0`–mass relation compiled by Janssens et al. (2022, their Figure 3)**.
+`MG,0`–mass relation of Janssens et al. (2022)**. The relation is **user-supplied** (§15 Q8
+resolved) as the paper's Table 1 fit parameters; do not fetch, digitize, or re-fit it.
+
+#### Functional form (verified, not assumed)
+
+The published relation gives **magnitude as a function of mass**, piecewise in eight mass regimes:
+
+```
+M_G = a * log10(M / M_sun) + b
+```
+
+This form was verified against the supplied Table 1 and Figure before being written down:
+
+- **Solar anchor.** The `0.87–1.55 M☉` segment gives `M_G(1 M☉) = b = 4.73`, against an observed
+  solar `M_G ≈ 4.67`.
+- **Continuity.** Evaluating both adjoining segments at each of the seven internal mass boundaries
+  agrees to **≤ 0.0094 mag** (worst case at 1.55 and 1.8 M☉; four of seven agree to < 0.005 mag).
+  The piecewise fit is continuous to within its own precision.
+- **Figure endpoints.** The form predicts `M_G = 11.90` at `0.2 M☉` and `M_G = −5.96` at
+  `57.95 M☉`, matching the figure's span of roughly `+11.5` to `−6` over `0.2–60 M☉`.
+- **Monotonicity.** Every `a < 0`, so `M_G` decreases strictly with mass across the full range,
+  which makes the inversion single-valued with no branch ambiguity.
+
+#### Fit parameters (Janssens et al. 2022, Table 1)
+
+Staged at `config/selections/external/janssens2022_mass_magnitude.yaml`:
+
+```yaml
+schema_version: 1
+name: janssens2022_mass_magnitude
+provenance:
+  reference: "Janssens et al. (2022), Table 1"
+  description: "Fit parameters for the mass-magnitude relation of dwarfs in different mass regimes"
+  supplied_by: user
+  frozen_on: <ISO date>
+form: "M_G = a * log10(M / M_sun) + b"
+applies_to: dwarfs           # main-sequence only; see below
+mass_range_msun: [0.02, 57.95]
+segments:
+  # m_low, m_up in M_sun; a, b with 1-sigma uncertainties
+  - {m_low: 22.90, m_up: 57.95, a: -3.31,  a_err: 0.08, b: -0.12, b_err: 0.11}
+  - {m_low: 15.55, m_up: 22.90, a: -4.22,  a_err: 0.43, b:  1.12, b_err: 0.59}
+  - {m_low:  7.60, m_up: 15.55, a: -6.07,  a_err: 0.25, b:  3.33, b_err: 0.31}
+  - {m_low:  1.80, m_up:  7.60, a: -6.83,  a_err: 0.06, b:  4.00, b_err: 0.12}
+  - {m_low:  1.55, m_up:  1.80, a: -10.51, a_err: 5.66, b:  4.93, b_err: 1.45}
+  - {m_low:  0.87, m_up:  1.55, a: -9.41,  a_err: 0.42, b:  4.73, b_err: 0.39}
+  - {m_low:  0.60, m_up:  0.87, a: -19.58, a_err: 0.93, b:  4.11, b_err: 0.40}
+  - {m_low:  0.02, m_up:  0.60, a: -7.23,  a_err: 0.21, b:  6.85, b_err: 0.43}
+inversion:
+  # M = 10 ** ((M_G - b) / a)
+  segment_selection: by_mg_interval
+  boundary_tolerance_mag: 0.01
+  boundary_tie_break: lower_mass_segment
+extrapolation: forbid
+```
+
+#### Inversion `M_G → M̃1`
+
+We are given `M_G` and need mass, so the relation must be inverted:
+
+```
+M_tilde1 = 10 ** ( (M_G - b) / a )
+```
+
+**Segment selection.** Because the relation is monotonic in mass but we enter with magnitude, the
+segment must be chosen by `M_G` interval, not by mass. Precompute each segment's magnitude range
+from its mass bounds:
+
+| Mass range [M☉] | `a` | `b` | `M_G` range |
+|---|---|---|---|
+| 0.02 – 0.60 | −7.23 | 6.85 | 19.134 … 8.454 |
+| 0.60 – 0.87 | −19.58 | 4.11 | 8.454 … 5.294 |
+| 0.87 – 1.55 | −9.41 | 4.73 | 5.299 … 2.939 |
+| 1.55 – 1.80 | −10.51 | 4.93 | 2.930 … 2.247 |
+| 1.80 – 7.60 | −6.83 | 4.00 | 2.256 … −2.016 |
+| 7.60 – 15.55 | −6.07 | 3.33 | −2.017 … −3.904 |
+| 15.55 – 22.90 | −4.22 | 1.12 | −3.909 … −4.619 |
+| 22.90 – 57.95 | −3.31 | −0.12 | −4.621 … −5.956 |
+
+**Boundary behavior.** The ≤ 0.0094 mag discontinuities mean adjacent `M_G` intervals overlap or
+gap by up to ~0.01 mag. Resolve deterministically with `boundary_tolerance_mag: 0.01` and
+`boundary_tie_break: lower_mass_segment`, and record boundary-resolved sources in the attrition
+diagnostic so the count is visible rather than silent. The induced mass ambiguity at a boundary is
+at most ~0.002 dex, far below the fit uncertainty, so the tie-break choice is not physically
+consequential — but it must be *fixed* for the reproduction path to be deterministic.
+
+**Extrapolation.** `M_G` outside `[−5.956, 19.134]` — i.e. implied mass outside `0.02–57.95 M☉` —
+is **not applicable**, not clamped to an endpoint. Combined with the main-sequence restriction
+below, this is a second route by which `M̃1` can be undefined, and it must propagate as
+"cut not applicable" rather than "cut failed" (§15 Q10).
+
+**Main-sequence only.** The relation is a *dwarf* mass-magnitude relation and, per §8.1, `M̃1` is
+computed only for sources passing the main-sequence cut. For evolved candidates `M̃1` does not
+exist, so every cut expressed through `M̃1` or `M̃2` is undefined rather than false.
+
+#### Uncertainty propagation
+
+Differentiating the inversion at fixed `M_G`:
+
+```
+sigma_log10M^2 = (sigma_b / a)^2 + (log10(M) * sigma_a / a)^2 + cross-term
+```
+
+The `a`–`b` covariance is not published, so the cross-term cannot be evaluated (§15 Q11). Spec the
+implementation to accept a configurable correlation coefficient defaulting to zero, and to report
+that the default was used.
+
+> **The `1.55–1.80 M☉` segment is nearly uninformative and must be called out.** Its `a = −10.51 ±
+> 5.66` is a 54% fractional uncertainty, and `b = 4.93 ± 1.45`. Propagated, a source landing in
+> this segment carries `σ_log10(M) ≈ 0.19 dex` — roughly a 50% mass uncertainty, and **wider than
+> the segment itself**, which spans only 0.065 dex in mass. Any candidate whose `M̃1` lands here
+> should be flagged in the diagnostic output, and the forward-model path should not treat its
+> `M̃1` as informative.
+
+**Which path propagates what.** The **reproduction** path uses the central `a`, `b` values only —
+the published counts were produced that way, and injecting extra scatter would not reproduce them.
+The **forward-model** path ignores this block entirely and uses the pipeline's own TAG10/MSC mass
+posterior (§4.3). The `a`/`b` uncertainties therefore matter in exactly one place: the
+`σ_M̃2 ≤ 0.105 M☉` cut of astrometric subsample 4, where whether they are included changes the
+recovered count — see §15 Q12.
 
 ```yaml
 primary_mass:
-  method: janssens2022_mg_mass_relation
-  reference: "Janssens et al. (2022), Figure 3"
+  method: janssens2022_mass_magnitude
+  table: config/selections/external/janssens2022_mass_magnitude.yaml
+  propagate_fit_uncertainty: false     # reproduction path; see §15 Q12
+  ab_correlation: 0.0                  # unpublished; see §15 Q11
   applies_only_when: "main_sequence == true"
   caveats:
     - "Photometric only; does not model each source's detailed evolutionary state."
     - "Does not model light contributions from possible luminous companions."
     - "Suitable for initial candidate selection, not for final masses."
+    - "1.55-1.80 Msun segment is nearly uninformative (a = -10.51 +/- 5.66)."
 ```
 
 The paper denotes these estimates `M̃1`, and companion masses derived from them `M̃2`, specifically
@@ -688,6 +995,14 @@ Notes to carry in the file:
   sanity check on our own parent query.
 - Subsample 2 applies **no goodness-of-fit cut and no main-sequence requirement**, targeting higher
   companion masses than Equation 4. Two of its five `G < 15` members are already in subsample 1.
+- **Table E1 is user-supplied and dual-purpose (§15 Q8 resolved).** Stage it verbatim at
+  `config/selections/external/elbadry2023_table_e1.yaml`, preserving every quoted uncertainty; do
+  not fetch or re-derive it. Beyond supplying this subsample's membership, its covariate columns and
+  `Verdict` labels make it the **labeled validation set for the §4.8 spuriousness model**, so the
+  file is referenced from two places and must not be trimmed to just the source IDs. Only six rows
+  are legible in the supplied image; if the published table is longer we need the complete version
+  (§15 Q13). Note also that its `✓` verdict for `4373465352415301632` **contradicts** Andrews'
+  exclusion of that source (§4.8, §15 Q14).
 - Subsample 3 imports Andrews' selection wholesale. The paper explicitly notes Andrews differs by
   neglecting extinction corrections, assuming `M̃1 = 1 M☉`, and imposing additional cuts on
   companion-mass uncertainty and `F2`. Twelve of its sixteen members are already covered above.
@@ -729,6 +1044,36 @@ Published breakdown the waterfall must reproduce:
 | **Union** | **151** |
 
 Arithmetic check: `136 + 30 − 15 = 151`.
+
+#### 8.4.1 v1 scope boundary — the SB1 branch is reproduction-only
+
+**Decided (§15 Q6 resolved).** In v1 the spectroscopic branch has:
+
+- a **reproduction path**, which must recover all **151** sources and the `136 / 30 / 15` route
+  breakdown exactly;
+- a **validation role**, since reproducing 151 proves our SB1 ingestion, `f_m` primitive, and
+  main-sequence gating are correct, and the branch supplies one of the three §4.8 spuriousness
+  validation targets;
+- **no inference entry point.** It contributes nothing to the population likelihood. Only the
+  astrometric branch's 76 sources do.
+
+**Why the boundary is here.** The pipeline's mass derivation is astrometric throughout
+(`ARCHITECTURE.md` §4). An astrometric mass function constrains `M2` directly (§5.3); a
+spectroscopic one constrains only `M2 sin³i` (§8.4). Feeding SB1 systems into the mass function
+therefore requires **marginalizing over inclination** — with an inclination prior that is itself
+selection-dependent, because edge-on systems are preferentially detected as SB1s. That is a distinct
+piece of statistical machinery, not a configuration change.
+
+**What a v2 would have to add**, recorded so the reason for the boundary stays on file:
+
+1. A `sin³i` marginalization for the spectroscopic mass function.
+2. A selection-aware inclination prior consistent with the SB1 detection probability.
+3. Joint treatment of the 2 sources appearing in both branches, whose inclination is constrained
+   astrometrically and spectroscopically at once.
+
+> Per `dark-hunter-pop-workflow` §7 this is a **scope boundary, not a limitation to route around**.
+> The #25 and #26 subagents must not upgrade the SB1 branch to an inference input mid-implementation
+> because it "seems to work"; that is a separately scoped v2 decision requiring human sign-off.
 
 ### 8.5 Outcome-dependent criteria — inclusion operator only
 
@@ -776,31 +1121,40 @@ These prioritization rules condition on measured RVs and SED-fit outcomes, i.e. 
 observation being selected for. The follow-up selection function may condition only on
 pre-follow-up observables; the rest is inclusion-operator territory.
 
-### 8.6 Purity and contamination as per-sample parameters
+### 8.6 Purity and contamination — recorded validation targets
 
-Per the established rule, these are **modeled per-sample parameters in this file**, never global
-constants — and note they differ sharply between the two branches, so each branch carries its own:
+**Per §4.8, these are outputs to be reproduced, not parameters to be used.** The paper's two
+branch-level rates are recorded here so the shared spuriousness model can be tested against them; no
+selection or likelihood code may read them as inputs.
 
 ```yaml
-contamination:
-  astrometric:
-    reliable_solution_and_compact_object_fraction: 0.60
-  spectroscopic:
-    spurious_solution_fraction: 0.50
-    dominant_residual_contaminants:
-      - post_mass_transfer_binaries
-      - hierarchical_triples
+validation_targets:
+  spurious_fraction:
+    astrometric: 0.40         # ~40%: reproduce by integrating the shared model over this branch
+    spectroscopic: 0.50       # ~50%: same, over the SB1 branch
+    source: "El-Badry et al. (2026)"
+    role: acceptance_test     # NEVER an input; see CONTINUATION_PLAN.md 4.8
+  purity:
+    astrometric_reliable_and_compact_object_fraction: 0.60
+  dominant_residual_contaminants:
+    - post_mass_transfer_binaries
+    - hierarchical_triples
 ```
 
-For context, the paper's astrometric branch yields the two known Gaia BHs, 27 NS candidates, and a
-dozen massive WDs; it also shows that **tight WD+WD binaries can masquerade as NSs** within this
-sample — a contamination channel our `companion_nature_likelihood` stage should be checked against.
-The SB1 branch's `M̃2,min > 3 M☉` candidates were **all** luminous binaries or spurious solutions,
-and the astrometric branch's `M̃2 > 2 M☉` candidates other than the two confirmed BHs were refuted or
-revised downward.
+That the two branches differ by 10 percentage points **within a single paper, single program, and
+single follow-up campaign** is itself the argument for §4.8: nothing about "the sample" changed
+between them except the detection modality and the cut chain. Together with §7.3's ~25%, we have
+three rates spanning 25–50%, and the shared model has to produce all three from one set of
+parameters.
 
-Compare §7.3's ~25% spurious rate among good-quality-flag candidates: that is a third, different
-number for a third, different candidate population. Three samples, three rates, three files.
+Physical context the model will need to accommodate: the astrometric branch yields the two known
+Gaia BHs, 27 NS candidates, and a dozen massive WDs, and shows that **tight WD+WD binaries can
+masquerade as NSs** — a contamination channel distinct from spuriousness, and one our
+`companion_nature_likelihood` stage should be checked against. The SB1 branch's `M̃2,min > 3 M☉`
+candidates were **all** luminous binaries or spurious solutions, and the astrometric branch's
+`M̃2 > 2 M☉` candidates other than the two confirmed BHs were refuted or revised downward. Both
+observations say the same thing the labeled Table E1 rows say (§4.8): **implausibly large implied
+mass is itself a strong spuriousness covariate.**
 
 ### 8.7 Cross-sample dependencies
 
@@ -872,8 +1226,12 @@ provenance:
   data_release: dr3
 mode: reproduction
 depends_on: [andrews2022]
+inference_branches: [astrometric]   # SB1 is reproduction-only in v1 (8.4.1)
 primary_mass:
-  method: janssens2022_mg_mass_relation
+  method: janssens2022_mass_magnitude
+  table: config/selections/external/janssens2022_mass_magnitude.yaml
+  propagate_fit_uncertainty: false
+  ab_correlation: 0.0
   applies_only_when: "main_sequence == true"
 extinction:
   north: {applies_when: "dec_deg > -28.0", map: green2019}
@@ -907,6 +1265,8 @@ branches:
         expected_n: 47
       - id: elbadry2023_table_e1
         external_table: config/selections/external/elbadry2023_table_e1.yaml
+        # Same file is registered as spuriousness_model.labeled_sets[] (4.8); do not trim
+        # it to source IDs only.
         require_main_sequence: false
         apply_goodness_of_fit_cut: false
         g_mag_faint_limit: 15.0
@@ -949,9 +1309,14 @@ branches:
       high_mass_function: 30
       both: 15
     expected_union_n: 151
-contamination:
-  astrometric: {reliable_solution_and_compact_object_fraction: 0.60}
-  spectroscopic: {spurious_solution_fraction: 0.50}
+    inference: false            # reproduction + validation only in v1 (8.4.1)
+validation_targets:
+  spurious_fraction:
+    astrometric: 0.40
+    spectroscopic: 0.50
+    role: acceptance_test       # reproduced by the shared spuriousness model; never read as input
+  purity:
+    astrometric_reliable_and_compact_object_fraction: 0.60
 acceptance_tests:
   simon2026_exclusion_breakdown:
     sb1_fails_significance: 5
@@ -969,43 +1334,59 @@ Every numeric threshold above lives in this file, never inline in Python.
 | Published N | 21 | 227 (76 astrometric + 151 SB1) |
 | Parent solution types | `Orbital`, `AstroSpectroSB1` | Same **plus** `SB1`, `SB1C` |
 | Candidate statistic | Shahaf AMRF triage via published catalog | AMRF computed directly + spectroscopic `f_m` |
-| Primary mass | IsocLum, `gaiadr3.binary_masses` | Janssens et al. (2022) `MG,0`–mass, MS only |
+| Primary mass | IsocLum, `gaiadr3.binary_masses` | Janssens et al. (2022) `M_G = a log₁₀M + b`, MS only |
 | Extinction split | δ = −30°, Lallement 2022 | δ = −28°, Lallement 2019 |
 | Companion-mass floor | 1.25 M☉ | 1.4 M☉ (primary), down to 1.05 M☉ (subsample 4) |
 | Magnitude limit | G < 15 | G < 15 (both branches) |
 | Goodness-of-fit cut | — | F2 < 10 (subsample 1 only) |
 | Selection outcome-dependence | **Yes** — criteria (b)(c)(d) depend on follow-up | **No** — initial 227 is catalog-level only |
-| Spurious rate | ~25% of good-quality-flag candidates | ~40% astrometric; ~50% SB1 |
+| Spurious rate (validation target, §4.8) | ~25% of good-quality-flag candidates | ~40% astrometric; ~50% SB1 |
+| Inference entry point | Yes | Astrometric branch only (§8.4.1) |
 
-The last two rows are the ones that matter architecturally. El-Badry 2026's initial sample is
+The outcome-dependence row is the one that matters architecturally. El-Badry 2026's initial sample is
 directly forward-modelable in a way El-Badry 2024's published sample is not, which makes it the
-better anchor for the DR4 selection design the paper itself is aimed at.
+better anchor for the DR4 selection design the paper itself is aimed at. The spurious-rate row is no
+longer a difference between the samples in any modeled sense — under §4.8 the three numbers are three
+outputs of one model, and their spread is the test.
 
-## 9. Sample: Acceleration/jerk stars
+## 9. Sample: Acceleration/jerk stars — BLOCKED, PENDING USER INPUT
 
-**File:** `config/selections/accel_jerk.yaml` · **Roster:** #22 · **Model:** Mid · **Effort:**
-Standard
+**File:** `config/selections/accel_jerk.yaml` · **Roster:** #22 · **Status: BLOCKED — the selection
+is not yet published; the user will supply the selection function.**
 
-Unlike §6–§8, this is **not a published compact-object candidate list with a target N to reproduce**.
-Per `ARCHITECTURE.md` §4, the acceleration/jerk catalogs are matched **at the broad
-population/aggregate level only**, using the same `gaiamock` cascade to forward-model which systems
-land in which solution type, and the pool doubles as the RV follow-up target list. Systems are
-tracked in a separate pending pool, promotable once their orbits resolve.
+Unlike §6–§8, this sample has **no published cut chain to transcribe and no published N to
+reproduce**. The selection function itself does not yet exist in the literature. Everything below is
+the architectural frame the eventual selection must fit into; the cut chain, thresholds, and parent
+query are deliberately absent.
 
-Therefore:
+**Do not invent a selection from the existing `accel_jerk` target list.** The target list governs
+*which systems we observe*; it is not a candidate-selection cut chain, and treating it as one would
+manufacture a selection function that no paper applied and that we would then be forward-modeling
+against nothing.
 
-- `mode` is **`forward_model` only**; there is no reproduction path. State this explicitly in the
-  file so the dual-path machinery does not expect a published N.
-- The selection function is the **solution-type occupancy** predicted by the cascade — the fraction
-  of mock systems landing in the 7-parameter (acceleration) and 9-parameter (jerk) bins — validated
-  against the real catalog's aggregate fractions, reusing the existing solution-type-fraction
-  diagnostic from `selection_function_astrometric`.
+What is already settled, and will carry over unchanged when the selection arrives:
+
+- **`mode` is `forward_model` only.** There is no reproduction path, because there is no published
+  sample to reproduce. State this explicitly in the file so the dual-path machinery (§4.2) does not
+  expect a `published_n`.
+- Per `ARCHITECTURE.md` §4, the acceleration/jerk catalogs are matched **at the broad
+  population/aggregate level only**, using the same `gaiamock` cascade to forward-model which systems
+  land in which solution type. The selection function is the **solution-type occupancy** predicted by
+  the cascade — the fraction of mock systems landing in the 7-parameter (acceleration) and
+  9-parameter (jerk) bins — validated against the real catalog's aggregate fractions, reusing the
+  existing solution-type-fraction diagnostic from `selection_function_astrometric`.
+- The pool doubles as the RV follow-up target list; systems are tracked in a separate pending pool,
+  promotable once their orbits resolve.
 - The DR3/DR4 catalog identifiers stay path-specific
   (`dr3.selection_function_followup.accel_jerk_catalog_id`), consistent with
   `dark-hunter-pop-workflow` §6.
 - Adoption dates for the follow-up-target aspect continue to come from
-  `config/target_lists/derived/accel_jerk_adoption_dates.yaml`; this file governs the *selection*
+  `config/target_lists/derived/accel_jerk_adoption_dates.yaml`; this file will govern the *selection*
   aspect only, and must not duplicate those dates.
+
+**Unblocking condition.** The user supplies the selection function. This section is then rewritten to
+the §6–§8 structure (parent query, ordered cut chain with a cut table, validation targets, config
+sketch), roster #22 and Slot F are unblocked, and `accel_jerk` is enabled in the §12.1 registry.
 
 ## 10. `data_acquisition` additions required
 
@@ -1091,13 +1472,22 @@ sample_selection:
       path: config/selections/elbadry2026.yaml
       mode: reproduction
     - name: accel_jerk
-      enabled: true
+      enabled: false                 # BLOCKED: selection function not yet supplied (§9)
       path: config/selections/accel_jerk.yaml
       mode: forward_model
+
+spuriousness_model:                  # sample-INdependent (§4.8); not under sample_selection
+  enabled: true
+  path: config/spuriousness_model.yaml
+  labeled_sets:
+    - config/selections/external/elbadry2023_table_e1.yaml
 ```
 
 - Each sample is independently enable/disable-able, as required.
 - `mode` is per-sample (§4.2), overridable per run.
+- `spuriousness_model` sits **outside** the `samples` list on purpose: it is one model shared by all
+  of them, and nesting it under any sample would reintroduce exactly the per-sample-constant design
+  §4.8 replaces.
 - Drafted as `config/fragments/sample_selection.yaml` during development and merged into
   `config.yaml` by Review/Integration at the checkpoint, per `dark-hunter-pop-workflow` §5.
 
@@ -1145,10 +1535,19 @@ Mandatory per `dark-hunter-pop-workflow` §8; full-detail reports (caveman exemp
 | `sample_selection_function` | Forward-model path: survival probability vs. M2, P_orb, G, for each sample | Smooth, monotonic where physically expected |
 | `sample_overlap_matrix` | Pairwise overlap in source IDs between enabled samples | Feeds the §15 Q1 double-counting decision |
 | `mode_divergence` | Reproduction vs. forward-model recovered sets for the same sample | Divergence explained by the mass assumption, quantified |
+| `spuriousness_rate_reproduction` | Shared §4.8 model integrated over each enabled sample's selection, against that sample's recorded `validation_targets` | All three reproduced from **one** parameter set: El-Badry 2024 ~25%, El-Badry 2026 astrometric ~40%, SB1 ~50% |
+| `spuriousness_covariate_sensitivity` | Output of the sensitivity-analysis module over the §4.8 candidate covariates: which are retained, which are dropped, and the effect of each on the predicted rates | Every retained covariate justified by the module, not by the candidate table |
+| `spuriousness_labeled_set_performance` | Shared model scored against the Table E1 `Verdict` labels, itemized per source | Reported with the labeled-set size; disagreement on `4373465352415301632` (§15 Q14) called out explicitly rather than averaged away |
+| `janssens_segment_occupancy` | Count of El-Badry 2026 sources whose `M̃1` lands in each Janssens mass segment, plus counts resolved at a segment boundary and counts falling outside `0.02–57.95 M☉` | Boundary-resolved and out-of-range counts reported, never silent; the `1.55–1.80 M☉` occupancy flagged (§8.2) |
 
 A sample's reproduction path is **not considered working** until
 `sample_reproduction_report` matches the published N exactly. Until then the sample must not be
 enabled in `forward_model` mode for inference.
+
+The spuriousness model is **not considered working** until
+`spuriousness_rate_reproduction` reproduces all three published rates from a single parameter set.
+Reproducing one or two is not partial credit — it is the signature of a model that has absorbed a
+sample-specific normalization, which is the failure mode §4.8 exists to prevent.
 
 ## 14. Phase 8 kickoff prompts
 
@@ -1260,16 +1659,32 @@ Read docs/CONTINUATION_PLAN.md §4, §5, §6, §11, and the four project skills.
 Transcribe the Andrews et al. (2022) cut chain into config/selections/andrews2022.yaml exactly as
 specified in §6, including every numeric threshold, the fixed M1 = 1.0 Msun assumption, the
 no-extinction CMD cut, and the excluded source 4373465352415301632 with its stated reason. Wire it
-into the registry from #17. Verify the ADQL solution-type set actually returns the published parent
-N of 134,598 and freeze it.
+into the registry from #17.
 
-Success criterion: the reproduction path recovers exactly 24 systems, and the attrition waterfall
-matches 134,598 -> 106 -> ... -> 24.
+BLOCKING FIRST TASK — the parent query. Start from this working hypothesis, supplied by the user
+with explicit uncertainty: the parent is all 12-parameter (orbital) astrometric solutions that are
+NOT SB1/SB2, i.e. purely astrometric orbital types, excluding AstroSpectroSB1 and all spectroscopic
+types. Run it against the Gaia archive. It MUST return exactly 134,598.
 
-Effort contract (Light): transcription only. You may NOT invent thresholds, reinterpret a cut, or
-change the framework. If a published number cannot be reproduced, STOP and escalate with the
-attrition table rather than tuning anything. Full required pytest before PR.
-Stop when PR open + CI green.
+- If it does: freeze the solution-type set in andrews2022.yaml, and record the literal confirming
+  ADQL and the returned count under provenance.verification.
+- If it does not: iterate over the SOLUTION-TYPE SET ONLY. Do not add quality cuts to reach the
+  number. If no set reproduces 134,598, STOP and escalate with the counts you tried.
+
+Do not run any downstream cut until the parent count is verified. A wrong parent can still land on
+24 through compensating errors, which is a worse outcome than failing.
+
+Success criterion: parent = 134,598 verified, then the reproduction path recovers exactly 24
+systems with the attrition waterfall matching 134,598 -> 106 -> ... -> 24.
+
+Note for the file, not for you to act on: source 4373465352415301632, which Andrews excludes as a
+scanning-law harmonic contaminant, is verdicted GENUINE in El-Badry 2023a Table E1 (§4.8). Record
+Andrews' exclusion as published. Do not adjudicate the conflict; roster #27 owns it.
+
+Effort contract (Light): transcription plus the parent verification above. You may NOT invent
+thresholds, reinterpret a cut, or change the framework. If a published number cannot be reproduced,
+STOP and escalate with the attrition table rather than tuning anything. Full required pytest before
+PR. Stop when PR open + CI green.
 ```
 
 ---
@@ -1295,8 +1710,12 @@ not spurious; >= half an orbit observed).
 
 CRITICAL — §7.3: criteria (b), (c), (d) are outcome-dependent. They go in the likelihood inclusion
 operator applied identically to mocks, NOT as a data filter that discards real systems. The
-follow-up selection function may condition only on pre-follow-up observables. Model the ~25%
-spurious rate among good-quality-flag candidates as a per-sample parameter, not a global constant.
+follow-up selection function may condition only on pre-follow-up observables.
+
+CRITICAL — §4.8: the ~25% spurious rate is NOT a parameter of this sample. Record it in
+elbadry2024.yaml under a validation_targets: block, labeled as an output to be reproduced by the
+shared spuriousness model (roster #27), and make sure no selection or likelihood code path reads
+it. Criterion (c) is satisfied by evaluating that shared model, not by applying a constant.
 
 Resolve §15 Q2 (Shahaf catalog cross-match vs. AMRF reimplementation) in the PR description; the
 reproduction path may use the catalog, but state what the forward-model/DR4 path needs.
@@ -1307,15 +1726,26 @@ Effort contract (Standard): framework frozen by #17. Success criterion: reproduc
 
 ---
 
-### Slot F — acceleration/jerk selection (#22)
+### Slot F — acceleration/jerk selection (#22) — BLOCKED, DO NOT DISPATCH
+
+**Do not launch this slot.** The accel/jerk selection function is unpublished and has not yet been
+supplied by the user (§9). There is no cut chain to build. Dispatching a subagent against this slot
+would produce an invented selection derived from the `accel_jerk` target list, which is exactly the
+failure mode §9 prohibits.
+
+The prompt below is retained in draft so the slot is ready the moment the selection arrives. It is
+incomplete by design: the parent query, cut chain, and thresholds are missing because they do not
+exist yet.
 
 ```
+[DRAFT — BLOCKED pending user-supplied selection function. Do not run as-is.]
+
 You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop.
 Model: claude-4-sonnet    Effort: Standard
 
 Issue: <umbrella child for roster #22>
 Branch: phase8/selection-accel-jerk. PR → main. Closes #N alone on a line. Labels: phase-8.
-Depends on #17 being merged.
+Depends on #17 being merged AND on §9 having been rewritten with the supplied selection function.
 
 Read docs/CONTINUATION_PLAN.md §9, ARCHITECTURE.md §4 selection_function_astrometric and
 selection_function_followup, and the four project skills.
@@ -1324,10 +1754,15 @@ Build config/selections/accel_jerk.yaml as forward_model-only — there is no pu
 reproduce, and the file must say so explicitly so the dual-path machinery does not expect one. The
 selection function is solution-type occupancy (7-parameter acceleration, 9-parameter jerk) from the
 existing gaiamock cascade, validated against the real catalog's aggregate fractions by reusing the
-solution-type-fraction diagnostic.
+solution-type-fraction diagnostic. Transcribe the user-supplied cut chain from the rewritten §9.
+
+You may NOT derive a selection from the existing accel_jerk target list. The target list says which
+systems we observe; it is not a candidate-selection cut chain. If §9 still reads as a stub when you
+start, STOP immediately and report that the slot is still blocked.
 
 Keep the DR3/DR4 catalog identifiers path-specific. Do NOT duplicate the adoption dates already in
-config/target_lists/derived/accel_jerk_adoption_dates.yaml.
+config/target_lists/derived/accel_jerk_adoption_dates.yaml. Flip enabled: true for accel_jerk in the
+§12.1 registry as part of this PR.
 
 Effort contract (Standard). Full required pytest before PR. Stop when PR open + CI green.
 ```
@@ -1344,7 +1779,7 @@ Issue: <umbrella child for roster #26>
 Branch: phase8/sb1-mass-function. PR → main. Closes #N alone on a line. Labels: phase-8, enhancement.
 Depends on #18 being merged.
 
-Read docs/CONTINUATION_PLAN.md §8.4, §8.1, §15 Q6, ARCHITECTURE.md §4 data_acquisition, four skills.
+Read docs/CONTINUATION_PLAN.md §8.4, §8.4.1, §8.1, ARCHITECTURE.md §4 data_acquisition, four skills.
 
 Extend data_acquisition to ingest DR3 SB1 and SB1C solutions with the columns the spectroscopic
 mass function needs: K1 (semi-amplitude), its error, eccentricity, and period. Implement the
@@ -1355,8 +1790,12 @@ This is the FIRST non-astrometric mass path in the pipeline. Keep it clearly sep
 astrometric mass function in §5.2 — same module, distinct names, no shared inversion code that
 could silently apply the wrong relation.
 
-Escalate §15 Q6 (does the SB1 branch feed inference, or is it reproduction/comparison-only?) rather
-than deciding it; ship the ingestion and primitive either way.
+SCOPE IS SETTLED — §8.4.1, and it constrains what you build. The SB1 branch is reproduction and
+validation only in v1: it must recover 151 sources and the 136 / 30 / 15 route breakdown, and it
+has NO inference entry point. Do not implement the sin^3 i inclination marginalization, and do not
+wire SB1 systems into the population likelihood even if it looks like a small step. That is a
+scoped v2 decision requiring human sign-off (dark-hunter-pop-workflow §7). Mark the SB1 artifacts
+so a later reader can see the boundary was deliberate.
 
 Effort contract (Standard). Unit tests against closed-form values. Full required pytest before PR.
 Stop when PR open + CI green.
@@ -1386,22 +1825,39 @@ Total published N = 227.
 Implement the AMRF exactly once and derive it from the §5.2 astrometric mass function via the
 identity A^3 = m_f / M1 — do NOT maintain a second independent inversion.
 
-This sample owns the Janssens et al. (2022) MG_0-mass relation (§8.2), which is defined ONLY for
-main-sequence sources and differs from both Andrews (fixed 1.0 Msun) and El-Badry 2024 (IsocLum).
+SCOPE — §8.4.1: only the astrometric branch (76) has an inference entry point in v1. The SB1 branch
+(151) is reproduction and validation only. Reproduce it exactly; do not connect it to inference.
+
+This sample owns the Janssens et al. (2022) mass-magnitude relation (§8.2), which is defined ONLY
+for main-sequence sources and differs from both Andrews (fixed 1.0 Msun) and El-Badry 2024
+(IsocLum). The relation is user-supplied and already fully specified in §8.2 — piecewise
+M_G = a*log10(M/Msun) + b over eight mass segments, verified continuous, inverted as
+M = 10**((M_G - b)/a), with segment selection by M_G interval and extrapolation FORBIDDEN outside
+0.02-57.95 Msun. Stage it verbatim at config/selections/external/janssens2022_mass_magnitude.yaml.
+Do not re-fit, re-digitize, or "improve" it. Reproduction uses central a, b only.
+
 Its extinction split is delta = -28 deg with Lallement 2019, NOT the -30 deg / Lallement 2022 used
 by El-Badry 2024. Do not consolidate either one.
 
 Subsample 3 imports Andrews' evaluated membership, so declare depends_on: [andrews2022] and make
-the registry resolve it. Subsample 2 needs El-Badry et al. (2023a) Table E1 staged as a frozen
-fixture under config/selections/external/ (§15 Q8).
+the registry resolve it. Subsample 2 uses El-Badry et al. (2023a) Table E1, user-supplied and
+staged at config/selections/external/elbadry2023_table_e1.yaml. That file is ALSO the labeled
+validation set for the #27 spuriousness model (§4.8) — keep every column and uncertainty, do not
+reduce it to a source-ID list, and register it under spuriousness_model.labeled_sets.
 
 The initial 227-source selection is purely catalog-level: NO outcome-dependent criteria in the cut
 chain. The follow-up outcomes and prioritization rules in §8.5 go in the likelihood inclusion
-operator applied identically to mocks, never as filters on real systems. Branch-specific
-contamination rates (§8.6) are per-sample parameters in this file.
+operator applied identically to mocks, never as filters on real systems.
+
+CRITICAL — §4.8: the ~40% astrometric and ~50% SB1 spurious rates are NOT parameters of this
+sample. Put them under validation_targets: as outputs the shared #27 model must reproduce, and
+ensure nothing reads them as inputs.
 
 Required acceptance test beyond the headline N: reproduce the Simon et al. (2026) exclusion
 breakdown from §8.9 (5 / 2 / 1 / 1). It validates four thresholds independently.
+
+Escalate rather than decide: §15 Q12 (whether sigma_M2 in subsample 4 includes the Janssens a/b fit
+uncertainty or only the astrometric covariance). It changes whether subsample 4 recovers 22.
 
 Effort contract (Deep): you own the two-branch structure and how it maps onto the #17 framework.
 Justify it in the PR. Full required pytest before PR. Stop when PR open + CI green.
@@ -1417,9 +1873,11 @@ Model: claude-opus-5-thinking-medium    Effort: Deep
 
 Issue: <umbrella child for roster #23>
 Branch: phase8/sample-selection-inference. PR → main. Closes #N alone on a line. Labels: phase-8.
-Depends on #20, #21, #22, #25 being merged.
+Depends on #20, #21, #25, and #27 being merged. NOT on #22, which is blocked (§9); proceed with
+accel_jerk disabled in the registry.
 
-Read docs/CONTINUATION_PLAN.md §4.7, §8.7, §13, §15, ARCHITECTURE.md §4 inference, and four skills.
+Read docs/CONTINUATION_PLAN.md §4.7, §4.8, §8.4.1, §8.7, §13, §15, ARCHITECTURE.md §4 inference,
+and four skills.
 
 Extend the Poisson rate to include sample_selection_function_s per §4.7. Resolve §15 Q1: the
 samples OVERLAP three ways, not pairwise — El-Badry 2024 drew candidates from Andrews, and El-Badry
@@ -1429,6 +1887,10 @@ inclusion-indicator formulation, justify it in writing, and implement it. Emit t
 sample_overlap_matrix diagnostic.
 
 Also fold in the outcome-dependent inclusion terms from §7.3 and §8.5, applied identically to mocks.
+The "not spurious" condition is evaluated by calling #27's shared P(spurious | ·) model on each mock
+realization (§4.8). Do NOT read any per-sample spurious rate; those are validation_targets: only.
+
+Only El-Badry 2026's astrometric branch enters the likelihood; its SB1 branch does not (§8.4.1).
 
 Do not silently upgrade v1's staged-but-connected treatment to a fully joint one
 (dark-hunter-pop-workflow §7) — that is a separately scoped v2 decision.
@@ -1448,19 +1910,89 @@ Model: cursor-grok-4.6-high-fast    Effort: Standard
 
 Issue: <umbrella child for roster #24>
 Branch: phase8/sample-diagnostics. PR → main. Closes #N alone on a line. Labels: phase-8.
-Depends on #20, #21, #22, #25 being merged.
+Depends on #20, #21, #25 being merged. NOT on #22, which is blocked (§9).
 
-Read docs/CONTINUATION_PLAN.md §13, §8.9, docs/PLOTS.md, ARCHITECTURE.md §4 diagnostics, four skills.
+Read docs/CONTINUATION_PLAN.md §13, §8.2, §8.9, docs/PLOTS.md, ARCHITECTURE.md §4 diagnostics,
+four skills.
 
 Implement the §13 diagnostics: sample_attrition_waterfall, sample_reproduction_report,
-simon2026_exclusion_breakdown, covariance_health, sample_selection_function, and mode_divergence.
-The attrition waterfall must handle El-Badry 2026's two-branch, four-subsample union structure
-(§8.3) rather than assuming a single linear cut chain. Use the shared plotting
+simon2026_exclusion_breakdown, covariance_health, sample_selection_function, mode_divergence, and
+janssens_segment_occupancy. The attrition waterfall must handle El-Badry 2026's two-branch,
+four-subsample union structure (§8.3) rather than assuming a single linear cut chain, and must
+distinguish "cut not applicable" from "cut failed" (§15 Q10) — collapsing the two will make the
+subsample counts irreproducible. The three spuriousness diagnostics belong to #27, not to you. Use
+the shared plotting
 primitives in plotting.py; do not add new rendering code paths. Reports are full-detail (caveman
 exemption). Wire them into the diagnostics hook registry with config on/off switches matching the
 existing hook convention.
 
 Effort contract (Standard). Full required pytest before PR. Stop when PR open + CI green.
+```
+
+---
+
+### Slot K — spuriousness model (#27)
+
+```
+You are a Phase 8 subagent for UCSC-Transients/dark-hunter_pop.
+Model: claude-opus-5-thinking-medium    Effort: Deep
+
+Issue: <umbrella child for roster #27>
+Branch: phase8/spuriousness-model. PR → main. Closes #N alone on a line. Labels: phase-8.
+Depends on #18 and #19 being merged, and on config/selections/external/elbadry2023_table_e1.yaml
+being staged.
+
+Read docs/CONTINUATION_PLAN.md §4.8 in full, plus §6.4, §7.3, §8.5, §8.6, §13, and the four project
+skills.
+
+Build ONE sample-independent model P(spurious | physical and observational parameters) in
+spuriousness_model.py, configured by config/spuriousness_model.yaml. This REPLACES the per-sample
+contamination constants that earlier drafts specified. Any code path that reads a per-sample
+spurious rate as an input is a bug you are here to remove.
+
+Why one model: the ~25% (El-Badry 2024), ~40% (El-Badry 2026 astrometric) and ~50% (El-Badry 2026
+SB1) rates are not intrinsic sample properties. They are what you get when each paper's cut chain
+is integrated over a common underlying propensity. El-Badry 2024 says as much: their rate exceeds
+the general astrometric-binary rate because spurious solutions are over-represented where genuine
+binaries are rare.
+
+Candidate covariates are listed in §4.8: period and distance to the nearest Gaia scanning-law
+harmonic (Andrews excluded a source at P = 186 d ~ 3x the scanning period on this basis alone),
+goodness_of_fit / F2, parallax S/N, a0 S/N, G magnitude, implied m_f or M2, visibility_periods_used,
+and an RV-consistency feature built from observed vs expected RV semi-amplitude.
+
+DO NOT hand-pick the covariate set. Run the sensitivity-analysis module over the candidates and
+retain only what it justifies, per the project rule that every population class is a rate function
+of the relevant covariates. Emit spuriousness_covariate_sensitivity showing what was kept, what was
+dropped, and why. A covariate retained because it appeared in §4.8's table rather than because the
+module kept it is a specification failure, and I will treat it as one in review.
+
+Labeled data: El-Badry 2023a Table E1 is a labeled validation set, not just a source list. Its
+columns are covariates and its Verdict column is the label. Only six rows are legible in what the
+user supplied. Report the actual row count you find; if it is six, say so plainly and treat the
+table as a spot-check rather than a fit set, and escalate §15 Q13 (we need the complete table).
+Do not fit a multi-covariate model to six labels and present it as validated.
+
+Handle two things honestly rather than smoothing them over:
+- RV consistency is available only where follow-up exists. Model it as missing-at-selection. Do not
+  impute it, and do not quietly restrict the model to sources that have it.
+- Table E1 verdicts source 4373465352415301632 as GENUINE; Andrews et al. (2022) excluded that exact
+  source as a probable scanning-law harmonic contaminant. Carry both labels, let the fit adjudicate,
+  and report the outcome in spuriousness_labeled_set_performance. Do not drop the row and do not
+  pick a side by hand. This is §15 Q14.
+
+The model MUST be evaluable on mock realizations — that is the whole point, since it feeds the #23
+Poisson inclusion operator, and a constant cannot be applied to a mock.
+
+Acceptance test (§13 spuriousness_rate_reproduction): integrating the ONE model over each sample's
+selection reproduces ~25%, ~40%, and ~50%. All three from a single parameter set. Reproducing one
+or two is not partial credit; it is the signature of an absorbed per-sample normalization, which is
+exactly the failure §4.8 exists to prevent. If you cannot get all three, STOP and escalate with the
+three predicted values and your covariate set rather than adding a per-sample term.
+
+Effort contract (Deep): you own the functional form, the link function, and the missing-data
+treatment. Justify each in the PR, including what the sensitivity analysis rejected. Full required
+pytest before PR. Stop when PR open + CI green.
 ```
 
 ---
@@ -1477,6 +2009,12 @@ every numeric threshold lives in config/selections/*.yaml and none leaked inline
 confirm no selection file was edited after freeze without a schema_version bump; keep slow MC
 suites out of the default CI gate.
 
+Two Phase-8-specific checks:
+- No code path reads a per-sample spurious or contamination rate as an input. Those numbers live
+  under validation_targets: and are outputs only (§4.8). Grep for it on every selection PR.
+- config/spuriousness_model.yaml stays OUTSIDE config/selections/. Nesting it under a sample
+  reintroduces the design §4.8 removed.
+
 Prefer review plus small integration PRs. Docs-first before any freeze break.
 ```
 
@@ -1487,12 +2025,25 @@ Prefer review plus small integration PRs. Docs-first before any freeze break.
 | Q1 | Samples overlap **three ways, not pairwise**: El-Badry 2024 drew candidates from Andrews, and El-Badry 2026's astrometric subsample 3 *is* the Andrews selection restricted to `G < 15` (§8.7). Separate Poisson processes per sample, or one unified inclusion-indicator formulation? Naive summation double-counts. | #23 | #23 subagent, with human sign-off |
 | Q2 | Shahaf et al. (2023b) triage: cross-match the published 177-candidate catalog, or reimplement the AMRF algorithm? Catalog is fine for reproduction; the forward-model and DR4 paths need the algorithm, since a catalog cannot be applied to mocks. **Partially eased by §8.3**, which computes the AMRF directly and so supplies the algorithm side; the remaining question is whether §7's triage can be re-expressed in those terms or genuinely needs the catalog. | #21, DR4 | #21 subagent, with human sign-off |
 | Q4 | Whether `nss.corr_vec` / `nss.bit_index` as published are sufficient to reconstruct the full 12×12 covariance for every solution type, or whether matrices must be staged from a local file (§10). | #18 | #18 subagent |
-| Q5 | Exact `nss_solution_type` string set that reproduces Andrews' parent N of 134,598. | #20 | #20 subagent |
-| Q6 | **Scope:** does El-Badry 2026's SB1 branch feed the compact-object mass function, or is it reproduction/comparison-only? The pipeline's mass derivation is astrometric throughout (`ARCHITECTURE.md` §4), and an SB1 mass function constrains only `M2 sin³i`, so the inclination marginalization differs fundamentally from the astrometric path. Reproduction-only is the smaller, safer scope; feeding inference is a genuine v1-scope expansion that should not be made incrementally. | #25, #26, #23 | User, with #26 subagent input |
+| Q5 | **Partially answered.** The user's working hypothesis is that Andrews' parent is **all 12-parameter (orbital) astrometric solutions that are not SB1/SB2**, excluding `AstroSpectroSB1` — recorded in §6.1 and in `andrews2022.yaml`. Expressed with explicit uncertainty ("I think"), so archive verification still gates it: the query must return **exactly 134,598** as a *blocking* acceptance test before any downstream cut is trusted, and the verified set plus the confirming query must be frozen into the selection file. | #20 | #20 subagent |
 | Q7 | `nsstools` (Halbwachs et al. 2023) is what El-Badry 2026 uses for `ã0` and `σ_ã0`. Do we vendor it as a pinned dependency alongside `gaiamock`, or use our existing `thiele_innes_to_campbell` (§5.1)? Either is defensible, but the reproduction path must match the paper's numbers, so any difference between the two must be measured before choosing. | #25 | #25 subagent, with human sign-off |
-| Q8 | Two external published tables are needed as frozen fixtures: **Table E1 of El-Badry et al. (2023a)** (§8.3 subsample 2) and the **Janssens et al. (2022) Figure 3** `MG,0`–mass relation (§8.2). The latter is published as a figure, not a table, so it must be obtained in tabular form or digitized with a stated uncertainty. | #25 | User to supply; #25 subagent to stage |
 | Q9 | El-Badry 2026 §2.1 subsample 3 says the Andrews import "yields 16 sources", but Andrews' published sample is 24 (§6). The difference is presumably the `G < 15` cut, but the paper does not state it explicitly. Confirm that applying `G < 15` to our reproduced Andrews sample yields exactly 16, and treat a mismatch as a failure of *both* reproductions rather than tuning either. | #25 | #25 subagent |
-| Q10 | El-Badry 2026's `M̃1` is defined only for main-sequence sources, so `M̃1`-dependent cuts are undefined for evolved candidates rather than false. Confirm the framework's cut evaluator distinguishes "cut not applicable" from "cut failed" in the attrition waterfall — otherwise the subsample counts will not reproduce. | #17, #25 | #17 subagent |
+| Q10 | El-Badry 2026's `M̃1` is defined only for main-sequence sources, so `M̃1`-dependent cuts are undefined for evolved candidates rather than false. The Janssens `extrapolation: forbid` policy (§8.2) creates a second route to the same state. Confirm the framework's cut evaluator distinguishes "cut not applicable" from "cut failed" in the attrition waterfall — otherwise the subsample counts will not reproduce. | #17, #25 | #17 subagent |
+| Q11 | The Janssens et al. (2022) Table 1 fit does not publish the **`a`–`b` covariance** within each mass segment, so the cross-term in the §8.2 uncertainty propagation cannot be evaluated. Spec'd to default to zero correlation and report that the default was used. Determine whether the correlation is recoverable from the paper or its data; if not, bound the effect on `σ_M̃1` and record the bound. | #25 | #25 subagent |
+| Q12 | Astrometric subsample 4's `σ_M̃2 ≤ 0.105 M☉` cut needs a `σ_M̃2`. Does the paper's `σ_M̃2` include the **Janssens `a`/`b` fit uncertainty**, or only the astrometric covariance? §8.2 currently specifies `propagate_fit_uncertainty: false` for the reproduction path, which is the assumption most likely to match a paper that treats the photometric masses as crude point estimates — but it is an assumption. It materially changes whether subsample 4 recovers **22**, since including the fit uncertainty inflates every `σ_M̃2` and the cut is one-sided. Resolve empirically: try both and report which reproduces 22. | #25 | #25 subagent |
+| Q13 | Only **six rows of El-Badry 2023a Table E1** are legible in the supplied image. If the published table is longer, we need the complete version. Six labels are far too few to fit the multi-covariate §4.8 spuriousness model, and would restrict Table E1 to a spot-check rather than a training or validation set. **Blocking for any quantitative use of the table**, though not for staging what we have or for subsample 2's membership. | #27 | User to confirm completeness; #27 subagent to report the row count found |
+| Q14 | **Conflicting spuriousness labels for `4373465352415301632`.** Andrews et al. (2022) *excluded* it as a probable scanning-law harmonic contaminant (`m_f ≈ 11.6 M☉`, `P = 186 d ≈ 3 ×` the scanning period, §6.4); El-Badry 2023a Table E1 verdicts it **`✓` genuine** (`GoF = 0.3`, no discrepant RV). This is a real disagreement in the labels, sitting exactly at the intersection of two proposed covariates. Carry both labels, let the fitted model adjudicate, and report the outcome — do not drop the row or pick a side by hand. | #27 | #27 subagent, with human sign-off |
 
-**Resolved.** Q3 (El-Badry 2026 paper not yet supplied) — paper received as arXiv:2608.06453v1; §8
-is fully specified.
+**Resolved.**
+
+| Q | Decision |
+|---|---|
+| Q3 | El-Badry 2026 paper supplied as arXiv:2608.06453v1; §8 is fully specified. |
+| Q6 | **SB1 branch is reproduction-only for v1.** All 151 spectroscopic sources must be reproduced to validate the selection, and the branch supplies one of §4.8's three spuriousness validation targets, but only the astrometric branch (76) feeds population inference. The `sin³i` inclination marginalization — plus a selection-aware inclination prior and joint treatment of the two dual-branch sources — is explicitly **not** v1 work, and is what a v2 would have to add. Recorded in §8.4.1 as a scope boundary, not a limitation to route around. |
+| Q8 | **Both external tables supplied by the user.** The Janssens et al. (2022) mass-magnitude relation arrived as Table 1 fit parameters plus the corresponding figure; the functional form `M_G = a·log₁₀(M/M☉) + b` was verified against both (solar anchor, continuity at all seven internal boundaries to ≤ 0.0094 mag, figure endpoints) and is fully specified in §8.2 with its inversion, segment selection, extrapolation policy, and uncertainty propagation. El-Badry 2023a Table E1 arrived as six legible rows and is staged at `config/selections/external/elbadry2023_table_e1.yaml` (completeness open under Q13). Neither is to be fetched, digitized, or re-fit. |
+| Q2 → superseded in part | Q2 remains open for §7's triage, but the AMRF is now computed directly in §8.3, so the algorithm side is covered. |
+
+**Superseded.** The earlier design storing each sample's quoted spurious/contamination rate as a
+*modeled per-sample parameter* is replaced by §4.8's single sample-independent
+`P(spurious | ·)` model. Those rates are now recorded as `validation_targets:` — outputs to
+reproduce, never inputs. Roster #27 owns the model; it blocks #23.
