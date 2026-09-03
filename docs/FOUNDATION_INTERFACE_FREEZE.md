@@ -23,6 +23,7 @@ Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 | `darkhunter_pop.pipeline` | Main-program orchestration: resolve run, print plan, dispatch `STAGE_ORDER` (`scripts/run_pipeline.py`) |
 | `darkhunter_pop.gaiamock_vendor.import_gaiamock_mod` | Sole science import path for gaiamock |
 | `darkhunter_pop.physics_utils` | Units + Poisson primitives only (no Kepler/RUWE) |
+| `darkhunter_pop.nss_covariance` | Gaia NSS `corr_vec`/`bit_index` → `ParameterSet` (#105) |
 
 ---
 
@@ -38,7 +39,9 @@ Authoritative design: `docs/ARCHITECTURE.md`, `docs/ORCHESTRATION_PLAN.md`,
 ### `CandidateRecord`
 
 - Required: `source_id`
-- Optional blocks: NSS / Thiele–Innes / `rv_summary` (dict; #5 conforms) / photometry / TESS /
+- Optional blocks: NSS / Thiele–Innes / `nss_solution` (`ParameterSet` from
+  `corr_vec`/`bit_index` unpack; #105; absent on reconstruction failure — never
+  diagonal-only fallback) / `rv_summary` (dict; #5 conforms) / photometry / TESS /
   `m1`/`m2` ParameterSets / `orbit_tier` / `fit_tier` / `companion_nature_weights`
   (`COMPANION_NATURE_WEIGHT_KEYS` = `BH`/`NS`/`WD`/`other`/`outlier`; #56 ↔ #57) / `extras`
 

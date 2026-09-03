@@ -19,6 +19,7 @@ MODULES = [
     "darkhunter_pop.pipeline",
     "darkhunter_pop.physics_utils",
     "darkhunter_pop.data_acquisition",
+    "darkhunter_pop.nss_covariance",
     "darkhunter_pop.mass_derivation",
     "darkhunter_pop.rv_consistency",
     "darkhunter_pop.companion_nature",

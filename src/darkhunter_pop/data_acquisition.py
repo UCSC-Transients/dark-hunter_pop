@@ -34,6 +34,13 @@ from darkhunter_pop.diagnostics import (
     resolve_diagnostic_dirs,
 )
 from darkhunter_pop.forward_model import SIX_PANEL_NAMES, SOLUTION_TYPE_LABELS
+from darkhunter_pop.nss_covariance import (
+    CovarianceFailure,
+    CovarianceHealth,
+    CovarianceResult,
+    reconstruct_nss_covariance,
+    validate_loaded_nss_solution,
+)
 from darkhunter_pop.physics_utils import astrometric_mass_function, thiele_innes_to_campbell
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -100,12 +107,16 @@ class FunnelCounts:
     queried: int
     after_quality_cut: int
     candidates_written: int
+    covariance_ok: int = 0
+    covariance_failed: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "queried": self.queried,
             "after_quality_cut": self.after_quality_cut,
             "candidates_written": self.candidates_written,
+            "covariance_ok": self.covariance_ok,
+            "covariance_failed": self.covariance_failed,
         }
 
 
@@ -122,6 +133,7 @@ class StageDiagnostics:
     dec_deg: NDArray[np.floating] | None
     nss_panels: dict[str, NDArray[np.floating]]
     solution_type_fractions: dict[str, float]
+    covariance_health: CovarianceHealth | None = None
 
 
 def gaia_snapshots_dir(config: PipelineConfig) -> Path:
@@ -268,6 +280,11 @@ def build_nss_adql(dr: DRPathConfig) -> str:
         "COALESCE(nss.parallax_error, gs.parallax_error) AS parallax_error",
         "COALESCE(nss.pmra, gs.pmra) AS pmra",
         "COALESCE(nss.pmdec, gs.pmdec) AS pmdec",
+        # NSS-solution errors for corr_vec reconstruction (never gaia_source fallback).
+        "nss.ra_error",
+        "nss.dec_error",
+        "nss.pmra_error",
+        "nss.pmdec_error",
         "nss.period",
         # EclipsingBinary: period σ is in input_period_error, not period_error (Gaia datamodel).
         "COALESCE(nss.period_error, nss.input_period_error) AS period_error",
@@ -275,6 +292,20 @@ def build_nss_adql(dr: DRPathConfig) -> str:
         "nss.t_periastron_error",
         "nss.eccentricity",
         "nss.eccentricity_error",
+        "nss.c_thiele_innes",
+        "nss.c_thiele_innes_error",
+        "nss.h_thiele_innes",
+        "nss.h_thiele_innes_error",
+        "nss.center_of_mass_velocity",
+        "nss.center_of_mass_velocity_error",
+        "nss.semi_amplitude_primary",
+        "nss.semi_amplitude_primary_error",
+        "nss.semi_amplitude_secondary",
+        "nss.semi_amplitude_secondary_error",
+        "nss.arg_periastron",
+        "nss.arg_periastron_error",
+        "nss.corr_vec",
+        "nss.bit_index",
         "nss.goodness_of_fit",
         "gs.ruwe",
     ]
@@ -692,6 +723,19 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
     if imputed_bands:
         extras["mag_err_imputed_bands"] = imputed_bands
 
+    cov_result = reconstruct_nss_covariance(mapping, nss_solution_type=solution_type)
+    if cov_result.ok:
+        nss_solution = cov_result.parameter_set
+    else:
+        nss_solution = None
+        assert cov_result.status is not None
+        extras["nss_covariance_status"] = cov_result.status.value
+        extras["nss_covariance_usable"] = False
+        if cov_result.detail:
+            extras["nss_covariance_detail"] = cov_result.detail
+        if cov_result.bit_index is not None:
+            extras["nss_bit_index"] = cov_result.bit_index
+
     return CandidateRecord(
         source_id=source_id,
         nss_solution_type=solution_type,
@@ -700,9 +744,35 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         parallax_mas=_optional_float(mapping, "parallax"),
         thiele_innes=_build_thiele_innes(mapping),
         nss_orbital=nss_orbital,
+        nss_solution=nss_solution,
         photometry=photometry,
         extras=extras,
     )
+
+
+def _health_from_candidates(candidates: Sequence[CandidateRecord]) -> CovarianceHealth:
+    health = CovarianceHealth()
+    for candidate in candidates:
+        if candidate.nss_solution is not None:
+            health.record(
+                candidate.nss_solution_type,
+                CovarianceResult(parameter_set=candidate.nss_solution, status=None),
+            )
+            continue
+        status_raw = candidate.extras.get("nss_covariance_status")
+        try:
+            status = (
+                CovarianceFailure(status_raw)
+                if status_raw is not None
+                else CovarianceFailure.MISSING_CORR
+            )
+        except ValueError:
+            status = CovarianceFailure.UNPACK_FAILED
+        health.record(
+            candidate.nss_solution_type,
+            CovarianceResult(parameter_set=None, status=status),
+        )
+    return health
 
 
 def table_to_candidates(table: Table, dr: DRPathConfig) -> list[CandidateRecord]:
@@ -759,6 +829,7 @@ def compute_stage_diagnostics(
     *,
     funnel: FunnelCounts,
     quality_cut_bin_counts: Mapping[str, int],
+    covariance_health: CovarianceHealth | None = None,
 ) -> StageDiagnostics:
     """Build histogram inputs for RUWE / period / eccentricity, sky, and NSS panels."""
     ruwe = []
@@ -767,6 +838,11 @@ def compute_stage_diagnostics(
     ra = []
     dec = []
     panel_lists: dict[str, list[float]] = {name: [] for name in SIX_PANEL_NAMES}
+    health = (
+        covariance_health
+        if covariance_health is not None
+        else _health_from_candidates(candidates)
+    )
 
     for candidate in candidates:
         ra_val = candidate.ra_deg
@@ -838,19 +914,33 @@ def compute_stage_diagnostics(
         dec_deg=_arr(dec),
         nss_panels=nss_panels,
         solution_type_fractions=_compute_solution_type_fractions(candidates),
+        covariance_health=health,
     )
 
 
 def format_funnel_table(
     funnel: FunnelCounts,
     quality_cut_bin_counts: Mapping[str, int],
+    *,
+    covariance_health: CovarianceHealth | None = None,
 ) -> str:
     """Human-readable funnel table (exempt from caveman compression)."""
-    return format_funnel_report(
+    text = format_funnel_report(
         funnel.as_dict(),
         quality_cut_bin_counts=quality_cut_bin_counts,
         stage_name="data_acquisition",
     )
+    if covariance_health is None:
+        return text
+    end_marker = "=== end data_acquisition funnel ==="
+    type_lines = covariance_health.by_type_lines()
+    health_block = "  covariance_health (by solution type):\n" + (
+        "\n".join(f"    {line}" for line in type_lines) if type_lines else "    (none)"
+    )
+    if text.endswith(end_marker):
+        body = text[: -len(end_marker)].rstrip()
+        return f"{body}\n{health_block}\n{end_marker}"
+    return f"{text}\n{health_block}"
 
 
 def write_diagnostic_artifacts(
@@ -880,11 +970,20 @@ def write_diagnostic_artifacts(
     )
     # Preserve legacy funnel.txt at the diagnostics root for existing callers.
     written: list[Path] = list(emission.figures) + list(emission.reports)
-    if emission.reports:
-        legacy = dirs.root / "funnel.txt"
-        legacy.write_text(emission.reports[0].read_text(encoding="utf-8"), encoding="utf-8")
-        if legacy not in written:
-            written.append(legacy)
+    funnel_text = format_funnel_table(
+        diagnostics.funnel,
+        diagnostics.quality_cut_bin_counts,
+        covariance_health=diagnostics.covariance_health,
+    )
+    legacy = dirs.root / "funnel.txt"
+    legacy.write_text(funnel_text + "\n", encoding="utf-8")
+    if legacy not in written:
+        written.append(legacy)
+    report_funnel = dirs.reports / "data_acquisition_funnel.txt"
+    report_funnel.parent.mkdir(parents=True, exist_ok=True)
+    report_funnel.write_text(funnel_text + "\n", encoding="utf-8")
+    if report_funnel not in written:
+        written.append(report_funnel)
     return written
 
 
@@ -948,9 +1047,40 @@ def write_stage_hdf5(
                 data=np.float64(diagnostics.solution_type_fractions.get(label, 0.0)),
             )
 
+        cov_grp = da_grp.create_group("nss_covariance")
+        health = diagnostics.covariance_health or CovarianceHealth()
+        for key, value in health.as_dict().items():
+            cov_grp.attrs[key] = int(value)
+        type_lines = health.by_type_lines()
+        cov_grp.create_dataset(
+            "by_solution_type",
+            data=np.array(type_lines, dtype=h5py.string_dtype("utf-8")),
+        )
+        usable = [c for c in candidates if c.nss_solution is not None]
+        cov_grp.create_dataset(
+            "source_ids",
+            data=np.array([c.source_id for c in usable], dtype=np.int64),
+        )
+        matrices = cov_grp.create_group("matrices")
+        for candidate in usable:
+            assert candidate.nss_solution is not None
+            ds = matrices.create_dataset(
+                str(candidate.source_id),
+                data=candidate.nss_solution.covariance_array(),
+            )
+            ds.attrs["names"] = np.array(
+                candidate.nss_solution.names, dtype=h5py.string_dtype("utf-8")
+            )
+            ds.attrs["provenance"] = candidate.nss_solution.provenance
+
 
 def read_stage_hdf5(path: Path) -> tuple[list[CandidateRecord], dict[str, Any]]:
-    """Load candidates and meta from a ``data_acquisition`` stage HDF5."""
+    """Load candidates and meta from a ``data_acquisition`` stage HDF5.
+
+    Re-asserts symmetry and positive-semidefiniteness on every loaded
+    ``nss_solution``. Failures clear the field and stamp
+    ``extras['nss_covariance_status']`` — never a diagonal-only substitute.
+    """
     candidates: list[CandidateRecord] = []
     meta: dict[str, Any] = {}
     with h5py.File(path, "r") as handle:
@@ -958,7 +1088,18 @@ def read_stage_hdf5(path: Path) -> tuple[list[CandidateRecord], dict[str, Any]]:
         for key in meta_group.attrs:
             meta[key] = meta_group.attrs[key]
         for raw in handle["candidates"]["records_json"].asstr():
-            candidates.append(CandidateRecord.model_validate(json.loads(raw)))
+            candidate = CandidateRecord.model_validate(json.loads(raw))
+            if candidate.nss_solution is not None:
+                failure = validate_loaded_nss_solution(candidate.nss_solution)
+                if failure is not None:
+                    extras = dict(candidate.extras)
+                    extras["nss_covariance_status"] = failure.value
+                    extras["nss_covariance_usable"] = False
+                    extras["nss_covariance_detail"] = f"failed {failure.value} on load"
+                    candidate = candidate.model_copy(
+                        update={"nss_solution": None, "extras": extras}
+                    )
+            candidates.append(candidate)
     return candidates, meta
 
 
@@ -1027,15 +1168,19 @@ def run_data_acquisition(
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
     candidates = table_to_candidates(filtered, dr)
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
+    cov_health = _health_from_candidates(candidates)
     funnel = FunnelCounts(
         queried=len(raw_table),
         after_quality_cut=len(filtered),
         candidates_written=len(candidates),
+        covariance_ok=cov_health.ok,
+        covariance_failed=cov_health.failed,
     )
     diagnostics = compute_stage_diagnostics(
         candidates,
         funnel=funnel,
         quality_cut_bin_counts=bin_counts,
+        covariance_health=cov_health,
     )
     write_stage_hdf5(artifact, candidates, snapshot=snapshot, diagnostics=diagnostics)
     write_diagnostic_artifacts(diagnostics, artifact, config=config)

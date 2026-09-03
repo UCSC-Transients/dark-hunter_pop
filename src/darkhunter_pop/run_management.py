@@ -93,6 +93,10 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
         _spec(
             "data_acquisition",
             "darkhunter_pop.data_acquisition",
+            deps=(
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.nss_covariance",
+            ),
             config_keys=(
                 "active_dr_mode",
                 "dr3.quality_cut_bins",
