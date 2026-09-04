@@ -161,7 +161,7 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
 
 ## 7. Phase status (orchestrator)
 
-**Phases 0–7 complete** on `main` (planned roster closed).
+**Phases 0–8 complete** on `main` (planned roster closed through Phase 8).
 
 - Phase 0 Foundation + Phase 1 (#28–#31) + Phase 2 (#35–#39) landed on `main`
   (Phase 2 config checkpoint: #40 / PR #46).
@@ -176,9 +176,15 @@ Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force
   `inference` + `diagnostics.sbc` into `config/config.yaml`.
 - Phase 7 landed: #79 / PR #84 (`scripts/run_pipeline.py` + `darkhunter_pop.pipeline`;
   ARCHITECTURE.md §5 plan-then-run), #80 / PR #83 (user-facing docs + operator notes).
-  Final Review/Integration checkpoint: #81. Config fragments already ≡
-  `config/config.yaml` at this checkpoint (no new domain keys). Required CI stays
-  `unit|physics|api`; `slow` / `network` / `gaiamock` remain optional.
+  Final Review/Integration checkpoint: #81.
+- Phase 8 landed under umbrella #103 (children #104–#113; PRs #114–#125):
+  `sample_selection` stage + frozen literature selections, NSS covariance ingestion,
+  MC mass-function primitives, SB1 spectroscopic mass path (reproduction/validation
+  only), shared `spuriousness_model`, sample-reproduction diagnostics, and
+  multi-sample Poisson inclusion (`inference.multi_sample`). Roster #22 / `accel_jerk`
+  remains blocked (`CONTINUATION_PLAN.md` §9). Required CI stays `unit|physics|api`;
+  `slow` / `network` / `gaiamock` remain optional.
 
 Optional human follow-ups (outside ticket scope unless opened separately): December
-cluster dynesty recipe, real Gaia snapshot end-to-end smoke.
+cluster dynesty recipe, real Gaia snapshot end-to-end smoke, §15 Q7/Q9/Q15 resolutions,
+schema-v3 labeled-fixture taxonomy (local WIP; not on `main`).

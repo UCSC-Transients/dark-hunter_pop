@@ -217,7 +217,7 @@ sample_selection:
     path: config/selections/elbadry2024.yaml
     mode: reproduction
   - name: elbadry2026
-    enabled: false
+    enabled: true
     path: config/selections/elbadry2026.yaml
     mode: reproduction
   - name: accel_jerk

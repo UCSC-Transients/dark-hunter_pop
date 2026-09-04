@@ -1,0 +1,34 @@
+# Acceleration/jerk sample — BLOCKED (CONTINUATION_PLAN §9).
+# Selection function unpublished; do not derive one from the target list.
+# mode is forward_model only; there is no published_n to reproduce.
+# Leave enabled: false in the sample_selection registry until §9 is rewritten
+# with a user-supplied selection function (roster #22 / Slot F).
+
+schema_version: 1
+name: accel_jerk
+provenance:
+  reference: "BLOCKED — CONTINUATION_PLAN §9; selection function not yet supplied"
+  section: "9"
+  published_n: null
+  data_release: dr3
+  frozen_on: null
+mode: forward_model
+# Empty parent queries: dual-path machinery must not expect a published N.
+# DR3/DR4 keys are independent even though both are stubs (workflow §6).
+parent_query:
+  dr3:
+    adql: |
+      -- BLOCKED stub (CONTINUATION_PLAN §9). Do not execute against the archive.
+      SELECT TOP 0 source_id FROM gaiadr3.nss_two_body_orbit
+    expected_parent_n: null
+    nss_table: gaiadr3.nss_two_body_orbit
+    solution_types: []
+  dr4:
+    adql: |
+      -- BLOCKED stub (CONTINUATION_PLAN §9). Do not execute against the archive.
+      SELECT TOP 0 source_id FROM gaiadr4.nss_two_body_orbit
+    expected_parent_n: null
+    nss_table: gaiadr4.nss_two_body_orbit
+    solution_types: []
+cuts: []
+exclusions: []

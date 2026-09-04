@@ -112,12 +112,13 @@ admin bypass allowed.
 
 ## 7. Continuation
 
-Phases 0–7 are complete. Phase 8 onward — per-sample literature selection functions, NSS covariance
-ingestion, and the subagent roster/kickoff prompts that go with them — lives in
-`CONTINUATION_PLAN.md`, which extends both this document and `ARCHITECTURE.md`.
-Kickoff issues: umbrella [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103);
-children #104–#113 (roster #17–#21, #23–#27). Roster #22 skipped (blocked, §9).
+Phases 0–8 are complete on `main`. Phase 8 (per-sample literature selection functions, NSS
+covariance ingestion, SB1 reproduction/validation, shared spuriousness model, likelihood
+integration) lives in `CONTINUATION_PLAN.md`, which extends both this document and
+`ARCHITECTURE.md`. Umbrella [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103);
+children #104–#113 (roster #17–#21, #23–#27). Roster #22 / accel_jerk remains blocked (§9).
 
 ## 8. Open items
 
-None currently flagged. See `ARCHITECTURE.md` §8 and `CONTINUATION_PLAN.md` §15.
+See `ARCHITECTURE.md` §8 and `CONTINUATION_PLAN.md` §15 (Q1 human sign-off recorded in #112 /
+PR #125; Q7 / Q9 / Q15 remain advisory or escalate-on-demand).

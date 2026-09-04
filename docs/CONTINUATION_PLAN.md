@@ -4,8 +4,9 @@ Companion to `ARCHITECTURE.md` (authoritative technical specification) and `ORCH
 (subagent roster, phasing, git/PR workflow). Those two documents remain authoritative for anything
 they already cover; this document extends them and does not restate them.
 
-**Status: specification only.** Nothing in §5–§12 is implemented. This document is the deliverable
-of the spec pass; implementation happens in Phase 8 under the kickoff prompts in §14.
+**Status: Phase 8 implemented on `main`.** Spec + kickoff prompts remain authoritative; roster
+#17–#21 and #23–#27 landed under umbrella [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103)
+(children #104–#113). Roster #22 / accel_jerk stays blocked (§9) with the registry entry disabled.
 
 ## 1. Purpose and current status
 
