@@ -45,7 +45,7 @@ class PathsConfig(BaseModel):
 
 
 class DiagnosticsHooksConfig(BaseModel):
-    """Enable flags for shared diagnostic emitters (layout hooks + Phase 6 SBC)."""
+    """Enable flags for shared diagnostic emitters (layout hooks + Phase 6/8)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -63,6 +63,114 @@ class DiagnosticsHooksConfig(BaseModel):
     comparison_catalogs: bool = True
     sbc_recovery: bool = True
     m2_posterior_convergence: bool = True
+    # Phase 8 sample-reproduction diagnostics (CONTINUATION_PLAN §13 / issue #113).
+    sample_attrition_waterfall: bool = True
+    sample_reproduction_report: bool = True
+    simon2026_exclusion_breakdown: bool = True
+    covariance_health: bool = True
+    sample_selection_function: bool = True
+    mode_divergence: bool = True
+    janssens_segment_occupancy: bool = True
+
+
+class ModeDivergencePairConfig(BaseModel):
+    """Named-sample pair compared by ``mode_divergence`` (e.g. Andrews §6.6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    left: str = Field(..., min_length=1)
+    right: str = Field(..., min_length=1)
+    expected_only_in_right: list[int] = Field(default_factory=list)
+    expected_only_in_left: list[int] = Field(default_factory=list)
+
+
+class SampleSelectionFunctionGridConfig(BaseModel):
+    """Forward-model survival grids for ``sample_selection_function`` (§13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    m2_msun: list[float] = Field(
+        default_factory=lambda: [0.5, 1.0, 1.4, 2.0, 5.0, 10.0],
+        min_length=2,
+    )
+    period_day: list[float] = Field(
+        default_factory=lambda: [10.0, 100.0, 365.0, 900.0, 1200.0],
+        min_length=2,
+    )
+    g_mag: list[float] = Field(
+        default_factory=lambda: [10.0, 12.0, 14.0, 15.0, 16.0],
+        min_length=2,
+    )
+    # Baseline mock row fields; axis sweeps overwrite one key at a time.
+    template: dict[str, float | int | str | bool] = Field(
+        default_factory=lambda: {
+            "nss_solution_type": "Orbital",
+            "main_sequence": True,
+            "m1_msun": 1.0,
+            "m1_tilde_msun": 1.0,
+            "paper_m1_msun": 1.0,
+            "pipeline_m1_msun": 1.0,
+            "m2_msun": 2.0,
+            "m2_tilde_msun": 2.0,
+            "m2_msun_error": 0.1,
+            "sigma_m2_astrometric_msun": 0.05,
+            "p_m2_above": 1.0,
+            "p_m2_gt_threshold": 1.0,
+            "goodness_of_fit": 1.0,
+            "period_day": 200.0,
+            "phot_g_mean_mag": 12.0,
+            "logg_apsis": 4.0,
+            "abs_g_mag": 5.0,
+            "bp_rp": 0.8,
+            "k1_significance": 20.0,
+            "fm_msun": 4.0,
+            "m2_min_msun": 2.0,
+            "andrews_member": False,
+        }
+    )
+
+
+class SampleReproductionDiagnosticsConfig(BaseModel):
+    """Layout knobs for Phase 8 sample-reproduction diagnostics (issue #113).
+
+    Published membership tables and selection-function grids live here — never
+    inline in diagnostic emitters. Science thresholds stay in frozen per-sample
+    YAML under ``config/selections/``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # sample_name -> YAML with a ``data[].source_id`` list (null = N-only check).
+    published_tables: dict[str, str | None] = Field(
+        default_factory=lambda: {
+            "andrews2022": None,
+            "elbadry2024": None,
+            "elbadry2026": None,
+            "elbadry2026_astrometric": (
+                "config/selections/external/elbadry2026_table7.yaml"
+            ),
+            "elbadry2026_spectroscopic": (
+                "config/selections/external/elbadry2026_table8.yaml"
+            ),
+        }
+    )
+    simon2026_table: str = "config/selections/external/simon2026_orbital.yaml"
+    janssens_table: str = (
+        "config/selections/external/janssens2022_mass_magnitude.yaml"
+    )
+    selection_function: SampleSelectionFunctionGridConfig = Field(
+        default_factory=SampleSelectionFunctionGridConfig
+    )
+    mode_divergence_pairs: list[ModeDivergencePairConfig] = Field(
+        default_factory=lambda: [
+            ModeDivergencePairConfig(
+                left="andrews2022",
+                right="andrews2022_modified",
+                expected_only_in_right=[4373465352415301632],
+                expected_only_in_left=[],
+            )
+        ]
+    )
 
 
 class InjectedMassFunctionProfile(BaseModel):
@@ -170,6 +278,10 @@ class DiagnosticsConfig(BaseModel):
     sampler_logz_sigma_tol: float = Field(3.0, gt=0)
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
     sbc: SBCConfig = Field(default_factory=SBCConfig)
+    # Phase 8 sample-reproduction diagnostic knobs (CONTINUATION_PLAN §13).
+    sample_reproduction: SampleReproductionDiagnosticsConfig = Field(
+        default_factory=SampleReproductionDiagnosticsConfig
+    )
 
 
 class PlottingStyleConfig(BaseModel):

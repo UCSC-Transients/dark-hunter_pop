@@ -16,6 +16,8 @@ completes the remaining required diagnostics:
 
 Known-truth / comparison catalogs (#70) are also emitted here when enabled.
 SBC recovery (#69) is wired here via ``emit_sbc_recovery`` / ``diagnostics.sbc``.
+Phase 8 sample-reproduction diagnostics (#113) are wired via
+``emit_sample_*`` hooks and ``sample_diagnostics.py``.
 Diagnostic reports and plot captions stay full-detail (caveman exemption).
 """
 
@@ -48,6 +50,7 @@ from darkhunter_pop.forward_model import (
     SOLUTION_TYPE_LABELS,
     SolutionTypeFractionResult,
 )
+from darkhunter_pop.nss_covariance import CovarianceHealth
 from darkhunter_pop.plotting import (
     MatplotlibUnavailableError,
     matplotlib_available,
@@ -66,6 +69,30 @@ from darkhunter_pop.mc_mass_function import (
     propagate_nss_solution,
     run_m2_posterior_convergence,
     synthetic_orbital_solution,
+)
+from darkhunter_pop.sample_diagnostics import (
+    SampleDiagnosticsBundle,
+    attrition_bar_series,
+    build_reproduction_comparisons,
+    compute_janssens_segment_occupancy,
+    compute_mode_divergence,
+    evaluate_selection_function_curves,
+    format_attrition_waterfall_report,
+    format_covariance_health_report,
+    format_janssens_segment_occupancy_report,
+    format_mode_divergence_report,
+    format_sample_reproduction_report,
+    format_sample_selection_function_report,
+    forward_model_selection,
+    load_specs_for_results,
+    reproduction_cfg,
+    run_simon2026_diagnostic,
+)
+from darkhunter_pop.sample_selection import (
+    SampleSelectionError,
+    SampleSelectionRegistry,
+    load_evaluation_results_from_artifact,
+    load_sample_selection_file,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -216,7 +243,8 @@ class DiagnosticsStageResult:
                 "priority, sampler multi-run consistency, MC Poisson-negligibility "
                 "convergence, gaiamock solution-type fractions, RV gate pass-rate. "
                 "Also emits known-truth Gaia BH benchmarks and comparison-only "
-                "catalog reports (issue #70). Optional SBC recovery is issue #69."
+                "catalog reports (issue #70). Optional SBC recovery is issue #69. "
+                "Phase 8 sample-reproduction diagnostics are issue #113."
             ),
         }
 
@@ -1488,6 +1516,457 @@ def emit_sbc_recovery(
     return emission
 
 
+def emit_sample_attrition_waterfall(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    results: Mapping[str, Any] | None = None,
+) -> HookEmissionResult:
+    """Hook: per-sample cut attrition with failed vs not-applicable separated."""
+    diag = config.diagnostics
+    if not diag.hooks.sample_attrition_waterfall:
+        return HookEmissionResult(
+            hook_name="sample_attrition_waterfall",
+            skipped_reason="diagnostics.hooks.sample_attrition_waterfall=false",
+        )
+    payloads = dict(results or {})
+    if not payloads:
+        return HookEmissionResult(
+            hook_name="sample_attrition_waterfall",
+            skipped_reason="no SampleEvaluationResult payloads provided",
+        )
+    emission = HookEmissionResult(
+        hook_name="sample_attrition_waterfall",
+        payload={
+            name: {
+                "n_parent": res.n_parent,
+                "n_surviving": res.n_surviving,
+                "n_cuts": len(res.attrition),
+            }
+            for name, res in payloads.items()
+        },
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "sample_attrition_waterfall.txt",
+                format_attrition_waterfall_report(payloads),
+            )
+        )
+    if diag.write_figures:
+        for name, res in payloads.items():
+            if not res.attrition:
+                continue
+            labels, series = attrition_bar_series(res)
+            path = _maybe_plot(
+                True,
+                lambda labels=labels, series=series, name=name: plot_grouped_bars(
+                    labels,
+                    series,
+                    dirs.figures / f"sample_attrition_waterfall_{name}.png",
+                    xlabel="cut_id",
+                    ylabel="count",
+                    title=f"{name} attrition (passed / failed / not_applicable)",
+                    dpi=diag.figure_dpi,
+                    style=config.plotting,
+                ),
+            )
+            if path is not None:
+                emission.figures.append(path)
+    return emission
+
+
+def emit_sample_reproduction_report(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    results: Mapping[str, Any] | None = None,
+    specs: Mapping[str, Any] | None = None,
+) -> HookEmissionResult:
+    """Hook: recovered source-ID set vs published table / N."""
+    diag = config.diagnostics
+    if not diag.hooks.sample_reproduction_report:
+        return HookEmissionResult(
+            hook_name="sample_reproduction_report",
+            skipped_reason="diagnostics.hooks.sample_reproduction_report=false",
+        )
+    payloads = dict(results or {})
+    if not payloads:
+        return HookEmissionResult(
+            hook_name="sample_reproduction_report",
+            skipped_reason="no SampleEvaluationResult payloads provided",
+        )
+    resolved_specs = dict(specs or {})
+    if not resolved_specs:
+        resolved_specs = load_specs_for_results(payloads, config)
+    comparisons = build_reproduction_comparisons(payloads, resolved_specs, config)
+    emission = HookEmissionResult(
+        hook_name="sample_reproduction_report",
+        payload={
+            "comparisons": [c.as_dict() for c in comparisons],
+            "all_n_match": all(c.n_match for c in comparisons),
+        },
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "sample_reproduction_report.txt",
+                format_sample_reproduction_report(comparisons),
+            )
+        )
+    if diag.write_figures and comparisons:
+        labels = [c.sample_name for c in comparisons]
+        series = {
+            "recovered_n": [float(c.recovered_n) for c in comparisons],
+            "published_n": [
+                float(c.published_n) if c.published_n is not None else float("nan")
+                for c in comparisons
+            ],
+        }
+        path = _maybe_plot(
+            True,
+            lambda: plot_grouped_bars(
+                labels,
+                series,
+                dirs.figures / "sample_reproduction_counts.png",
+                xlabel="sample",
+                ylabel="count",
+                title="recovered vs published N",
+                dpi=diag.figure_dpi,
+                style=config.plotting,
+            ),
+        )
+        if path is not None:
+            emission.figures.append(path)
+    return emission
+
+
+def emit_simon2026_exclusion_breakdown(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    sample_ids: Sequence[int] | None = None,
+    simon_rows: Sequence[Mapping[str, Any]] | None = None,
+    spec: Any | None = None,
+) -> HookEmissionResult:
+    """Hook: Simon et al. (2026) 5/2/1/1 exclusion breakdown (§8.9)."""
+    diag = config.diagnostics
+    if not diag.hooks.simon2026_exclusion_breakdown:
+        return HookEmissionResult(
+            hook_name="simon2026_exclusion_breakdown",
+            skipped_reason="diagnostics.hooks.simon2026_exclusion_breakdown=false",
+        )
+    counts, report = run_simon2026_diagnostic(
+        config, spec=spec, sample_ids=sample_ids, rows=simon_rows
+    )
+    emission = HookEmissionResult(
+        hook_name="simon2026_exclusion_breakdown",
+        payload=dict(counts),
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(dirs.reports / "simon2026_exclusion_breakdown.txt", report)
+        )
+    if diag.write_figures:
+        labels = [
+            "in_sample",
+            "sb1_fails_significance",
+            "astrometric_f2_above_max",
+            "fainter_than_g_limit",
+            "fails_m2_over_m1",
+            "unclassified",
+        ]
+        values = [float(counts.get(k, 0)) for k in labels]
+        path = _maybe_plot(
+            True,
+            lambda: plot_categorical_bars(
+                labels,
+                values,
+                dirs.figures / "simon2026_exclusion_breakdown.png",
+                xlabel="reason",
+                ylabel="count",
+                title="Simon et al. (2026) exclusion breakdown",
+                dpi=diag.figure_dpi,
+                style=config.plotting,
+            ),
+        )
+        if path is not None:
+            emission.figures.append(path)
+    return emission
+
+
+def emit_covariance_health(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    health: CovarianceHealth | None = None,
+) -> HookEmissionResult:
+    """Hook: missing / non-PSD NSS covariance counts by solution type."""
+    diag = config.diagnostics
+    if not diag.hooks.covariance_health:
+        return HookEmissionResult(
+            hook_name="covariance_health",
+            skipped_reason="diagnostics.hooks.covariance_health=false",
+        )
+    if health is None:
+        return HookEmissionResult(
+            hook_name="covariance_health",
+            skipped_reason="no CovarianceHealth provided",
+        )
+    emission = HookEmissionResult(
+        hook_name="covariance_health",
+        payload=health.as_dict(),
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "covariance_health.txt",
+                format_covariance_health_report(health),
+            )
+        )
+    if diag.write_figures:
+        labels = [
+            "ok",
+            "missing_corr",
+            "unsupported_solution_type",
+            "bit_index_mismatch",
+            "unpack_failed",
+            "missing_values",
+            "missing_errors",
+            "non_symmetric",
+            "non_psd",
+        ]
+        values = [
+            float(health.ok),
+            float(health.missing_corr),
+            float(health.unsupported_solution_type),
+            float(health.bit_index_mismatch),
+            float(health.unpack_failed),
+            float(health.missing_values),
+            float(health.missing_errors),
+            float(health.non_symmetric),
+            float(health.non_psd),
+        ]
+        path = _maybe_plot(
+            True,
+            lambda: plot_categorical_bars(
+                labels,
+                values,
+                dirs.figures / "covariance_health.png",
+                xlabel="status",
+                ylabel="count",
+                title="NSS covariance health",
+                dpi=diag.figure_dpi,
+                style=config.plotting,
+            ),
+        )
+        if path is not None:
+            emission.figures.append(path)
+    return emission
+
+
+def emit_sample_selection_function(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    specs: Mapping[str, Any] | None = None,
+    sample_names: Sequence[str] | None = None,
+) -> HookEmissionResult:
+    """Hook: forward-model survival probability vs M2, P_orb, G."""
+    diag = config.diagnostics
+    if not diag.hooks.sample_selection_function:
+        return HookEmissionResult(
+            hook_name="sample_selection_function",
+            skipped_reason="diagnostics.hooks.sample_selection_function=false",
+        )
+    resolved = dict(specs or {})
+    if not resolved:
+        try:
+            registry = SampleSelectionRegistry(config)
+            for name in registry.evaluation_order():
+                resolved[name] = registry.resolved(name)
+        except SampleSelectionError as exc:
+            return HookEmissionResult(
+                hook_name="sample_selection_function",
+                skipped_reason=f"sample registry unavailable: {exc}",
+            )
+    if sample_names is not None:
+        resolved = {k: v for k, v in resolved.items() if k in set(sample_names)}
+    if not resolved:
+        return HookEmissionResult(
+            hook_name="sample_selection_function",
+            skipped_reason="no sample specs available for survival sweep",
+        )
+    all_curves = []
+    for _name, spec in sorted(resolved.items()):
+        selection = forward_model_selection(spec)
+        all_curves.extend(evaluate_selection_function_curves(selection, config))
+    emission = HookEmissionResult(
+        hook_name="sample_selection_function",
+        payload={"curves": [c.as_dict() for c in all_curves]},
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "sample_selection_function.txt",
+                format_sample_selection_function_report(all_curves),
+            )
+        )
+    if diag.write_figures:
+        for curve in all_curves:
+            path = _maybe_plot(
+                True,
+                lambda curve=curve: plot_line_with_threshold(
+                    curve.x,
+                    curve.survival,
+                    dirs.figures
+                    / f"sample_selection_function_{curve.sample_name}_{curve.axis}.png",
+                    xlabel=curve.axis,
+                    ylabel="survival probability",
+                    title=f"{curve.sample_name} selection function vs {curve.axis}",
+                    dpi=diag.figure_dpi,
+                    threshold=None,
+                    style=config.plotting,
+                ),
+            )
+            if path is not None:
+                emission.figures.append(path)
+    return emission
+
+
+def emit_mode_divergence(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    results: Mapping[str, Any] | None = None,
+) -> HookEmissionResult:
+    """Hook: andrews2022 vs andrews2022_modified (and other configured pairs)."""
+    diag = config.diagnostics
+    if not diag.hooks.mode_divergence:
+        return HookEmissionResult(
+            hook_name="mode_divergence",
+            skipped_reason="diagnostics.hooks.mode_divergence=false",
+        )
+    payloads = dict(results or {})
+    if not payloads:
+        return HookEmissionResult(
+            hook_name="mode_divergence",
+            skipped_reason="no SampleEvaluationResult payloads provided",
+        )
+    divergences = []
+    for pair in reproduction_cfg(config).mode_divergence_pairs:
+        left = payloads.get(pair.left)
+        right = payloads.get(pair.right)
+        if left is None or right is None:
+            continue
+        divergences.append(
+            compute_mode_divergence(
+                left,
+                right,
+                expected_only_left=pair.expected_only_in_left,
+                expected_only_right=pair.expected_only_in_right,
+            )
+        )
+    if not divergences:
+        return HookEmissionResult(
+            hook_name="mode_divergence",
+            skipped_reason="configured mode_divergence pairs missing from results",
+        )
+    emission = HookEmissionResult(
+        hook_name="mode_divergence",
+        payload={
+            "divergences": [d.as_dict() for d in divergences],
+            "all_match": all(d.matches_expectation for d in divergences),
+        },
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "mode_divergence.txt",
+                format_mode_divergence_report(divergences),
+            )
+        )
+    if diag.write_figures:
+        for div in divergences:
+            labels = [div.left_name, div.right_name, "only_left", "only_right"]
+            values = [
+                float(len(div.left_ids)),
+                float(len(div.right_ids)),
+                float(len(div.only_left)),
+                float(len(div.only_right)),
+            ]
+            path = _maybe_plot(
+                True,
+                lambda labels=labels, values=values, div=div: plot_categorical_bars(
+                    labels,
+                    values,
+                    dirs.figures / f"mode_divergence_{div.left_name}_vs_{div.right_name}.png",
+                    xlabel="set",
+                    ylabel="count",
+                    title=f"mode divergence: {div.left_name} vs {div.right_name}",
+                    dpi=diag.figure_dpi,
+                    style=config.plotting,
+                ),
+            )
+            if path is not None:
+                emission.figures.append(path)
+    return emission
+
+
+def emit_janssens_segment_occupancy(
+    config: PipelineConfig,
+    dirs: DiagnosticDirs,
+    *,
+    mg_0_values: Sequence[float] | NDArray[np.floating] | None = None,
+) -> HookEmissionResult:
+    """Hook: Janssens mass-segment occupancy for El-Badry 2026 ``M̃1``."""
+    diag = config.diagnostics
+    if not diag.hooks.janssens_segment_occupancy:
+        return HookEmissionResult(
+            hook_name="janssens_segment_occupancy",
+            skipped_reason="diagnostics.hooks.janssens_segment_occupancy=false",
+        )
+    if mg_0_values is None:
+        return HookEmissionResult(
+            hook_name="janssens_segment_occupancy",
+            skipped_reason="no mg_0 values provided",
+        )
+    table = reproduction_cfg(config).janssens_table
+    occupancy = compute_janssens_segment_occupancy(mg_0_values, table_path=table)
+    emission = HookEmissionResult(
+        hook_name="janssens_segment_occupancy",
+        payload=occupancy.as_dict(),
+    )
+    if diag.write_reports:
+        emission.reports.append(
+            write_report(
+                dirs.reports / "janssens_segment_occupancy.txt",
+                format_janssens_segment_occupancy_report(occupancy),
+            )
+        )
+    if diag.write_figures and occupancy.segment_counts:
+        labels = [
+            f"{row['m_low']:g}-{row['m_up']:g}" for row in occupancy.segment_counts
+        ]
+        values = [float(row["count"]) for row in occupancy.segment_counts]
+        path = _maybe_plot(
+            True,
+            lambda: plot_categorical_bars(
+                labels,
+                values,
+                dirs.figures / "janssens_segment_occupancy.png",
+                xlabel="mass segment (Msun)",
+                ylabel="count",
+                title="Janssens segment occupancy",
+                dpi=diag.figure_dpi,
+                style=config.plotting,
+            ),
+        )
+        if path is not None:
+            emission.figures.append(path)
+    return emission
+
+
 def _ensure_builtin_helpers_registered() -> None:
     """Idempotently register the infrastructure hook helpers."""
     builtins: dict[str, DiagnosticHelper] = {
@@ -1505,6 +1984,13 @@ def _ensure_builtin_helpers_registered() -> None:
         "emit_known_truth_benchmarks": emit_known_truth_benchmarks,
         "emit_comparison_catalogs": emit_comparison_catalogs,
         "emit_sbc_recovery": emit_sbc_recovery,
+        "emit_sample_attrition_waterfall": emit_sample_attrition_waterfall,
+        "emit_sample_reproduction_report": emit_sample_reproduction_report,
+        "emit_simon2026_exclusion_breakdown": emit_simon2026_exclusion_breakdown,
+        "emit_covariance_health": emit_covariance_health,
+        "emit_sample_selection_function": emit_sample_selection_function,
+        "emit_mode_divergence": emit_mode_divergence,
+        "emit_janssens_segment_occupancy": emit_janssens_segment_occupancy,
         "format_funnel_report": format_funnel_report,
         "format_elbadry_panel_report": format_elbadry_panel_report,
         "format_fit_tier_coverage_report": format_fit_tier_coverage_report,
@@ -1548,6 +2034,7 @@ def run_diagnostic_suite(
     mc_noise: MCNoiseConvergenceDiagnostic | None = None,
     m2_posterior: M2PosteriorConvergenceDiagnostic | None = None,
     solution_types: SolutionTypeFractionResult | None = None,
+    sample_bundle: SampleDiagnosticsBundle | None = None,
     demo_missing: bool = False,
     run_sbc: bool | None = None,
 ) -> DiagnosticsStageResult:
@@ -1701,6 +2188,50 @@ def run_diagnostic_suite(
                 if path.suffix == ".h5" and path.is_file():
                     sbc_payload = read_sbc_artifact(path)
                     break
+
+    bundle = sample_bundle if sample_bundle is not None else SampleDiagnosticsBundle()
+    sample_results = dict(bundle.evaluation_results)
+    sample_specs = dict(bundle.sample_specs)
+    if demo_missing and not sample_results:
+        # Demo layout only — zero-length stand-ins so hooks skip cleanly or emit empty.
+        pass
+    hooks.append(
+        emit_sample_attrition_waterfall(config, dirs, results=sample_results or None)
+    )
+    hooks.append(
+        emit_sample_reproduction_report(
+            config,
+            dirs,
+            results=sample_results or None,
+            specs=sample_specs or None,
+        )
+    )
+    hooks.append(
+        emit_simon2026_exclusion_breakdown(
+            config,
+            dirs,
+            sample_ids=bundle.simon_in_sample_ids,
+            simon_rows=bundle.simon_rows,
+            spec=sample_specs.get("elbadry2026"),
+        )
+    )
+    cov_health = bundle.covariance_health
+    if cov_health is None and demo_missing:
+        cov_health = CovarianceHealth()
+    hooks.append(emit_covariance_health(config, dirs, health=cov_health))
+    hooks.append(
+        emit_sample_selection_function(
+            config,
+            dirs,
+            specs=sample_specs or None,
+            sample_names=bundle.selection_function_samples,
+        )
+    )
+    hooks.append(emit_mode_divergence(config, dirs, results=sample_results or None))
+    mg_vals = bundle.mg_0_values
+    if mg_vals is None and demo_missing:
+        mg_vals = [4.73, 2.5, 8.0, -9.0]
+    hooks.append(emit_janssens_segment_occupancy(config, dirs, mg_0_values=mg_vals))
 
     return DiagnosticsStageResult(
         schema_version=DIAGNOSTICS_SCHEMA_VERSION,
@@ -2015,6 +2546,65 @@ def _hydrate_diagnostics_from_manifest(
     if elbadry is not None:
         hydrated["elbadry_panels"] = elbadry
 
+    ss_path = _optional_artifact_path(manifest, "sample_selection")
+    if ss_path is not None:
+        try:
+            eval_results = load_evaluation_results_from_artifact(ss_path)
+        except (OSError, ValueError, FileNotFoundError):
+            eval_results = {}
+        if eval_results:
+            specs = load_specs_for_results(eval_results, config)
+            hydrated["sample_bundle"] = SampleDiagnosticsBundle(
+                evaluation_results=eval_results,
+                sample_specs=specs,
+                simon_in_sample_ids=(
+                    list(eval_results["elbadry2026"].surviving_source_ids)
+                    if "elbadry2026" in eval_results
+                    else None
+                ),
+            )
+
+    da_cov_path = _optional_artifact_path(manifest, "data_acquisition")
+    if da_cov_path is not None:
+        try:
+            with h5py.File(da_cov_path, "r") as handle:
+                if (
+                    "data_acquisition" in handle
+                    and "nss_covariance" in handle["data_acquisition"]
+                ):
+                    grp = handle["data_acquisition"]["nss_covariance"]
+                    health = CovarianceHealth(
+                        ok=int(grp.attrs.get("covariance_ok", 0)),
+                        missing_corr=int(grp.attrs.get("covariance_missing_corr", 0)),
+                        unsupported_solution_type=int(
+                            grp.attrs.get("covariance_unsupported_solution_type", 0)
+                        ),
+                        bit_index_mismatch=int(
+                            grp.attrs.get("covariance_bit_index_mismatch", 0)
+                        ),
+                        unpack_failed=int(
+                            grp.attrs.get("covariance_unpack_failed", 0)
+                        ),
+                        missing_values=int(
+                            grp.attrs.get("covariance_missing_values", 0)
+                        ),
+                        missing_errors=int(
+                            grp.attrs.get("covariance_missing_errors", 0)
+                        ),
+                        non_symmetric=int(
+                            grp.attrs.get("covariance_non_symmetric", 0)
+                        ),
+                        non_psd=int(grp.attrs.get("covariance_non_psd", 0)),
+                    )
+                    hydrated.setdefault(
+                        "sample_bundle", SampleDiagnosticsBundle()
+                    )
+                    bundle = hydrated["sample_bundle"]
+                    assert isinstance(bundle, SampleDiagnosticsBundle)
+                    bundle.covariance_health = health
+        except OSError:
+            pass
+
     return hydrated
 
 
@@ -2069,6 +2659,7 @@ def run_diagnostics_stage(
         sampler_runs=resolved_sampler_runs,
         mc_noise=resolved_mc_noise,
         solution_types=resolved_solution_types,
+        sample_bundle=hydrated.get("sample_bundle"),
         demo_missing=demo_hooks
         and resolved_candidates is None
         and resolved_sampler_runs is None,
