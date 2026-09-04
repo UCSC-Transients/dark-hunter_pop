@@ -93,7 +93,7 @@ Extends the `ORCHESTRATION_PLAN.md` §4 roster; numbering continues from #16.
 | 24 | **Sample-reproduction diagnostics** (published-N waterfall per sample, cut-by-cut attrition) | #20, #21, #25 | Mid | Standard | Well-specified reporting; this is the artifact that proves the reproduction path works. |
 | 25 | **El-Badry et al. (2026) selection** (`config/selections/elbadry2026.yaml` + module; two parent branches) | #17, #19, #20, #26 | Top | Deep | Two parallel branches (astrometric + SB1) with different mass-function machinery; the SB1 branch is new to this pipeline and subsample 3 imports Andrews' evaluated membership (§8.7). |
 | 26 | **SB1 spectroscopic mass-function support** (`SB1`/`SB1C` ingestion, `K1`/`σ_K1`/`e`, `f_m` primitive) | #18 | Mid | Standard | Well-specified ETL plus one closed-form statistic. Scope is now settled (§8.4.1): reproduction and validation only, no inference entry point in v1. |
-| 27 | **Spuriousness model** (`spuriousness_model.py`, `config/spuriousness_model.yaml`; shared `P(spurious \| ·)`) | #18, #19 | Top | Deep | Sample-independent model replacing three per-sample constants (§4.8). 293 labeled sources are staged. Covariate set must come from the sensitivity-analysis module, not be hand-picked; censoring of the 33 `undetermined` rows must be modeled, not dropped. Blocks the #23 inclusion operator. |
+| 27 | **Spuriousness model** (`spuriousness_model.py`, `config/spuriousness_model.yaml`; shared `P(spurious \| ·)`) | #18, #19 | Top | Deep | Sample-independent model replacing three per-sample constants (§4.8). 293 labeled sources are staged. Covariate set must come from the sensitivity-analysis module, not be hand-picked; censoring of the `unknown_*` rows must be modeled, not dropped (schema v3 / #127). Blocks the #23 inclusion operator. |
 
 Review/Integration (#15) continues, merging `config/fragments/` into `config/config.yaml` at each
 checkpoint as before.
@@ -333,15 +333,44 @@ the sensitivity requirement immediately after.
 
 **Four published tables carry per-source spuriousness labels**, all user-supplied and all staged
 under `config/selections/external/`. Together they are the training and validation set for this
-model.
+model. Fixtures are at **`schema_version: 3`** (issue #127).
 
-| Fixture | Source | Rows | genuine | spurious | undetermined |
-|---|---|---|---|---|---|
-| `elbadry2023_table_e1.yaml` | El-Badry 2023a Table E1 — **BH candidates** | 6 | 1 | 4 | 1 |
-| `elbadry2024_table3.yaml` | El-Badry 2024 Table 3 — **all NS candidates** of Andrews 2022 + Shahaf 2023b | 60 | 24 | 12 | 24 |
-| `elbadry2026_table7.yaml` | El-Badry 2026 Table 7 — astrometric branch | 76 | 46 | 23 | 7 |
-| `elbadry2026_table8.yaml` | El-Badry 2026 Table 8 — SB1 branch | 151 | 126 | 24 | 1 |
-| **Total** | | **293** | **197** | **63** | **33** |
+#### The four label states
+
+| `state` | Meaning |
+|---|---|
+| `good` | Genuine compact-object candidate; solution reliable |
+| `spurious` | Not a usable CO candidate under the v1 collapsed taxonomy (see reasons below) |
+| `unknown_insufficient_data` | Observable, validation incomplete; may resolve with more time |
+| `unknown_unobservable` | Could not be followed up at all; does not resolve with time |
+| `unknown_unspecified` | Table does not say which of the two unknown mechanisms applies |
+
+#### What `spurious` means in v1
+
+Every spurious row carries a `reason` so a future refinement is additive (Q16):
+
+| `reason` | Meaning |
+|---|---|
+| `solution_error` | The Gaia solution itself is wrong |
+| `luminous_companion` | Solution may be fine, but ≥2 luminous stars → not a compact object |
+| `hierarchical_triple` | Outer solution may be fine; an inner luminous binary is present |
+
+v1 predicts only the collapsed `spurious` state. `censor_exogenous` marks whether an unknown
+row's censoring mechanism is argued to be independent of whether the solution is genuine.
+
+Counts below are in this four-state taxonomy:
+
+| Fixture | Source | Rows | good | spurious | unknown: insufficient data | unknown: unobservable | unknown: unspecified |
+|---|---|---|---|---|---|---|---|
+| `elbadry2023_table_e1.yaml` | El-Badry 2023a Table E1 — **BH candidates** | 6 | 1 | 4 | 1 | 0 | 0 |
+| `elbadry2024_table3.yaml` | El-Badry 2024 Table 3 — **all NS candidates** of Andrews 2022 + Shahaf 2023b | 60 | 24 | 12 | 10 | 14 | 0 |
+| `elbadry2026_table7.yaml` | El-Badry 2026 Table 7 — astrometric branch | 76 | 44 | 24 | 1 | 0 | 7 |
+| `elbadry2026_table8.yaml` | El-Badry 2026 Table 8 — SB1 branch | 151 | 22 | 124 | 0 | 2 | 3 |
+| **Total** | | **293** | **91** | **164** | **12** | **16** | **10** |
+
+That is **31.1% good, 56.0% spurious, 12.9% unknown** across the pooled set. The spurious count is
+much larger than the 63 of the previous three-valued draft because the §15 Q15 ruling folds
+luminous-companion systems into `spurious`.
 
 Table E1 is **complete at six rows** — it covers only the BH candidates, which is why it is small.
 The NS candidates are in El-Badry 2024 Table 3, and the 2026 program's full astrometric and SB1
@@ -353,32 +382,30 @@ label: Table E1 has `G`, `M̃`, `P_orb`, `a0 × d`, `GoF`, and observed vs. expe
 Table 3 has `P_orb`, `G`, and `GoF`; Tables 7 and 8 have `P_orb`, `e`, the AMRF or `f_m`, `M̃1`,
 `M̃2`, **significance**, `G`, and `E(B−V)`.
 
-> **Is 293 enough for a multi-covariate fit?** **Yes, with caveats** — this supersedes the earlier
-> assessment that the label set was too small. 63 positives against roughly 8 candidate covariates
-> is on the order of 8 events per covariate, which is workable for a regularized fit but not for an
-> unregularized one, and it is the *positive* count that binds, not the total. Concretely: spec
-> regularization, spec cross-validated covariate selection through the sensitivity module rather
-> than stepwise addition, and report per-covariate effective sample size. Do not fit interaction
-> terms beyond the one the literature explicitly motivates (`F2 × G`, below) without the module
-> justifying them. The three-way rate reproduction remains the real acceptance test; in-sample fit
-> quality on 293 rows is not.
+> **Is 293 enough for a multi-covariate fit?** **Yes** — the binding quantity is the rarer class,
+> and at 164 spurious against 91 good the set is close to balanced (~11 minority-class events per
+> candidate covariate over ~8 covariates). The caveat is **composition**: 124 of 164 spurious rows
+> come from Table 8, and 83 of them are `luminous_companion` rather than `solution_error`. Spec
+> stratification by branch and reporting by `reason` even though v1 predicts only the collapsed
+> state. Regularize; use sensitivity-module covariate selection; do not add interaction terms
+> beyond `F2 × G` without module support. Three-way rate reproduction remains the acceptance test.
 
 #### Two label axes, not one
 
 The tables label two different things, and collapsing them would corrupt the model:
 
-- **`verdict`** — is the *Gaia solution* reliable? `genuine` / `spurious` / `undetermined`. **This
-  is what the spuriousness model predicts.**
+- **`state`** — is this a usable CO candidate / reliable solution under the four-state taxonomy?
+  **This is what the spuriousness model predicts** (collapsed `good` vs `spurious`; `unknown_*`
+  censored).
 - **`nature`** — what is the companion? Compact object, massive WD, post-mass-transfer binary,
   hierarchical triple, SB2, Be star. **This belongs to `companion_nature_likelihood`, not here.**
 
-An "ultramassive WD" row in Table 3 is a *genuine* astrometric solution whose companion is not an
-NS. A "two-temperature SED" row in Table 8 is a genuine SB1 solution with a luminous companion.
-Neither is a spurious solution. Both fixtures carry the axes as separate columns; keep them separate.
+An "ultramassive WD" row in Table 3 is `good` (reliable solution) whose companion is not an NS —
+`nature` carries that. Keep the axes as separate columns.
 
-#### Three-valued labels and censoring
+#### Unknown labels and censoring
 
-The `undetermined` rows are **censored, not missing at random**, and the censoring mechanism depends
+The `unknown_*` rows are **censored, not missing at random**, and the censoring mechanism depends
 on covariates the model uses. Table 3's breakdown makes this concrete:
 
 | Censor reason | N | Depends on |
@@ -392,23 +419,23 @@ El-Badry 2026 states the mechanism outright: *"Sources with spurious solutions w
 dropped from follow-up, and thus a smaller fraction of them have complete orbits."* The censoring is
 **correlated with the outcome being censored**.
 
-> **Requirement.** §4.8 must model censoring explicitly. Do **not** drop `undetermined` rows.
+> **Requirement.** §4.8 must model censoring explicitly. Do **not** drop `unknown_*` rows.
 > Dropping them biases the model against exactly the faint, high-`F2`, low-significance regime where
-> spuriousness is highest — the 12 rows censored by `G > 15` and the 2 censored by poor `F2` are the
-> most informative rows in Table 3 about where the model should predict high spuriousness, and
-> discarding them would make the fitted rate an underestimate precisely where it matters for DR4.
+> spuriousness is highest — the rows censored by `G > 15` and by poor `F2` are the most informative
+> about where the model should predict high spuriousness, and discarding them would make the fitted
+> rate an underestimate precisely where it matters for DR4.
 
 The defensible treatment, and the one specified here: fit the label and the censoring **jointly**,
-as a two-part model in which `P(observed verdict | x)` and `P(spurious | x)` share covariates. This
-is the standard Heckman-style selection correction, and it is the right choice here because the
-censoring indicator is *known* for every row and its drivers (`G`, `F2`) are already in the
-covariate set — so the selection equation is identified by functional form plus the exogenous
-`campaign_incomplete` variation, without needing an instrument we do not have.
+as a two-part model in which `P(observed | x)` and `P(spurious | x)` share covariates. This is the
+standard Heckman-style selection correction, and it is the right choice here because the censoring
+indicator is *known* for every row and its drivers (`G`, `F2`) are already in the covariate set —
+so the selection equation is identified by functional form plus exogenous censoring variation,
+without needing an instrument we do not have.
 
-Two alternatives were considered and rejected. Treating `undetermined` as a third outcome in a
-multinomial model is simpler, but it conflates "we do not know" with a physical state and yields a
-`P(spurious | x)` that cannot be evaluated on a mock, which defeats the purpose. Imputing the
-missing verdicts from the fitted model is circular. If #27 finds the joint model unidentified in
+Two alternatives were considered and rejected. Treating `unknown_*` as additional outcome classes
+in a multinomial model is simpler, but it conflates "we do not know" with a physical state and
+yields a `P(spurious | x)` that cannot be evaluated on a mock, which defeats the purpose. Imputing
+the missing states from the fitted model is circular. If the joint model is unidentified in
 practice, escalate rather than falling back to dropping rows.
 
 #### What the literature already says about the covariates
@@ -456,7 +483,7 @@ Each paper's quoted rate becomes an **acceptance test**:
 | Sample | Population the rate applies to | Target | Recovered from the staged fixtures |
 |---|---|---|---|
 | El-Badry 2024 (§7.3) | Candidates with good astrometric quality flags | ~25% | **25.0%** — 12 spurious of the 48 Table 3 rows with `G < 15` |
-| El-Badry 2026 astrometric (§8.6) | The 76-source astrometric branch | ~60% reliable | **60.5%** — 46 genuine of 76 in Table 7 |
+| El-Badry 2026 astrometric (§8.6) | The 76-source astrometric branch | ~60% reliable | **57.9%** — 44 good of 76 in Table 7 (schema v3) |
 | El-Badry 2026 SB1 (§8.6) | The 151-source spectroscopic branch | ~50% spurious | **Not row-recoverable** — see §15 Q15 |
 
 Integrating the one shared model over each sample's selection must reproduce these. **Reproducing
@@ -466,9 +493,9 @@ achievable by tuning an overall normalization.
 
 The first two targets are now **exactly** recoverable from the staged label fixtures, which is a
 strong signal that the label taxonomy above is the one the papers used: 12/48 reproduces the
-published "about a quarter" to three digits, and 46/76 reproduces the published "∼60% … have
-reliable orbital solutions and indeed host compact objects" to within half a point. The SB1 target
-does not reduce this way and is treated separately under §15 Q15.
+published "about a quarter" to three digits, and 44/76 remains within a point of the published
+"∼60% … have reliable orbital solutions and indeed host compact objects". The SB1 target does not
+reduce this way and is treated separately under §15 Q15.
 
 The rates stay recorded in each per-sample selection file, but **relabeled**: they live under a
 `validation_targets:` block, explicitly as outputs to be reproduced, never read by the selection or

@@ -4,16 +4,27 @@
 # Frozen external fixture, machine-transcribed from the published PDF.
 # LABELED SET for the shared spuriousness model (CONTINUATION_PLAN.md section 4.8).
 #
-# Labels are THREE-VALUED (genuine / spurious / undetermined) on the `verdict` axis, which is
-# what the spuriousness model predicts. `nature` is a SEPARATE axis owned by
-# companion_nature_likelihood --- an ultramassive WD is a genuine astrometric solution with a
-# non-NS companion, not a spurious solution. Do not collapse the two axes.
+# STATE is four-valued (CONTINUATION_PLAN.md section 4.8):
+#   good                       genuine compact-object candidate, solution reliable
+#   spurious                   not a compact-object candidate; see `reason`
+#   unknown_insufficient_data  observable, validation incomplete; RESOLVES with more time
+#   unknown_unobservable       could not be followed up at all; does NOT resolve with time
+#   unknown_unspecified        the table does not say which of the two above applies
 #
-# `censor_reason` is non-null exactly when verdict == undetermined. These rows are CENSORED,
-# NOT MISSING AT RANDOM: `magnitude_limit` and `deprioritized_by_goodness_of_fit` censor on
-# covariates the model uses. Dropping them biases the fit. See section 4.8.
+# `reason` is recorded for every spurious row so a future refinement is ADDITIVE. v1 collapses
+# these to one spurious state; a later split needs no re-extraction (section 15 Q16):
+#   solution_error       the solution itself is wrong
+#   luminous_companion   solution may be fine, but >=2 luminous stars, so not a compact object
+#   hierarchical_triple  outer solution may be fine; an inner luminous binary is present
+#
+# `censor_exogenous` marks whether the reason a row is unknown is argued to be independent of
+# whether its solution is genuine. Observability limits (magnitude, declination, elapsed
+# baseline, rotational broadening) are exogenous; deprioritization on a fit statistic is NOT.
+#
+# `nature` is a SEPARATE axis owned by companion_nature_likelihood. An ultramassive WD is a
+# compact object and therefore `good`, not spurious.
 
-schema_version: 1
+schema_version: 3
 name: elbadry2024_table3
 
 provenance:
@@ -31,18 +42,24 @@ provenance:
 
 roles: [spuriousness_labels]
 
-label_counts:
-  genuine: 24
+state_counts:
+  good: 24
   spurious: 12
-  undetermined: 24
+  unknown_insufficient_data: 10
+  unknown_unobservable: 14
 
-# 12 spurious / 48 sources with G < 15 = 25.0%, matching the paper's "about a quarter of
-# candidates with good astrometric quality flags turned out to be spurious". The denominator
-# is selection-dependent --- exactly the point of section 4.8.
+# 12 spurious / 48 rows with G < 15 = 25.0%, matching the paper's "about a quarter of candidates
+# with good astrometric quality flags turned out to be spurious". The denominator is
+# selection-dependent --- exactly the point of section 4.8.
 published_rate_check:
   spurious_fraction_g_lt_15: 0.250
   numerator: 12
   denominator: 48
+
+# The only endogenous censoring channel in the entire 293-source label set: 2 rows were not
+# followed up BECAUSE their goodness of fit was poor, which is a model covariate. Every other
+# unknown row is censored on observability. See section 4.8.
+endogenous_censoring_rows: 2
 
 columns:
   source_id: "Gaia DR3 source ID"
@@ -51,9 +68,11 @@ columns:
   g_mag: "apparent G [mag]"
   gof: "astrometric goodness of fit (F2)"
   status: "published follow-up status string, verbatim"
-  verdict: "genuine | spurious | undetermined"
+  state: "good | spurious | unknown_insufficient_data | unknown_unobservable | unknown_unspecified"
+  reason: "spurious rows only: solution_error | luminous_companion | hierarchical_triple"
   nature: "companion-nature axis; null where not stated"
-  censor_reason: "why no verdict was reached; null unless verdict == undetermined"
+  censor_reason: "why no verdict; null unless state starts with unknown"
+  censor_exogenous: "true if the censoring mechanism is argued independent of spuriousness"
 
 data:
   - source_id: 1522897482203494784
@@ -63,8 +82,11 @@ data:
     g_mag: 11.05
     gof: 1.85
     status: "likely ultramassive WD (Yamaguchi et al. 2024)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3509370326763016704
     reference: "S23"
     period_days: 109.4
@@ -72,8 +94,11 @@ data:
     g_mag: 12.47
     gof: 5.22
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6281177228434199296
     reference: "S23"
     period_days: 153.9
@@ -81,8 +106,11 @@ data:
     g_mag: 11.26
     gof: 8.05
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4482912934572480384
     reference: "S23"
     period_days: 182.4
@@ -90,8 +118,11 @@ data:
     g_mag: 12.35
     gof: 20.26
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2995961897685517312
     reference: "S23"
     period_days: 189.8
@@ -99,8 +130,11 @@ data:
     g_mag: 13.0
     gof: 0.41
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2080945469200565248
     reference: "S23"
     period_days: 196.6
@@ -108,8 +142,11 @@ data:
     g_mag: 13.29
     gof: -1.25
     status: "RV follow-up implies e < 0.001. Likely ultramassive WD."
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2032579979951732736
     reference: "S23"
     period_days: 215.4
@@ -117,9 +154,11 @@ data:
     g_mag: 14.21
     gof: -1.04
     status: "high v sin i prevented robust RV measurements"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "rv_precision_vsini"
+    censor_exogenous: true
   - source_id: 6481502062263141504
     reference: "S23"
     period_days: 229.7
@@ -127,8 +166,11 @@ data:
     g_mag: 13.58
     gof: 2.11
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5820382041374661888
     reference: "S23"
     period_days: 311.1
@@ -136,8 +178,11 @@ data:
     g_mag: 14.19
     gof: -2.49
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1525829295599805184
     reference: "A22"
     period_days: 328.2
@@ -145,9 +190,11 @@ data:
     g_mag: 16.18
     gof: 2.25
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1871419337958702720
     reference: "S23"
     period_days: 479.3
@@ -155,8 +202,11 @@ data:
     g_mag: 13.7
     gof: -0.71
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5530442371304582912
     reference: "S23"
     period_days: 498.8
@@ -164,8 +214,11 @@ data:
     g_mag: 14.6
     gof: -2.04
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3263804373319076480
     reference: "S23"
     period_days: 510.7
@@ -173,8 +226,11 @@ data:
     g_mag: 12.67
     gof: 5.56
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6601396177408279040
     reference: "S23"
     period_days: 533.5
@@ -182,9 +238,11 @@ data:
     g_mag: 14.07
     gof: 13.8
     status: "not followed-up due to poor GoF"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "deprioritized_by_goodness_of_fit"
+    censor_exogenous: false
   - source_id: 5136025521527939072
     reference: "S23"
     period_days: 536.9
@@ -192,8 +250,11 @@ data:
     g_mag: 12.05
     gof: 4.68
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2912474227443068544
     reference: "S23"
     period_days: 541.5
@@ -201,8 +262,11 @@ data:
     g_mag: 13.81
     gof: 24.83
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4271998639836225920
     reference: "A22"
     period_days: 545.3
@@ -210,9 +274,11 @@ data:
     g_mag: 15.62
     gof: 0.12
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 4922744974687373440
     reference: "S23"
     period_days: 562.4
@@ -220,8 +286,11 @@ data:
     g_mag: 14.48
     gof: 1.23
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6001459821083925120
     reference: "A22"
     period_days: 563.8
@@ -229,8 +298,11 @@ data:
     g_mag: 13.6
     gof: -1.54
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3869650535947137920
     reference: "S23"
     period_days: 570.0
@@ -238,8 +310,11 @@ data:
     g_mag: 12.94
     gof: 5.46
     status: "ruled out by RV follow-up (Figure 19)"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1434445448240677376
     reference: "S23"
     period_days: 572.4
@@ -247,8 +322,11 @@ data:
     g_mag: 13.65
     gof: -2.97
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6802561484797464832
     reference: "S23"
     period_days: 574.8
@@ -256,9 +334,11 @@ data:
     g_mag: 12.88
     gof: 11.01
     status: "not followed-up due to poor GoF"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "deprioritized_by_goodness_of_fit"
+    censor_exogenous: false
   - source_id: 2196619383835483648
     reference: "S23"
     period_days: 582.2
@@ -266,9 +346,11 @@ data:
     g_mag: 15.71
     gof: 1.53
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1695294922548180224
     reference: "A22, S23"
     period_days: 601.2
@@ -276,9 +358,11 @@ data:
     g_mag: 13.12
     gof: -2.74
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 4744087975990080896
     reference: "A22, S23"
     period_days: 631.3
@@ -286,9 +370,11 @@ data:
     g_mag: 17.07
     gof: -0.1
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1694708646628402048
     reference: "S23"
     period_days: 632.0
@@ -296,8 +382,11 @@ data:
     g_mag: 13.2
     gof: 0.77
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3494029910469026432
     reference: "S23"
     period_days: 632.5
@@ -305,8 +394,11 @@ data:
     g_mag: 12.66
     gof: 2.64
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4637171465304969216
     reference: "S23"
     period_days: 639.2
@@ -314,8 +406,11 @@ data:
     g_mag: 14.01
     gof: 0.77
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5580526947012630912
     reference: "A22, S23"
     period_days: 654.3
@@ -323,8 +418,11 @@ data:
     g_mag: 13.36
     gof: 0.66
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1350295047363872512
     reference: "A22, S23"
     period_days: 657.2
@@ -332,8 +430,11 @@ data:
     g_mag: 13.52
     gof: 3.53
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6593763230249162112
     reference: "A22"
     period_days: 679.9
@@ -341,8 +442,11 @@ data:
     g_mag: 13.54
     gof: 1.67
     status: "ruled out by RV follow-up (Figure 19)"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4240540718818313984
     reference: "S23"
     period_days: 691.2
@@ -350,9 +454,11 @@ data:
     g_mag: 14.61
     gof: 0.41
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 2426116249713980416
     reference: "S23"
     period_days: 711.7
@@ -360,8 +466,11 @@ data:
     g_mag: 13.02
     gof: -0.3
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4578398926673187328
     reference: "S23"
     period_days: 728.1
@@ -369,9 +478,11 @@ data:
     g_mag: 15.02
     gof: 0.05
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 6328149636482597888
     reference: "A22, S23"
     period_days: 736.0
@@ -379,8 +490,11 @@ data:
     g_mag: 13.34
     gof: 0.74
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2885872059004028800
     reference: "S23"
     period_days: 802.2
@@ -388,9 +502,11 @@ data:
     g_mag: 15.31
     gof: 1.93
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 6037767138131854592
     reference: "S23"
     period_days: 804.7
@@ -398,9 +514,11 @@ data:
     g_mag: 14.28
     gof: -0.91
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 5590962927271507712
     reference: "A22, S23"
     period_days: 817.9
@@ -408,9 +526,11 @@ data:
     g_mag: 15.88
     gof: 1.86
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1058875159778407808
     reference: "A22, S23"
     period_days: 835.7
@@ -418,8 +538,11 @@ data:
     g_mag: 14.52
     gof: -0.01
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5446310318525312768
     reference: "S23"
     period_days: 866.6
@@ -427,9 +550,11 @@ data:
     g_mag: 10.37
     gof: 4.27
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 6092954989675820416
     reference: "S23"
     period_days: 883.1
@@ -437,8 +562,11 @@ data:
     g_mag: 13.67
     gof: 0.15
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3649963989549165440
     reference: "A22"
     period_days: 892.5
@@ -446,8 +574,11 @@ data:
     g_mag: 14.3
     gof: 0.52
     status: "sdB + NS or WD binary (Geier et al. 2023)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "sdb_primary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1801110822095134848
     reference: "S23"
     period_days: 893.6
@@ -455,8 +586,11 @@ data:
     g_mag: 12.19
     gof: 3.58
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4638295715945158144
     reference: "S23"
     period_days: 915.4
@@ -464,9 +598,11 @@ data:
     g_mag: 12.93
     gof: 7.68
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 2397135910639986304
     reference: "A22, S23"
     period_days: 916.0
@@ -474,8 +610,11 @@ data:
     g_mag: 13.35
     gof: 2.1
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 809741149368202752
     reference: "A22, S23"
     period_days: 922.4
@@ -483,9 +622,11 @@ data:
     g_mag: 14.91
     gof: 1.19
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 1581117310088807552
     reference: "A22, S23"
     period_days: 927.3
@@ -493,8 +634,11 @@ data:
     g_mag: 14.51
     gof: 2.88
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1749013354127453696
     reference: "A22"
     period_days: 932.1
@@ -502,8 +646,11 @@ data:
     g_mag: 14.49
     gof: -0.34
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6588211521163024640
     reference: "S23"
     period_days: 943.3
@@ -511,8 +658,11 @@ data:
     g_mag: 14.19
     gof: 4.92
     status: "ruled out by RV follow-up"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5681911574178198400
     reference: "A22, S23"
     period_days: 943.8
@@ -520,9 +670,11 @@ data:
     g_mag: 15.64
     gof: -0.41
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 5693240254808387584
     reference: "S23"
     period_days: 944.4
@@ -530,9 +682,11 @@ data:
     g_mag: 16.4
     gof: -1.39
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1028887114002082432
     reference: "S23"
     period_days: 994.4
@@ -540,8 +694,11 @@ data:
     g_mag: 13.59
     gof: -0.42
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 747174436620510976
     reference: "A22, S23"
     period_days: 999.4
@@ -549,8 +706,11 @@ data:
     g_mag: 13.99
     gof: -0.96
     status: "ruled out by RV follow-up (Figure 19)"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5593444799901901696
     reference: "A22"
     period_days: 1038.8
@@ -558,9 +718,11 @@ data:
     g_mag: 14.42
     gof: 0.25
     status: "high v sin i prevented robust RV measurements"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "rv_precision_vsini"
+    censor_exogenous: true
   - source_id: 465093354131112960
     reference: "this work"
     period_days: 1046.3
@@ -568,8 +730,11 @@ data:
     g_mag: 13.1
     gof: -0.86
     status: "one of our candidates"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4314242838679237120
     reference: "A22"
     period_days: 1146.0
@@ -577,9 +742,11 @@ data:
     g_mag: 17.02
     gof: -0.78
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1947292821452944896
     reference: "A22"
     period_days: 1245.6
@@ -587,9 +754,11 @@ data:
     g_mag: 15.94
     gof: -0.49
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 5847919241396757888
     reference: "A22"
     period_days: 1254.3
@@ -597,9 +766,11 @@ data:
     g_mag: 16.9
     gof: 1.51
     status: "fainter than G = 15"
-    verdict: "undetermined"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
     censor_reason: "magnitude_limit"
+    censor_exogenous: true
   - source_id: 1144019690966028928
     reference: "A22"
     period_days: 1401.9
@@ -607,9 +778,11 @@ data:
     g_mag: 13.57
     gof: -1.65
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true
   - source_id: 1854241667792418304
     reference: "A22"
     period_days: 1430.3
@@ -617,6 +790,8 @@ data:
     g_mag: 14.87
     gof: 1.38
     status: "RV follow-up not yet completed"
-    verdict: "undetermined"
+    state: "unknown_insufficient_data"
+    reason: null
     nature: null
     censor_reason: "campaign_incomplete"
+    censor_exogenous: true

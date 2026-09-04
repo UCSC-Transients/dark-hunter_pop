@@ -1,10 +1,19 @@
-"""Sample-independent spuriousness model ``P(spurious | ·)`` (CONTINUATION_PLAN §4.8).
+"""
+Sample-independent spuriousness model ``P(spurious | ·)`` (CONTINUATION_PLAN §4.8).
 
-Fits one shared propensity over the four labeled fixtures (293 sources). Predicts
-the ``verdict`` axis only — ``nature`` belongs to ``companion_nature_likelihood``.
-Undetermined rows are censored (Heckman-style joint selection + outcome), never
-dropped. Covariates are retained only via ``sensitivity_analysis`` ΔBIC, not by
-hand. Evaluable on mock realizations for the #23 inclusion operator.
+Fits one shared propensity over the four labeled fixtures (293 sources, schema
+version 3). Predicts the collapsed ``state`` axis only — ``nature`` belongs to
+``companion_nature_likelihood``. Four-state taxonomy:
+
+- ``good`` — genuine compact-object candidate; solution reliable
+- ``spurious`` — not a usable CO candidate (v1 collapses ``reason``)
+- ``unknown_insufficient_data`` / ``unknown_unobservable`` / ``unknown_unspecified``
+  — censored (Heckman-style joint selection + outcome), never dropped
+
+Spurious ``reason`` is recorded for §15 Q16 (``solution_error``,
+``luminous_companion``, ``hierarchical_triple``) but v1 predicts only the
+collapsed binary. Covariates are retained only via ``sensitivity_analysis``
+ΔBIC, not by hand. Evaluable on mock realizations for the inclusion operator.
 
 Functional form (justified in the PR):
 - Link: probit.
@@ -12,12 +21,13 @@ Functional form (justified in the PR):
   equation adds ``phot_g_mean_mag`` (+ F2 when present) as exclusion restrictions
   (known censoring drivers). Correlation ``rho`` is estimated; if it hits the
   bound the fit falls back to independent parts (``rho=0``) rather than dropping
-  undetermined rows.
-- Outcome equation stratified to the astrometric branch so SB1 nature-label
-  composition does not dominate (CONTINUATION_PLAN §4.8 composition caveat).
+  unknown_* rows.
+- Outcome equation stratified to the astrometric branch so SB1
+  luminous-companion composition does not dominate (§4.8 composition caveat).
 - Missing fixture columns: availability indicators, no mean-imputation of
   missing-at-selection fields (RV consistency).
-- Regularization: L2 on slope coefficients (63 positives bind).
+- Regularization: L2 on slope coefficients (positives bind under the collapsed
+  taxonomy).
 """
 
 from __future__ import annotations
@@ -48,8 +58,33 @@ from darkhunter_pop.sensitivity_analysis import (
 
 SCHEMA_VERSION = 1
 
-Verdict = Literal["genuine", "spurious", "undetermined"]
+LabelState = Literal[
+    "good",
+    "spurious",
+    "unknown_insufficient_data",
+    "unknown_unobservable",
+    "unknown_unspecified",
+]
+SpuriousReason = Literal[
+    "solution_error",
+    "luminous_companion",
+    "hierarchical_triple",
+]
 Branch = Literal["astrometric", "spectroscopic"]
+
+UNKNOWN_STATES: frozenset[str] = frozenset(
+    {
+        "unknown_insufficient_data",
+        "unknown_unobservable",
+        "unknown_unspecified",
+    }
+)
+VALID_STATES: frozenset[str] = frozenset(
+    {"good", "spurious", *UNKNOWN_STATES}
+)
+VALID_SPURIOUS_REASONS: frozenset[str] = frozenset(
+    {"solution_error", "luminous_companion", "hierarchical_triple"}
+)
 
 _TABLE_BRANCH: dict[str, Branch] = {
     "elbadry2023_table_e1": "astrometric",
@@ -74,12 +109,12 @@ class PerSampleSpuriousRateReadError(RuntimeError):
 
 @dataclass(frozen=True)
 class LabeledSource:
-    """One row from a labeled external fixture."""
+    """One row from a labeled external fixture (schema_version >= 3)."""
 
     source_id: int
     table: str
     branch: Branch
-    verdict: Verdict
+    state: LabelState
     nature: str | None
     censor_reason: str | None
     period_days: float
@@ -90,6 +125,8 @@ class LabeledSource:
     parallax_snr: float | None
     visibility_periods_used: float | None
     rv_consistency: float | None
+    reason: str | None = None
+    censor_exogenous: bool | None = None
     label_conflict: str | None = None
 
 
@@ -129,8 +166,8 @@ class FittedSpuriousnessModel:
     literature_interaction: dict[str, Any]
     n_labeled: int
     n_spurious: int
-    n_genuine: int
-    n_undetermined: int
+    n_good: int
+    n_unknown: int
     log_likelihood: float
     identified: bool
     identification_notes: str
@@ -156,8 +193,8 @@ class FittedSpuriousnessModel:
             "literature_interaction": dict(self.literature_interaction),
             "n_labeled": self.n_labeled,
             "n_spurious": self.n_spurious,
-            "n_genuine": self.n_genuine,
-            "n_undetermined": self.n_undetermined,
+            "n_good": self.n_good,
+            "n_unknown": self.n_unknown,
             "log_likelihood": self.log_likelihood,
             "identified": self.identified,
             "identification_notes": self.identification_notes,
@@ -171,7 +208,7 @@ class RateReproductionRow:
     sample: str
     n: int
     predicted_spurious_label_rate: float
-    predicted_genuine_label_rate: float
+    predicted_good_label_rate: float
     predicted_mean_p_spurious: float
     target: float | None
     target_kind: str
@@ -185,7 +222,7 @@ class RateReproductionRow:
             "sample": self.sample,
             "n": self.n,
             "predicted_spurious_label_rate": self.predicted_spurious_label_rate,
-            "predicted_genuine_label_rate": self.predicted_genuine_label_rate,
+            "predicted_good_label_rate": self.predicted_good_label_rate,
             "predicted_mean_p_spurious": self.predicted_mean_p_spurious,
             "target": self.target,
             "target_kind": self.target_kind,
@@ -205,7 +242,7 @@ class SpuriousnessFitResult:
     p_spurious: NDArray[np.floating]
     p_observed: NDArray[np.floating]
     p_spurious_label: NDArray[np.floating]
-    p_genuine_label: NDArray[np.floating]
+    p_good_label: NDArray[np.floating]
     rate_reproduction: list[RateReproductionRow] = field(default_factory=list)
     sb1_q15_report: dict[str, Any] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
@@ -301,21 +338,56 @@ def load_labeled_sources(
     *,
     repo: Path | None = None,
 ) -> list[LabeledSource]:
-    """Load all labeled fixtures into a flat source list (verdict axis only)."""
+    """Load all labeled fixtures into a flat source list (state axis only)."""
     root = default_repo_root() if repo is None else repo
     sources: list[LabeledSource] = []
     for rel in spec.labeled_sets:
         path = root / rel
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        schema_version = int(raw.get("schema_version", 0))
+        if schema_version < 3:
+            raise ValueError(
+                f"{path}: schema_version {schema_version} < 3; "
+                "four-state `state` taxonomy required (issue #127)"
+            )
         table = str(raw.get("name") or _table_name_from_path(path))
         branch = _TABLE_BRANCH.get(table)
         if branch is None:
             raise ValueError(f"unknown labeled table {table!r} (no branch mapping)")
         for row in raw["data"]:
-            verdict = str(row["verdict"])
-            if verdict not in ("genuine", "spurious", "undetermined"):
+            if "verdict" in row and "state" not in row:
                 raise ValueError(
-                    f"invalid verdict {verdict!r} for source {row.get('source_id')}"
+                    f"{path}: legacy `verdict` column without `state` for "
+                    f"source {row.get('source_id')}"
+                )
+            state = str(row["state"])
+            if state not in VALID_STATES:
+                raise ValueError(
+                    f"invalid state {state!r} for source {row.get('source_id')}"
+                )
+            reason = row.get("reason")
+            if state == "spurious":
+                if reason is None or str(reason) not in VALID_SPURIOUS_REASONS:
+                    raise ValueError(
+                        f"spurious source {row.get('source_id')} needs reason in "
+                        f"{sorted(VALID_SPURIOUS_REASONS)}; got {reason!r}"
+                    )
+                reason = str(reason)
+            elif reason is not None:
+                raise ValueError(
+                    f"non-spurious source {row.get('source_id')} must have "
+                    f"reason=null; got {reason!r}"
+                )
+            censor_reason = row.get("censor_reason")
+            if state in UNKNOWN_STATES:
+                if censor_reason is None:
+                    raise ValueError(
+                        f"unknown source {row.get('source_id')} needs censor_reason"
+                    )
+            elif censor_reason is not None:
+                raise ValueError(
+                    f"adjudicated source {row.get('source_id')} must have "
+                    f"censor_reason=null; got {censor_reason!r}"
                 )
             gof = _scalar(row.get("gof") if "gof" in row else row.get("goodness_of_fit"))
             sources.append(
@@ -323,9 +395,9 @@ def load_labeled_sources(
                     source_id=int(row["source_id"]),
                     table=table,
                     branch=branch,
-                    verdict=verdict,  # type: ignore[arg-type]
+                    state=state,  # type: ignore[arg-type]
                     nature=row.get("nature"),
-                    censor_reason=row.get("censor_reason"),
+                    censor_reason=censor_reason,
                     period_days=_period_days(row),
                     g_mag=float(row["g_mag"]),
                     goodness_of_fit=gof,
@@ -334,6 +406,8 @@ def load_labeled_sources(
                     parallax_snr=_scalar(row.get("parallax_snr")),
                     visibility_periods_used=_scalar(row.get("visibility_periods_used")),
                     rv_consistency=_rv_consistency(row),
+                    reason=reason,
+                    censor_exogenous=row.get("censor_exogenous"),
                     label_conflict=row.get("label_conflict"),
                 )
             )
@@ -436,16 +510,16 @@ def build_candidate_design(
     y = np.full(n, np.nan, dtype=np.float64)
     observed = np.zeros(n, dtype=bool)
     for i, s in enumerate(sources):
-        if s.verdict == "undetermined":
+        if s.state in UNKNOWN_STATES:
             observed[i] = False
-        elif s.verdict == "spurious":
+        elif s.state == "spurious":
             observed[i] = True
             y[i] = 1.0
-        elif s.verdict == "genuine":
+        elif s.state == "good":
             observed[i] = True
             y[i] = 0.0
         else:
-            raise ValueError(f"unhandled verdict {s.verdict!r}")
+            raise ValueError(f"unhandled state {s.state!r}")
 
     return SpuriousnessDesign(
         sources=tuple(sources),
@@ -761,7 +835,7 @@ def fit_spuriousness_model(
     if escalate_if_unidentified and not identified:
         raise SpuriousnessModelUnidentifiedError(
             "Joint spuriousness model failed to optimize: "
-            f"{notes}. Escalate per §4.8 — do not drop undetermined rows. "
+            f"{notes}. Escalate per §4.8 — do not drop unknown_* rows. "
             f"retained={retained}"
         )
 
@@ -785,8 +859,8 @@ def fit_spuriousness_model(
         literature_interaction=lit,
         n_labeled=len(sources),
         n_spurious=int(np.sum(design.y_spurious[design.observed] > 0.5)),
-        n_genuine=int(np.sum(design.y_spurious[design.observed] <= 0.5)),
-        n_undetermined=int(np.sum(~design.observed)),
+        n_good=int(np.sum(design.y_spurious[design.observed] <= 0.5)),
+        n_unknown=int(np.sum(~design.observed)),
         log_likelihood=ll,
         identified=identified,
         identification_notes=notes,
@@ -798,7 +872,7 @@ def fit_spuriousness_model(
         p_spurious=p_s,
         p_observed=p_o,
         p_spurious_label=p_sl,
-        p_genuine_label=p_gl,
+        p_good_label=p_gl,
         config_snapshot=spec.model_dump(mode="json"),
     )
     result.rate_reproduction = evaluate_rate_reproduction(result, spec)
@@ -885,7 +959,7 @@ def predict_joint(
     NDArray[np.floating],
     NDArray[np.floating],
 ]:
-    """Return ``(P(spurious|x), P(observed|x), P(label=spurious), P(label=genuine))``."""
+    """Return ``(P(spurious|x), P(observed|x), P(label=spurious), P(label=good))``."""
     x = _features_from_columns(model, design.candidate_columns, model.outcome_feature_names)
     z = _features_from_columns(
         model, design.candidate_columns, model.selection_feature_names
@@ -933,7 +1007,7 @@ def evaluate_rate_reproduction(
     )
     n = int(np.sum(mask))
     pred_sl = float(np.mean(result.p_spurious_label[mask])) if n else float("nan")
-    pred_gl = float(np.mean(result.p_genuine_label[mask])) if n else float("nan")
+    pred_gl = float(np.mean(result.p_good_label[mask])) if n else float("nan")
     pred_ps = float(np.mean(result.p_spurious[mask])) if n else float("nan")
     target = float(t2024.target_spurious_fraction or 0.25)
     err = abs(pred_sl - target)
@@ -942,7 +1016,7 @@ def evaluate_rate_reproduction(
             sample="elbadry2024",
             n=n,
             predicted_spurious_label_rate=pred_sl,
-            predicted_genuine_label_rate=pred_gl,
+            predicted_good_label_rate=pred_gl,
             predicted_mean_p_spurious=pred_ps,
             target=target,
             target_kind="spurious_label_fraction",
@@ -951,7 +1025,7 @@ def evaluate_rate_reproduction(
             role="acceptance_test",
             notes=(
                 f"fixture {t2024.fixture_numerator}/{t2024.fixture_denominator}; "
-                "rate is E[P(verdict=spurious|x)] under the joint model"
+                "rate is E[P(state=spurious|x)] under the joint model"
             ),
         )
     )
@@ -960,7 +1034,7 @@ def evaluate_rate_reproduction(
     mask = np.array([tbl == t2026a.table for tbl in design.tables], dtype=bool)
     n = int(np.sum(mask))
     pred_sl = float(np.mean(result.p_spurious_label[mask])) if n else float("nan")
-    pred_gl = float(np.mean(result.p_genuine_label[mask])) if n else float("nan")
+    pred_gl = float(np.mean(result.p_good_label[mask])) if n else float("nan")
     pred_ps = float(np.mean(result.p_spurious[mask])) if n else float("nan")
     target = float(t2026a.target_reliable_fraction or (46 / 76))
     err = abs(pred_gl - target)
@@ -969,16 +1043,16 @@ def evaluate_rate_reproduction(
             sample="elbadry2026_astrometric",
             n=n,
             predicted_spurious_label_rate=pred_sl,
-            predicted_genuine_label_rate=pred_gl,
+            predicted_good_label_rate=pred_gl,
             predicted_mean_p_spurious=pred_ps,
             target=target,
-            target_kind="genuine_label_fraction",
+            target_kind="good_label_fraction",
             abs_error=err,
             passed=err <= tol,
             role="acceptance_test",
             notes=(
-                f"fixture genuine {t2026a.fixture_genuine}/{t2026a.fixture_n}; "
-                "reliable ≡ E[P(verdict=genuine|x)]"
+                f"fixture good {t2026a.fixture_good}/{t2026a.fixture_n}; "
+                "reliable ≡ E[P(state=good|x)]"
             ),
         )
     )
@@ -987,14 +1061,14 @@ def evaluate_rate_reproduction(
     mask = np.array([tbl == t2026s.table for tbl in design.tables], dtype=bool)
     n = int(np.sum(mask))
     pred_sl = float(np.mean(result.p_spurious_label[mask])) if n else float("nan")
-    pred_gl = float(np.mean(result.p_genuine_label[mask])) if n else float("nan")
+    pred_gl = float(np.mean(result.p_good_label[mask])) if n else float("nan")
     pred_ps = float(np.mean(result.p_spurious[mask])) if n else float("nan")
     rows.append(
         RateReproductionRow(
             sample="elbadry2026_sb1",
             n=n,
             predicted_spurious_label_rate=pred_sl,
-            predicted_genuine_label_rate=pred_gl,
+            predicted_good_label_rate=pred_gl,
             predicted_mean_p_spurious=pred_ps,
             target=t2026s.target_spurious_fraction_advisory,
             target_kind="spurious_label_fraction_advisory",
@@ -1006,9 +1080,9 @@ def evaluate_rate_reproduction(
             passed=None,
             role="advisory",
             notes=(
-                "§15 Q15: Table 8 Notes mostly label nature, not solution reliability; "
-                f"RVs-inconsistent fraction = "
-                f"{t2026s.fixture_spurious_solution_fraction:.3f} (24/151)"
+                "§15 Q15 advisory: collapsed spurious includes luminous_companion; "
+                f"fixture solution_error fraction = "
+                f"{t2026s.fixture_spurious_solution_fraction:.3f}"
             ),
         )
     )
@@ -1022,36 +1096,41 @@ def build_sb1_q15_report(
     """Escalate §15 Q15: what denominator the paper's ~50% refers to."""
     t8 = [s for s in design.sources if s.table == "elbadry2026_table8"]
     n = len(t8)
-    n_spur = sum(1 for s in t8 if s.verdict == "spurious")
-    n_gen = sum(1 for s in t8 if s.verdict == "genuine")
-    n_und = sum(1 for s in t8 if s.verdict == "undetermined")
+    n_spur = sum(1 for s in t8 if s.state == "spurious")
+    n_good = sum(1 for s in t8 if s.state == "good")
+    n_unknown = sum(1 for s in t8 if s.state in UNKNOWN_STATES)
+    reasons: dict[str, int] = {}
+    for s in t8:
+        if s.state == "spurious":
+            key = s.reason or "(null)"
+            reasons[key] = reasons.get(key, 0) + 1
     natures: dict[str, int] = {}
     for s in t8:
         key = s.nature or "(null)"
         natures[key] = natures.get(key, 0) + 1
-    n_nature_labeled = sum(
-        1 for s in t8 if s.verdict == "genuine" and s.nature is not None
-    )
+    n_solution_error = reasons.get("solution_error", 0)
+    n_luminous = reasons.get("luminous_companion", 0)
+    n_triple = reasons.get("hierarchical_triple", 0)
     return {
         "question": "Q15",
         "paper_claim": "~50% have spurious spectroscopic solutions",
         "table8_n": n,
-        "verdict_spurious": n_spur,
-        "verdict_genuine": n_gen,
-        "verdict_undetermined": n_und,
-        "spurious_solution_fraction_all_151": n_spur / n if n else None,
+        "state_spurious": n_spur,
+        "state_good": n_good,
+        "state_unknown": n_unknown,
+        "reason_counts_among_spurious": reasons,
+        "collapsed_spurious_fraction_all_151": n_spur / n if n else None,
+        "solution_error_fraction_all_151": n_solution_error / n if n else None,
         "fixture_fraction": spec.validation.elbadry2026_sb1.fixture_spurious_solution_fraction,
         "nature_counts_among_all": natures,
-        "genuine_with_nature_label": n_nature_labeled,
         "interpretation": (
-            "Table 8 Notes predominantly encode companion nature (two-temperature SED, "
-            "Algol, EB, SB2, Be star). Only 'RVs inconsistent with orbit' rows are "
-            "solution-reliability (spuriousness) labels: 24/151 = 15.9%. The paper's "
-            "~50% therefore cannot be recovered as verdict=spurious over all 151. "
-            "Likely either (a) the ~50% is over a follow-up subsample not itemized in "
-            "Table 8, or (b) many nature-labeled rows also have spurious solutions and "
-            "Notes report the more specific finding. Until human sign-off, SB1 target "
-            "is advisory; acceptance gates on the two astrometric targets only."
+            "Schema v3 folds luminous_companion and hierarchical_triple into "
+            f"collapsed state=spurious ({n_spur}/151), of which solution_error="
+            f"{n_solution_error}, luminous_companion={n_luminous}, "
+            f"hierarchical_triple={n_triple}. The paper's ~50% still does not match "
+            "either the collapsed rate or solution_error-alone; human sign-off on "
+            "the denominator remains open. SB1 target stays advisory; acceptance "
+            "gates on the two astrometric targets only."
         ),
         "status": "escalated_pending_human_signoff",
         "role": "advisory",
@@ -1103,8 +1182,8 @@ def format_labeled_set_performance_report(result: SpuriousnessFitResult) -> str:
     lines = [
         "spuriousness_labeled_set_performance",
         f"n_labeled={result.model.n_labeled} "
-        f"genuine={result.model.n_genuine} spurious={result.model.n_spurious} "
-        f"undetermined={result.model.n_undetermined}",
+        f"good={result.model.n_good} spurious={result.model.n_spurious} "
+        f"unknown={result.model.n_unknown}",
         f"retained_covariates={list(result.model.retained_covariates)}",
     ]
     for name in result.model.retained_covariates:
@@ -1133,15 +1212,15 @@ def format_labeled_set_performance_report(result: SpuriousnessFitResult) -> str:
             f"accuracy@0.5={acc:.3f} brier={brier:.3f}"
         )
 
-    id_to_verdicts: dict[int, list[tuple[str, str]]] = {}
+    id_to_states: dict[int, list[tuple[str, str]]] = {}
     for s in result.design.sources:
-        id_to_verdicts.setdefault(s.source_id, []).append((s.table, s.verdict))
-    overlaps = {sid: v for sid, v in id_to_verdicts.items() if len(v) > 1}
+        id_to_states.setdefault(s.source_id, []).append((s.table, s.state))
+    overlaps = {sid: v for sid, v in id_to_states.items() if len(v) > 1}
     n_agree = 0
     n_disagree = 0
     for sid, pairs in overlaps.items():
-        verdicts = {v for _, v in pairs if v != "undetermined"}
-        if len(verdicts) <= 1:
+        states = {v for _, v in pairs if v not in UNKNOWN_STATES}
+        if len(states) <= 1:
             n_agree += 1
         else:
             n_disagree += 1
@@ -1160,7 +1239,7 @@ def format_labeled_set_performance_report(result: SpuriousnessFitResult) -> str:
     else:
         for i, s in bh1_rows:
             lines.append(
-                f"gaia_bh1 source_id={bh1} table={s.table} verdict={s.verdict} "
+                f"gaia_bh1 source_id={bh1} table={s.table} state={s.state} "
                 f"nature={s.nature} label_conflict={s.label_conflict} "
                 f"P_spurious={result.p_spurious[i]:.4f} "
                 f"P_observed={result.p_observed[i]:.4f} "
@@ -1169,7 +1248,7 @@ def format_labeled_set_performance_report(result: SpuriousnessFitResult) -> str:
     lines.append("per_source:")
     for i, s in enumerate(result.design.sources):
         lines.append(
-            f"  {s.source_id} table={s.table} verdict={s.verdict} "
+            f"  {s.source_id} table={s.table} state={s.state} "
             f"nature={s.nature} P_spurious={result.p_spurious[i]:.4f} "
             f"P_label_spurious={result.p_spurious_label[i]:.4f}"
         )
@@ -1180,7 +1259,7 @@ def format_censoring_report(result: SpuriousnessFitResult) -> str:
     """Full-detail ``spuriousness_censoring_report``."""
     lines = [
         "spuriousness_censoring_report",
-        f"n_undetermined={result.model.n_undetermined}",
+        f"n_unknown={result.model.n_unknown}",
         f"rho={result.model.rho:.4f} rho_fixed={result.model.rho_fixed} "
         f"identified={result.model.identified}",
         f"notes={result.model.identification_notes}",
@@ -1227,7 +1306,7 @@ def format_censoring_report(result: SpuriousnessFitResult) -> str:
                 [s.table == "elbadry2026_table7" for s in result.design.sources],
                 dtype=bool,
             )
-            joint_rate = float(np.mean(result.p_genuine_label[mask]))
+            joint_rate = float(np.mean(result.p_good_label[mask]))
             drop_label_g = np.zeros(int(np.sum(mask)), dtype=np.float64)
             sub_obs = obs[mask]
             drop_label_g[sub_obs] = 1.0 - p_drop[mask][sub_obs]
@@ -1254,7 +1333,7 @@ def format_rate_reproduction_report(result: SpuriousnessFitResult) -> str:
             f"  sample={row.sample} n={row.n} role={row.role} "
             f"target_kind={row.target_kind} target={row.target} "
             f"pred_spurious_label={row.predicted_spurious_label_rate:.4f} "
-            f"pred_genuine_label={row.predicted_genuine_label_rate:.4f} "
+            f"pred_good_label={row.predicted_good_label_rate:.4f} "
             f"pred_mean_P_spurious={row.predicted_mean_p_spurious:.4f} "
             f"abs_error={row.abs_error} passed={row.passed}"
         )

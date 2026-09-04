@@ -635,11 +635,18 @@ def format_run_plan(
     *,
     run_path: Path,
     created_new: bool,
+    dry_run: bool = False,
 ) -> str:
     """Fully legible run-plan screen output (exempt from caveman compression)."""
+    if dry_run and created_new:
+        run_status = "planned (not written — dry-run)"
+    elif created_new:
+        run_status = "created"
+    else:
+        run_status = "existing"
     lines = [
         "=== dark-hunter_pop run plan ===",
-        f"run_file: {run_path} ({'created' if created_new else 'existing'})",
+        f"run_file: {run_path} ({run_status})",
         f"run_id: {manifest.run_id}",
         f"active_dr_mode: {config.active_dr_mode.value}",
         f"config_checksum: {manifest.config_checksum}",

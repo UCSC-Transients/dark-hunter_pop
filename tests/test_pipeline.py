@@ -107,6 +107,7 @@ def test_dry_run_prints_plan_without_writing_run_or_calling_runners(
     assert calls == []
     assert not path.is_file()
     assert list(runs.glob("*.yaml")) == []
+    assert "planned (not written — dry-run)" in text
 
 
 def test_dry_run_refuses_when_incomplete_without_run_file(tmp_path: Path) -> None:

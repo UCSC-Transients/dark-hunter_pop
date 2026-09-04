@@ -1,21 +1,37 @@
 # El-Badry et al. (2026), Table 8 --- "Initial Gaia DR3 SB1 compact-object candidates."
-# arXiv:2608.06453v1.
+# arXiv:2608.06453v1.  All 151 rows of the spectroscopic branch (section 8.4).
 #
-# Frozen external fixture, machine-transcribed from the published PDF. All 151 rows of the
-# spectroscopic branch (CONTINUATION_PLAN.md section 8.4), which is the published N of 151.
+# Frozen external fixture, machine-transcribed from the published PDF.
+# LABELED SET for the shared spuriousness model (section 4.8).
 #
-# LABELED SET for the shared spuriousness model (section 4.8), WITH A CAVEAT worth reading
-# before use: most of this table's Notes classify COMPANION NATURE (two-temperature SED,
-# Algol-type, eclipsing binary, SB2, Be star) rather than solution reliability. Only the
-# "RVs inconsistent with orbit" rows are spuriousness labels. The paper's ~50% figure for this
-# branch therefore mixes spurious solutions with astrophysical contamination, and the two must
-# not be conflated when fitting. See section 4.8 and section 15 Q15.
+# STATE is four-valued (CONTINUATION_PLAN.md section 4.8):
+#   good                       genuine compact-object candidate, solution reliable
+#   spurious                   not a compact-object candidate; see `reason`
+#   unknown_insufficient_data  observable, validation incomplete; RESOLVES with more time
+#   unknown_unobservable       could not be followed up at all; does NOT resolve with time
+#   unknown_unspecified        the table does not say which of the two above applies
+#
+# `reason` is recorded for every spurious row so a future refinement is ADDITIVE. v1 collapses
+# these to one spurious state; a later split needs no re-extraction (section 15 Q16):
+#   solution_error       the solution itself is wrong
+#   luminous_companion   solution may be fine, but >=2 luminous stars, so not a compact object
+#   hierarchical_triple  outer solution may be fine; an inner luminous binary is present
+#
+# `censor_exogenous` marks whether the reason a row is unknown is argued to be independent of
+# whether its solution is genuine. Observability limits (magnitude, declination, elapsed
+# baseline, rotational broadening) are exogenous; deprioritization on a fit statistic is NOT.
+#
+# RULING IN FORCE (section 15 Q15): every nature category requiring AT LEAST TWO LUMINOUS STARS
+# --- two-temperature SED, Algol-type, eclipsing binary, SB2, stripped-star and multiple-star
+# systems --- counts as `spurious`, because such a system is not a compact-object candidate.
+# SB1 alone is NOT spurious: it needs only one luminous star. Ultramassive WDs are compact
+# objects and are `good`.
 #
 # Rows with null m1_msun / m2_min_msun entered through the high-mass-function branch
 # (fm > 3 Msun) and do not satisfy the main-sequence cut, so M1-tilde is undefined --- "not
 # applicable", not "failed" (section 15 Q10).
 
-schema_version: 1
+schema_version: 3
 name: elbadry2026_table8
 
 provenance:
@@ -33,15 +49,32 @@ provenance:
 
 roles: [spuriousness_labels, branch_membership]
 
-label_counts:
-  genuine: 126
-  spurious: 24
-  undetermined: 1
+state_counts:
+  good: 22
+  spurious: 124
+  unknown_unobservable: 2
+  unknown_unspecified: 3
 
-label_caveat: >-
-  Notes predominantly encode companion nature, not solution reliability. Treat only
-  "RVs inconsistent with orbit" as a spurious-solution label; route the rest to the
-  companion-nature axis. See CONTINUATION_PLAN.md section 15 Q15.
+spurious_reason_counts:
+  hierarchical_triple: 12
+  luminous_companion: 83
+  solution_error: 29
+
+published_rate_check:
+  # The paper's headline "~50% have spurious spectroscopic solutions" is the NARROW,
+  # solution-error-only figure and is not row-recoverable from this table, because the Notes
+  # report the more specific astrophysical finding wherever one exists (solution_error rows
+  # here are only 29/151 = 19.2%).
+  #
+  # Under the Q15 ruling the comparable quantity is the paper's own partition:
+  # ~50% spurious solutions PLUS "a majority of the rest" being post-mass-transfer binaries or
+  # hierarchical triples, i.e. a non-candidate fraction above 75.0% and purity below 25.0%.
+  spurious_fraction: 0.821
+  good_fraction: 0.146
+  paper_implied_lower_bound_spurious: 0.750
+  paper_implied_upper_bound_good: 0.250
+  consistent: true
+  narrow_solution_error_fraction: 0.192
 
 columns:
   source_id: "Gaia DR3 source ID"
@@ -55,9 +88,11 @@ columns:
   ebv_mag: "E(B-V) [mag]"
   spectroscopy: "archival or follow-up spectroscopy sources; empty where none"
   notes: "published Notes column, verbatim"
-  verdict: "genuine | spurious | undetermined"
+  state: "good | spurious | unknown_insufficient_data | unknown_unobservable | unknown_unspecified"
+  reason: "spurious rows only: solution_error | luminous_companion | hierarchical_triple"
   nature: "companion-nature axis; null where not stated"
-  censor_reason: "why no verdict was reached; null unless verdict == undetermined"
+  censor_reason: "why no verdict; null unless state starts with unknown"
+  censor_exogenous: "true if the censoring mechanism is argued independent of spuriousness"
 
 data:
   - source_id: 5824739062379517824
@@ -70,8 +105,11 @@ data:
     g_mag: 8.91
     ebv_mag: 0.198
     notes: "Be star (Henize 1976)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "solution_error"
     nature: "be_star"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2174777963318889344
     period_days: 82.723
     eccentricity: 0.023
@@ -83,8 +121,11 @@ data:
     ebv_mag: 1.418
     spectroscopy: ["FEROS"]
     notes: "Algol-type binary (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 442992311418593664
     period_days: 216.531
     eccentricity: 0.414
@@ -96,8 +137,11 @@ data:
     ebv_mag: 0.631
     spectroscopy: ["HERMES", "PEPSI", "ESI"]
     notes: "Be star + bloated stripped star (Müller- Horn et al. 2025)"
-    verdict: "genuine"
-    nature: "post_mass_transfer_binary"
+    state: "spurious"
+    reason: "luminous_companion"
+    nature: "stripped_star"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 251157906379754496
     period_days: 296.676
     eccentricity: 0.089
@@ -109,8 +153,11 @@ data:
     ebv_mag: 0.979
     spectroscopy: ["TRES"]
     notes: "Post-mass-transfer binary"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2031113506311851904
     period_days: 35.908
     eccentricity: 0.057
@@ -121,8 +168,11 @@ data:
     g_mag: 13.24
     ebv_mag: 1.125
     notes: "Algol-type binary (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4060365702574410752
     period_days: 518.154
     eccentricity: 0.092
@@ -134,8 +184,11 @@ data:
     ebv_mag: 0.239
     spectroscopy: ["MagE", "FEROS"]
     notes: "SB2 (Simon et al. 2026)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2055293686820130176
     period_days: 7.157
     eccentricity: 0.154
@@ -146,8 +199,11 @@ data:
     g_mag: 11.98
     ebv_mag: 1.105
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3326590404277028096
     period_days: 11.273
     eccentricity: 0.065
@@ -158,8 +214,11 @@ data:
     g_mag: 13.04
     ebv_mag: 0.95
     notes: "EB (Hoffman et al. 2009)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5857059996952633984
     period_days: 155.085
     eccentricity: 0.036
@@ -171,8 +230,11 @@ data:
     ebv_mag: 0.315
     spectroscopy: ["RAVE"]
     notes: "EB with Porb = 1.17 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1996704839648530816
     period_days: 7.546
     eccentricity: 0.046
@@ -183,8 +245,11 @@ data:
     g_mag: 9.8
     ebv_mag: 0.24
     notes: "Algol-type binary (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 527155253604491392
     period_days: 149.155
     eccentricity: 0.04
@@ -196,8 +261,11 @@ data:
     ebv_mag: 1.095
     spectroscopy: ["PEPSI"]
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6102598776102841344
     period_days: 225.784
     eccentricity: 0.082
@@ -209,8 +277,11 @@ data:
     ebv_mag: 0.088
     spectroscopy: ["MagE", "FEROS"]
     notes: "EB with Porb = 1.18 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5864217675880901760
     period_days: 32.958
     eccentricity: 0.007
@@ -221,8 +292,11 @@ data:
     g_mag: 9.31
     ebv_mag: 0.289
     notes: "Ellipsoidal variability (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "ellipsoidal_variable"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4057073043204216064
     period_days: 6.565
     eccentricity: 0.318
@@ -233,8 +307,11 @@ data:
     g_mag: 11.89
     ebv_mag: 0.971
     notes: "EB (Budding et al. 2004)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2086448353089047808
     period_days: 69.561
     eccentricity: 0.128
@@ -246,8 +323,11 @@ data:
     ebv_mag: 0.068
     spectroscopy: ["LAMOST MRS"]
     notes: "EB with Porb = 2.045 d (Devor et al. 2008)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2006840790676091776
     period_days: 4.073
     eccentricity: 0.203
@@ -259,8 +339,11 @@ data:
     ebv_mag: 0.302
     spectroscopy: ["LAMOST MRS"]
     notes: "Blended RVS spectra (Holl et al. 2023)"
-    verdict: "genuine"
-    nature: null
+    state: "spurious"
+    reason: "solution_error"
+    nature: "blended_spectra"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5352109964757046528
     period_days: 9.868
     eccentricity: 0.14
@@ -272,8 +355,11 @@ data:
     ebv_mag: 0.222
     spectroscopy: ["FEROS"]
     notes: "Multiple luminous stars (Simon et al. 2026)"
-    verdict: "genuine"
-    nature: null
+    state: "spurious"
+    reason: "luminous_companion"
+    nature: "multiple_luminous_stars"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2208323856913151360
     period_days: 84.991
     eccentricity: 0.063
@@ -285,8 +371,11 @@ data:
     ebv_mag: 1.165
     spectroscopy: ["ESI", "PEPSI"]
     notes: "Balmer emission in ESI/PEPSI spectra"
-    verdict: "genuine"
-    nature: null
+    state: "spurious"
+    reason: "solution_error"
+    nature: "emission_contaminated_rv"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2929565719083290240
     period_days: 32.473
     eccentricity: 0.033
@@ -298,8 +387,11 @@ data:
     ebv_mag: 0.456
     spectroscopy: ["FEROS"]
     notes: "Likely Algol-type binary; cool companion"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1816166713996603904
     period_days: 6.642
     eccentricity: 0.134
@@ -311,8 +403,11 @@ data:
     ebv_mag: 0.125
     spectroscopy: ["MagE", "FEROS"]
     notes: "Likely Algol-type binary; Balmer emission"
-    verdict: "genuine"
-    nature: "post_mass_transfer_binary"
+    state: "spurious"
+    reason: "solution_error"
+    nature: "emission_contaminated_rv"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1969720105580531840
     period_days: 52.246
     eccentricity: 0.029
@@ -323,8 +418,11 @@ data:
     g_mag: 11.87
     ebv_mag: 0.86
     notes: "Algol-type binary"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6054043964711290112
     period_days: 33.892
     eccentricity: 0.035
@@ -335,8 +433,11 @@ data:
     g_mag: 12.09
     ebv_mag: 0.375
     notes: "EB (Kreiner 2004)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5971649891874353536
     period_days: 49.976
     eccentricity: 0.013
@@ -347,8 +448,11 @@ data:
     g_mag: 10.19
     ebv_mag: 0.349
     notes: "EB (Otero & Wils 2005)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2021374066702077312
     period_days: 44.413
     eccentricity: 0.007
@@ -359,8 +463,11 @@ data:
     g_mag: 10.04
     ebv_mag: 0.367
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5229989171064887936
     period_days: 23.518
     eccentricity: 0.332
@@ -371,8 +478,11 @@ data:
     g_mag: 12.2
     ebv_mag: 0.166
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5866096676853138432
     period_days: 76.373
     eccentricity: 0.083
@@ -383,8 +493,11 @@ data:
     g_mag: 11.42
     ebv_mag: 0.376
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2204345647749753216
     period_days: 41.268
     eccentricity: 0.145
@@ -395,8 +508,11 @@ data:
     g_mag: 12.72
     ebv_mag: 0.442
     notes: "Two-temperature SED + ellipsoidal (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2143064916926398848
     period_days: 54.13
     eccentricity: 0.004
@@ -407,8 +523,11 @@ data:
     g_mag: 7.97
     ebv_mag: 0.025
     notes: "Two-temperature SED + ellipsoidal (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4116115997318757120
     period_days: 41.298
     eccentricity: 0.219
@@ -419,8 +538,11 @@ data:
     g_mag: 10.61
     ebv_mag: 0.255
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5352456452682656256
     period_days: 59.85
     eccentricity: 0.021
@@ -431,8 +553,11 @@ data:
     g_mag: 12.03
     ebv_mag: 0.204
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6000420920026118656
     period_days: 15.318
     eccentricity: 0.006
@@ -444,8 +569,11 @@ data:
     ebv_mag: 0.138
     spectroscopy: ["GALAH"]
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1850548988047789696
     period_days: 15.302
     eccentricity: 0.051
@@ -456,8 +584,11 @@ data:
     g_mag: 12.03
     ebv_mag: 0.145
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2079141028874426624
     period_days: 21.582
     eccentricity: 0.006
@@ -468,8 +599,11 @@ data:
     g_mag: 12.1
     ebv_mag: 0.267
     notes: "Two-temperature SED + ellipsoidal (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 448452383082046208
     period_days: 23.494
     eccentricity: 0.072
@@ -480,8 +614,11 @@ data:
     g_mag: 12.48
     ebv_mag: 0.906
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2950633087724402688
     period_days: 24.204
     eccentricity: 0.044
@@ -492,8 +629,11 @@ data:
     g_mag: 12.26
     ebv_mag: 0.32
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5336217383170465792
     period_days: 31.832
     eccentricity: 0.046
@@ -504,8 +644,11 @@ data:
     g_mag: 12.54
     ebv_mag: 0.278
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4514813786980451840
     period_days: 22.02
     eccentricity: 0.136
@@ -516,8 +659,11 @@ data:
     g_mag: 12.57
     ebv_mag: 0.285
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5611909581558507648
     period_days: 21.963
     eccentricity: 0.034
@@ -528,8 +674,11 @@ data:
     g_mag: 9.81
     ebv_mag: 0.065
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6734611563148165632
     period_days: 14.344
     eccentricity: 0.008
@@ -540,8 +689,11 @@ data:
     g_mag: 10.94
     ebv_mag: 0.112
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 358522257594654592
     period_days: 11.018
     eccentricity: 0.093
@@ -552,8 +704,11 @@ data:
     g_mag: 12.39
     ebv_mag: 0.18
     notes: "EB (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2925811436628649984
     period_days: 714.215
     eccentricity: 0.574
@@ -564,8 +719,11 @@ data:
     g_mag: 12.08
     ebv_mag: 0.205
     notes: "EB (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2197954362764248192
     period_days: 17.51
     eccentricity: 0.043
@@ -576,8 +734,11 @@ data:
     g_mag: 12.69
     ebv_mag: 0.445
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5694373091078326784
     period_days: 12.885
     eccentricity: 0.018
@@ -588,8 +749,11 @@ data:
     g_mag: 11.91
     ebv_mag: 0.015
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1868420557434760960
     period_days: 24.995
     eccentricity: 0.083
@@ -600,8 +764,11 @@ data:
     g_mag: 12.59
     ebv_mag: 0.18
     notes: "Two-temperature SED + ellipsoidal"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 548272473920331136
     period_days: 13.371
     eccentricity: 0.047
@@ -612,8 +779,11 @@ data:
     g_mag: 12.58
     ebv_mag: 0.26
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5243109471519822720
     period_days: 14.914
     eccentricity: 0.023
@@ -625,8 +795,11 @@ data:
     ebv_mag: 0.106
     spectroscopy: ["GALAH"]
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 209386703724361088
     period_days: 22.025
     eccentricity: 0.013
@@ -637,8 +810,11 @@ data:
     g_mag: 10.27
     ebv_mag: 0.23
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6077083852882264320
     period_days: 897.558
     eccentricity: 0.034
@@ -649,8 +825,11 @@ data:
     g_mag: 10.81
     ebv_mag: 0.083
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 948585824160038912
     period_days: 8.202
     eccentricity: 0.077
@@ -661,8 +840,11 @@ data:
     g_mag: 11.96
     ebv_mag: 0.07
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5722942457613931264
     period_days: 38.1
     eccentricity: 0.025
@@ -674,8 +856,11 @@ data:
     ebv_mag: 0.045
     spectroscopy: ["RAVE"]
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5644846693617714560
     period_days: 17.117
     eccentricity: 0.075
@@ -686,8 +871,11 @@ data:
     g_mag: 10.68
     ebv_mag: 0.025
     notes: "EB (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2907796252142974720
     period_days: 1018.612
     eccentricity: 0.005
@@ -698,8 +886,11 @@ data:
     g_mag: 8.84
     ebv_mag: 0.046
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2933630927108779776
     period_days: 14.718
     eccentricity: 0.021
@@ -710,8 +901,11 @@ data:
     g_mag: 11.07
     ebv_mag: 0.202
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 182029303939094784
     period_days: 107.155
     eccentricity: 0.263
@@ -723,8 +917,11 @@ data:
     ebv_mag: 0.248
     spectroscopy: ["LAMOST", "LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5536105058044762240
     period_days: 12.177
     eccentricity: 0.086
@@ -735,8 +932,11 @@ data:
     g_mag: 12.15
     ebv_mag: 0.187
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5877599080364216576
     period_days: 16.673
     eccentricity: 0.014
@@ -747,8 +947,11 @@ data:
     g_mag: 10.77
     ebv_mag: 0.207
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2219809419798508544
     period_days: 10.865
     eccentricity: 0.075
@@ -759,8 +962,11 @@ data:
     g_mag: 12.48
     ebv_mag: 0.37
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3372818683473351936
     period_days: 12.208
     eccentricity: 0.059
@@ -772,8 +978,11 @@ data:
     ebv_mag: 0.085
     spectroscopy: ["LAMOST MRS"]
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2966694650501747328
     period_days: 10.398
     eccentricity: 0.019
@@ -784,8 +993,11 @@ data:
     g_mag: 11.2
     ebv_mag: 0.045
     notes: "Algol-type binary (El-Badry & Rix 2022)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "post_mass_transfer_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3998734261904478848
     period_days: 691.876
     eccentricity: 0.213
@@ -797,8 +1009,11 @@ data:
     ebv_mag: 0.0
     spectroscopy: ["LAMOST", "LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5353377151908876032
     period_days: 76.852
     eccentricity: 0.261
@@ -810,8 +1025,11 @@ data:
     ebv_mag: 0.183
     spectroscopy: ["FEROS"]
     notes: "RVs consistent with orbit; evolved star"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5610703902634458112
     period_days: 1003.25
     eccentricity: 0.021
@@ -822,8 +1040,11 @@ data:
     g_mag: 11.01
     ebv_mag: 0.085
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 209136938490844928
     period_days: 14.292
     eccentricity: 0.043
@@ -834,8 +1055,11 @@ data:
     g_mag: 12.4
     ebv_mag: 0.336
     notes: "Two-temperature SED + ellipsoidal (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3107879743172451456
     period_days: 27.305
     eccentricity: 0.027
@@ -847,8 +1071,11 @@ data:
     ebv_mag: 0.091
     spectroscopy: ["PEPSI", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4295254307232999296
     period_days: 10.833
     eccentricity: 0.046
@@ -859,8 +1086,11 @@ data:
     g_mag: 11.55
     ebv_mag: 0.19
     notes: "Two-temperature SED + ellipsoidal (Jayasinghe et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4510976285245111296
     period_days: 7.655
     eccentricity: 0.021
@@ -871,8 +1101,11 @@ data:
     g_mag: 12.48
     ebv_mag: 0.24
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4513319417560405376
     period_days: 10.378
     eccentricity: 0.177
@@ -883,8 +1116,11 @@ data:
     g_mag: 12.68
     ebv_mag: 0.62
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2034914999055297664
     period_days: 60.718
     eccentricity: 0.071
@@ -896,8 +1132,11 @@ data:
     ebv_mag: 0.09
     spectroscopy: ["ESI", "PEPSI", "TRES"]
     notes: "EB with Porb = 4.96 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5363143465161744512
     period_days: 951.923
     eccentricity: 0.348
@@ -909,8 +1148,11 @@ data:
     ebv_mag: 0.094
     spectroscopy: ["GALAH"]
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1842500631652332544
     period_days: 4.58
     eccentricity: 0.105
@@ -921,8 +1163,11 @@ data:
     g_mag: 11.8
     ebv_mag: 0.128
     notes: "EB (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 395989834300077184
     period_days: 755.929
     eccentricity: 0.237
@@ -934,8 +1179,11 @@ data:
     ebv_mag: 0.16
     spectroscopy: ["ESI", "PEPSI"]
     notes: "EB (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4239611700214875904
     period_days: 56.124
     eccentricity: 0.404
@@ -947,8 +1195,11 @@ data:
     ebv_mag: 0.175
     spectroscopy: ["FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6057458699887995904
     period_days: 2.38
     eccentricity: 0.45
@@ -960,8 +1211,11 @@ data:
     ebv_mag: 0.182
     spectroscopy: ["FEROS"]
     notes: "RVs unreliable"
-    verdict: "spurious"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
+    censor_reason: "rv_precision_vsini"
+    censor_exogenous: true
   - source_id: 6609971199873698944
     period_days: 18.342
     eccentricity: 0.194
@@ -973,8 +1227,11 @@ data:
     ebv_mag: 0.0
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2928650650532606848
     period_days: 73.414
     eccentricity: 0.31
@@ -986,8 +1243,11 @@ data:
     ebv_mag: 0.04
     spectroscopy: ["FEROS"]
     notes: "RVs consistent with orbit; EB with Porb = 0.61 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4039283116865495424
     period_days: 79.549
     eccentricity: 0.128
@@ -999,8 +1259,11 @@ data:
     ebv_mag: 0.074
     spectroscopy: ["FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4728162202895516288
     period_days: 114.763
     eccentricity: 0.38
@@ -1012,8 +1275,11 @@ data:
     ebv_mag: 0.014
     spectroscopy: ["FEROS"]
     notes: "RVs consistent with orbit; SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4341334461557059328
     period_days: 353.71
     eccentricity: 0.38
@@ -1025,8 +1291,11 @@ data:
     ebv_mag: 0.265
     spectroscopy: ["PEPSI", "MagE"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1198284197571176704
     period_days: 584.032
     eccentricity: 0.277
@@ -1038,8 +1307,11 @@ data:
     ebv_mag: 0.055
     spectroscopy: ["PEPSI", "FEROS", "MagE"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5698084561292928384
     period_days: 126.311
     eccentricity: 0.328
@@ -1051,8 +1323,11 @@ data:
     ebv_mag: 0.025
     spectroscopy: ["PEPSI", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1821800302351693312
     period_days: 653.991
     eccentricity: 0.25
@@ -1064,8 +1339,11 @@ data:
     ebv_mag: 0.174
     spectroscopy: ["PEPSI", "FEROS", "MagE"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 497238847877377792
     period_days: 851.501
     eccentricity: 0.208
@@ -1077,8 +1355,11 @@ data:
     ebv_mag: 0.13
     spectroscopy: ["TRES"]
     notes: "Short-timescale variability Continued on next page 32"
-    verdict: "genuine"
-    nature: null
+    state: "unknown_unspecified"
+    reason: null
+    nature: "photometric_variability"
+    censor_reason: "nature_uncertain"
+    censor_exogenous: false
   - source_id: 5355234746758153728
     period_days: 211.036
     eccentricity: 0.102
@@ -1090,8 +1371,11 @@ data:
     ebv_mag: 0.052
     spectroscopy: ["FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2220072241734878720
     period_days: 331.191
     eccentricity: 0.179
@@ -1103,8 +1387,11 @@ data:
     ebv_mag: 0.17
     spectroscopy: ["PEPSI"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3216989916989330048
     period_days: 43.229
     eccentricity: 0.341
@@ -1116,8 +1403,11 @@ data:
     ebv_mag: 0.275
     spectroscopy: ["ESI", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5836463597206648320
     period_days: 68.791
     eccentricity: 0.308
@@ -1129,8 +1419,11 @@ data:
     ebv_mag: 0.238
     spectroscopy: ["MagE", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4278307358382586880
     period_days: 11.963
     eccentricity: 0.174
@@ -1142,8 +1435,11 @@ data:
     ebv_mag: 0.221
     spectroscopy: ["LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3099898285186795136
     period_days: 139.495
     eccentricity: 0.306
@@ -1155,8 +1451,11 @@ data:
     ebv_mag: 0.198
     spectroscopy: ["PEPSI", "DEIMOS", "TRES", "FEROS"]
     notes: "Short-timescale variability"
-    verdict: "genuine"
-    nature: null
+    state: "unknown_unspecified"
+    reason: null
+    nature: "photometric_variability"
+    censor_reason: "nature_uncertain"
+    censor_exogenous: false
   - source_id: 3079530794349424128
     period_days: 726.969
     eccentricity: 0.182
@@ -1168,8 +1467,11 @@ data:
     ebv_mag: 0.04
     spectroscopy: ["FEROS", "DEIMOS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3102189152022476288
     period_days: 6.085
     eccentricity: 0.153
@@ -1181,8 +1483,11 @@ data:
     ebv_mag: 0.03
     spectroscopy: ["ESI", "PEPSI", "FEROS"]
     notes: "SB2; RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3181749813403569792
     period_days: 326.08
     eccentricity: 0.128
@@ -1194,8 +1499,11 @@ data:
     ebv_mag: 0.04
     spectroscopy: ["ESI", "PEPSI", "FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 20478992478455936
     period_days: 587.294
     eccentricity: 0.067
@@ -1207,8 +1515,11 @@ data:
     ebv_mag: 0.22
     spectroscopy: ["LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4219507576765009536
     period_days: 474.996
     eccentricity: 0.4
@@ -1220,8 +1531,11 @@ data:
     ebv_mag: 0.035
     spectroscopy: ["PEPSI", "FEROS", "MagE"]
     notes: "EB with Porb = 5.5 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3584492122268586880
     period_days: 11.276
     eccentricity: 0.101
@@ -1233,9 +1547,11 @@ data:
     ebv_mag: 0.0
     spectroscopy: ["TRES", "LAMOST"]
     notes: "Period significantly different from Gaia"
-    verdict: "undetermined"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
-    censor_reason: "no_verdict_reported"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 459778005683388928
     period_days: 16.104
     eccentricity: 0.129
@@ -1247,8 +1563,11 @@ data:
     ebv_mag: 0.57
     spectroscopy: ["LAMOST"]
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5975773133493068160
     period_days: 339.119
     eccentricity: 0.167
@@ -1260,8 +1579,11 @@ data:
     ebv_mag: 0.339
     spectroscopy: ["MagE", "FEROS"]
     notes: "Large v sin i; RVs unreliable"
-    verdict: "spurious"
+    state: "unknown_unobservable"
+    reason: null
     nature: null
+    censor_reason: "rv_precision_vsini"
+    censor_exogenous: true
   - source_id: 5728328827639713792
     period_days: 850.636
     eccentricity: 0.172
@@ -1273,8 +1595,11 @@ data:
     ebv_mag: 0.07
     spectroscopy: ["FEROS", "TRES", "DEIMOS"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6551893071549223040
     period_days: 79.395
     eccentricity: 0.093
@@ -1286,8 +1611,11 @@ data:
     ebv_mag: 0.003
     spectroscopy: ["MagE", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2589496668215074944
     period_days: 2.974
     eccentricity: 0.127
@@ -1299,8 +1627,11 @@ data:
     ebv_mag: 0.11
     spectroscopy: ["FEROS"]
     notes: "EB (Hoffman et al. 2009)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3038922973781177984
     period_days: 58.827
     eccentricity: 0.526
@@ -1312,8 +1643,11 @@ data:
     ebv_mag: 0.02
     spectroscopy: ["FEROS", "GALAH"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4585703222934685312
     period_days: 1067.654
     eccentricity: 0.341
@@ -1325,8 +1659,11 @@ data:
     ebv_mag: 0.034
     spectroscopy: ["ESI", "PEPSI", "LAMOST MRS", "TRES"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4973506334166805376
     period_days: 57.523
     eccentricity: 0.282
@@ -1338,8 +1675,11 @@ data:
     ebv_mag: 0.01
     spectroscopy: ["RAVE"]
     notes: "EB with Porb = 0.57 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1773718654551084544
     period_days: 126.468
     eccentricity: 0.138
@@ -1351,8 +1691,11 @@ data:
     ebv_mag: 0.13
     spectroscopy: ["LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1839619464509817216
     period_days: 57.671
     eccentricity: 0.304
@@ -1364,8 +1707,11 @@ data:
     ebv_mag: 0.06
     spectroscopy: ["ESI", "PEPSI", "TRES"]
     notes: "Ellipsoidal variability with P = 4.69 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "ellipsoidal_variable"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4181886412034683648
     period_days: 43.72
     eccentricity: 0.038
@@ -1377,8 +1723,11 @@ data:
     ebv_mag: 0.125
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5978015823680404224
     period_days: 569.309
     eccentricity: 0.407
@@ -1390,8 +1739,11 @@ data:
     ebv_mag: 0.335
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3880367303984519936
     period_days: 12.538
     eccentricity: 0.069
@@ -1403,8 +1755,11 @@ data:
     ebv_mag: 0.0
     spectroscopy: ["FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 947097089712447744
     period_days: 521.943
     eccentricity: 0.079
@@ -1416,8 +1771,11 @@ data:
     ebv_mag: 0.045
     spectroscopy: ["ESI", "PEPSI", "LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6475655404885617920
     period_days: 46.095
     eccentricity: 0.101
@@ -1429,8 +1787,11 @@ data:
     ebv_mag: 0.019
     spectroscopy: ["MagE", "GALAH", "FEROS"]
     notes: "Ultramassive WD (Yamaguchi et al. 2024b)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6490750737462184064
     period_days: 1211.791
     eccentricity: 0.072
@@ -1442,8 +1803,11 @@ data:
     ebv_mag: 0.013
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5218112727494813952
     period_days: 139.79
     eccentricity: 0.395
@@ -1455,8 +1819,11 @@ data:
     ebv_mag: 0.116
     spectroscopy: ["FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 263578264603666560
     period_days: 807.952
     eccentricity: 0.388
@@ -1468,8 +1835,11 @@ data:
     ebv_mag: 0.483
     spectroscopy: ["ESI", "PEPSI", "LAMOST", "TRES"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5532246425068569216
     period_days: 459.232
     eccentricity: 0.258
@@ -1481,8 +1851,11 @@ data:
     ebv_mag: 0.048
     spectroscopy: ["FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4918705781283781888
     period_days: 603.254
     eccentricity: 0.423
@@ -1494,8 +1867,11 @@ data:
     ebv_mag: 0.01
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6443896148956045568
     period_days: 1007.887
     eccentricity: 0.084
@@ -1507,8 +1883,11 @@ data:
     ebv_mag: 0.042
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3431326755205579264
     period_days: 120.869
     eccentricity: 0.193
@@ -1520,8 +1899,11 @@ data:
     ebv_mag: 0.047
     spectroscopy: ["ESI", "PEPSI", "TRES", "LAMOST"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2937304807768040576
     period_days: 182.553
     eccentricity: 0.667
@@ -1533,8 +1915,11 @@ data:
     ebv_mag: 0.011
     spectroscopy: ["FEROS"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1926668079258767744
     period_days: 490.043
     eccentricity: 0.248
@@ -1546,8 +1931,11 @@ data:
     ebv_mag: 0.135
     spectroscopy: ["ESI", "PEPSI"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5639517669994071424
     period_days: 577.09
     eccentricity: 0.218
@@ -1559,8 +1947,11 @@ data:
     ebv_mag: 0.035
     spectroscopy: ["FEROS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 843829411442724864
     period_days: 32.143
     eccentricity: 0.023
@@ -1572,8 +1963,11 @@ data:
     ebv_mag: 0.0
     spectroscopy: ["LAMOST TRES", "MRS"]
     notes: "Ultramassive WD (Yamaguchi et al. 2024b)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6217167780337157888
     period_days: 68.528
     eccentricity: 0.062
@@ -1584,8 +1978,11 @@ data:
     g_mag: 12.12
     ebv_mag: 0.105
     notes: "Photometric variability with P = 3.4 d"
-    verdict: "genuine"
-    nature: null
+    state: "unknown_unspecified"
+    reason: null
+    nature: "photometric_variability"
+    censor_reason: "nature_uncertain"
+    censor_exogenous: false
   - source_id: 556131091543510656
     period_days: 508.599
     eccentricity: 0.246
@@ -1597,8 +1994,11 @@ data:
     ebv_mag: 0.075
     spectroscopy: ["ESI", "PEPSI", "TRES"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6831004854174666112
     period_days: 222.298
     eccentricity: 0.422
@@ -1610,8 +2010,11 @@ data:
     ebv_mag: 0.035
     spectroscopy: ["MagE", "DEIMOS", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2223170012666814720
     period_days: 139.943
     eccentricity: 0.456
@@ -1623,8 +2026,11 @@ data:
     ebv_mag: 0.003
     spectroscopy: ["ESI", "PEPSI", "TRES"]
     notes: "RV orbit measured in this work; EB with Porb = 0.28 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2495385486559385216
     period_days: 78.563
     eccentricity: 0.254
@@ -1636,8 +2042,11 @@ data:
     ebv_mag: 0.01
     spectroscopy: ["PEPSI", "FEROS", "RAVE", "TRES"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1110185721018656384
     period_days: 49.452
     eccentricity: 0.283
@@ -1649,8 +2058,11 @@ data:
     ebv_mag: 0.055
     spectroscopy: ["PEPSI", "TRES", "DEIMOS"]
     notes: "RVs consistent with orbit; EB with Porb = 0.9 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2230168502956738048
     period_days: 1076.703
     eccentricity: 0.539
@@ -1661,8 +2073,11 @@ data:
     g_mag: 12.05
     ebv_mag: 0.22
     notes: "EB with Porb = 1.32 d (Mowlavi et al. 2023)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1010268155897156864
     period_days: 284.15
     eccentricity: 0.278
@@ -1674,8 +2089,11 @@ data:
     ebv_mag: 0.02
     spectroscopy: ["TRES", "DEIMOS"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1553851414586014720
     period_days: 380.2
     eccentricity: 0.161
@@ -1687,8 +2105,11 @@ data:
     ebv_mag: 0.01
     spectroscopy: ["TRES", "APOGEE"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5402382213356987520
     period_days: 332.629
     eccentricity: 0.318
@@ -1700,8 +2121,11 @@ data:
     ebv_mag: 0.05
     spectroscopy: ["MagE", "FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5943754392898655872
     period_days: 904.89
     eccentricity: 0.416
@@ -1713,8 +2137,11 @@ data:
     ebv_mag: 0.226
     spectroscopy: ["MagE", "FEROS"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6152018658376660992
     period_days: 430.476
     eccentricity: 0.284
@@ -1726,8 +2153,11 @@ data:
     ebv_mag: 0.039
     spectroscopy: ["MagE", "GALAH", "FEROS"]
     notes: "RVs consistent with orbit; EB with Porb = 0.8 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5033197892724532736
     period_days: 49.01
     eccentricity: 0.069
@@ -1739,8 +2169,11 @@ data:
     ebv_mag: 0.035
     spectroscopy: ["MagE", "FEROS"]
     notes: "Ultramassive WD (Yamaguchi et al. 2024b)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 2692960678029100800
     period_days: 17.912
     eccentricity: 0.018
@@ -1752,8 +2185,11 @@ data:
     ebv_mag: 0.045
     spectroscopy: ["PEPSI", "FEROS", "TRES", "MagE"]
     notes: "Ultramassive WD (Yamaguchi et al. 2024b)"
-    verdict: "genuine"
+    state: "good"
+    reason: null
     nature: "massive_white_dwarf"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1919455592216723072
     period_days: 114.578
     eccentricity: 0.109
@@ -1765,8 +2201,11 @@ data:
     ebv_mag: 0.19
     spectroscopy: ["ESI", "PEPSI"]
     notes: "SB2"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 6412946511542005376
     period_days: 400.846
     eccentricity: 0.444
@@ -1778,8 +2217,11 @@ data:
     ebv_mag: 0.014
     spectroscopy: ["MagE", "GALAH", "FEROS"]
     notes: "RVs consistent with orbit"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 649099683051543552
     period_days: 74.005
     eccentricity: 0.16
@@ -1791,148 +2233,221 @@ data:
     ebv_mag: 0.025
     spectroscopy: ["FEROS", "LAMOST"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 206292746724589824
     period_days: 347.002
     eccentricity: 0.028
     fm_msun: 4.517
+    m1_msun: null
+    m2_min_msun: null
     significance: 134.8
     g_mag: 11.57
     ebv_mag: 0.885
     notes: "Balmer emission"
-    verdict: "genuine"
-    nature: null
+    state: "spurious"
+    reason: "solution_error"
+    nature: "emission_contaminated_rv"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 512307478642441984
     period_days: 145.578
     eccentricity: 0.027
     fm_msun: 3.135
+    m1_msun: null
+    m2_min_msun: null
     significance: 229.1
     g_mag: 11.07
     ebv_mag: 0.978
     notes: "EB with Porb = 145.6 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 878555832642451968
     period_days: 837.099
     eccentricity: 0.095
     fm_msun: 4.576
+    m1_msun: null
+    m2_min_msun: null
     significance: 24.3
     g_mag: 11.88
     ebv_mag: 0.03
     spectroscopy: ["LAMOST MRS"]
     notes: "RVs inconsistent with orbit"
-    verdict: "spurious"
+    state: "spurious"
+    reason: "solution_error"
     nature: null
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 1828150428697001472
     period_days: 333.688
     eccentricity: 0.013
     fm_msun: 3.529
+    m1_msun: null
+    m2_min_msun: null
     significance: 276.6
     g_mag: 9.07
     ebv_mag: 0.822
     notes: "EB with Porb = 2.8 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "hierarchical_triple"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3112097229257687680
     period_days: 260.978
     eccentricity: 0.01
     fm_msun: 3.321
+    m1_msun: null
+    m2_min_msun: null
     significance: 97.6
     g_mag: 11.31
     ebv_mag: 0.412
     notes: "EB with Porb = 261 d"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 3331748140308820352
     period_days: 225.268
     eccentricity: 0.067
     fm_msun: 3.547
+    m1_msun: null
+    m2_min_msun: null
     significance: 41.5
     g_mag: 12.72
     ebv_mag: 0.655
     spectroscopy: ["ESI", "FEROS", "TRES", "PEPSI"]
     notes: "RV orbit measured in this work"
-    verdict: "genuine"
-    nature: null
+    state: "good"
+    reason: null
+    nature: "compact_object_candidate"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 4661290764764683776
     period_days: 204.93
     eccentricity: 0.095
     fm_msun: 13.638
+    m1_msun: null
+    m2_min_msun: null
     significance: 29.4
     g_mag: 11.77
     ebv_mag: 0.0
     spectroscopy: ["APOGEE"]
     notes: "Balmer emission"
-    verdict: "genuine"
-    nature: null
+    state: "spurious"
+    reason: "solution_error"
+    nature: "emission_contaminated_rv"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5259215388421037696
     period_days: 62.707
     eccentricity: 0.184
     fm_msun: 11.506
+    m1_msun: null
+    m2_min_msun: null
     significance: 42.1
     g_mag: 12.21
     ebv_mag: 0.291
     notes: "SB2 (Gaia Collaboration et al. 2023a)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "double_lined_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5307567722242799232
     period_days: 207.182
     eccentricity: 0.088
     fm_msun: 6.145
+    m1_msun: null
+    m2_min_msun: null
     significance: 11.8
     g_mag: 12.9
     ebv_mag: 0.263
     notes: "Two-temperature SED + ellipsoidal"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5863544023161862144
     period_days: 10.606
     eccentricity: 0.096
     fm_msun: 7.781
+    m1_msun: null
+    m2_min_msun: null
     significance: 60.7
     g_mag: 9.98
     ebv_mag: 0.537
     notes: "EB (Alfonso-Garzón et al. 2012)"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "eclipsing_binary"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5869320651099982464
     period_days: 63.924
     eccentricity: 0.014
     fm_msun: 3.085
+    m1_msun: null
+    m2_min_msun: null
     significance: 257.2
     g_mag: 9.88
     ebv_mag: 0.533
     notes: "Two-temperature SED + ellipsoidal"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5941011867264508288
     period_days: 12.522
     eccentricity: 0.068
     fm_msun: 5.102
+    m1_msun: null
+    m2_min_msun: null
     significance: 14.2
     g_mag: 12.3
     ebv_mag: 0.523
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5941689303870322688
     period_days: 559.387
     eccentricity: 0.266
     fm_msun: 4.519
+    m1_msun: null
+    m2_min_msun: null
     significance: 10.1
     g_mag: 13.29
     ebv_mag: 0.414
     notes: "Two-temperature SED"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
   - source_id: 5963629779180627968
     period_days: 11.369
     eccentricity: 0.03
     fm_msun: 3.184
+    m1_msun: null
+    m2_min_msun: null
     significance: 25.3
     g_mag: 11.82
     ebv_mag: 0.409
     notes: "Two-temperature SED + ellipsoidal"
-    verdict: "genuine"
+    state: "spurious"
+    reason: "luminous_companion"
     nature: "two_temperature_sed"
+    censor_reason: null
+    censor_exogenous: false
