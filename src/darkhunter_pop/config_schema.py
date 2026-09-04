@@ -611,13 +611,37 @@ class OpenItemRecord(BaseModel):
     summary: str = Field(..., min_length=1)
 
 
+class OutcomeDependentCriterionSpec(BaseModel):
+    """One §7.3 / §8.5 inclusion term applied identically to mocks.
+
+    Thresholds live here (selection YAML), never inline in Python. The
+    ``not_spurious`` kind calls the shared ``P(spurious | ·)`` model — it must
+    not read ``validation_targets.spurious_fraction``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    kind: Literal[
+        "m2_joint_fit",
+        "not_spurious",
+        "orbit_coverage",
+        "followup_characterized",
+    ]
+    m2_min_msun: float | None = Field(default=None, gt=0.0)
+    orbit_coverage_min_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 class InclusionOperatorSpec(BaseModel):
-    """Outcome-dependent follow-up notes. Not a catalog cut chain (§8.5)."""
+    """Outcome-dependent follow-up terms. Not a catalog cut chain (§7.3 / §8.5)."""
 
     model_config = ConfigDict(extra="forbid")
 
     catalog_level_only: bool = True
     notes: str | None = None
+    outcome_dependent_criteria: list[OutcomeDependentCriterionSpec] = Field(
+        default_factory=list
+    )
     astrometric_followup_outcomes: dict[str, int] = Field(default_factory=dict)
     spectroscopic_followup_outcomes: dict[str, int] = Field(default_factory=dict)
     prioritization: list[str] = Field(default_factory=list)
@@ -1229,12 +1253,77 @@ class SensitivityAnalysisConfig(BaseModel):
         return self
 
 
+class InferenceMultiSampleConfig(BaseModel):
+    """Multi-sample Poisson overlap policy (CONTINUATION_PLAN §4.7 / §15 Q1).
+
+    Default formulation is ``unified_inclusion_indicator``. Separate Poisson
+    processes are retained only as a diagnostic contrast and must not be the
+    production joint-inference setting when samples overlap.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    formulation: Literal[
+        "unified_inclusion_indicator",
+        "separate_poisson",
+    ] = "unified_inclusion_indicator"
+    # Inference-facing samples only. Frozen andrews2022 and SB1 are excluded;
+    # accel_jerk stays off (§9).
+    sample_names: list[str] = Field(
+        default_factory=lambda: [
+            "andrews2022_modified",
+            "elbadry2024",
+            "elbadry2026",
+        ]
+    )
+    # Catalog-level survival scalars when mock Monte Carlo is unavailable (CI).
+    default_catalog_sf: dict[str, float] = Field(
+        default_factory=lambda: {
+            "andrews2022_modified": 1.0,
+            "elbadry2024": 1.0,
+            "elbadry2026": 1.0,
+        }
+    )
+    # Intercept-only P(spurious) used when no #111 fit artifact is supplied.
+    default_p_spurious: float = Field(0.25, gt=0.0, lt=1.0)
+    require_unified_for_joint: bool = True
+
+    @model_validator(mode="after")
+    def _refuse_frozen_andrews_and_accel(self) -> InferenceMultiSampleConfig:
+        if "andrews2022" in self.sample_names and "andrews2022_modified" not in self.sample_names:
+            raise ValueError(
+                "inference.multi_sample must use andrews2022_modified, not frozen "
+                "andrews2022 alone (§6.6)"
+            )
+        if "andrews2022" in self.sample_names:
+            raise ValueError(
+                "inference.multi_sample.sample_names must not include frozen "
+                "andrews2022 (§6.6); use andrews2022_modified"
+            )
+        if "accel_jerk" in self.sample_names:
+            raise ValueError(
+                "accel_jerk is blocked (§9); omit it from inference.multi_sample"
+            )
+        if self.require_unified_for_joint and self.formulation != "unified_inclusion_indicator":
+            raise ValueError(
+                "joint multi-sample inference requires formulation="
+                "unified_inclusion_indicator (§15 Q1); set "
+                "require_unified_for_joint=false only for explicit diagnostics"
+            )
+        for name, value in self.default_catalog_sf.items():
+            if value <= 0.0:
+                raise ValueError(f"default_catalog_sf[{name!r}] must be > 0")
+        return self
+
+
 class InferenceConfig(BaseModel):
     """Staged-but-connected Poisson + dynesty inference (ARCHITECTURE.md §4, issue #63).
 
     Per-system ``rv_astrometry_gate`` / ``companion_nature_likelihood`` results enter as
     fixed empirical-Bayes plug-in weights — not jointly re-sampled (v2 fully-joint is
     documented, not built here). Science knobs live here; no hardcoded sampler sizes.
+    Phase 8 extends the rate with ``sample_selection_function_s`` via the unified
+    inclusion-indicator (§4.7 / §15 Q1).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1254,6 +1343,10 @@ class InferenceConfig(BaseModel):
     # Scalar SF multipliers when HDF5 artifacts absent / simplified path.
     default_astrometric_sf: float = Field(1.0, gt=0.0)
     default_followup_sf: float = Field(1.0, gt=0.0)
+    # Multi-sample selection integration (§4.7 / §15 Q1).
+    multi_sample: InferenceMultiSampleConfig = Field(
+        default_factory=InferenceMultiSampleConfig
+    )
     # Dynesty nested sampling (CI smoke uses the small defaults; cluster recipe in docs).
     nlive: int = Field(20, ge=2)
     dlogz: float = Field(0.5, gt=0.0)
