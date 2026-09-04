@@ -5,6 +5,9 @@
 # are two registry rows, not a flag. Andrews (#107) and El-Badry 2024 (#108)
 # files exist and are enabled; El-Badry 2026 file exists but stays disabled
 # until its registry enable lands; accel_jerk stays blocked (§9).
+# Inference (#112) uses andrews2022_modified + elbadry2024 + elbadry2026
+# (astrometric only) via inference.multi_sample — not this registry's
+# reproduction/forward_model mode switch alone.
 
 sample_selection:
   enabled: true

@@ -1,7 +1,7 @@
 """Stage: ``inference``.
 
 Staged-but-connected inhomogeneous Poisson point-process likelihood sampled with ``dynesty``
-(ARCHITECTURE.md §4, issue #63).
+(ARCHITECTURE.md §4, issue #63; Phase 8 sample selection §4.7 / issue #112).
 
 **v1 strategy**: ``rv_astrometry_gate`` and ``companion_nature_likelihood`` results are
 computed once upstream and enter here as **fixed** per-system empirical-Bayes plug-in
@@ -10,9 +10,14 @@ weights (via the ``population_model`` artifact). No joint re-sampling of those s
 **v2 (documented, not built)**: fully joint population + selection + per-system evidence,
 warm-started from the v1 posterior.
 
-Likelihood rate:
+Likelihood rate (Phase 8):
 
-``λ(θ) = population_model(θ) × astrometric_SF × followup_SF``
+``λ(θ) = population_model(θ) × astrometric_SF × followup_SF × p_any``
+
+where ``p_any = 1 − Π_s (1 − p_s)`` is the unified inclusion-indicator over inference
+samples ``s ∈ {andrews2022_modified, elbadry2024, elbadry2026_astrometric}`` (§15 Q1).
+Outcome-dependent terms (§7.3 / §8.5) enter ``p_s`` via the shared ``P(spurious | ·)``
+model — never per-sample ``validation_targets`` rates.
 
 Poisson primitives come from ``physics_utils``. Dimensionality / binned-vs-unbinned advice
 from ``sensitivity_analysis`` is applied only when ``inference.apply_sensitivity_dimensionality``
@@ -59,8 +64,18 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.sample_inclusion import (
+    MockRealization,
+    build_sample_inclusion_context,
+    build_sample_overlap_matrix,
+    estimate_sample_selection_sf,
+    format_q1_justification_report,
+    intercept_only_spurious_model,
+    mean_sample_selection_multiplier,
+)
 from darkhunter_pop.schemas import RunManifest, StageStatus
 from darkhunter_pop.sensitivity_analysis import read_sensitivity_analysis_artifact
+from darkhunter_pop.spuriousness_model import FittedSpuriousnessModel
 
 try:
     import dynesty
@@ -289,8 +304,9 @@ def mass_function_intensity(
     population_cfg: Any,
     astrometric_sf: float,
     followup_sf: float,
+    sample_selection_sf: float = 1.0,
 ) -> NDArray[np.floating]:
-    """``λ(M) = MF(M; heights) × P_astro × P_followup``."""
+    """``λ(M) = MF(M; heights) × P_astro × P_followup × p_any``."""
     mf = evaluate_mass_function(
         mass_msun,
         model=population_cfg.mass_function_model,
@@ -298,7 +314,12 @@ def mass_function_intensity(
         heights=np.asarray(heights, dtype=np.float64),
         cfg=population_cfg,
     )
-    return mf * float(astrometric_sf) * float(followup_sf)
+    return (
+        mf
+        * float(astrometric_sf)
+        * float(followup_sf)
+        * float(sample_selection_sf)
+    )
 
 
 def unbinned_log_likelihood(
@@ -311,6 +332,7 @@ def unbinned_log_likelihood(
     population_cfg: Any,
     astrometric_sf: float,
     followup_sf: float,
+    sample_selection_sf: float = 1.0,
 ) -> float:
     """Weighted inhomogeneous Poisson logL on mass (physics_utils primitives)."""
     lam_grid = mass_function_intensity(
@@ -320,6 +342,7 @@ def unbinned_log_likelihood(
         population_cfg=population_cfg,
         astrometric_sf=astrometric_sf,
         followup_sf=followup_sf,
+        sample_selection_sf=sample_selection_sf,
     )
     integrated = integrate_intensity_trapezoid(mass_grid, lam_grid)
     if event_masses.size == 0:
@@ -332,6 +355,7 @@ def unbinned_log_likelihood(
         population_cfg=population_cfg,
         astrometric_sf=astrometric_sf,
         followup_sf=followup_sf,
+        sample_selection_sf=sample_selection_sf,
     )
     # Weighted events: Σ w_i log λ(x_i) − Λ  (w_i are fixed plug-in responsibilities).
     safe = np.maximum(lam_evt, 1e-300)
@@ -348,11 +372,14 @@ def binned_log_likelihood(
     population_cfg: Any,
     astrometric_sf: float,
     followup_sf: float,
+    sample_selection_sf: float = 1.0,
 ) -> float:
     """Binned Poisson logL using free-height expected counts × SF scalars."""
     edges = np.asarray(bin_edges, dtype=np.float64)
     h = np.asarray(heights, dtype=np.float64)
-    expected = h * float(astrometric_sf) * float(followup_sf)
+    expected = (
+        h * float(astrometric_sf) * float(followup_sf) * float(sample_selection_sf)
+    )
     counts = np.zeros(h.size, dtype=np.float64)
     if event_masses.size:
         idx = np.searchsorted(edges, event_masses, side="right") - 1
@@ -531,6 +558,11 @@ class InferenceResult:
     circular_implies_wd: bool
     astrometric_sf: float
     followup_sf: float
+    sample_selection_sf: float
+    multi_sample_formulation: str
+    multi_sample_names: list[str]
+    sample_overlap_matrix: dict[str, Any]
+    q1_justification_report: str
     bin_edges_msun: NDArray[np.floating]
     fiducial_heights: NDArray[np.floating]
     fiducial_log_likelihood: float
@@ -556,6 +588,10 @@ class InferenceResult:
             "circular_implies_wd": self.circular_implies_wd,
             "astrometric_sf": self.astrometric_sf,
             "followup_sf": self.followup_sf,
+            "sample_selection_sf": self.sample_selection_sf,
+            "multi_sample_formulation": self.multi_sample_formulation,
+            "multi_sample_names": list(self.multi_sample_names),
+            "sample_overlap_matrix": dict(self.sample_overlap_matrix),
             "bin_edges_msun": self.bin_edges_msun.tolist(),
             "fiducial_heights": self.fiducial_heights.tolist(),
             "fiducial_log_likelihood": self.fiducial_log_likelihood,
@@ -581,10 +617,12 @@ class InferenceResult:
             "v2_fully_joint": False,
             "notes": self.notes
             or (
-                "v1 staged-but-connected Poisson×SF×dynesty. "
+                "v1 staged-but-connected Poisson×SF×sample_inclusion×dynesty. "
+                "Q1: unified inclusion-indicator (no separate-Poisson double-count). "
                 "External CO MFs are never priors. "
                 "Multi-run robustness protocol — not bitwise seeds."
             ),
+            "q1_justification_report": self.q1_justification_report,
         }
 
 
@@ -599,11 +637,18 @@ def run_inference(
     sensitivity_payload: Mapping[str, Any] | None = None,
     events: Sequence[ObservedEvent] | None = None,
     eccentricities: Mapping[int, float] | None = None,
+    inclusion_mocks: Sequence[MockRealization] | None = None,
+    spurious_model: FittedSpuriousnessModel | None = None,
+    sample_membership: Mapping[str, Sequence[int]] | None = None,
 ) -> InferenceResult:
-    """Assemble Poisson×SF likelihood and run dynesty (or fiducial-only when skipped).
+    """Assemble Poisson×SF×sample_inclusion likelihood and run dynesty.
 
     Simplified population path: when no population artifact / payload is supplied,
     build a fiducial ``run_population_model(config)`` in-memory (empty catalog OK).
+
+    ``inclusion_mocks`` (optional) estimate ``E[p_any]``; otherwise catalog SF
+    scalars from ``inference.multi_sample.default_catalog_sf`` are combined under
+    the unified inclusion-indicator with outcome-dependent terms.
     """
     icfg = config.inference
     pcfg = config.population_model
@@ -644,6 +689,39 @@ def run_inference(
         followup_sf_artifact_path, default=icfg.default_followup_sf
     )
 
+    spur = spurious_model
+    if spur is None:
+        spur = intercept_only_spurious_model(
+            p_spurious=icfg.multi_sample.default_p_spurious
+        )
+    inclusion_ctx = build_sample_inclusion_context(config, spurious_model=spur)
+    sample_sf = estimate_sample_selection_sf(
+        inclusion_ctx, mocks=list(inclusion_mocks or ())
+    )
+    separate_sf = mean_sample_selection_multiplier(
+        formulation="separate_poisson",
+        catalog_sfs=inclusion_ctx.default_catalog_sf,
+        sample_names=inclusion_ctx.sample_names,
+        inclusion_specs={
+            n: f.inclusion_operator for n, f in inclusion_ctx.selection_files.items()
+        },
+        mocks=list(inclusion_mocks or ()),
+        spurious_model=spur,
+    )
+    if sample_membership is None:
+        sample_membership = {
+            "andrews2022_modified": [1, 2, 3, 4, 5],
+            "elbadry2024": [1, 2, 6],
+            "elbadry2026": [1, 3, 7, 8],
+        }
+    overlap = build_sample_overlap_matrix(sample_membership)
+    q1_report = format_q1_justification_report(
+        formulation=inclusion_ctx.formulation,
+        overlap=overlap,
+        unified_sf=sample_sf,
+        separate_sf=separate_sf,
+    )
+
     if events is not None:
         obs = list(events)
     elif pop_result is not None:
@@ -671,6 +749,7 @@ def run_inference(
                 population_cfg=pcfg,
                 astrometric_sf=astro_sf,
                 followup_sf=follow_sf,
+                sample_selection_sf=sample_sf,
             )
         if like_form == "binned":
             return binned_log_likelihood(
@@ -681,6 +760,7 @@ def run_inference(
                 population_cfg=pcfg,
                 astrometric_sf=astro_sf,
                 followup_sf=follow_sf,
+                sample_selection_sf=sample_sf,
             )
         raise ValueError(f"unknown likelihood_form: {like_form!r}")
 
@@ -743,6 +823,11 @@ def run_inference(
         circular_implies_wd=icfg.circular_implies_wd,
         astrometric_sf=astro_sf,
         followup_sf=follow_sf,
+        sample_selection_sf=sample_sf,
+        multi_sample_formulation=inclusion_ctx.formulation,
+        multi_sample_names=list(inclusion_ctx.sample_names),
+        sample_overlap_matrix=overlap.as_dict(),
+        q1_justification_report=q1_report,
         bin_edges_msun=bin_edges,
         fiducial_heights=fiducial_heights,
         fiducial_log_likelihood=fiducial_ll,
@@ -756,7 +841,8 @@ def run_inference(
         config_snapshot=icfg.model_dump(mode="json"),
         notes=(
             "v1 staged-but-connected: fixed companion_nature / gate plug-in weights. "
-            "rate = population_model × astrometric_SF × followup_SF. "
+            "rate = population_model × astrometric_SF × followup_SF × p_any "
+            "(unified inclusion-indicator; §15 Q1). "
             "External CO MFs never priors. See ROBUSTNESS_PROTOCOL."
         ),
     )
@@ -772,6 +858,8 @@ def write_inference_artifact(path: Path, result: InferenceResult) -> None:
         handle.attrs["likelihood_form"] = result.likelihood_form
         handle.attrs["astrometric_sf"] = result.astrometric_sf
         handle.attrs["followup_sf"] = result.followup_sf
+        handle.attrs["sample_selection_sf"] = result.sample_selection_sf
+        handle.attrs["multi_sample_formulation"] = result.multi_sample_formulation
         handle.attrs["n_events"] = result.n_events
         handle.attrs["v1_staged_but_connected"] = True
         if result.logz is not None:
@@ -840,6 +928,9 @@ def format_inference_report(result: InferenceResult) -> str:
         f"circular_implies_wd: {result.circular_implies_wd}",
         f"astrometric_sf: {result.astrometric_sf}",
         f"followup_sf: {result.followup_sf}",
+        f"sample_selection_sf: {result.sample_selection_sf}",
+        f"multi_sample_formulation: {result.multi_sample_formulation}",
+        f"multi_sample_names: {result.multi_sample_names}",
         f"n_events: {result.n_events}",
         f"fiducial_log_likelihood: {result.fiducial_log_likelihood:.6g}",
         f"logz: {result.logz}",
@@ -848,7 +939,10 @@ def format_inference_report(result: InferenceResult) -> str:
         f"posterior_prior_overlap: {result.posterior_prior_overlap}",
         f"n_zero_count_bins: {len(result.zero_count_upper_limits)}",
         "v1 staged-but-connected (fixed plug-in weights); v2 fully-joint not built.",
+        "Q1: unified inclusion-indicator (no separate-Poisson double-count).",
         "Reproducibility: multi-run robustness protocol — not bitwise seeds.",
+        "",
+        result.q1_justification_report.rstrip(),
         "=== end inference report ===",
     ]
     return "\n".join(lines)

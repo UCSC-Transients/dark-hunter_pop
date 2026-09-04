@@ -24,6 +24,21 @@ inference:
   n_mass_grid: 64
   default_astrometric_sf: 1.0
   default_followup_sf: 1.0
+  # Multi-sample selection (§4.7 / §15 Q1). Unified inclusion-indicator.
+  # andrews2022_modified (not frozen andrews2022); elbadry2026 astrometric only;
+  # accel_jerk omitted (§9).
+  multi_sample:
+    formulation: unified_inclusion_indicator
+    sample_names:
+      - andrews2022_modified
+      - elbadry2024
+      - elbadry2026
+    default_catalog_sf:
+      andrews2022_modified: 1.0
+      elbadry2024: 1.0
+      elbadry2026: 1.0
+    default_p_spurious: 0.25
+    require_unified_for_joint: true
   # CI smoke defaults (tiny nested sampling).
   nlive: 20
   dlogz: 0.5

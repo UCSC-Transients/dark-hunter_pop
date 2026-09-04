@@ -64,7 +64,15 @@ inclusion_operator:
   catalog_level_only: true
   notes: >-
     Follow-up outcomes and prioritization are Poisson inclusion-operator
-    territory (§8.5). They are not catalog cuts.
+    territory (§8.5). They are not catalog cuts. The initial 227 is
+    catalog-level; outcome-dependent terms below apply to follow-up subsets
+    modeled identically on mocks. ``not_spurious`` uses the shared
+    P(spurious | ·) model — never validation_targets.spurious_fraction.
+  outcome_dependent_criteria:
+    - id: not_spurious
+      kind: not_spurious
+    - id: followup_characterized
+      kind: followup_characterized
   astrometric_followup_outcomes:
     characterized: 70
     spurious_before_many_epoch_orbit: 16

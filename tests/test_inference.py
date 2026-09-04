@@ -77,6 +77,14 @@ def test_config_loads_inference_fragment() -> None:
     assert inf.nlive == 20
     assert inf.n_robustness_runs == 1
     assert inf.zero_count_ul_confidence == pytest.approx(0.95)
+    assert inf.multi_sample.formulation == "unified_inclusion_indicator"
+    assert inf.multi_sample.sample_names == [
+        "andrews2022_modified",
+        "elbadry2024",
+        "elbadry2026",
+    ]
+    assert "accel_jerk" not in inf.multi_sample.sample_names
+    assert "andrews2022" not in inf.multi_sample.sample_names
     assert "seed" in ROBUSTNESS_PROTOCOL.lower()
 
 
@@ -94,12 +102,15 @@ def test_registry_fingerprints_inference() -> None:
     assert spec.module.endswith("inference")
     assert "inference" in spec.config_fingerprint_keys
     assert "population_model" in spec.config_fingerprint_keys
+    assert "sample_selection" in spec.config_fingerprint_keys
     assert "darkhunter_pop.physics_utils" in spec.dependency_modules
+    assert "darkhunter_pop.sample_inclusion" in spec.dependency_modules
     assert spec.inputs_from == (
         "population_model",
         "selection_function_astrometric",
         "selection_function_followup",
         "sensitivity_analysis",
+        "sample_selection",
     )
 
 

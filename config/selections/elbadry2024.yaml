@@ -75,6 +75,15 @@ inclusion_operator:
     (G, declination, target-list / parent-catalog membership). Catalog-level
     survivors after g_mag_limit are the G<15 pool (48 from table3); the
     published sample N=21 is the post-inclusion compact_object_candidate set.
+  outcome_dependent_criteria:
+    - id: m2_joint_fit
+      kind: m2_joint_fit
+      m2_min_msun: 1.25
+    - id: not_spurious
+      kind: not_spurious
+    - id: orbit_coverage
+      kind: orbit_coverage
+      orbit_coverage_min_fraction: 0.5
   astrometric_followup_outcomes:
     catalog_level_g_lt_15: 48
     published_sample: 21
