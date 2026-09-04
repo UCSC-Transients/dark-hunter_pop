@@ -85,10 +85,12 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `diagnostics.*` | figure/report layout + hook flags; Phase 6 SBC knobs under `diagnostics.sbc` (#69; still excluded from checksum) |
 | `benchmarks.*` | known-truth + comparison catalog paths / RUWE match tolerance (issue #70); fixture YAML holds system values + provenance; comparison-only never priors |
 | `sample_selection.*` | Per-sample literature cut-chain registry (on/off + path + mode). Thresholds live in frozen `config/selections/*.yaml` files, not here. |
+| `spectroscopic_mass_function.*` | SB1/SB1C `f_m` primitive + v1 reproduction-only flags (§8.4.1). Not an inference entry point. |
 | `dr3.*` / `dr4.*` | Independent path configs; `quality_cut_bins` is an arbitrary-length list |
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
-**active DR subtree +** `mass_calibration`, `mass_derivation`, `rv_consistency`,
+**active DR subtree +** `mass_calibration`, `mass_derivation`, `spectroscopic_mass_function`,
+`rv_consistency`,
 `companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
 `selection_function_astrometric`, `selection_function_followup`, `sample_selection`,
 `sensitivity_analysis`,

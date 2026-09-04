@@ -158,6 +158,8 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "nss.t_periastron" in adql
     assert "nss.corr_vec" in adql
     assert "nss.bit_index" in adql
+    assert "nss.semi_amplitude_primary" in adql
+    assert "nss.semi_amplitude_primary_error" in adql
     assert "nss.ra_error" in adql
     assert "nss.A," not in adql.replace("\n", "")
     assert "phot_g_mean_mag_error" not in adql
@@ -282,6 +284,60 @@ def test_external_mag_err_zero_imputed_with_floor() -> None:
     ps1 = next(p for p in candidate.photometry if p.band == "g_ps1")
     assert ps1.mag_err == pytest.approx(dr.external_mag_err_floor)
     assert candidate.extras.get("mag_err_imputed_bands") == ["g_ps1"]
+    spec = candidate.extras.get("spectroscopic_mass_function")
+    assert spec is not None
+    assert spec["inference_eligible"] is False
+    assert spec["feeds_population_likelihood"] is False
+    assert spec["sin3i_marginalization"] is False
+    assert spec["f_m_msun"] is None
+
+
+def test_sb1_ingests_k1_and_computes_spectroscopic_f_m() -> None:
+    from darkhunter_pop.physics_utils import spectroscopic_mass_function
+
+    dr = _dr_config()
+    row = {
+        "source_id": 5001,
+        "nss_solution_type": "SB1",
+        "ra": 10.0,
+        "dec": 5.0,
+        "period": 100.0,
+        "eccentricity": 0.2,
+        "semi_amplitude_primary": 50.0,
+        "semi_amplitude_primary_error": 2.0,
+        "goodness_of_fit": 3.0,
+        "g_mag": 12.0,
+    }
+    candidate = table_row_to_candidate(row, dr)
+    assert candidate.nss_orbital["k1_kms"] == pytest.approx(50.0)
+    assert candidate.nss_orbital["k1_error_kms"] == pytest.approx(2.0)
+    spec = candidate.extras["spectroscopic_mass_function"]
+    expected = float(spectroscopic_mass_function(100.0, 50.0, 0.2))
+    assert spec["f_m_msun"] == pytest.approx(expected)
+    assert spec["k1_significance"] == pytest.approx(25.0)
+    assert spec["inference_eligible"] is False
+    assert candidate.m2 is None
+
+
+def test_sb1c_missing_eccentricity_is_circular() -> None:
+    dr = _dr_config()
+    row = {
+        "source_id": 5002,
+        "nss_solution_type": "SB1C",
+        "ra": 10.0,
+        "dec": 5.0,
+        "period": 20.0,
+        "semi_amplitude_primary": 30.0,
+        "semi_amplitude_primary_error": 1.0,
+        "goodness_of_fit": 3.0,
+        "g_mag": 12.0,
+    }
+    candidate = table_row_to_candidate(row, dr)
+    assert candidate.nss_orbital["eccentricity"] == pytest.approx(0.0)
+    assert candidate.extras.get("sb1c_circular_eccentricity") is True
+    spec = candidate.extras["spectroscopic_mass_function"]
+    assert spec["f_m_msun"] is not None
+    assert spec["feeds_population_likelihood"] is False
 
 
 def test_write_and_read_stage_hdf5(tmp_path: Path) -> None:
@@ -312,6 +368,18 @@ def test_write_and_read_stage_hdf5(tmp_path: Path) -> None:
     assert loaded[0].source_id == candidates[0].source_id
     assert meta["stage"] == "data_acquisition"
     assert CandidateRecord.model_validate(loaded[0].model_dump(mode="json"))
+    import h5py
+
+    with h5py.File(artifact, "r") as handle:
+        spec = handle["data_acquisition"]["spectroscopic_mass_function"]
+        assert spec.attrs["inference_eligible"] in (False, 0)
+        assert spec.attrs["feeds_population_likelihood"] in (False, 0)
+        assert spec.attrs["sin3i_marginalization"] in (False, 0)
+        assert spec.attrs["n_sb1"] == 0
+        assert handle["meta"].attrs["spectroscopic_mass_function_inference_eligible"] in (
+            False,
+            0,
+        )
 
 
 def test_nss_panels_round_trip(tmp_path: Path) -> None:

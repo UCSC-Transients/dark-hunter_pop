@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from darkhunter_pop.config_schema import (
     ExternalPhotometryCrossmatch,
     PipelineConfig,
     QualityCutBin,
+    SpectroscopicMassFunctionConfig,
 )
 from darkhunter_pop.diagnostics import (
     emit_funnel_sky,
@@ -41,7 +43,11 @@ from darkhunter_pop.nss_covariance import (
     reconstruct_nss_covariance,
     validate_loaded_nss_solution,
 )
-from darkhunter_pop.physics_utils import astrometric_mass_function, thiele_innes_to_campbell
+from darkhunter_pop.physics_utils import (
+    astrometric_mass_function,
+    spectroscopic_mass_function,
+    thiele_innes_to_campbell,
+)
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -118,6 +124,21 @@ class FunnelCounts:
             "covariance_ok": self.covariance_ok,
             "covariance_failed": self.covariance_failed,
         }
+
+
+@dataclass(frozen=True)
+class SB1ReproductionRoute:
+    """El-Badry 2026 §8.4 route flags for reproduction checks only.
+
+    Not an inference membership bit. ``in_union`` is the published 151-source
+    disjunction after the K1 significance gate; it does not authorize a
+    population-likelihood term.
+    """
+
+    k1_significant: bool
+    high_mass_function: bool
+    main_sequence_min_companion_mass: bool
+    in_union: bool
 
 
 @dataclass(frozen=True)
@@ -669,6 +690,9 @@ def _build_photometry(
 def _build_nss_orbital(
     row: Mapping[str, Any],
     dr: DRPathConfig,
+    *,
+    spectroscopic: SpectroscopicMassFunctionConfig,
+    nss_solution_type: str | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     orbital: dict[str, Any] = {}
     extras: dict[str, Any] = {}
@@ -685,13 +709,109 @@ def _build_nss_orbital(
         "pmdec",
         "goodness_of_fit",
         "ruwe",
+        "semi_amplitude_primary",
+        "semi_amplitude_primary_error",
     ):
         value = _optional_float(row, key)
         if value is not None:
             orbital[key] = value
+    if "semi_amplitude_primary" in orbital:
+        orbital["k1_kms"] = orbital["semi_amplitude_primary"]
+    if "semi_amplitude_primary_error" in orbital:
+        orbital["k1_error_kms"] = orbital["semi_amplitude_primary_error"]
+
+    sol = nss_solution_type or ""
+    if sol in spectroscopic.circular_solution_types and "eccentricity" not in orbital:
+        orbital["eccentricity"] = 0.0
+        extras["sb1c_circular_eccentricity"] = True
+
     if _is_gaia_pseudo_circular(row, dr):
         extras["gaia_pseudo_circular"] = True
     return orbital, extras
+
+
+def classify_sb1_reproduction_route(
+    *,
+    k1_significance: float | None,
+    f_m_msun: float | None,
+    m1_msun: float | None,
+    m2_min_msun: float | None,
+    spectroscopic: SpectroscopicMassFunctionConfig,
+) -> SB1ReproductionRoute:
+    """Score the §8.4 disjunction for reproduction/validation.
+
+    Does not implement ``sin³i`` marginalization and does not mark a source as
+    inference-eligible. The second (``M2,min``) route is undefined when ``M1``
+    is missing (evolved / not main sequence) — that is "not applicable", not
+    a failed cut.
+    """
+    k1_ok = (
+        k1_significance is not None
+        and math.isfinite(k1_significance)
+        # Published Table 8 reports significance to 1 decimal; the paper threshold
+        # ``> 10`` is recovered as ``>= k1_significance_min`` against that fixture
+        # (source 6443896148956045568 is transcribed as exactly 10.0).
+        and k1_significance >= spectroscopic.k1_significance_min
+    )
+    high_fm = (
+        f_m_msun is not None
+        and math.isfinite(f_m_msun)
+        and f_m_msun > spectroscopic.fm_msun_min
+    )
+    ms_route = False
+    if (
+        m1_msun is not None
+        and m2_min_msun is not None
+        and math.isfinite(m1_msun)
+        and math.isfinite(m2_min_msun)
+    ):
+        ms_route = (
+            m2_min_msun > spectroscopic.m2_min_msun_floor and m2_min_msun > m1_msun
+        )
+    return SB1ReproductionRoute(
+        k1_significant=k1_ok,
+        high_mass_function=bool(k1_ok and high_fm),
+        main_sequence_min_companion_mass=bool(k1_ok and ms_route),
+        in_union=bool(k1_ok and (high_fm or ms_route)),
+    )
+
+
+def _attach_spectroscopic_mass_function(
+    candidate: CandidateRecord,
+    spectroscopic: SpectroscopicMassFunctionConfig,
+) -> CandidateRecord:
+    """Stamp SB1/SB1C ``f_m`` extras. Never writes ``CandidateRecord.m2``."""
+    sol = candidate.nss_solution_type
+    if sol not in spectroscopic.nss_solution_types:
+        return candidate
+    orb = candidate.nss_orbital
+    period = orb.get("period")
+    ecc = orb.get("eccentricity")
+    k1 = orb.get("k1_kms", orb.get("semi_amplitude_primary"))
+    k1_err = orb.get("k1_error_kms", orb.get("semi_amplitude_primary_error"))
+    f_m = spectroscopic_mass_function(
+        period if period is not None else float("nan"),
+        k1 if k1 is not None else float("nan"),
+        ecc if ecc is not None else float("nan"),
+    )
+    f_m_val = float(np.asarray(f_m, dtype=np.float64))
+    significance: float | None = None
+    if k1 is not None and k1_err is not None and k1_err > 0.0:
+        significance = float(k1) / float(k1_err)
+
+    extras = dict(candidate.extras)
+    extras["spectroscopic_mass_function"] = {
+        "f_m_msun": f_m_val if math.isfinite(f_m_val) else None,
+        "k1_kms": float(k1) if k1 is not None else None,
+        "k1_error_kms": float(k1_err) if k1_err is not None else None,
+        "k1_significance": significance,
+        "v1_role": spectroscopic.v1_role,
+        "inference_eligible": False,
+        "inclination_treatment": "edge_on_m2_min_only",
+        "sin3i_marginalization": False,
+        "feeds_population_likelihood": False,
+    }
+    return candidate.model_copy(update={"extras": extras})
 
 
 def _build_atmosphere_extras(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -706,8 +826,14 @@ def _build_atmosphere_extras(row: Mapping[str, Any]) -> dict[str, Any]:
     return extras
 
 
-def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> CandidateRecord:
+def table_row_to_candidate(
+    row: Mapping[str, Any] | Any,
+    dr: DRPathConfig,
+    *,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+) -> CandidateRecord:
     """Map one joined archive row to a ``CandidateRecord`` (data_acquisition-owned fields)."""
+    spec_cfg = spectroscopic if spectroscopic is not None else SpectroscopicMassFunctionConfig()
     mapping = _row_as_mapping(row)
     source_id = int(_row_value(mapping, "source_id"))
     solution_type = mapping.get("nss_solution_type")
@@ -717,7 +843,12 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         solution_type = str(solution_type)
 
     photometry, imputed_bands = _build_photometry(mapping, dr)
-    nss_orbital, orbital_extras = _build_nss_orbital(mapping, dr)
+    nss_orbital, orbital_extras = _build_nss_orbital(
+        mapping,
+        dr,
+        spectroscopic=spec_cfg,
+        nss_solution_type=solution_type,
+    )
     extras = _build_atmosphere_extras(mapping)
     extras.update(orbital_extras)
     if imputed_bands:
@@ -736,7 +867,7 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         if cov_result.bit_index is not None:
             extras["nss_bit_index"] = cov_result.bit_index
 
-    return CandidateRecord(
+    candidate = CandidateRecord(
         source_id=source_id,
         nss_solution_type=solution_type,
         ra_deg=_optional_float(mapping, "ra"),
@@ -748,6 +879,7 @@ def table_row_to_candidate(row: Mapping[str, Any] | Any, dr: DRPathConfig) -> Ca
         photometry=photometry,
         extras=extras,
     )
+    return _attach_spectroscopic_mass_function(candidate, spec_cfg)
 
 
 def _health_from_candidates(candidates: Sequence[CandidateRecord]) -> CovarianceHealth:
@@ -775,8 +907,16 @@ def _health_from_candidates(candidates: Sequence[CandidateRecord]) -> Covariance
     return health
 
 
-def table_to_candidates(table: Table, dr: DRPathConfig) -> list[CandidateRecord]:
-    return [table_row_to_candidate(row, dr) for row in table]
+def table_to_candidates(
+    table: Table,
+    dr: DRPathConfig,
+    *,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+) -> list[CandidateRecord]:
+    spec_cfg = spectroscopic if spectroscopic is not None else SpectroscopicMassFunctionConfig()
+    return [
+        table_row_to_candidate(row, dr, spectroscopic=spec_cfg) for row in table
+    ]
 
 
 def nss_solution_type_to_cascade_label(nss_solution_type: str | None) -> str:
@@ -993,6 +1133,7 @@ def write_stage_hdf5(
     *,
     snapshot: SnapshotMeta,
     diagnostics: StageDiagnostics,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
 ) -> None:
     """Write one stage HDF5 under ``paths.artifact_root``."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1072,6 +1213,44 @@ def write_stage_hdf5(
                 candidate.nss_solution.names, dtype=h5py.string_dtype("utf-8")
             )
             ds.attrs["provenance"] = candidate.nss_solution.provenance
+
+        spec_cfg = spectroscopic if spectroscopic is not None else SpectroscopicMassFunctionConfig()
+        sb1 = [
+            c
+            for c in candidates
+            if c.nss_solution_type in spec_cfg.nss_solution_types
+        ]
+        spec_grp = da_grp.create_group("spectroscopic_mass_function")
+        spec_grp.attrs["v1_role"] = spec_cfg.v1_role
+        spec_grp.attrs["inference_eligible"] = False
+        spec_grp.attrs["feeds_population_likelihood"] = False
+        spec_grp.attrs["sin3i_marginalization"] = False
+        spec_grp.attrs["inclination_treatment"] = "edge_on_m2_min_only"
+        spec_grp.attrs["scope"] = "CONTINUATION_PLAN.md §8.4.1 reproduction_and_validation_only"
+        spec_grp.attrs["n_sb1"] = len(sb1)
+        spec_grp.create_dataset(
+            "source_ids",
+            data=np.array([c.source_id for c in sb1], dtype=np.int64),
+        )
+        f_m_vals = []
+        k1_vals = []
+        sig_vals = []
+        for candidate in sb1:
+            block = candidate.extras.get("spectroscopic_mass_function") or {}
+            f_raw = block.get("f_m_msun")
+            k_raw = block.get("k1_kms")
+            s_raw = block.get("k1_significance")
+            f_m_vals.append(float(f_raw) if f_raw is not None else float("nan"))
+            k1_vals.append(float(k_raw) if k_raw is not None else float("nan"))
+            sig_vals.append(float(s_raw) if s_raw is not None else float("nan"))
+        spec_grp.create_dataset("f_m_msun", data=np.asarray(f_m_vals, dtype=np.float64))
+        spec_grp.create_dataset("k1_kms", data=np.asarray(k1_vals, dtype=np.float64))
+        spec_grp.create_dataset(
+            "k1_significance", data=np.asarray(sig_vals, dtype=np.float64)
+        )
+
+        meta.attrs["spectroscopic_mass_function_v1_role"] = spec_cfg.v1_role
+        meta.attrs["spectroscopic_mass_function_inference_eligible"] = False
 
 
 def read_stage_hdf5(path: Path) -> tuple[list[CandidateRecord], dict[str, Any]]:
@@ -1166,7 +1345,9 @@ def run_data_acquisition(
         )
 
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
-    candidates = table_to_candidates(filtered, dr)
+    candidates = table_to_candidates(
+        filtered, dr, spectroscopic=config.spectroscopic_mass_function
+    )
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
     cov_health = _health_from_candidates(candidates)
     funnel = FunnelCounts(
@@ -1182,7 +1363,13 @@ def run_data_acquisition(
         quality_cut_bin_counts=bin_counts,
         covariance_health=cov_health,
     )
-    write_stage_hdf5(artifact, candidates, snapshot=snapshot, diagnostics=diagnostics)
+    write_stage_hdf5(
+        artifact,
+        candidates,
+        snapshot=snapshot,
+        diagnostics=diagnostics,
+        spectroscopic=config.spectroscopic_mass_function,
+    )
     write_diagnostic_artifacts(diagnostics, artifact, config=config)
 
     manifest = mark_stage_finished(

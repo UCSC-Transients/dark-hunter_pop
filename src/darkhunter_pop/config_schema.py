@@ -812,6 +812,46 @@ class MassDerivationConfig(BaseModel):
     bulk_m2_histogram_log_y: bool = True
 
 
+class SpectroscopicMassFunctionConfig(BaseModel):
+    """SB1 / SB1C spectroscopic mass-function path (CONTINUATION_PLAN.md §8.4).
+
+    Distinct from the astrometric mass function. v1 is reproduction and
+    validation only: ``v1_inference_eligible`` is false and must not be read as
+    permission to feed SB1 systems into the population likelihood.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    nss_solution_types: list[str] = Field(default_factory=lambda: ["SB1", "SB1C"])
+    circular_solution_types: list[str] = Field(default_factory=lambda: ["SB1C"])
+    v1_inference_eligible: bool = False
+    v1_role: str = "reproduction_and_validation_only"
+    published_table_path: str = (
+        "config/selections/external/elbadry2026_table8.yaml"
+    )
+    k1_significance_min: float = Field(10.0, gt=0)
+    fm_msun_min: float = Field(3.0, gt=0)
+    m2_min_msun_floor: float = Field(1.4, gt=0)
+    expected_union_n: int = Field(151, ge=1)
+    expected_n_ms_min_companion: int = Field(136, ge=0)
+    expected_n_high_fm: int = Field(30, ge=0)
+    expected_n_both_routes: int = Field(15, ge=0)
+    inversion_max_m2_msun: float = Field(500.0, gt=0)
+    inversion_n_bisection: int = Field(200, ge=1)
+
+    @model_validator(mode="after")
+    def _v1_inference_stays_off(self) -> SpectroscopicMassFunctionConfig:
+        if self.v1_inference_eligible:
+            raise ValueError(
+                "spectroscopic_mass_function.v1_inference_eligible must be false "
+                "in v1 (CONTINUATION_PLAN.md §8.4.1); flipping it on is a scoped "
+                "v2 decision requiring human sign-off"
+            )
+        if not self.nss_solution_types:
+            raise ValueError("nss_solution_types must be non-empty")
+        return self
+
+
 class RvConsistencyConfig(BaseModel):
     """Choosables for ``rv_astrometry_gate`` and ``joint_orbit_fit`` (ARCHITECTURE.md §4)."""
 
@@ -1464,6 +1504,9 @@ class PipelineConfig(BaseModel):
         default_factory=MassCalibrationConfig
     )
     mass_derivation: MassDerivationConfig = Field(default_factory=MassDerivationConfig)
+    spectroscopic_mass_function: SpectroscopicMassFunctionConfig = Field(
+        default_factory=SpectroscopicMassFunctionConfig
+    )
     rv_consistency: RvConsistencyConfig = Field(default_factory=RvConsistencyConfig)
     companion_nature: CompanionNatureConfig = Field(
         default_factory=CompanionNatureConfig
@@ -1544,6 +1587,7 @@ SHARED_PHYSICS_SECTIONS: frozenset[str] = frozenset(
 SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "mass_calibration",
     "mass_derivation",
+    "spectroscopic_mass_function",
     "rv_consistency",
     "companion_nature",
     "classification",
