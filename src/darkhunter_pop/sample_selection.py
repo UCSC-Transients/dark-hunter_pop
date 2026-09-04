@@ -1191,6 +1191,56 @@ def write_sample_selection_artifact(
     )
 
 
+def sample_evaluation_result_from_dict(raw: Mapping[str, Any]) -> SampleEvaluationResult:
+    """Rehydrate a ``SampleEvaluationResult`` from its ``as_dict`` payload."""
+    attrition = [
+        CutAttrition(
+            cut_id=str(row["cut_id"]),
+            kind=CutKind(row["kind"]),
+            n_in=int(row["n_in"]),
+            n_passed=int(row["n_passed"]),
+            n_failed=int(row["n_failed"]),
+            n_not_applicable=int(row["n_not_applicable"]),
+            n_out=int(row["n_out"]),
+            expected_n_after=(
+                None
+                if row.get("expected_n_after") is None
+                else int(row["expected_n_after"])
+            ),
+            not_applicable_reasons={
+                str(k): int(v)
+                for k, v in dict(row.get("not_applicable_reasons") or {}).items()
+            },
+            skipped_for_mode=bool(row.get("skipped_for_mode", False)),
+        )
+        for row in raw.get("attrition", [])
+    ]
+    return SampleEvaluationResult(
+        name=str(raw["name"]),
+        mode=SampleSelectionMode(raw["mode"]),
+        mass_source=str(raw["mass_source"]),
+        parent_adql=str(raw.get("parent_adql", "")),
+        surviving_source_ids=tuple(int(s) for s in raw.get("surviving_source_ids", [])),
+        attrition=attrition,
+        n_parent=int(raw.get("n_parent", 0)),
+        n_surviving=int(raw.get("n_surviving", 0)),
+        inference_source_ids=tuple(
+            int(s) for s in raw.get("inference_source_ids", [])
+        ),
+        branch_surviving={
+            str(k): tuple(int(s) for s in v)
+            for k, v in dict(raw.get("branch_surviving") or {}).items()
+        },
+        subsample_surviving={
+            str(k): tuple(int(s) for s in v)
+            for k, v in dict(raw.get("subsample_surviving") or {}).items()
+        },
+        route_counts={
+            str(k): int(v) for k, v in dict(raw.get("route_counts") or {}).items()
+        },
+    )
+
+
 def read_sample_selection_artifact(path: Path) -> dict[str, Any]:
     """Load the YAML sidecar written beside the HDF5 artifact."""
     sidecar = path.with_suffix(".yaml")
@@ -1200,6 +1250,21 @@ def read_sample_selection_artifact(path: Path) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise ValueError(f"sample_selection sidecar must be a mapping: {sidecar}")
     return dict(raw)
+
+
+def load_evaluation_results_from_artifact(
+    path: Path,
+) -> dict[str, SampleEvaluationResult]:
+    """Load named ``SampleEvaluationResult`` objects from a stage artifact."""
+    raw = read_sample_selection_artifact(path)
+    results_raw = raw.get("results", {})
+    if not isinstance(results_raw, Mapping):
+        return {}
+    return {
+        str(name): sample_evaluation_result_from_dict(payload)
+        for name, payload in results_raw.items()
+        if isinstance(payload, Mapping)
+    }
 
 
 def run_sample_selection(

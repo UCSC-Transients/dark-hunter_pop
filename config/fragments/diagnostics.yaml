@@ -33,6 +33,54 @@ diagnostics:
     comparison_catalogs: true
     sbc_recovery: true
     m2_posterior_convergence: true
+    sample_attrition_waterfall: true
+    sample_reproduction_report: true
+    simon2026_exclusion_breakdown: true
+    covariance_health: true
+    sample_selection_function: true
+    mode_divergence: true
+    janssens_segment_occupancy: true
+  sample_reproduction:
+    published_tables:
+      andrews2022: null
+      elbadry2024: null
+      elbadry2026: null
+      elbadry2026_astrometric: config/selections/external/elbadry2026_table7.yaml
+      elbadry2026_spectroscopic: config/selections/external/elbadry2026_table8.yaml
+    simon2026_table: config/selections/external/simon2026_orbital.yaml
+    janssens_table: config/selections/external/janssens2022_mass_magnitude.yaml
+    selection_function:
+      m2_msun: [0.5, 1.0, 1.4, 2.0, 5.0, 10.0]
+      period_day: [10.0, 100.0, 365.0, 900.0, 1200.0]
+      g_mag: [10.0, 12.0, 14.0, 15.0, 16.0]
+      template:
+        nss_solution_type: Orbital
+        main_sequence: true
+        m1_msun: 1.0
+        m1_tilde_msun: 1.0
+        paper_m1_msun: 1.0
+        pipeline_m1_msun: 1.0
+        m2_msun: 2.0
+        m2_tilde_msun: 2.0
+        m2_msun_error: 0.1
+        sigma_m2_astrometric_msun: 0.05
+        p_m2_above: 1.0
+        p_m2_gt_threshold: 1.0
+        goodness_of_fit: 1.0
+        period_day: 200.0
+        phot_g_mean_mag: 12.0
+        logg_apsis: 4.0
+        abs_g_mag: 5.0
+        bp_rp: 0.8
+        k1_significance: 20.0
+        fm_msun: 4.0
+        m2_min_msun: 2.0
+        andrews_member: false
+    mode_divergence_pairs:
+      - left: andrews2022
+        right: andrews2022_modified
+        expected_only_in_right: [4373465352415301632]
+        expected_only_in_left: []
   sbc:
     enabled: true
     # Stage stays fast by default; tests call run_sbc_suite directly.
