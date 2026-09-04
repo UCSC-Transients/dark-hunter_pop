@@ -810,8 +810,15 @@ def _features_from_columns(
     model: FittedSpuriousnessModel,
     columns: Mapping[str, NDArray[np.floating]],
     feature_names: Sequence[str],
+    *,
+    n_rows: int | None = None,
 ) -> NDArray[np.floating]:
-    n = next(iter(columns.values())).shape[0]
+    if n_rows is not None:
+        n = int(n_rows)
+    elif columns:
+        n = next(iter(columns.values())).shape[0]
+    else:
+        n = 1
     mats: list[NDArray[np.floating]] = []
     for name in feature_names:
         if name.endswith("_missing"):
@@ -842,6 +849,10 @@ def predict_p_spurious(
         if arr.ndim > 0 and arr.size > 1:
             n = int(arr.size)
             break
+    if not model.outcome_feature_names:
+        return norm.cdf(
+            np.full(n, model.outcome_intercept, dtype=np.float64)
+        ).astype(np.float64)
     cols: dict[str, NDArray[np.floating]] = {}
     needed = set(model.retained_covariates)
     for name in model.outcome_feature_names:
@@ -855,7 +866,9 @@ def predict_p_spurious(
         else:
             arr = np.asarray(covariates[name], dtype=np.float64)
             cols[name] = np.broadcast_to(arr, (n,)).astype(np.float64).copy()
-    x = _features_from_columns(model, cols, model.outcome_feature_names)
+    x = _features_from_columns(
+        model, cols, model.outcome_feature_names, n_rows=n
+    )
     beta = np.array(
         [model.outcome_coef[n] for n in model.outcome_feature_names], dtype=np.float64
     )
