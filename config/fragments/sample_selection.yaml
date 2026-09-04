@@ -2,8 +2,9 @@
 # Review/Integration merges this into config/config.yaml at the checkpoint.
 # Thresholds do NOT live here — they live in frozen per-sample files under
 # config/selections/ (transcribed by #107 / #108 / #110). Two Andrews variants
-# are two registry rows, not a flag. Andrews files exist (#107); El-Badry /
-# accel_jerk stay disabled until those files land.
+# are two registry rows, not a flag. Andrews (#107) and El-Badry 2024 (#108)
+# files exist and are enabled; El-Badry 2026 file exists but stays disabled
+# until its registry enable lands; accel_jerk stays blocked (§9).
 
 sample_selection:
   enabled: true
@@ -17,7 +18,7 @@ sample_selection:
       path: config/selections/andrews2022_modified.yaml
       mode: forward_model
     - name: elbadry2024
-      enabled: false
+      enabled: true
       path: config/selections/elbadry2024.yaml
       mode: reproduction
     - name: elbadry2026
