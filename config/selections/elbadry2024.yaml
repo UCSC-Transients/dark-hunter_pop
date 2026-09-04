@@ -1,0 +1,180 @@
+# El-Badry et al. (2024) — frozen reproduction selection (CONTINUATION_PLAN §7).
+# Source: arXiv:2405.00089v2 §2.
+#
+# Parent: Gaia DR3 Orbital + AstroSpectroSB1 (differs from Andrews, who drops
+# AstroSpectroSB1). The followed-up NS-candidate pool is Shahaf et al. (2023b)
+# triage (177) plus P_orb > 1000 d and Andrews-sourced additions; the frozen
+# machine-readable list of that pool is elbadry2024_table3.yaml (60 rows:
+# S23 ∪ A22 ∪ one "this work" P>1000 d addition). Do NOT re-express the three
+# routes as parent-wide OR cuts — period_day > 1000 alone would admit the
+# entire long-period Orbital population.
+#
+# Catalog-level only: criterion (a) G < 15 is a pre-follow-up observable.
+# Criteria (b) M2 > 1.25 Msun from joint fit, (c) not spurious, (d) ≥½ orbit
+# observed are OUTCOME-DEPENDENT — they live under inclusion_operator and are
+# applied identically to mocks. They are never filters that discard real systems.
+#
+# The ~25% spurious rate is NOT a parameter of this sample (§4.8). It lives under
+# validation_targets as an output for the shared #27 model (fixture: 12/48 G<15
+# = 25.0%). Criterion (c) is satisfied by evaluating that model.
+
+schema_version: 1
+name: elbadry2024
+provenance:
+  reference: "El-Badry et al. (2024)"
+  arxiv: "2405.00089v2"
+  section: "2. Sample selection"
+  published_n: 21
+  data_release: dr3
+  frozen_on: "2026-09-04"
+mode: reproduction
+depends_on: [andrews2022]
+inference_branches: [astrometric]
+primary_mass:
+  method: isoclum_binary_masses
+  table: gaiadr3.binary_masses
+  parameters:
+    metallicity_prior: near_solar
+    caveat_metallicity: >-
+      Overestimated for sub-solar [Fe/H]; underestimated for super-solar.
+    caveat_photometry: >-
+      Contingent on the extinction estimate and on single-star photometry.
+extinction:
+  north:
+    applies_when: "dec_deg > -30.0"
+    map: green2019
+  south:
+    applies_when: "dec_deg <= -30.0"
+    map: lallement2022
+monte_carlo:
+  n_draws: 10000
+  covariance: full_12x12
+open_items:
+  - id: Q2
+    status: resolved
+    summary: >-
+      Reproduction path: cross-match the published Shahaf et al. (2023b) triage
+      via the frozen NS-candidate follow-up pool in elbadry2024_table3.yaml
+      (S23 ∪ A22 ∪ P_orb>1000 d "this work" addition). Forward-model and DR4
+      paths cannot use a catalog on mocks — they must apply the AMRF triage
+      algorithm. §8.3 / physics_utils already compute the AMRF
+      (A^3 = m_f/M1); re-express §7 triage in those terms rather than a second
+      photocenter inversion. Full 177-row Shahaf catalog ingestion remains a
+      data dependency for an exact reproduction of the triage step upstream of
+      the NS-candidate pool; it is not required to freeze the published N=21
+      cut chain once table3 membership is authoritative for this sample.
+inclusion_operator:
+  catalog_level_only: true
+  notes: >-
+    Outcome-dependent completeness criteria (§7.3 / paper §2.2) — NOT catalog
+    cuts. (b) best-fit M2 > 1.25 Msun from joint fitting of astrometry and RVs;
+    (c) not spurious / not significantly underestimated astrometric
+    uncertainties (evaluate shared P(spurious|·) from #27; do NOT read
+    validation_targets.spurious_fraction); (d) observed over at least half an
+    orbit. Follow-up selection may condition only on pre-follow-up observables
+    (G, declination, target-list / parent-catalog membership). Catalog-level
+    survivors after g_mag_limit are the G<15 pool (48 from table3); the
+    published sample N=21 is the post-inclusion compact_object_candidate set.
+  astrometric_followup_outcomes:
+    catalog_level_g_lt_15: 48
+    published_sample: 21
+    astrospectrosb1_in_published: 3
+branches:
+  - id: astrometric
+    inference: true
+    statistic: shahaf_amrf_triage
+    expected_union_n: 48
+    parent_query:
+      dr3:
+        nss_table: gaiadr3.nss_two_body_orbit
+        solution_types: [Orbital, AstroSpectroSB1]
+        expected_parent_n: 168065
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.goodness_of_fit,
+            nss.significance,
+            nss.a_thiele_innes,
+            nss.b_thiele_innes,
+            nss.f_thiele_innes,
+            nss.g_thiele_innes,
+            COALESCE(nss.parallax, gs.parallax) AS parallax,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr3.nss_two_body_orbit AS nss
+          JOIN gaiadr3.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+        verification:
+          status: verified
+          confirmed_count: 168065
+          confirming_query: |
+            SELECT COUNT(*) AS n
+            FROM gaiadr3.nss_two_body_orbit AS nss
+            WHERE nss.nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+          verified_on: "2026-09-04"
+      dr4:
+        nss_table: gaiadr4.nss_two_body_orbit
+        solution_types: [Orbital, AstroSpectroSB1]
+        expected_parent_n: null
+        adql: |
+          SELECT
+            nss.source_id,
+            nss.nss_solution_type,
+            nss.period,
+            nss.period_error,
+            nss.eccentricity,
+            nss.eccentricity_error,
+            nss.goodness_of_fit,
+            nss.significance,
+            nss.a_thiele_innes,
+            nss.b_thiele_innes,
+            nss.f_thiele_innes,
+            nss.g_thiele_innes,
+            COALESCE(nss.parallax, gs.parallax) AS parallax,
+            COALESCE(nss.dec, gs.dec) AS dec,
+            gs.phot_g_mean_mag,
+            gs.phot_bp_mean_mag,
+            gs.phot_rp_mean_mag
+          FROM gaiadr4.nss_two_body_orbit AS nss
+          JOIN gaiadr4.gaia_source AS gs ON nss.source_id = gs.source_id
+          WHERE nss.nss_solution_type IN ('Orbital', 'AstroSpectroSB1')
+        verification:
+          status: unverified
+          confirmed_count: null
+          confirming_query: null
+          verified_on: null
+    subsamples:
+      # Single authoritative catalog-level pool: Table 3 already encodes the
+      # Shahaf (S23) ∪ Andrews (A22) ∪ P>1000 d ("this work") union.
+      - id: elbadry2024_table3
+        external_table: config/selections/external/elbadry2024_table3.yaml
+        expected_n: 48
+        cuts:
+          - id: ns_candidate_pool
+            kind: derived
+            expression: "in_sample('elbadry2024_table3')"
+          - id: g_mag_limit
+            kind: column
+            expression: "phot_g_mean_mag < g_mag_faint_limit"
+            parameters:
+              g_mag_faint_limit: 15.0
+              # Criterion (a) only. (b)–(d) → inclusion_operator.
+validation_targets:
+  spurious_fraction:
+    # Exact fixture rate, not an approximate "~25%". NEVER read as an input.
+    astrometric: 0.25
+    source: >-
+      El-Badry et al. (2024); config/selections/external/elbadry2024_table3.yaml
+      published_rate_check: 12 spurious / 48 with G<15 = 25.0%
+    role: acceptance_test
+  purity: {}
+  dominant_residual_contaminants:
+    - spurious_astrometric_solutions
+    - ultramassive_white_dwarfs
