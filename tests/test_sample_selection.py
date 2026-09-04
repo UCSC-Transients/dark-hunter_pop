@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from math import log10
 from pathlib import Path
 
 import h5py
@@ -23,6 +25,13 @@ from darkhunter_pop.config_schema import (
     SampleSelectionEntry,
     SampleSelectionMode,
 )
+from darkhunter_pop.data_acquisition import (
+    FunnelCounts,
+    SnapshotMeta,
+    compute_stage_diagnostics,
+    write_stage_hdf5 as write_da_hdf5,
+)
+from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mdb_hdf5
 from darkhunter_pop.run_management import (
     SAMPLE_SELECTION_DISABLED_SKIP_REASON,
     SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON,
@@ -39,12 +48,16 @@ from darkhunter_pop.sample_selection import (
     CutExpressionError,
     CutOutcome,
     NotApplicable,
+    SampleEvaluationResult,
     SampleSelection,
     SampleSelectionError,
     SampleSelectionRegistry,
     UnhandledSampleSelectionModeError,
+    assert_nonzero_parent_when_da_nonempty,
+    candidate_to_selection_row,
     evaluate_cut,
     load_sample_selection_file,
+    load_selection_rows_from_manifest,
     mass_source_for_mode,
     parent_query_for_mode,
     read_sample_selection_artifact,
@@ -53,7 +66,14 @@ from darkhunter_pop.sample_selection import (
     run_sample_selection_stage,
     write_sample_selection_artifact,
 )
-from darkhunter_pop.schemas import ActiveDRMode, StageStatus
+from darkhunter_pop.schemas import (
+    ActiveDRMode,
+    CandidateRecord,
+    ParameterSet,
+    PhotometryPoint,
+    StageRecord,
+    StageStatus,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -554,3 +574,160 @@ def test_illegal_expression_rejected() -> None:
     )
     with pytest.raises(CutExpressionError):
         evaluate_cut(cut, {"source_id": 1})
+
+
+def test_candidate_to_selection_row_flattens_orbital_photometry_masses() -> None:
+    cand = CandidateRecord(
+        source_id=42,
+        nss_solution_type="Orbital",
+        parallax_mas=10.0,
+        nss_orbital={"goodness_of_fit": 1.5, "period": 200.0, "parallax": 10.0},
+        extras={"logg_gspphot": 4.1},
+        photometry=[
+            PhotometryPoint(band="G", mag=12.0),
+            PhotometryPoint(band="BP", mag=12.5),
+            PhotometryPoint(band="RP", mag=11.5),
+        ],
+        m1=ParameterSet(
+            names=["M1", "R1"],
+            values=[1.2, 1.1],
+            covariance=[[0.01, 0.0], [0.0, 0.02]],
+            provenance="test",
+            units=["Msun", "Rsun"],
+        ),
+        m2=ParameterSet(
+            names=["M2"],
+            values=[2.0],
+            covariance=[[0.25]],
+            provenance="test",
+            units=["Msun"],
+        ),
+    )
+    row = candidate_to_selection_row(cand)
+    assert row["source_id"] == 42
+    assert row["nss_solution_type"] == "Orbital"
+    assert row["goodness_of_fit"] == pytest.approx(1.5)
+    assert row["period_day"] == pytest.approx(200.0)
+    assert row["logg_apsis"] == pytest.approx(4.1)
+    assert row["phot_g_mean_mag"] == pytest.approx(12.0)
+    assert row["bp_rp"] == pytest.approx(1.0)
+    assert row["abs_g_mag"] == pytest.approx(12.0 + 5.0 * log10(10.0) - 10.0)
+    assert row["pipeline_m1_msun"] == pytest.approx(1.2)
+    assert row["m2_msun"] == pytest.approx(2.0)
+    assert row["m2_msun_error"] == pytest.approx(0.5)
+    assert row["m2_snr"] == pytest.approx(4.0)
+
+
+def test_stage_loads_da_rows_when_rows_none(tmp_path: Path) -> None:
+    """Regression #129: empty ``rows or ()`` must not silently yield n_parent=0."""
+    da_cand = CandidateRecord(
+        source_id=10,
+        nss_solution_type="Orbital",
+        parallax_mas=5.0,
+        nss_orbital={"goodness_of_fit": 1.0, "period": 100.0, "parallax": 5.0},
+        extras={"logg_gspphot": 4.0},
+        photometry=[
+            PhotometryPoint(band="G", mag=13.0),
+            PhotometryPoint(band="BP", mag=13.4),
+            PhotometryPoint(band="RP", mag=12.6),
+        ],
+    )
+    mdb_cand = da_cand.model_copy(
+        update={
+            "m1": ParameterSet(
+                names=["M1", "R1"],
+                values=[1.1, 1.0],
+                covariance=[[0.01, 0.0], [0.0, 0.01]],
+                provenance="test",
+                units=["Msun", "Rsun"],
+            ),
+            "m2": ParameterSet(
+                names=["M2"],
+                values=[1.8],
+                covariance=[[0.04]],
+                provenance="test",
+                units=["Msun"],
+            ),
+        }
+    )
+
+    enabled = _pipeline_with_samples(_entry("paper_a", "paper_a.yaml"))
+    enabled.paths.artifact_root = str(tmp_path / "output")
+    manifest = create_run_manifest(enabled)
+    run_path = tmp_path / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+
+    da_path = tmp_path / "da.h5"
+    snapshot = SnapshotMeta(
+        snapshot_id="test_snap",
+        query_date=datetime.now(tz=timezone.utc),
+        adql="SELECT 1",
+        checksum="abc",
+        row_count=1,
+        result_path=tmp_path / "query.ecsv",
+        meta_path=tmp_path / "meta.yaml",
+    )
+    funnel = FunnelCounts(queried=1, after_quality_cut=1, candidates_written=1)
+    diagnostics = compute_stage_diagnostics(
+        [da_cand], funnel=funnel, quality_cut_bin_counts={"bin0": 1}
+    )
+    write_da_hdf5(da_path, [da_cand], snapshot=snapshot, diagnostics=diagnostics)
+    mdb_path = tmp_path / "mdb.h5"
+    write_mdb_hdf5(
+        mdb_path,
+        [mdb_cand],
+        stage_name="mass_derivation_bulk",
+        diagnostics={"n_input": 1, "n_kept": 1},
+    )
+
+    stages = dict(manifest.stages)
+    stages["data_acquisition"] = StageRecord(
+        stage_name="data_acquisition",
+        status=StageStatus.COMPLETED,
+        artifact_path=str(da_path),
+    )
+    stages["mass_derivation_bulk"] = StageRecord(
+        stage_name="mass_derivation_bulk",
+        status=StageStatus.COMPLETED,
+        artifact_path=str(mdb_path),
+    )
+    manifest = manifest.model_copy(update={"stages": stages})
+    save_run_manifest(manifest, run_path)
+
+    rows = load_selection_rows_from_manifest(manifest)
+    assert len(rows) == 1
+    assert rows[0]["source_id"] == 10
+    assert rows[0]["pipeline_m1_msun"] == pytest.approx(1.1)
+    assert rows[0]["m2_msun"] == pytest.approx(1.8)
+
+    finished = run_sample_selection_stage(manifest, enabled, run_path=run_path)
+    rec = finished.stages["sample_selection"]
+    assert rec.status is StageStatus.COMPLETED
+    assert rec.artifact_path is not None
+    payload = read_sample_selection_artifact(Path(rec.artifact_path))
+    assert payload["results"]["paper_a"]["n_parent"] == 1
+    assert payload["results"]["paper_a"]["n_parent"] > 0
+
+
+def test_assert_nonzero_parent_fails_loud_when_da_nonempty() -> None:
+    from darkhunter_pop.sample_selection import SampleSelectionStageResult
+
+    empty = SampleSelectionStageResult(
+        schema_version=1,
+        enabled=True,
+        content_fingerprint="x",
+        results={
+            "paper_a": SampleEvaluationResult(
+                name="paper_a",
+                mode=SampleSelectionMode.REPRODUCTION,
+                mass_source="paper",
+                parent_adql="SELECT 1",
+                surviving_source_ids=(),
+                attrition=[],
+                n_parent=0,
+                n_surviving=0,
+            )
+        },
+    )
+    with pytest.raises(SampleSelectionError, match="parent N==0"):
+        assert_nonzero_parent_when_da_nonempty(empty, n_da_rows=100)
