@@ -1141,7 +1141,7 @@ class SpuriousnessValidationTarget(BaseModel):
     target_spurious_fraction_advisory: float | None = None
     fixture_numerator: int | None = None
     fixture_denominator: int | None = None
-    fixture_genuine: int | None = None
+    fixture_good: int | None = None
     fixture_n: int | None = None
     fixture_spurious_solution_fraction: float | None = None
     role: Literal["acceptance_test", "advisory"] = "acceptance_test"

@@ -2,9 +2,11 @@
 # Lives OUTSIDE config/selections/ on purpose — nesting under a sample would
 # reintroduce the per-sample-constant design §4.8 replaces.
 #
-# Predicts P(spurious | physical and observational parameters) for the verdict
-# axis only. Companion nature is a separate axis (companion_nature_likelihood).
-# Undetermined rows are censored, not dropped; label and censoring are fit jointly.
+# Predicts P(spurious | physical and observational parameters) for the collapsed
+# four-state `state` axis (schema_version 3 fixtures). Companion nature is a
+# separate axis (companion_nature_likelihood). unknown_* rows are censored, not
+# dropped; label and censoring are fit jointly. Spurious `reason` is recorded
+# for Q16 but v1 predicts only the collapsed binary.
 
 schema_version: 1
 name: spuriousness_model
@@ -12,7 +14,7 @@ name: spuriousness_model
 # Link / functional form (justified in the PR body).
 link_function: probit
 censoring: joint
-# L2 penalty on slope coefficients (not intercepts). 63 positives bind.
+# L2 penalty on slope coefficients (not intercepts). Collapsed positives bind.
 regularization_l2: 0.25
 # Softplus of unconstrained rho parameter; |rho| clipped below this.
 rho_abs_max: 0.95
@@ -66,14 +68,15 @@ validation:
     fixture_denominator: 48
   elbadry2026_astrometric:
     table: elbadry2026_table7
-    target_reliable_fraction: 0.6052631578947368  # 46/76
-    fixture_genuine: 46
+    target_reliable_fraction: 0.5789473684210527  # 44/76
+    fixture_good: 44
     fixture_n: 76
   elbadry2026_sb1:
     table: elbadry2026_table8
-    # Advisory pending §15 Q15 — Notes label nature, not spuriousness.
+    # Advisory pending §15 Q15 — collapsed spurious folds luminous_companion.
     target_spurious_fraction_advisory: 0.50
-    fixture_spurious_solution_fraction: 0.15894039735099338  # 24/151 = 15.9%
+    # solution_error alone (not collapsed spurious): 29/151
+    fixture_spurious_solution_fraction: 0.19205298013245032
     role: advisory
   absolute_tolerance: 0.05
 

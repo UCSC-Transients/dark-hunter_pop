@@ -376,7 +376,7 @@ def run_pipeline(
         stage_subset=stage_subset,
     )
     plan_text = format_run_plan(
-        manifest, cfg, plan, run_path=path, created_new=created
+        manifest, cfg, plan, run_path=path, created_new=created, dry_run=dry_run
     )
     print(plan_text, flush=True)
 

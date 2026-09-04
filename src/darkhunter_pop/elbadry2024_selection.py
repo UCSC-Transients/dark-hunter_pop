@@ -67,12 +67,12 @@ def table3_g_lt_15_rows(
 def published_sample_source_ids(
     rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[int, ...]:
-    """The 21 published systems: genuine + compact_object_candidate."""
+    """The 21 published systems: good + compact_object_candidate."""
     data = list(rows) if rows is not None else load_elbadry2024_table3()
     ids = [
         int(row["source_id"])
         for row in data
-        if row.get("verdict") == "genuine"
+        if row.get("state") == "good"
         and row.get("nature") == PUBLISHED_NATURE
     ]
     return tuple(ids)
@@ -89,7 +89,7 @@ def spurious_fraction_g_lt_15(
     """
     bright = table3_g_lt_15_rows(rows, g_mag_faint_limit=g_mag_faint_limit)
     n_bright = len(bright)
-    n_spurious = sum(1 for row in bright if row.get("verdict") == "spurious")
+    n_spurious = sum(1 for row in bright if row.get("state") == "spurious")
     if n_bright == 0:
         raise ValueError("no Table 3 rows with G < g_mag_faint_limit")
     return float(n_spurious) / float(n_bright), n_spurious, n_bright

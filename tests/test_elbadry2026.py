@@ -96,7 +96,7 @@ def test_table_e1_is_not_trimmed_to_ids() -> None:
     )
     assert len(raw["data"]) == 6
     for row in raw["data"]:
-        assert "verdict" in row
+        assert "state" in row
         assert "g_mag" in row
         assert "period_days" in row
 

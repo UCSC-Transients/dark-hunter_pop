@@ -62,20 +62,20 @@ def test_labeled_set_counts_match_fixtures() -> None:
     spec = load_spuriousness_model_file()
     sources = load_labeled_sources(spec)
     assert len(sources) == 293
-    n_spur = sum(1 for s in sources if s.verdict == "spurious")
-    n_gen = sum(1 for s in sources if s.verdict == "genuine")
-    n_und = sum(1 for s in sources if s.verdict == "undetermined")
-    assert n_spur == 63
-    assert n_gen == 197
-    assert n_und == 33
-    # Two label axes: ultramassive WD is genuine, not spurious.
+    n_spur = sum(1 for s in sources if s.state == "spurious")
+    n_good = sum(1 for s in sources if s.state == "good")
+    n_unk = sum(1 for s in sources if s.state.startswith("unknown_"))
+    assert n_spur == 164
+    assert n_good == 91
+    assert n_unk == 38
+    # Two label axes: ultramassive WD is good, not spurious.
     wd = [s for s in sources if s.nature == "massive_white_dwarf"]
     assert wd
-    assert all(s.verdict == "genuine" for s in wd)
-    # Gaia BH1 genuine.
+    assert all(s.state == "good" for s in wd)
+    # Gaia BH1 good.
     bh1 = [s for s in sources if s.source_id == GAIA_BH1]
     assert bh1
-    assert all(s.verdict == "genuine" for s in bh1)
+    assert all(s.state == "good" for s in bh1)
 
 
 def test_harmonic_distance_gaia_bh1_near_third_harmonic() -> None:
@@ -138,8 +138,11 @@ def test_acceptance_rate_reproduction_one_parameter_set() -> None:
     report = format_rate_reproduction_report(result)
     assert "ESCALATE" not in report
     assert result.sb1_q15_report["status"] == "escalated_pending_human_signoff"
-    assert result.sb1_q15_report["spurious_solution_fraction_all_151"] == pytest.approx(
-        24 / 151
+    assert result.sb1_q15_report["solution_error_fraction_all_151"] == pytest.approx(
+        29 / 151
+    )
+    assert result.sb1_q15_report["collapsed_spurious_fraction_all_151"] == pytest.approx(
+        124 / 151
     )
 
 
@@ -162,15 +165,15 @@ def test_predict_p_spurious_evaluable_on_mocks() -> None:
     assert float(p[-1]) >= float(p[0]) - 1e-9
 
 
-def test_undetermined_not_dropped_censoring_report() -> None:
+def test_unknown_not_dropped_censoring_report() -> None:
     result = fit_spuriousness_model()
-    assert result.model.n_undetermined == 33
+    assert result.model.n_unknown == 38
     report = format_censoring_report(result)
-    assert "n_undetermined=33" in report
+    assert "n_unknown=38" in report
     assert "rate_shift" in report
-    # Every undetermined row appears.
+    # Every unknown_* row appears.
     for s in result.design.sources:
-        if s.verdict == "undetermined":
+        if s.state.startswith("unknown_"):
             assert str(s.source_id) in report
 
 
@@ -178,13 +181,13 @@ def test_gaia_bh1_scored_explicitly() -> None:
     result = fit_spuriousness_model()
     report = format_labeled_set_performance_report(result)
     assert f"gaia_bh1 source_id={GAIA_BH1}" in report
-    assert "verdict=genuine" in report
+    assert "state=good" in report
     assert "andrews_exclusion=wrong_per_Q14" in report
     bh1_rows = [
         s for s in result.design.sources if s.source_id == GAIA_BH1
     ]
     assert bh1_rows
-    assert all(s.verdict == "genuine" for s in bh1_rows)
+    assert all(s.state == "good" for s in bh1_rows)
     # Extreme spurious E1 masses (122 / 119 Msun) must outrank BH1 on P(spurious).
     e1_bh1 = next(
         i
@@ -195,7 +198,7 @@ def test_gaia_bh1_scored_explicitly() -> None:
         i
         for i, s in enumerate(result.design.sources)
         if s.table == "elbadry2023_table_e1"
-        and s.verdict == "spurious"
+        and s.state == "spurious"
         and s.implied_companion_mass_msun is not None
         and s.implied_companion_mass_msun > 50.0
     ]
