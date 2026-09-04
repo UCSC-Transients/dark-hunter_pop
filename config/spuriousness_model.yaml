@@ -1,0 +1,87 @@
+# Sample-independent spuriousness model (CONTINUATION_PLAN §4.8).
+# Lives OUTSIDE config/selections/ on purpose — nesting under a sample would
+# reintroduce the per-sample-constant design §4.8 replaces.
+#
+# Predicts P(spurious | physical and observational parameters) for the verdict
+# axis only. Companion nature is a separate axis (companion_nature_likelihood).
+# Undetermined rows are censored, not dropped; label and censoring are fit jointly.
+
+schema_version: 1
+name: spuriousness_model
+
+# Link / functional form (justified in the PR body).
+link_function: probit
+censoring: joint
+# L2 penalty on slope coefficients (not intercepts). 63 positives bind.
+regularization_l2: 0.25
+# Softplus of unconstrained rho parameter; |rho| clipped below this.
+rho_abs_max: 0.95
+
+# Gaia scanning-law fundamental period for harmonic_distance (days).
+# Andrews' Gaia BH1 period 185.8 d ≈ 3 × 62 d.
+scanning_law_fundamental_period_days: 62.0
+harmonic_multiples_max: 20
+
+# Literature-motivated F2 × G interaction (El-Badry 2026 §5.1.1).
+# Window-class break at G = 13; F2 thresholds move with G.
+g_window_class_break: 13.0
+f2_threshold_bright: 6.0
+f2_threshold_faint: 4.0
+
+# Sensitivity-analysis ΔBIC gate (reuse the module; do not hand-pick).
+bic_delta_include_covariate: 6.0
+min_complete_rows_for_covariate: 20
+
+# Candidate covariates from §4.8 — retention is the sensitivity module's job.
+candidate_covariates:
+  - harmonic_distance
+  - goodness_of_fit
+  - parallax_snr
+  - a0_snr
+  - phot_g_mean_mag
+  - log_implied_companion_mass
+  - visibility_periods_used
+  - rv_consistency
+  - f2_x_g_break
+
+# RV consistency is missing-at-selection: never impute; never restrict the fit
+# to rows that have it. Modeled with an availability indicator.
+missing_at_selection_covariates:
+  - rv_consistency
+
+labeled_sets:
+  - config/selections/external/elbadry2023_table_e1.yaml
+  - config/selections/external/elbadry2024_table3.yaml
+  - config/selections/external/elbadry2026_table7.yaml
+  - config/selections/external/elbadry2026_table8.yaml
+
+# Acceptance targets recovered from the staged fixtures (§13, §15 Q15).
+validation:
+  elbadry2024:
+    table: elbadry2024_table3
+    g_max: 15.0
+    target_spurious_fraction: 0.25
+    # Fixture: 12 spurious / 48 rows with G < 15.
+    fixture_numerator: 12
+    fixture_denominator: 48
+  elbadry2026_astrometric:
+    table: elbadry2026_table7
+    target_reliable_fraction: 0.6052631578947368  # 46/76
+    fixture_genuine: 46
+    fixture_n: 76
+  elbadry2026_sb1:
+    table: elbadry2026_table8
+    # Advisory pending §15 Q15 — Notes label nature, not spuriousness.
+    target_spurious_fraction_advisory: 0.50
+    fixture_spurious_solution_fraction: 0.15894039735099338  # 24/151 = 15.9%
+    role: advisory
+  absolute_tolerance: 0.05
+
+gaia_bh1_source_id: 4373465352415301632
+
+# Stratify training / reports by branch so SB1 luminous-companion composition
+# does not dominate the astrometric propensity (CONTINUATION_PLAN §4.8).
+branch_key: branch
+branch_values:
+  - astrometric
+  - spectroscopic

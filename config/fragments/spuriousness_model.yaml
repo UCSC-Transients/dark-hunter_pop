@@ -1,0 +1,7 @@
+# Draft registry for the shared spuriousness model (CONTINUATION_PLAN §4.8 / §12.1).
+# Sample-INdependent — deliberately NOT under config/selections/.
+# Detail body lives at config/spuriousness_model.yaml.
+
+spuriousness_model:
+  enabled: true
+  path: config/spuriousness_model.yaml
