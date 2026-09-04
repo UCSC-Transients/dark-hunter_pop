@@ -224,6 +224,9 @@ sample_selection:
     enabled: false
     path: config/selections/accel_jerk.yaml
     mode: forward_model
+spuriousness_model:
+  enabled: true
+  path: config/spuriousness_model.yaml
 sensitivity_analysis:
   population_classes:
   - BH

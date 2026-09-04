@@ -1105,6 +1105,75 @@ class McMassFunctionConfig(BaseModel):
         return self
 
 
+class SpuriousnessValidationTarget(BaseModel):
+    """One published rate used as an acceptance test, never as a model input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table: str
+    g_max: float | None = None
+    target_spurious_fraction: float | None = None
+    target_reliable_fraction: float | None = None
+    target_spurious_fraction_advisory: float | None = None
+    fixture_numerator: int | None = None
+    fixture_denominator: int | None = None
+    fixture_genuine: int | None = None
+    fixture_n: int | None = None
+    fixture_spurious_solution_fraction: float | None = None
+    role: Literal["acceptance_test", "advisory"] = "acceptance_test"
+
+
+class SpuriousnessValidationConfig(BaseModel):
+    """Fixture-recoverable rate targets for the shared spuriousness model (§4.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    elbadry2024: SpuriousnessValidationTarget
+    elbadry2026_astrometric: SpuriousnessValidationTarget
+    elbadry2026_sb1: SpuriousnessValidationTarget
+    absolute_tolerance: float = Field(0.05, gt=0.0, le=0.5)
+
+
+class SpuriousnessModelFile(BaseModel):
+    """Body of ``config/spuriousness_model.yaml`` (sample-independent, §4.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(..., ge=1)
+    name: str = "spuriousness_model"
+    link_function: Literal["probit", "logit"] = "probit"
+    censoring: Literal["joint"] = "joint"
+    regularization_l2: float = Field(0.25, ge=0.0)
+    rho_abs_max: float = Field(0.95, gt=0.0, lt=1.0)
+    scanning_law_fundamental_period_days: float = Field(62.0, gt=0.0)
+    harmonic_multiples_max: int = Field(20, ge=1)
+    g_window_class_break: float = Field(13.0)
+    f2_threshold_bright: float = Field(6.0)
+    f2_threshold_faint: float = Field(4.0)
+    bic_delta_include_covariate: float = Field(6.0, gt=0.0)
+    min_complete_rows_for_covariate: int = Field(20, ge=5)
+    candidate_covariates: list[str] = Field(..., min_length=1)
+    missing_at_selection_covariates: list[str] = Field(
+        default_factory=lambda: ["rv_consistency"]
+    )
+    labeled_sets: list[str] = Field(..., min_length=1)
+    validation: SpuriousnessValidationConfig
+    gaia_bh1_source_id: int
+    branch_key: str = "branch"
+    branch_values: list[str] = Field(
+        default_factory=lambda: ["astrometric", "spectroscopic"]
+    )
+
+
+class SpuriousnessModelConfig(BaseModel):
+    """Registry pointer for the shared spuriousness model (outside selections/)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    path: str = "config/spuriousness_model.yaml"
+
+
 class SensitivityAnalysisConfig(BaseModel):
     """Unified dimensionality + per-class covariate sensitivity (ARCHITECTURE.md §4).
 
@@ -1646,6 +1715,9 @@ class PipelineConfig(BaseModel):
     sample_selection: SampleSelectionConfig = Field(
         default_factory=SampleSelectionConfig
     )
+    spuriousness_model: SpuriousnessModelConfig = Field(
+        default_factory=SpuriousnessModelConfig
+    )
     dr3: DRPathConfig
     dr4: DRPathConfig
 
@@ -1710,6 +1782,7 @@ SHARED_CHECKSUM_SECTIONS: tuple[str, ...] = (
     "selection_function_astrometric",
     "selection_function_followup",
     "sample_selection",
+    "spuriousness_model",
     "sensitivity_analysis",
     "population_model",
     "triples",

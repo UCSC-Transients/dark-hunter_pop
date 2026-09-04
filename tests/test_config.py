@@ -207,10 +207,12 @@ def test_phase2_canonical_matches_fragment_merge() -> None:
         "inference:",
         "triples:",
         "benchmarks:",
+        "spuriousness_model:",
     ):
         assert section in raw, f"canonical config.yaml missing {section}"
     assert "mc_mass_function:" in raw
     assert canon_only.mc_mass_function.n_draws == 10000
+    assert canon_only.spuriousness_model.path == "config/spuriousness_model.yaml"
     assert "known_truth_benchmarks:" in raw
     assert "comparison_catalogs:" in raw
     assert "sbc_recovery:" in raw
@@ -227,6 +229,7 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     assert "companion_nature" in SHARED_CHECKSUM_SECTIONS
     assert "selection_function_followup" in SHARED_CHECKSUM_SECTIONS
     assert "sample_selection" in SHARED_CHECKSUM_SECTIONS
+    assert "spuriousness_model" in SHARED_CHECKSUM_SECTIONS
     assert "mc_mass_function" in SHARED_CHECKSUM_SECTIONS
     assert "sensitivity_analysis" in SHARED_CHECKSUM_SECTIONS
     assert "population_model" in SHARED_CHECKSUM_SECTIONS

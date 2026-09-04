@@ -503,6 +503,120 @@ def _fit_logistic_mle(
     return beta0, beta, _logistic_log_likelihood(y, logits)
 
 
+@dataclass(frozen=True)
+class BinaryCovariateRecommendation:
+    """ΔBIC covariate selection for a binary outcome (e.g. spuriousness).
+
+    Consumable by ``spuriousness_model``: retain only covariates the module
+    justifies. Complete-case per covariate — rows with a missing value for that
+    candidate are excluded from that candidate's ΔBIC, not dropped globally.
+    """
+
+    selected_covariates: tuple[str, ...]
+    tested_covariates: tuple[str, ...]
+    dropped_covariates: tuple[str, ...]
+    delta_bic_by_covariate: dict[str, float]
+    n_complete_by_covariate: dict[str, int]
+    n_events: int
+    n_positives: int
+    bic_delta_threshold: float
+    drop_reasons: dict[str, str]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "selected_covariates": list(self.selected_covariates),
+            "tested_covariates": list(self.tested_covariates),
+            "dropped_covariates": list(self.dropped_covariates),
+            "delta_bic_by_covariate": dict(self.delta_bic_by_covariate),
+            "n_complete_by_covariate": dict(self.n_complete_by_covariate),
+            "n_events": self.n_events,
+            "n_positives": self.n_positives,
+            "bic_delta_threshold": self.bic_delta_threshold,
+            "drop_reasons": dict(self.drop_reasons),
+        }
+
+
+def recommend_binary_outcome_covariates(
+    design: Mapping[str, NDArray[np.floating]],
+    y: NDArray[np.floating],
+    candidate_covariates: Sequence[str],
+    *,
+    bic_delta_include: float,
+    min_complete_rows: int = 20,
+) -> BinaryCovariateRecommendation:
+    """Select covariates for a binary outcome via complete-case ΔBIC.
+
+    Baseline is intercept-only logistic. A candidate is retained when
+    ``BIC(intercept) − BIC(intercept + covariate) >= bic_delta_include`` on
+    rows where that covariate is finite. Candidates with too few finite rows
+    are dropped with an explicit reason — never silently.
+    """
+    y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
+    n_events = int(y_arr.size)
+    n_positives = int(np.sum(y_arr > 0.5))
+    delta_by_cov: dict[str, float] = {}
+    n_complete: dict[str, int] = {}
+    drop_reasons: dict[str, str] = {}
+    selected: list[str] = []
+
+    for cov_name in candidate_covariates:
+        if cov_name not in design:
+            delta_by_cov[cov_name] = float("nan")
+            n_complete[cov_name] = 0
+            drop_reasons[cov_name] = "absent_from_design"
+            continue
+        col = np.asarray(design[cov_name], dtype=np.float64).reshape(-1)
+        if col.shape[0] != y_arr.shape[0]:
+            raise ValueError(
+                f"covariate {cov_name!r} length {col.shape[0]} != y length {y_arr.shape[0]}"
+            )
+        mask = np.isfinite(col) & np.isfinite(y_arr)
+        n_ok = int(np.sum(mask))
+        n_complete[cov_name] = n_ok
+        if n_ok < min_complete_rows:
+            delta_by_cov[cov_name] = float("nan")
+            drop_reasons[cov_name] = (
+                f"insufficient_complete_rows ({n_ok} < {min_complete_rows})"
+            )
+            continue
+        y_m = y_arr[mask]
+        if float(np.sum(y_m > 0.5)) < 1.0 or float(np.sum(y_m <= 0.5)) < 1.0:
+            delta_by_cov[cov_name] = float("nan")
+            drop_reasons[cov_name] = "complete_cases_lack_both_classes"
+            continue
+        # Intercept-only on the same complete-case subset.
+        x0 = np.zeros((n_ok, 0), dtype=np.float64)
+        _, _, log_l0 = _fit_logistic_mle(x0, y_m)
+        bic0 = _poisson_bic(log_l0, n_params=1, n_events=n_ok)
+        scale = float(np.std(col[mask])) or 1.0
+        cov_z = ((col[mask] - float(np.mean(col[mask]))) / scale).reshape(-1, 1)
+        _, _, log_l1 = _fit_logistic_mle(cov_z, y_m)
+        bic1 = _poisson_bic(log_l1, n_params=2, n_events=n_ok)
+        delta = bic0 - bic1
+        delta_by_cov[cov_name] = float(delta)
+        if delta >= bic_delta_include:
+            selected.append(cov_name)
+        else:
+            drop_reasons[cov_name] = (
+                f"delta_bic={delta:.3f} < threshold={bic_delta_include}"
+            )
+
+    tested = tuple(candidate_covariates)
+    selected_t = tuple(selected)
+    dropped = tuple(c for c in tested if c not in selected_t)
+    return BinaryCovariateRecommendation(
+        selected_covariates=selected_t,
+        tested_covariates=tested,
+        dropped_covariates=dropped,
+        delta_bic_by_covariate=delta_by_cov,
+        n_complete_by_covariate=n_complete,
+        n_events=n_events,
+        n_positives=n_positives,
+        bic_delta_threshold=float(bic_delta_include),
+        drop_reasons=drop_reasons,
+    )
+
+
 def recommend_class_covariates(
     catalog: Mapping[str, NDArray[np.floating]],
     class_labels: NDArray[np.str_],
