@@ -5,11 +5,12 @@ astrometric binaries. A population model is forward-modeled through a modified-R
 [`gaiamock`](https://github.com/kareemelbadry/gaiamock) overlay and compared to the real
 Gaia NSS sample with an inhomogeneous Poisson point-process likelihood.
 
-**Status:** Phases 0–7 complete on `main` (Foundation through main program + docs).
-Entry point: `scripts/run_pipeline.py`. Design authority remains
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the
-[`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md) — do not treat
-README prose as a substitute for those locked decisions.
+**Status:** Phases 0–8 complete on `main` (Foundation through literature sample-selection
+layer). Entry point: `scripts/run_pipeline.py`. Design authority remains
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md), and
+[`docs/CONTINUATION_PLAN.md`](docs/CONTINUATION_PLAN.md) (Phase 8) — do not treat README
+prose as a substitute for those locked decisions.
 
 ## Documentation index
 
@@ -20,6 +21,7 @@ README prose as a substitute for those locked decisions.
 | [`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md) | Frozen import/stage contracts Phase 1+ build against |
 | [`docs/PLOTS.md`](docs/PLOTS.md) | Figure style guide + `plotting:` config defaults |
 | [`docs/GAIAMOCK_API.md`](docs/GAIAMOCK_API.md) | `gaiamock_mod` public API for science paths |
+| [`docs/CONTINUATION_PLAN.md`](docs/CONTINUATION_PLAN.md) | Phase 8+ selection-function / spuriousness spec + §14 prompts |
 | [`docs/PHASE1_KICKOFF.md`](docs/PHASE1_KICKOFF.md)–[`PHASE7_KICKOFF.md`](docs/PHASE7_KICKOFF.md) | Historical Agents Window paste prompts (per phase) |
 
 ## Related repositories
