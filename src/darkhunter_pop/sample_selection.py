@@ -14,8 +14,9 @@ union) object, and the named sample is the union of branch survivors.
 from __future__ import annotations
 
 import ast
+import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -50,7 +51,13 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
-from darkhunter_pop.schemas import ActiveDRMode, RunManifest, StageStatus
+from darkhunter_pop.schemas import (
+    ActiveDRMode,
+    CandidateRecord,
+    PhotometryPoint,
+    RunManifest,
+    StageStatus,
+)
 
 SCHEMA_VERSION: Final[int] = 1
 EXPLICIT_EXCLUSIONS_CUT_ID: Final[str] = "explicit_exclusions"
@@ -330,6 +337,28 @@ class SampleSelection:
             )
         return bound
 
+    def _enrich_rows_for_spec(
+        self, rows: Sequence[Mapping[str, Any]]
+    ) -> list[Mapping[str, Any]]:
+        """Apply sample-specific derived columns (e.g. El-Badry 2026 MS / M̃1).
+
+        Skips rows that already carry ``main_sequence`` (fixture / pre-enriched
+        catalogs). Lazy-imports ``enrich_elbadry2026_row`` to avoid a circular
+        import (``elbadry2026_selection`` imports ``NotApplicable`` here).
+        """
+        if self.spec.main_sequence_cut is None:
+            return list(rows)
+        # Circular-dep exception: elbadry2026_selection ↔ sample_selection.
+        from darkhunter_pop.elbadry2026_selection import enrich_elbadry2026_row
+
+        out: list[Mapping[str, Any]] = []
+        for row in rows:
+            if "main_sequence" in row:
+                out.append(row)
+            else:
+                out.append(enrich_elbadry2026_row(row, self.spec))
+        return out
+
     def evaluate(
         self,
         rows: Sequence[Mapping[str, Any]],
@@ -345,9 +374,10 @@ class SampleSelection:
         """
         dep_membership = dict(membership or {})
         dep_membership.update(self._external_membership())
+        enriched = self._enrich_rows_for_spec(rows)
         if self.spec.branches:
-            return self._evaluate_branched(rows, dep_membership)
-        remaining = [self.bind_row(row, membership=dep_membership) for row in rows]
+            return self._evaluate_branched(enriched, dep_membership)
+        remaining = [self.bind_row(row, membership=dep_membership) for row in enriched]
         n_parent = len(remaining)
         attrition: list[CutAttrition] = []
         outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]] = {
@@ -1267,6 +1297,210 @@ def load_evaluation_results_from_artifact(
     }
 
 
+def _photometry_by_band(
+    photometry: Sequence[PhotometryPoint],
+) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for point in photometry:
+        if point.mag is None:
+            continue
+        out[str(point.band)] = float(point.mag)
+    return out
+
+
+def _abs_g_mag(g_mag: float, parallax_mas: float) -> float:
+    """Absolute G from apparent G and parallax (mas); no extinction."""
+    return float(g_mag) + 5.0 * math.log10(float(parallax_mas)) - 10.0
+
+
+def _pipeline_mass_fields(candidate: CandidateRecord) -> dict[str, Any]:
+    """Cut-evaluator columns from pipeline ``m1`` / ``m2`` ParameterSets."""
+    out: dict[str, Any] = {}
+    if candidate.m1 is not None and "M1" in candidate.m1.names:
+        m1 = candidate.m1.marginal("M1")
+        out["pipeline_m1_msun"] = float(m1.value)
+        out.setdefault("m1_msun", float(m1.value))
+    if candidate.m2 is not None and "M2" in candidate.m2.names:
+        m2 = candidate.m2.marginal("M2")
+        out["m2_msun"] = float(m2.value)
+        out["m2_tilde_msun"] = float(m2.value)
+        if math.isfinite(m2.sigma):
+            out["m2_msun_error"] = float(m2.sigma)
+            out["sigma_m2_msun"] = float(m2.sigma)
+            if m2.sigma > 0.0:
+                out["m2_snr"] = float(m2.value) / float(m2.sigma)
+    return out
+
+
+def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
+    """Map a ``CandidateRecord`` to a flat cut-evaluator row dict.
+
+    Promotes ``nss_orbital`` keys, atmosphere extras aliases used by frozen
+    selection YAML (``logg_apsis``), photometry-derived ``bp_rp`` /
+    ``abs_g_mag``, and pipeline mass columns when present.
+    """
+    row: dict[str, Any] = {
+        "source_id": int(candidate.source_id),
+        "nss_solution_type": candidate.nss_solution_type,
+        "parallax_mas": candidate.parallax_mas,
+    }
+    for key, value in candidate.nss_orbital.items():
+        row[key] = value
+    if "period" in row and "period_day" not in row:
+        row["period_day"] = row["period"]
+    if "semi_amplitude_primary" in row and "k1_kms" not in row:
+        row["k1_kms"] = row["semi_amplitude_primary"]
+
+    for key, value in candidate.extras.items():
+        row.setdefault(key, value)
+    if "logg_apsis" not in row and "logg_gspphot" in candidate.extras:
+        row["logg_apsis"] = candidate.extras["logg_gspphot"]
+
+    bands = _photometry_by_band(candidate.photometry)
+    if "G" in bands:
+        row.setdefault("phot_g_mean_mag", bands["G"])
+        row.setdefault("g_mag", bands["G"])
+    if "BP" in bands and "RP" in bands:
+        row.setdefault("bp_rp", bands["BP"] - bands["RP"])
+
+    plx = candidate.parallax_mas
+    if plx is None:
+        orbital_plx = candidate.nss_orbital.get("parallax")
+        plx = float(orbital_plx) if orbital_plx is not None else None
+    g_mag = row.get("phot_g_mean_mag")
+    if (
+        g_mag is not None
+        and plx is not None
+        and math.isfinite(float(plx))
+        and float(plx) > 0.0
+        and "abs_g_mag" not in row
+    ):
+        row["abs_g_mag"] = _abs_g_mag(float(g_mag), float(plx))
+
+    if "mg_0" not in row and "abs_g_mag" in row:
+        row["mg_0"] = row["abs_g_mag"]
+    if "bp_rp_0" not in row and "bp_rp" in row:
+        row["bp_rp_0"] = row["bp_rp"]
+
+    if candidate.thiele_innes is not None:
+        ti = candidate.thiele_innes
+        if ti.A is not None:
+            row.setdefault("a_thiele_innes", float(ti.A))
+        if ti.B is not None:
+            row.setdefault("b_thiele_innes", float(ti.B))
+        if ti.F is not None:
+            row.setdefault("f_thiele_innes", float(ti.F))
+        if ti.G is not None:
+            row.setdefault("g_thiele_innes", float(ti.G))
+
+    if candidate.ra_deg is not None:
+        row.setdefault("ra_deg", candidate.ra_deg)
+    if candidate.dec_deg is not None:
+        row.setdefault("dec_deg", candidate.dec_deg)
+
+    row.update(_pipeline_mass_fields(candidate))
+    return row
+
+
+def _stage_artifact_ready(manifest: RunManifest, stage_name: str) -> bool:
+    record = manifest.stages.get(stage_name)
+    if record is None or not record.artifact_path:
+        return False
+    return Path(record.artifact_path).is_file()
+
+
+def _upstream_artifact_path(manifest: RunManifest, stage_name: str) -> Path:
+    record = manifest.stages.get(stage_name)
+    if record is None or not record.artifact_path:
+        raise SampleSelectionError(
+            f"upstream stage {stage_name!r} has no artifact_path on the run manifest"
+        )
+    path = Path(record.artifact_path)
+    if not path.is_file():
+        raise SampleSelectionError(f"upstream artifact missing: {path}")
+    return path
+
+
+def _iter_stage_candidate_records(
+    manifest: RunManifest,
+    stage_name: str,
+    *,
+    chunk_size: int = 1024,
+) -> Iterator[CandidateRecord]:
+    """Stream ``CandidateRecord``s from a stage HDF5 ``records_json`` dataset.
+
+    Same on-disk layout as ``data_acquisition`` / ``mass_derivation`` artifacts.
+    Implemented here (not via ``mass_derivation.iter_upstream_candidates``) to
+    avoid a circular import through ``data_acquisition`` → ``diagnostics``.
+    """
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    path = _upstream_artifact_path(manifest, stage_name)
+    with h5py.File(path, "r") as handle:
+        strings = handle["candidates"]["records_json"].asstr()
+        n_rows = strings.shape[0]
+        for start in range(0, n_rows, chunk_size):
+            stop = min(start + chunk_size, n_rows)
+            for raw in strings[start:stop]:
+                yield CandidateRecord.model_validate(json.loads(raw))
+
+
+def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, Any]]:
+    """Load cut-evaluator rows from ``data_acquisition``, enrich from MDB.
+
+    Primary parent catalog is the DA artifact on the run manifest. When
+    ``mass_derivation_bulk`` is present, pipeline M1/M2 columns overwrite the
+    DA row for matching ``source_id``s (GOF and NSS fields stay from DA).
+    """
+    if not _stage_artifact_ready(manifest, "data_acquisition"):
+        raise SampleSelectionError(
+            "sample_selection requires a data_acquisition artifact on the run "
+            "manifest when rows are not supplied"
+        )
+
+    enrich: dict[int, dict[str, Any]] = {}
+    if _stage_artifact_ready(manifest, "mass_derivation_bulk"):
+        for candidate in _iter_stage_candidate_records(
+            manifest, "mass_derivation_bulk"
+        ):
+            fields = _pipeline_mass_fields(candidate)
+            if fields:
+                enrich[int(candidate.source_id)] = fields
+
+    rows: list[dict[str, Any]] = []
+    for candidate in _iter_stage_candidate_records(manifest, "data_acquisition"):
+        row = candidate_to_selection_row(candidate)
+        extra = enrich.get(int(candidate.source_id))
+        if extra:
+            row.update(extra)
+        rows.append(row)
+
+    if not rows:
+        da_path = manifest.stages["data_acquisition"].artifact_path
+        raise SampleSelectionError(
+            f"data_acquisition artifact has zero candidates: {da_path}"
+        )
+    return rows
+
+
+def assert_nonzero_parent_when_da_nonempty(
+    result: SampleSelectionStageResult,
+    *,
+    n_da_rows: int,
+) -> None:
+    """Refuse silent empty-parent evaluation when upstream DA had candidates."""
+    if n_da_rows <= 0:
+        return
+    empty = sorted(
+        name for name, sample in result.results.items() if sample.n_parent == 0
+    )
+    if empty:
+        raise SampleSelectionError(
+            "sample_selection parent N==0 for "
+            f"{empty} but data_acquisition supplied {n_da_rows} candidate rows"
+        )
+
+
 def run_sample_selection(
     rows: Sequence[Mapping[str, Any]],
     config: PipelineConfig,
@@ -1318,7 +1552,12 @@ def run_sample_selection_stage(
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
 
-    result = run_sample_selection(rows or (), config)
+    loaded_from_da = rows is None
+    if rows is None:
+        rows = load_selection_rows_from_manifest(manifest)
+    result = run_sample_selection(rows, config)
+    if loaded_from_da:
+        assert_nonzero_parent_when_da_nonempty(result, n_da_rows=len(rows))
     write_sample_selection_artifact(artifact, result)
     manifest = mark_stage_finished(
         manifest,

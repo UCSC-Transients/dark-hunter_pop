@@ -31,13 +31,17 @@ from darkhunter_pop.sample_diagnostics import (
     compute_janssens_segment_occupancy,
     compute_mode_divergence,
     format_attrition_waterfall_report,
+    forward_model_selection,
     load_published_source_ids,
+    load_specs_for_results,
 )
 from darkhunter_pop.sample_selection import (
     CutAttrition,
     CutKind,
     NotApplicable,
     SampleEvaluationResult,
+    SampleSelection,
+    SampleSelectionError,
     SampleSelectionRegistry,
     load_sample_selection_file,
     sample_evaluation_result_from_dict,
@@ -411,6 +415,50 @@ def test_sample_selection_function_curves(tmp_path: Path) -> None:
     assert "axis: m2_msun" in text
     assert "axis: period_day" in text
     assert "axis: g_mag" in text
+
+
+def test_load_specs_for_results_resolves_andrews2022_modified_inherits() -> None:
+    """Regression #130: unresolved inherits must never reach SampleSelection()."""
+    cfg = load_config()
+    results = {
+        "andrews2022": SampleEvaluationResult(
+            name="andrews2022",
+            mode=SampleSelectionMode.REPRODUCTION,
+            mass_source="paper",
+            parent_adql="SELECT 1",
+            surviving_source_ids=(),
+            attrition=[],
+            n_parent=1,
+            n_surviving=0,
+        ),
+        "andrews2022_modified": SampleEvaluationResult(
+            name="andrews2022_modified",
+            mode=SampleSelectionMode.FORWARD_MODEL,
+            mass_source="pipeline",
+            parent_adql="SELECT 1",
+            surviving_source_ids=(),
+            attrition=[],
+            n_parent=1,
+            n_surviving=0,
+        ),
+    }
+    raw_modified = load_sample_selection_file(
+        repo_root() / "config/selections/andrews2022_modified.yaml"
+    )
+    assert raw_modified.parent_query is None
+    assert raw_modified.cuts is None
+    with pytest.raises(SampleSelectionError, match="inherit resolution"):
+        SampleSelection(raw_modified, mode=SampleSelectionMode.FORWARD_MODEL)
+
+    specs = load_specs_for_results(results, cfg, repo=repo_root())
+    assert "andrews2022_modified" in specs
+    resolved = specs["andrews2022_modified"]
+    assert resolved.parent_query is not None
+    assert resolved.cuts is not None
+    assert len(resolved.cuts) >= 5
+    # Must construct without raising; also drives emit_sample_selection_function path.
+    selection = forward_model_selection(resolved)
+    assert selection.spec.parent_query is not None
 
 
 def test_evaluation_result_roundtrip() -> None:

@@ -44,6 +44,7 @@ from darkhunter_pop.sample_selection import (
     SampleSelection,
     SampleSelectionFile,
     load_sample_selection_file,
+    resolve_inherits,
 )
 
 
@@ -766,19 +767,26 @@ def load_specs_for_results(
     *,
     repo: Path | None = None,
 ) -> dict[str, SampleSelectionFile]:
-    """Load frozen selection YAML for each named result (enabled or not)."""
-    by_name = {entry.name: entry for entry in config.sample_selection.samples}
-    out: dict[str, SampleSelectionFile] = {}
+    """Load inherit-resolved selection YAML for each named result.
+
+    Loads every registry file first so ``inherits`` / ``depends_on`` targets
+    resolve (e.g. ``andrews2022_modified`` → ``andrews2022``). Unresolved
+    inherits must never reach ``SampleSelection()``.
+    """
     root = repo if repo is not None else repo_root()
-    for name in results:
-        entry = by_name.get(name)
-        if entry is None:
-            continue
+    files_by_name: dict[str, SampleSelectionFile] = {}
+    for entry in config.sample_selection.samples:
         path = Path(entry.path)
         if not path.is_absolute():
             path = root / path
         if path.is_file():
-            out[name] = load_sample_selection_file(path)
+            files_by_name[entry.name] = load_sample_selection_file(path)
+
+    out: dict[str, SampleSelectionFile] = {}
+    for name in results:
+        if name not in files_by_name:
+            continue
+        out[name] = resolve_inherits(files_by_name[name], files_by_name=files_by_name)
     return out
 
 
