@@ -731,3 +731,76 @@ def test_assert_nonzero_parent_fails_loud_when_da_nonempty() -> None:
     )
     with pytest.raises(SampleSelectionError, match="parent N==0"):
         assert_nonzero_parent_when_da_nonempty(empty, n_da_rows=100)
+
+
+def test_nonbranched_evaluate_filters_solution_types() -> None:
+    """Andrews-style samples must start from Orbital-only, not full DA."""
+    config = load_config()
+    registry = SampleSelectionRegistry(config)
+    selection = registry.selection("andrews2022")
+    rows = [
+        {
+            "source_id": 1,
+            "nss_solution_type": "Orbital",
+            "p_m2_above": 0.99,
+            "goodness_of_fit": 1.0,
+            "m2_msun": 2.0,
+            "m2_msun_error": 0.1,
+            "logg_apsis": 4.5,
+            "abs_g_mag": 5.0,
+            "bp_rp": 1.0,
+        },
+        {
+            "source_id": 2,
+            "nss_solution_type": "SB1",
+            "p_m2_above": 0.99,
+            "goodness_of_fit": 1.0,
+            "m2_msun": 2.0,
+            "m2_msun_error": 0.1,
+            "logg_apsis": 4.5,
+            "abs_g_mag": 5.0,
+            "bp_rp": 1.0,
+        },
+    ]
+    result = selection.evaluate(rows)
+    assert result.n_parent == 1
+    assert result.surviving_source_ids == (1,)
+
+
+def test_candidate_row_flattens_smf_and_aliases_sigma_m2() -> None:
+    candidate = CandidateRecord(
+        source_id=99,
+        nss_solution_type="SB1",
+        nss_orbital={"period": 10.0},
+        extras={
+            "spectroscopic_mass_function": {
+                "k1_kms": 20.0,
+                "k1_error_kms": 1.0,
+                "k1_significance": 20.0,
+                "f_m_msun": 0.5,
+            }
+        },
+        m2=ParameterSet(
+            names=["M2"],
+            values=[1.5],
+            covariance=[[0.04]],
+            provenance="test",
+            units=["Msun"],
+        ),
+    )
+    row = candidate_to_selection_row(candidate)
+    assert row["k1_significance"] == pytest.approx(20.0)
+    assert row["significance"] == pytest.approx(20.0)
+    assert row["semi_amplitude_primary"] == pytest.approx(20.0)
+    assert row["sigma_m2_astrometric_msun"] == pytest.approx(0.2)
+
+
+def test_build_nss_enrichment_adql_has_corr_and_k1() -> None:
+    from darkhunter_pop.data_acquisition import build_nss_enrichment_adql
+
+    adql = build_nss_enrichment_adql()
+    assert "nss.corr_vec" in adql
+    assert "nss.bit_index" in adql
+    assert "nss.semi_amplitude_primary" in adql
+    assert "nss.significance" in adql
+    assert "gaia_source" not in adql
