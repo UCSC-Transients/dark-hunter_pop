@@ -20,7 +20,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import h5py
 import numpy as np
@@ -58,6 +58,9 @@ from darkhunter_pop.schemas import (
     RunManifest,
     StageStatus,
 )
+
+if TYPE_CHECKING:
+    from darkhunter_pop.config_schema import SpectroscopicMassFunctionConfig
 
 SCHEMA_VERSION: Final[int] = 1
 EXPLICIT_EXCLUSIONS_CUT_ID: Final[str] = "explicit_exclusions"
@@ -319,6 +322,8 @@ class SampleSelection:
             bound["period_day"] = bound["period"]
         if "k1_significance" not in bound and "significance" in bound:
             bound["k1_significance"] = bound["significance"]
+        if "sigma_m2_astrometric_msun" not in bound and "sigma_m2_msun" in bound:
+            bound["sigma_m2_astrometric_msun"] = bound["sigma_m2_msun"]
         if self.mass_source == PAPER_MASS_SOURCE:
             paper = bound.get("paper_m1_msun", bound.get("m1_msun"))
             primary = self.spec.primary_mass
@@ -377,6 +382,15 @@ class SampleSelection:
         enriched = self._enrich_rows_for_spec(rows)
         if self.spec.branches:
             return self._evaluate_branched(enriched, dep_membership)
+        parent = parent_query_for_mode(self.spec, self.dr_mode)
+        types = set(parent.solution_types)
+        # Fixture rows often omit nss_solution_type; only filter when present.
+        if types and any("nss_solution_type" in row for row in enriched):
+            enriched = [
+                row
+                for row in enriched
+                if str(row.get("nss_solution_type", "")) in types
+            ]
         remaining = [self.bind_row(row, membership=dep_membership) for row in enriched]
         n_parent = len(remaining)
         attrition: list[CutAttrition] = []
@@ -1327,8 +1341,33 @@ def _pipeline_mass_fields(candidate: CandidateRecord) -> dict[str, Any]:
         if math.isfinite(m2.sigma):
             out["m2_msun_error"] = float(m2.sigma)
             out["sigma_m2_msun"] = float(m2.sigma)
+            out["sigma_m2_astrometric_msun"] = float(m2.sigma)
             if m2.sigma > 0.0:
                 out["m2_snr"] = float(m2.value) / float(m2.sigma)
+    return out
+
+
+def _flatten_nested_extras(extras: Mapping[str, Any]) -> dict[str, Any]:
+    """Promote nested SMF / covariance extras to cut-evaluator flat columns."""
+    out: dict[str, Any] = {}
+    smf = extras.get("spectroscopic_mass_function")
+    if isinstance(smf, Mapping):
+        for key in (
+            "k1_kms",
+            "k1_error_kms",
+            "k1_significance",
+            "f_m_msun",
+            "m2_min_msun",
+        ):
+            value = smf.get(key)
+            if value is not None:
+                out[key] = value
+        if "k1_significance" in out and "significance" not in out:
+            out["significance"] = out["k1_significance"]
+        if "k1_kms" in out and "semi_amplitude_primary" not in out:
+            out["semi_amplitude_primary"] = out["k1_kms"]
+        if "k1_error_kms" in out and "semi_amplitude_primary_error" not in out:
+            out["semi_amplitude_primary_error"] = out["k1_error_kms"]
     return out
 
 
@@ -1337,7 +1376,8 @@ def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
 
     Promotes ``nss_orbital`` keys, atmosphere extras aliases used by frozen
     selection YAML (``logg_apsis``), photometry-derived ``bp_rp`` /
-    ``abs_g_mag``, and pipeline mass columns when present.
+    ``abs_g_mag``, nested spectroscopic-mass-function extras, and pipeline
+    mass columns when present.
     """
     row: dict[str, Any] = {
         "source_id": int(candidate.source_id),
@@ -1350,9 +1390,23 @@ def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
         row["period_day"] = row["period"]
     if "semi_amplitude_primary" in row and "k1_kms" not in row:
         row["k1_kms"] = row["semi_amplitude_primary"]
+    if "semi_amplitude_primary_error" in row and "k1_error_kms" not in row:
+        row["k1_error_kms"] = row["semi_amplitude_primary_error"]
+    if (
+        "k1_significance" not in row
+        and "k1_kms" in row
+        and "k1_error_kms" in row
+        and float(row["k1_error_kms"]) > 0.0
+    ):
+        row["k1_significance"] = float(row["k1_kms"]) / float(row["k1_error_kms"])
+    if "significance" not in row and "k1_significance" in row:
+        row["significance"] = row["k1_significance"]
 
     for key, value in candidate.extras.items():
+        if isinstance(value, Mapping):
+            continue
         row.setdefault(key, value)
+    row.update(_flatten_nested_extras(candidate.extras))
     if "logg_apsis" not in row and "logg_gspphot" in candidate.extras:
         row["logg_apsis"] = candidate.extras["logg_gspphot"]
 
@@ -1399,6 +1453,8 @@ def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
         row.setdefault("dec_deg", candidate.dec_deg)
 
     row.update(_pipeline_mass_fields(candidate))
+    if "sigma_m2_msun" in row and "sigma_m2_astrometric_msun" not in row:
+        row["sigma_m2_astrometric_msun"] = row["sigma_m2_msun"]
     return row
 
 
@@ -1445,12 +1501,141 @@ def _iter_stage_candidate_records(
                 yield CandidateRecord.model_validate(json.loads(raw))
 
 
-def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, Any]]:
-    """Load cut-evaluator rows from ``data_acquisition``, enrich from MDB.
+def _da_snapshot_meta_path(da_artifact: Path) -> Path | None:
+    """Resolve the Gaia snapshot ``meta.yaml`` recorded on a DA HDF5 artifact."""
+    with h5py.File(da_artifact, "r") as handle:
+        if "meta" not in handle:
+            return None
+        attrs = handle["meta"].attrs
+        snapshot_id = attrs.get("snapshot_id")
+        if snapshot_id is None:
+            return None
+        snapshot_id_str = (
+            snapshot_id.decode("utf-8")
+            if isinstance(snapshot_id, (bytes, bytearray))
+            else str(snapshot_id)
+        )
+    # Convention: data/<dr>/gaia_snapshots/<snapshot_id>/meta.yaml
+    for dr in ("dr3", "dr4"):
+        candidate = (
+            repo_root() / "data" / dr / "gaia_snapshots" / snapshot_id_str / "meta.yaml"
+        )
+        if candidate.is_file():
+            return candidate
+    return None
 
-    Primary parent catalog is the DA artifact on the run manifest. When
-    ``mass_derivation_bulk`` is present, pipeline M1/M2 columns overwrite the
-    DA row for matching ``source_id``s (GOF and NSS fields stay from DA).
+
+def _selection_parent_cache_path(snapshot_id: str) -> Path:
+    return (
+        repo_root()
+        / "data"
+        / "dr3"
+        / "gaia_snapshots"
+        / snapshot_id
+        / "selection_parent_rows.h5"
+    )
+
+
+def _write_selection_parent_cache(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = [json.dumps(dict(row), default=str) for row in rows]
+    with h5py.File(path, "w") as handle:
+        handle.create_dataset(
+            "rows_json",
+            data=np.asarray(payload, dtype=h5py.string_dtype("utf-8")),
+        )
+        handle.attrs["n_rows"] = len(payload)
+
+
+def _read_selection_parent_cache(path: Path) -> list[dict[str, Any]]:
+    with h5py.File(path, "r") as handle:
+        strings = handle["rows_json"].asstr()
+        return [json.loads(raw) for raw in strings]
+
+
+def load_selection_rows_from_uncut_snapshot(
+    snapshot_meta_path: Path,
+    *,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+    enrichment_meta_path: Path | None = None,
+    use_cache: bool = True,
+) -> list[dict[str, Any]]:
+    """Build cut rows from the Gaia snapshot **without** DA quality cuts.
+
+    Literature parents (Andrews 134598 Orbital; El-Badry 2024 168065) are
+    verified against the archive before quality cuts. Loading the quality-cut
+    DA artifact under-counts those parents and drops Table-3 members with
+    high GoF that the papers still list.
+
+    When ``nss_enrichment`` snapshot exists (``scripts/fetch_nss_enrichment.py``),
+    merge ``corr_vec`` / K1 / ``significance`` onto each row before mapping to
+    ``CandidateRecord`` so MC probability cuts and SB1 significance bind.
+    """
+    # Local import: data_acquisition imports diagnostics → sample_diagnostics →
+    # sample_selection; keep the cycle out of module import time.
+    from darkhunter_pop.config_loader import load_config
+    from darkhunter_pop.config_schema import SpectroscopicMassFunctionConfig as SMFConfig
+    from darkhunter_pop.data_acquisition import (
+        load_gaia_snapshot,
+        merge_nss_enrichment_into_row,
+        table_row_to_candidate,
+    )
+
+    meta, table = load_gaia_snapshot(snapshot_meta_path, verify_checksum=False)
+    enrich_path = enrichment_meta_path
+    if enrich_path is None:
+        default_enrich = (
+            repo_root()
+            / "data"
+            / "dr3"
+            / "gaia_snapshots"
+            / "nss_enrichment"
+            / "meta.yaml"
+        )
+        if default_enrich.is_file():
+            enrich_path = default_enrich
+    cache_tag = meta.snapshot_id
+    if enrich_path is not None and enrich_path.is_file():
+        cache_tag = f"{meta.snapshot_id}+enrich"
+    cache_path = _selection_parent_cache_path(cache_tag)
+    if use_cache and cache_path.is_file():
+        return _read_selection_parent_cache(cache_path)
+
+    spec_cfg = spectroscopic if spectroscopic is not None else SMFConfig()
+    config = load_config()
+    dr = config.active_dr()
+
+    enrichment_by_key: dict[tuple[int, str], dict[str, Any]] = {}
+    if enrich_path is not None and enrich_path.is_file():
+        _emeta, enrich_table = load_gaia_snapshot(enrich_path, verify_checksum=False)
+        for erow in enrich_table:
+            mapping = {name: erow[name] for name in enrich_table.colnames}
+            sid = int(mapping["source_id"])
+            sol = str(mapping.get("nss_solution_type", ""))
+            enrichment_by_key[(sid, sol)] = mapping
+
+    rows: list[dict[str, Any]] = []
+    for row in table:
+        mapping = {name: row[name] for name in table.colnames}
+        sid = int(mapping["source_id"])
+        sol = str(mapping.get("nss_solution_type", "")).strip('"')
+        extra = enrichment_by_key.get((sid, sol))
+        if extra is not None:
+            mapping = merge_nss_enrichment_into_row(mapping, extra)
+        candidate = table_row_to_candidate(mapping, dr, spectroscopic=spec_cfg)
+        rows.append(candidate_to_selection_row(candidate))
+    if use_cache:
+        _write_selection_parent_cache(cache_path, rows)
+    return rows
+
+
+def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, Any]]:
+    """Load cut-evaluator rows for sample_selection.
+
+    Prefer the uncut Gaia snapshot recorded on the DA artifact (literature
+    parent counts). Fall back to the quality-cut DA HDF5 when no snapshot is
+    available. When ``mass_derivation_bulk`` is present, pipeline M1/M2 columns
+    overwrite matching ``source_id``s.
     """
     if not _stage_artifact_ready(manifest, "data_acquisition"):
         raise SampleSelectionError(
@@ -1467,18 +1652,25 @@ def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, A
             if fields:
                 enrich[int(candidate.source_id)] = fields
 
-    rows: list[dict[str, Any]] = []
-    for candidate in _iter_stage_candidate_records(manifest, "data_acquisition"):
-        row = candidate_to_selection_row(candidate)
-        extra = enrich.get(int(candidate.source_id))
-        if extra:
-            row.update(extra)
-        rows.append(row)
+    da_path = _upstream_artifact_path(manifest, "data_acquisition")
+    snapshot_meta = _da_snapshot_meta_path(da_path)
+    if snapshot_meta is not None:
+        rows = load_selection_rows_from_uncut_snapshot(snapshot_meta)
+    else:
+        rows = []
+        for candidate in _iter_stage_candidate_records(manifest, "data_acquisition"):
+            rows.append(candidate_to_selection_row(candidate))
+
+    if enrich:
+        for row in rows:
+            extra = enrich.get(int(row["source_id"]))
+            if extra:
+                row.update(extra)
 
     if not rows:
-        da_path = manifest.stages["data_acquisition"].artifact_path
         raise SampleSelectionError(
-            f"data_acquisition artifact has zero candidates: {da_path}"
+            f"selection parent has zero candidate rows (da={da_path}, "
+            f"snapshot={snapshot_meta})"
         )
     return rows
 

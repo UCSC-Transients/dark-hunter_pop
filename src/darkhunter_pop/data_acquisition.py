@@ -283,6 +283,102 @@ def _split_join_eq(spec: str) -> tuple[str, str]:
     return left, right
 
 
+def build_nss_enrichment_adql(nss_table: str = "gaiadr3.nss_two_body_orbit") -> str:
+    """NSS-only ADQL for columns missing from the Aug 2026 photometry snapshot.
+
+    Returns ``corr_vec`` / ``bit_index`` (covariance), K1 + errors, ``significance``,
+    and NSS-native astrometric errors needed by ``reconstruct_nss_covariance``.
+    No photometry joins — much lighter than ``build_nss_adql``.
+    """
+    cols = [
+        "nss.source_id",
+        "nss.nss_solution_type",
+        "nss.ra",
+        "nss.dec",
+        "nss.ra_error",
+        "nss.dec_error",
+        "nss.parallax",
+        "nss.parallax_error",
+        "nss.pmra",
+        "nss.pmdec",
+        "nss.pmra_error",
+        "nss.pmdec_error",
+        "nss.period",
+        "nss.period_error",
+        "nss.input_period_error",
+        "nss.t_periastron",
+        "nss.t_periastron_error",
+        "nss.eccentricity",
+        "nss.eccentricity_error",
+        "nss.a_thiele_innes",
+        "nss.a_thiele_innes_error",
+        "nss.b_thiele_innes",
+        "nss.b_thiele_innes_error",
+        "nss.f_thiele_innes",
+        "nss.f_thiele_innes_error",
+        "nss.g_thiele_innes",
+        "nss.g_thiele_innes_error",
+        "nss.c_thiele_innes",
+        "nss.c_thiele_innes_error",
+        "nss.h_thiele_innes",
+        "nss.h_thiele_innes_error",
+        "nss.center_of_mass_velocity",
+        "nss.center_of_mass_velocity_error",
+        "nss.semi_amplitude_primary",
+        "nss.semi_amplitude_primary_error",
+        "nss.semi_amplitude_secondary",
+        "nss.semi_amplitude_secondary_error",
+        "nss.arg_periastron",
+        "nss.arg_periastron_error",
+        "nss.corr_vec",
+        "nss.bit_index",
+        "nss.goodness_of_fit",
+        "nss.significance",
+    ]
+    return (
+        "SELECT\n  "
+        + ",\n  ".join(cols)
+        + f"\nFROM {nss_table} AS nss"
+    )
+
+
+def merge_nss_enrichment_into_row(
+    base: Mapping[str, Any],
+    enrichment: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Overlay enrichment NSS columns onto a photometry-snapshot row.
+
+    Enrichment wins for K1 / corr_vec / bit_index / significance / NSS errors.
+    Photometry and atmosphere columns on ``base`` are preserved.
+    """
+    out = dict(base)
+    for key, value in enrichment.items():
+        if key in ("source_id", "nss_solution_type"):
+            continue
+        if value is None:
+            continue
+        try:
+            if np.ma.is_masked(value):
+                continue
+        except (TypeError, ValueError):
+            pass
+        out[key] = value
+    # Thiele-Innes aliases used by reconstruct / selection enrich.
+    for short, long_name in (
+        ("A", "a_thiele_innes"),
+        ("B", "b_thiele_innes"),
+        ("F", "f_thiele_innes"),
+        ("G", "g_thiele_innes"),
+    ):
+        if long_name in out and short not in out:
+            out[short] = out[long_name]
+        err_long = f"{long_name}_error"
+        err_short = f"{short}_error"
+        if err_long in out and err_short not in out:
+            out[err_short] = out[err_long]
+    return out
+
+
 def build_nss_adql(dr: DRPathConfig) -> str:
     """Build the literal ADQL for the NSS catalog + photometry cross-matches.
 

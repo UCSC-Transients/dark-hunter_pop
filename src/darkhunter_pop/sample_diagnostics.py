@@ -26,6 +26,7 @@ from darkhunter_pop.config_schema import (
     SampleReproductionDiagnosticsConfig,
     SampleSelectionMode,
 )
+from darkhunter_pop.elbadry2024_selection import published_sample_source_ids
 from darkhunter_pop.elbadry2026_selection import (
     load_simon2026_orbital,
     simon2026_exclusion_breakdown,
@@ -337,18 +338,52 @@ def build_reproduction_comparisons(
     for name, result in sorted(results.items()):
         spec = specs.get(name)
         published_n = None if spec is None else spec.provenance.published_n
+        if (
+            published_n is None
+            and spec is not None
+            and spec.provenance.expected_n is not None
+        ):
+            # andrews2022_modified: no published N; our expected N=25 (§6.6).
+            published_n = spec.provenance.expected_n
+        # Single-branch catalog-level samples (elbadry2024): compare to
+        # expected_union_n (48), not post-inclusion published_n (21).
+        # Multi-branch samples keep provenance.published_n (elbadry2026: 227).
+        catalog_level_n: int | None = None
+        if (
+            spec is not None
+            and spec.inclusion_operator is not None
+            and spec.inclusion_operator.catalog_level_only
+            and spec.branches is not None
+            and len(spec.branches) == 1
+            and spec.branches[0].expected_union_n is not None
+        ):
+            catalog_level_n = spec.branches[0].expected_union_n
         table = cfg.published_tables.get(name)
         published_ids = (
             None if table is None else load_published_source_ids(table, repo=repo)
         )
+        compare_n = catalog_level_n if catalog_level_n is not None else published_n
         out.append(
             compare_to_published(
                 sample_name=name,
                 recovered_ids=result.surviving_source_ids,
-                published_n=published_n,
+                published_n=compare_n,
                 published_ids=published_ids,
             )
         )
+        if name == "elbadry2024":
+            # Separate §13 published compact_object_candidate N=21 check.
+            pub_ids = published_sample_source_ids()
+            survivors = set(int(s) for s in result.surviving_source_ids)
+            recovered_pub = tuple(sorted(sid for sid in pub_ids if sid in survivors))
+            out.append(
+                compare_to_published(
+                    sample_name="elbadry2024_published_compact_object_candidate",
+                    recovered_ids=recovered_pub,
+                    published_n=len(pub_ids),
+                    published_ids=pub_ids,
+                )
+            )
         if name == "elbadry2026" and result.branch_surviving:
             by_branch = (
                 {} if spec is None or spec.provenance.published_n_by_branch is None
