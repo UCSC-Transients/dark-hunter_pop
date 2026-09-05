@@ -350,14 +350,29 @@ class SampleSelection:
         Skips rows that already carry ``main_sequence`` (fixture / pre-enriched
         catalogs). Lazy-imports ``enrich_elbadry2026_row`` to avoid a circular
         import (``elbadry2026_selection`` imports ``NotApplicable`` here).
+
+        Branched samples only enrich rows whose ``nss_solution_type`` appears in
+        some branch parent (skip EclipsingBinary etc. that cannot enter cuts).
         """
         if self.spec.main_sequence_cut is None:
             return list(rows)
         # Circular-dep exception: elbadry2026_selection ↔ sample_selection.
         from darkhunter_pop.elbadry2026_selection import enrich_elbadry2026_row
 
+        relevant_types: set[str] = set()
+        if self.spec.branches:
+            for branch in self.spec.branches:
+                parent = parent_query_for_mode(
+                    self.spec, self.dr_mode, branch_id=branch.id
+                )
+                relevant_types.update(parent.solution_types)
+
         out: list[Mapping[str, Any]] = []
         for row in rows:
+            sol = str(row.get("nss_solution_type", ""))
+            if relevant_types and sol not in relevant_types:
+                out.append(row)
+                continue
             if "main_sequence" in row:
                 out.append(row)
             else:
@@ -379,9 +394,10 @@ class SampleSelection:
         """
         dep_membership = dict(membership or {})
         dep_membership.update(self._external_membership())
-        enriched = self._enrich_rows_for_spec(rows)
         if self.spec.branches:
-            return self._evaluate_branched(enriched, dep_membership)
+            # Enrich per branch after solution-type filter (not on full NSS).
+            return self._evaluate_branched(list(rows), dep_membership)
+        enriched = self._enrich_rows_for_spec(rows)
         parent = parent_query_for_mode(self.spec, self.dr_mode)
         types = set(parent.solution_types)
         # Fixture rows often omit nss_solution_type; only filter when present.
@@ -455,6 +471,11 @@ class SampleSelection:
                 ]
             else:
                 branch_rows = list(bound_all)
+            # Derived MS / M̃1 / AMRF only for this branch's parent types.
+            branch_rows = [
+                self.bind_row(row, membership=membership)
+                for row in self._enrich_rows_for_spec(branch_rows)
+            ]
             if branch.subsamples:
                 ids, sub_map, sub_attr = self._evaluate_subsample_union(
                     branch, branch_rows, outcomes, membership
@@ -1553,12 +1574,60 @@ def _read_selection_parent_cache(path: Path) -> list[dict[str, Any]]:
         return [json.loads(raw) for raw in strings]
 
 
+def attach_mc_mass_function_columns(
+    candidate: CandidateRecord,
+    row: dict[str, Any],
+    *,
+    m1_msun: float,
+    m2_threshold_msun: float,
+    n_draws: int,
+    random_seed: int,
+    eig_rel_floor: float,
+    eig_abs_floor: float,
+) -> dict[str, Any]:
+    """Fill ``p_m2_above`` / ``sigma_m2_*`` from full-covariance MC when available.
+
+    No-op when ``nss_solution`` is missing (N/A stays for probability cuts).
+    """
+    if candidate.nss_solution is None:
+        return row
+    # Local import avoids sample_selection ↔ heavy MC import at module load for
+    # unit tests that never touch covariance propagation.
+    from darkhunter_pop.mc_mass_function import (
+        ensemble_row_quantities,
+        propagate_nss_solution,
+    )
+
+    try:
+        draws = propagate_nss_solution(
+            candidate.nss_solution,
+            m1_msun=float(m1_msun),
+            n_draws=int(n_draws),
+            random_seed=int(random_seed),
+            eig_rel_floor=float(eig_rel_floor),
+            eig_abs_floor=float(eig_abs_floor),
+            source_id=int(candidate.source_id),
+        )
+    except (ValueError, np.linalg.LinAlgError):
+        return row
+    quantities = ensemble_row_quantities(
+        draws, m2_threshold_msun=float(m2_threshold_msun)
+    )
+    row.update(quantities)
+    if "sigma_m2_msun" in quantities:
+        row.setdefault(
+            "sigma_m2_astrometric_msun", quantities["sigma_m2_msun"]
+        )
+    return row
+
+
 def load_selection_rows_from_uncut_snapshot(
     snapshot_meta_path: Path,
     *,
     spectroscopic: SpectroscopicMassFunctionConfig | None = None,
     enrichment_meta_path: Path | None = None,
     use_cache: bool = True,
+    attach_mc: bool = True,
 ) -> list[dict[str, Any]]:
     """Build cut rows from the Gaia snapshot **without** DA quality cuts.
 
@@ -1576,6 +1645,7 @@ def load_selection_rows_from_uncut_snapshot(
     from darkhunter_pop.config_loader import load_config
     from darkhunter_pop.config_schema import SpectroscopicMassFunctionConfig as SMFConfig
     from darkhunter_pop.data_acquisition import (
+        _enrichment_join_key,
         load_gaia_snapshot,
         merge_nss_enrichment_into_row,
         table_row_to_candidate,
@@ -1594,15 +1664,18 @@ def load_selection_rows_from_uncut_snapshot(
         )
         if default_enrich.is_file():
             enrich_path = default_enrich
+    config = load_config()
+    mc_cfg = config.mc_mass_function
     cache_tag = meta.snapshot_id
     if enrich_path is not None and enrich_path.is_file():
         cache_tag = f"{meta.snapshot_id}+enrich"
+        if attach_mc:
+            cache_tag = f"{cache_tag}+mc{mc_cfg.n_draws}"
     cache_path = _selection_parent_cache_path(cache_tag)
     if use_cache and cache_path.is_file():
         return _read_selection_parent_cache(cache_path)
 
     spec_cfg = spectroscopic if spectroscopic is not None else SMFConfig()
-    config = load_config()
     dr = config.active_dr()
 
     enrichment_by_key: dict[tuple[int, str], dict[str, Any]] = {}
@@ -1610,20 +1683,49 @@ def load_selection_rows_from_uncut_snapshot(
         _emeta, enrich_table = load_gaia_snapshot(enrich_path, verify_checksum=False)
         for erow in enrich_table:
             mapping = {name: erow[name] for name in enrich_table.colnames}
-            sid = int(mapping["source_id"])
-            sol = str(mapping.get("nss_solution_type", ""))
-            enrichment_by_key[(sid, sol)] = mapping
+            enrichment_by_key[_enrichment_join_key(mapping)] = mapping
 
+    # Andrews reproduction MC assumptions from frozen selection YAML (no inline
+    # thresholds — dark-hunter-pop-workflow §1).
+    andrews_spec = load_sample_selection_file(
+        repo_root() / "config" / "selections" / "andrews2022.yaml"
+    )
+    andrews_m1 = 1.0
+    if (
+        andrews_spec.primary_mass is not None
+        and andrews_spec.primary_mass.value_msun is not None
+    ):
+        andrews_m1 = float(andrews_spec.primary_mass.value_msun)
+    andrews_m2_threshold = 1.4
+    for cut in andrews_spec.cuts or []:
+        if cut.id == "m2_probability":
+            raw_thr = cut.parameters.get("m2_threshold_msun")
+            if isinstance(raw_thr, (int, float)):
+                andrews_m2_threshold = float(raw_thr)
+            break
     rows: list[dict[str, Any]] = []
     for row in table:
         mapping = {name: row[name] for name in table.colnames}
-        sid = int(mapping["source_id"])
-        sol = str(mapping.get("nss_solution_type", "")).strip('"')
-        extra = enrichment_by_key.get((sid, sol))
+        key = _enrichment_join_key(mapping)
+        extra = enrichment_by_key.get(key)
         if extra is not None:
             mapping = merge_nss_enrichment_into_row(mapping, extra)
         candidate = table_row_to_candidate(mapping, dr, spectroscopic=spec_cfg)
-        rows.append(candidate_to_selection_row(candidate))
+        out = candidate_to_selection_row(candidate)
+        if attach_mc and candidate.nss_solution is not None:
+            # Per-system seed derived from global MC seed + source_id.
+            seed = int(mc_cfg.random_seed) ^ (int(candidate.source_id) & 0x7FFFFFFF)
+            out = attach_mc_mass_function_columns(
+                candidate,
+                out,
+                m1_msun=andrews_m1,
+                m2_threshold_msun=andrews_m2_threshold,
+                n_draws=int(mc_cfg.n_draws),
+                random_seed=seed,
+                eig_rel_floor=float(mc_cfg.eig_rel_floor),
+                eig_abs_floor=float(mc_cfg.eig_abs_floor),
+            )
+        rows.append(out)
     if use_cache:
         _write_selection_parent_cache(cache_path, rows)
     return rows

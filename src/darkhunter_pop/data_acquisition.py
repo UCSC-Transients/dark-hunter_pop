@@ -350,10 +350,16 @@ def merge_nss_enrichment_into_row(
 
     Enrichment wins for K1 / corr_vec / bit_index / significance / NSS errors.
     Photometry and atmosphere columns on ``base`` are preserved.
+
+    Gaia TAP may emit ``SOURCE_ID`` (uppercase); normalize to ``source_id``.
     """
     out = dict(base)
     for key, value in enrichment.items():
-        if key in ("source_id", "nss_solution_type"):
+        name = str(key)
+        if name.upper() == "SOURCE_ID":
+            name = "source_id"
+        if name in ("source_id", "nss_solution_type"):
+            # Keep base identity; solution type must already match the join key.
             continue
         if value is None:
             continue
@@ -362,7 +368,7 @@ def merge_nss_enrichment_into_row(
                 continue
         except (TypeError, ValueError):
             pass
-        out[key] = value
+        out[name] = value
     # Thiele-Innes aliases used by reconstruct / selection enrich.
     for short, long_name in (
         ("A", "a_thiele_innes"),
@@ -377,6 +383,13 @@ def merge_nss_enrichment_into_row(
         if err_long in out and err_short not in out:
             out[err_short] = out[err_long]
     return out
+
+
+def _enrichment_join_key(mapping: Mapping[str, Any]) -> tuple[int, str]:
+    """``(source_id, nss_solution_type)`` with Gaia ``SOURCE_ID`` normalization."""
+    sid_raw = mapping.get("source_id", mapping.get("SOURCE_ID"))
+    sol_raw = mapping.get("nss_solution_type", "")
+    return int(sid_raw), str(sol_raw).strip('"')
 
 
 def build_nss_adql(dr: DRPathConfig) -> str:
