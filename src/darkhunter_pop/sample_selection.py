@@ -324,6 +324,12 @@ class SampleSelection:
             bound["k1_significance"] = bound["significance"]
         if "sigma_m2_astrometric_msun" not in bound and "sigma_m2_msun" in bound:
             bound["sigma_m2_astrometric_msun"] = bound["sigma_m2_msun"]
+        # Andrews frozen YAML uses m2_msun_error; MC / pipeline use sigma_m2_msun.
+        if "m2_msun_error" not in bound and "sigma_m2_msun" in bound:
+            bound["m2_msun_error"] = bound["sigma_m2_msun"]
+        # Andrews giant_reject_logg: ``logg_apsis is None or …`` — missing key
+        # must bind as None (pass), not raise unbound.
+        bound.setdefault("logg_apsis", None)
         if self.mass_source == PAPER_MASS_SOURCE:
             paper = bound.get("paper_m1_msun", bound.get("m1_msun"))
             primary = self.spec.primary_mass
@@ -1476,6 +1482,8 @@ def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
     row.update(_pipeline_mass_fields(candidate))
     if "sigma_m2_msun" in row and "sigma_m2_astrometric_msun" not in row:
         row["sigma_m2_astrometric_msun"] = row["sigma_m2_msun"]
+    if "sigma_m2_msun" in row and "m2_msun_error" not in row:
+        row["m2_msun_error"] = row["sigma_m2_msun"]
     return row
 
 
@@ -1618,6 +1626,7 @@ def attach_mc_mass_function_columns(
         row.setdefault(
             "sigma_m2_astrometric_msun", quantities["sigma_m2_msun"]
         )
+        row.setdefault("m2_msun_error", quantities["sigma_m2_msun"])
     return row
 
 
