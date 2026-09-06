@@ -618,6 +618,24 @@ def test_candidate_to_selection_row_flattens_orbital_photometry_masses() -> None
     assert row["m2_snr"] == pytest.approx(4.0)
 
 
+def test_bind_row_aliases_mc_sigma_and_missing_logg() -> None:
+    """Andrews YAML uses m2_msun_error; missing logg_apsis must bind as None."""
+    config = load_config()
+    selection = SampleSelectionRegistry(config).selection("andrews2022")
+    bound = selection.bind_row(
+        {
+            "source_id": 1,
+            "nss_solution_type": "Orbital",
+            "p_m2_above": 0.99,
+            "m2_msun": 2.0,
+            "sigma_m2_msun": 0.25,
+        }
+    )
+    assert bound["m2_msun_error"] == pytest.approx(0.25)
+    assert bound["sigma_m2_astrometric_msun"] == pytest.approx(0.25)
+    assert bound["logg_apsis"] is None
+
+
 def test_stage_loads_da_rows_when_rows_none(tmp_path: Path) -> None:
     """Regression #129: empty ``rows or ()`` must not silently yield n_parent=0."""
     da_cand = CandidateRecord(
