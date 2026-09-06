@@ -5,9 +5,10 @@ dr3:
   scanning_law_id: gaiadr3_pinned
   zero_point_version: dr3_pinned
   sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
-  # Optional dark-hunter_rv JSON tree; null disables attachment.
-  rv_summary_root: null
-  rv_summary_filename_template: "{source_id}.json"
+  # dark-hunter_rv Gaia_DR3_*_summary.json tree (see summary_paths.md).
+  # Independent DR key even when value matches dr4.
+  rv_summary_root: data/dr3/rv_summaries
+  rv_summary_filename_template: "Gaia_DR3_{source_id}_summary.json"
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0
@@ -20,8 +21,8 @@ dr4:
   scanning_law_id: gaiadr4_pinned
   zero_point_version: dr4_pinned
   sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
-  rv_summary_root: null
-  rv_summary_filename_template: "{source_id}.json"
+  rv_summary_root: data/dr4/rv_summaries
+  rv_summary_filename_template: "Gaia_DR3_{source_id}_summary.json"
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0

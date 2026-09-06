@@ -18,3 +18,5 @@
 # Plotting style defaults: config/fragments/plotting.yaml (docs/PLOTS.md); display-only.
 #
 # Do not put secrets in fragments. See ARCHITECTURE.md §7.
+#
+# RV/SED summary path layout (Foundation #5 wiring): summary_paths.md

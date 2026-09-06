@@ -441,6 +441,122 @@ def test_sed_summary_root_fixture_loader() -> None:
     assert ps.marginal("M1").value == pytest.approx(1.2)
 
 
+def test_default_sed_summary_paths_match_upstream() -> None:
+    cfg = load_config()
+    assert cfg.mass_derivation.sed_summary_root == "data/sed_summaries"
+    assert (
+        cfg.mass_derivation.sed_summary_filename_template
+        == "Gaia_DR3_{source_id}_sed_summary.json"
+    )
+
+
+def test_refined_consumes_fixture_summary_sets_full_uberms() -> None:
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
+    cand = CandidateRecord(
+        source_id=515151,
+        m1=ParameterSet(
+            names=["M1"], values=[1.0], covariance=[[0.01]], provenance="TAG10"
+        ),
+        fit_tier=FitTier.BULK_ESTIMATE,
+    )
+    updated, diag = run_refined_on_candidates([cand], tweaked)
+    assert diag.fit_succeeded == 1
+    assert updated[0].fit_tier is FitTier.FULL_UBERMS
+    assert updated[0].m1 is not None
+    assert updated[0].m1.marginal("M1").value == pytest.approx(1.2)
+
+
+def test_refined_missing_summary_queues_fit() -> None:
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
+    calls: list[int] = []
+
+    def needs_update(sid: int) -> tuple[bool, str]:
+        # Mirror production: snapshot miss → package says needs update.
+        return True, "no prior sed_summary"
+
+    def fit(sid: int) -> dict:
+        calls.append(sid)
+        # Keep M1 near the uberMS prior cap so watch-list still fires post-fit.
+        return {"m1_msun": {"median": 2.92, "p16": 2.9, "p84": 2.94}}
+
+    cand = CandidateRecord(
+        source_id=999001,
+        m1=ParameterSet(
+            names=["M1"], values=[2.9], covariance=[[0.01]], provenance="TAG10"
+        ),
+        fit_tier=FitTier.BULK_ESTIMATE,
+    )
+    updated, diag = run_refined_on_candidates(
+        [cand],
+        tweaked,
+        needs_update_fn=needs_update,
+        fit_fn=fit,
+    )
+    assert calls == [999001]
+    assert diag.fit_attempted == 1
+    assert diag.fit_succeeded == 1
+    assert updated[0].fit_tier is FitTier.FULL_UBERMS
+    assert 999001 in diag.watchlist_source_ids
+
+
+def test_refined_watchlist_queued_before_others() -> None:
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = None
+    order: list[int] = []
+
+    def needs_update(sid: int) -> tuple[bool, str]:
+        return True, "force"
+
+    def fit(sid: int) -> dict:
+        order.append(sid)
+        return {"m1_msun": {"median": 1.0, "p16": 0.9, "p84": 1.1}}
+
+    low = CandidateRecord(
+        source_id=1,
+        m1=ParameterSet(
+            names=["M1"], values=[1.0], covariance=[[0.25]], provenance="TAG10"
+        ),
+        fit_tier=FitTier.BULK_ESTIMATE,
+    )
+    watch = CandidateRecord(
+        source_id=2,
+        m1=ParameterSet(
+            names=["M1"], values=[2.95], covariance=[[0.01]], provenance="TAG10"
+        ),
+        fit_tier=FitTier.BULK_ESTIMATE,
+    )
+    _, diag = run_refined_on_candidates(
+        [low, watch],
+        tweaked,
+        needs_update_fn=needs_update,
+        fit_fn=fit,
+    )
+    assert order[0] == 2
+    assert list(diag.information_gain_order)[0] == 2
+
+
+def test_sed_needs_update_uses_snapshot_then_falls_through() -> None:
+    from darkhunter_pop.mass_derivation import _sed_needs_update_for_config
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
+    needs = _sed_needs_update_for_config(tweaked)
+    assert needs(515151) == (False, "up to date")
+    should_run, reason = needs(999001)
+    # Package may be absent in CI; either way we must not hard-stop as sed_summary_missing.
+    assert reason != "sed_summary_missing"
+    assert should_run is False or reason in {
+        "no prior sed_summary",
+        "darkhunter_sed_unavailable",
+    }
+
+
 def test_hdf5_round_trip(tmp_path: Path) -> None:
     cand = _candidate()
     cand = cand.model_copy(

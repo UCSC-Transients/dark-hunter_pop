@@ -934,9 +934,9 @@ class MassDerivationConfig(BaseModel):
     information_gain_sigma_floor_msun: float = Field(0.01, gt=0)
     # Cap queue length; null = process all candidates passing the bulk cut.
     sed_queue_max_stars: int | None = Field(default=None, ge=1)
-    # Optional fixture / snapshot root for sed_summary.json (before darkhunter_sed package).
+    # Snapshot root for dark-hunter_sed Gaia_DR3_*_sed_summary.json (null disables).
     sed_summary_root: str | None = None
-    sed_summary_filename_template: str = "{source_id}.json"
+    sed_summary_filename_template: str = "Gaia_DR3_{source_id}_sed_summary.json"
     # When true, refined stage raises if darkhunter_sed is not importable.
     require_sed_package: bool = False
     # Log bulk-stage progress every N input candidates; 0 disables heartbeat logs.
@@ -1753,9 +1753,9 @@ class DRPathConfig(BaseModel):
     impute_external_mag_err: bool = True
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
-    # Optional dark-hunter_rv JSON summary tree (``{source_id}.json`` per star).
+    # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
     rv_summary_root: str | None = None
-    rv_summary_filename_template: str = "{source_id}.json"
+    rv_summary_filename_template: str = "Gaia_DR3_{source_id}_summary.json"
     # Reserved for DR4 epoch capabilities; ignored when inactive.
     allow_astrometric_epoch_outliers: bool = False
     selection_function_astrometric: DRSelectionFunctionPathConfig = Field(
