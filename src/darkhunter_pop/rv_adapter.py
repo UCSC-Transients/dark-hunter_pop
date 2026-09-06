@@ -1,8 +1,12 @@
 """Load ``dark-hunter_rv`` JSON summaries into ``CandidateRecord.rv_summary``.
 
-ARCHITECTURE.md §4 / Phase 1 #5: summaries are read from a configurable root directory
-(``dr3.rv_summary_root``) so tests and pipeline runs can use fixture trees without
-touching live ``dark-hunter_rv`` output directories.
+ARCHITECTURE.md §4 / Phase 1 #5: summaries are read from a configurable root
+directory (``dr3.rv_summary_root`` / ``dr4.rv_summary_root``; independent keys)
+so tests and pipeline runs can use fixture or snapshot trees without touching
+live ``dark-hunter_rv`` output directories.
+
+Expected on-disk name (upstream): ``Gaia_DR3_{source_id}_summary.json``.
+See ``config/fragments/summary_paths.md``.
 """
 
 from __future__ import annotations
@@ -42,15 +46,30 @@ def attach_rv_summaries(
     candidates: Sequence[CandidateRecord],
     config: PipelineConfig,
 ) -> tuple[list[CandidateRecord], dict[str, int]]:
-    """Merge per-source RV JSON summaries into ``CandidateRecord.rv_summary`` when present."""
+    """Merge per-source RV JSON summaries into ``CandidateRecord.rv_summary`` when present.
+
+    Already-populated ``rv_summary`` dicts are left unchanged (DA attach wins
+    over a later empty miss). Missing files increment ``missing`` and keep the
+    candidate — never silent drop.
+    """
     dr = config.active_dr()
     if dr.rv_summary_root is None:
-        return list(candidates), {"attached": 0, "missing": 0, "disabled": len(candidates)}
+        return list(candidates), {
+            "attached": 0,
+            "missing": 0,
+            "kept_existing": 0,
+            "disabled": len(candidates),
+        }
 
     attached = 0
     missing = 0
+    kept_existing = 0
     updated: list[CandidateRecord] = []
     for candidate in candidates:
+        if candidate.rv_summary:
+            kept_existing += 1
+            updated.append(candidate)
+            continue
         path = resolve_rv_summary_path(config, candidate.source_id)
         if path is None or not path.is_file():
             missing += 1
@@ -62,5 +81,6 @@ def attach_rv_summaries(
     return updated, {
         "attached": attached,
         "missing": missing,
+        "kept_existing": kept_existing,
         "disabled": 0,
     }

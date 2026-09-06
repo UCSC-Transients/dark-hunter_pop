@@ -526,6 +526,11 @@ def format_refined_report(diagnostics: RefinedDiagnostics) -> str:
         f"  watchlist_source_ids:   {list(diagnostics.watchlist_source_ids)}",
         f"  information_gain_order: {list(diagnostics.information_gain_order)}",
     ]
+    if diagnostics.queued > 0 and diagnostics.fit_succeeded == 0:
+        lines.append(
+            "  WARNING: fit_succeeded=0 — check sed_summary_root layout "
+            "(Gaia_DR3_{source_id}_sed_summary.json) or darkhunter_sed queue."
+        )
     return "\n".join(lines)
 
 
@@ -882,16 +887,43 @@ def _sed_summary_loader_for_config(
 def _sed_needs_update_for_config(
     config: PipelineConfig,
 ) -> Callable[[int], tuple[bool, str]]:
-    loader = _sed_summary_loader_for_config(config)
+    """Decide whether to run/queue a fit for one source.
+
+    Snapshot hits under ``sed_summary_root`` are treated as up to date.
+    Missing snapshot files fall through to the ``darkhunter_sed`` queue/fit
+    path (watch-list prioritization happens in ``run_refined_on_candidates``).
+    """
 
     def needs_update(source_id: int) -> tuple[bool, str]:
-        if config.mass_derivation.sed_summary_root is not None:
-            if loader(source_id) is not None:
-                return False, "up to date"
-            return False, "sed_summary_missing"
+        path = _resolve_sed_summary_path(config, source_id)
+        if path is not None and path.is_file():
+            return False, "up to date"
         return _default_sed_needs_update(source_id)
 
     return needs_update
+
+
+def _bulk_m1_msun(candidate: CandidateRecord) -> float | None:
+    if candidate.m1 is None:
+        return None
+    try:
+        return float(candidate.m1.marginal("M1").value)
+    except KeyError:
+        return None
+
+
+def _refined_queue_sort_key(
+    candidate: CandidateRecord,
+    config: PipelineConfig,
+) -> tuple[int, float]:
+    """Watch-list first, then information-gain stub (higher = earlier)."""
+    m1_val = _bulk_m1_msun(candidate)
+    on_watchlist = (
+        1
+        if m1_val is not None and approaches_uberms_m1_prior_cap(m1_val, config)
+        else 0
+    )
+    return (on_watchlist, information_gain_stub(candidate, config))
 
 
 def _default_sed_summary_loader(source_id: int) -> dict[str, Any] | None:
@@ -1063,7 +1095,7 @@ def run_refined_on_candidates(
 
     ordered = sorted(
         candidates,
-        key=lambda c: information_gain_stub(c, config),
+        key=lambda c: _refined_queue_sort_key(c, config),
         reverse=True,
     )
     max_stars = config.mass_derivation.sed_queue_max_stars

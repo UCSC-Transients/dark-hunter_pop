@@ -45,6 +45,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
+from darkhunter_pop.rv_adapter import attach_rv_summaries
 from darkhunter_pop.schemas import (
     CandidateRecord,
     InstrumentNuisance,
@@ -541,6 +542,10 @@ class GateDiagnostics:
     n_skipped_elements: int = 0
     n_sb2: int = 0
     n_sb2_mass_ratio_unlocked: int = 0
+    rv_summary_attached: int = 0
+    rv_summary_missing: int = 0
+    rv_summary_kept_existing: int = 0
+    rv_summary_disabled: int = 0
     chi2_dof_values: list[float] = field(default_factory=list)
     passed_source_ids: list[int] = field(default_factory=list)
     failed_source_ids: list[int] = field(default_factory=list)
@@ -562,6 +567,10 @@ class GateDiagnostics:
             "n_skipped_elements": self.n_skipped_elements,
             "n_sb2": self.n_sb2,
             "n_sb2_mass_ratio_unlocked": self.n_sb2_mass_ratio_unlocked,
+            "rv_summary_attached": self.rv_summary_attached,
+            "rv_summary_missing": self.rv_summary_missing,
+            "rv_summary_kept_existing": self.rv_summary_kept_existing,
+            "rv_summary_disabled": self.rv_summary_disabled,
             "chi2_dof_values": self.chi2_dof_values,
             "passed_source_ids": self.passed_source_ids,
             "failed_source_ids": self.failed_source_ids,
@@ -733,11 +742,22 @@ def run_gate_on_candidates(
     candidates: Sequence[CandidateRecord],
     config: PipelineConfig,
 ) -> tuple[list[CandidateRecord], GateDiagnostics]:
-    """Apply ``rv_astrometry_gate`` to an in-memory candidate list."""
+    """Apply ``rv_astrometry_gate`` to an in-memory candidate list.
+
+    Re-attaches ``dark-hunter_rv`` JSON summaries from the configured root so a
+    root fill after ``data_acquisition`` still scores systems with epochs.
+    """
+    attached, rv_stats = attach_rv_summaries(candidates, config)
     rc = config.rv_consistency
-    diag = GateDiagnostics(n_input=len(candidates))
+    diag = GateDiagnostics(
+        n_input=len(attached),
+        rv_summary_attached=int(rv_stats.get("attached", 0)),
+        rv_summary_missing=int(rv_stats.get("missing", 0)),
+        rv_summary_kept_existing=int(rv_stats.get("kept_existing", 0)),
+        rv_summary_disabled=int(rv_stats.get("disabled", 0)),
+    )
     out: list[CandidateRecord] = []
-    for candidate in candidates:
+    for candidate in attached:
         updated, result, skip = run_gate_on_candidate(candidate, rc)
         if is_sb2_candidate(candidate):
             diag.n_sb2 += 1
@@ -1182,7 +1202,21 @@ def format_gate_funnel_table(diag: GateDiagnostics) -> str:
         f"  skipped_elements: {diag.n_skipped_elements}",
         f"  sb2_flagged: {diag.n_sb2}",
         f"  sb2_mass_ratio_unlocked: {diag.n_sb2_mass_ratio_unlocked}",
+        f"  rv_summary_attached: {diag.rv_summary_attached}",
+        f"  rv_summary_missing: {diag.rv_summary_missing}",
+        f"  rv_summary_kept_existing: {diag.rv_summary_kept_existing}",
+        f"  rv_summary_disabled: {diag.rv_summary_disabled}",
     ]
+    if diag.rv_summary_disabled == diag.n_input and diag.n_input > 0:
+        lines.append(
+            "  WARNING: rv_summary_root is null — attachment disabled; "
+            "gate cannot score RV epochs (stage may look complete but empty)."
+        )
+    elif diag.n_scored == 0 and diag.n_input > 0:
+        lines.append(
+            "  WARNING: scored=0 with root enabled — check JSON layout "
+            "(Gaia_DR3_{source_id}_summary.json) under rv_summary_root."
+        )
     if diag.chi2_dof_values:
         arr = np.asarray(diag.chi2_dof_values, dtype=np.float64)
         lines.append(

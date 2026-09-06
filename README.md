@@ -29,6 +29,11 @@ prose as a substitute for those locked decisions.
 - [`dark-hunter_rv`](https://github.com/UCSC-Transients/dark-hunter_rv) — radial velocities (The Joker).
 - [`dark-hunter_sed`](https://github.com/UCSC-Transients/dark-hunter_sed) — SED fitting (uberMS / MIST / Payne).
 
+RV/SED JSON summary wiring (paths + on-disk layout):
+[`config/fragments/summary_paths.md`](config/fragments/summary_paths.md).
+Defaults: `mass_derivation.sed_summary_root=data/sed_summaries`,
+`dr3.rv_summary_root=data/dr3/rv_summaries` (DR4 key independent).
+
 ## Layout
 
 ```
