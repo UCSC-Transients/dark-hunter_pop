@@ -14,3 +14,10 @@ rv_consistency:
   joint_prior_omega_rad: 0.2
   joint_prior_t_peri_day: 5.0
   joint_fit_max_nfev: 200
+  # Prefer newer on-disk summaries (mtime) over stale pre-pipeline outputs.
+  prefer_recent_summary_mtime: true
+  # Gaia BH1 / BH2 calibrators (known_truth_gaia_bh.yaml).
+  priority_source_ids:
+    - 4373465352415301632
+    - 5870569352746779008
+  prefer_public_external_rvs: true
