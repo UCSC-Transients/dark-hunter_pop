@@ -322,8 +322,8 @@ class SampleSelection:
             bound["period_day"] = bound["period"]
         if "k1_significance" not in bound and "significance" in bound:
             bound["k1_significance"] = bound["significance"]
-        if "sigma_m2_astrometric_msun" not in bound and "sigma_m2_msun" in bound:
-            bound["sigma_m2_astrometric_msun"] = bound["sigma_m2_msun"]
+        # Do NOT alias Andrews sigma_m2_msun → sigma_m2_astrometric_msun.
+        # El-Badry 2026 σ_M̃2 is a separate column (fixed Janssens M̃1; Q12).
         # Andrews frozen YAML uses m2_msun_error; MC / pipeline use sigma_m2_msun.
         if "m2_msun_error" not in bound and "sigma_m2_msun" in bound:
             bound["m2_msun_error"] = bound["sigma_m2_msun"]
@@ -363,6 +363,9 @@ class SampleSelection:
         if self.spec.main_sequence_cut is None:
             return list(rows)
         # Circular-dep exception: elbadry2026_selection ↔ sample_selection.
+        from darkhunter_pop.elbadry2026_m2_sigma import (
+            clear_non_elbadry_m2_astrometric_sigma,
+        )
         from darkhunter_pop.elbadry2026_selection import enrich_elbadry2026_row
 
         relevant_types: set[str] = set()
@@ -380,9 +383,11 @@ class SampleSelection:
                 out.append(row)
                 continue
             if "main_sequence" in row:
-                out.append(row)
+                enriched = dict(row)
             else:
-                out.append(enrich_elbadry2026_row(row, self.spec))
+                enriched = enrich_elbadry2026_row(row, self.spec)
+            # Strip Andrews-aliased σ before subsample cuts that need σ_M̃2.
+            out.append(clear_non_elbadry_m2_astrometric_sigma(enriched))
         return out
 
     def evaluate(
@@ -690,7 +695,18 @@ class SampleSelection:
         n_failed = 0
         n_na = 0
         na_reasons: dict[str, int] = {}
-        for row in remaining:
+        rows_for_cut: Sequence[Mapping[str, Any]] = remaining
+        if self._cut_needs_elbadry_m2_sigma(cut):
+            # Mutate remaining dicts in place after m2_range (~2k), not full parent.
+            filled = [dict(row) for row in remaining]
+            self._attach_elbadry_m2_sigma_inplace(filled)
+            rows_for_cut = filled
+            # Keep outcomes keyed to same source_ids; replace remaining content
+            # for subsequent cuts by updating caller's list when possible.
+            if isinstance(remaining, list):
+                remaining.clear()
+                remaining.extend(filled)
+        for row in rows_for_cut:
             outcome, reason = evaluate_cut(cut, row, membership=membership)
             source_id = int(row["source_id"])
             outcomes[source_id].append((cut.id, outcome, reason))
@@ -715,6 +731,103 @@ class SampleSelection:
             expected_n_after=cut.expected_n_after,
             not_applicable_reasons=na_reasons,
         )
+
+    def _cut_needs_elbadry_m2_sigma(self, cut: SampleCut) -> bool:
+        if self.spec.main_sequence_cut is None:
+            return False
+        if "sigma_m2_astrometric_msun" in cut.requires_defined:
+            return True
+        expr = cut.expression or ""
+        return "sigma_m2_astrometric_msun" in expr
+
+    def _attach_elbadry_m2_sigma_inplace(self, rows: list[dict[str, Any]]) -> None:
+        """Fill ``sigma_m2_astrometric_msun`` via fixed-M̃1 NSS MC (Q12)."""
+        # Local imports: data_acquisition ↔ diagnostics ↔ sample_selection cycle;
+        # mc/elbadry helpers only needed on this cut.
+        from darkhunter_pop.config_loader import load_config
+        from darkhunter_pop.data_acquisition import (
+            _enrichment_join_key,
+            merge_nss_enrichment_into_row,
+            reconstruct_nss_covariance,
+        )
+        from darkhunter_pop.elbadry2026_m2_sigma import sigma_m2_tilde_astrometric_msun
+
+        enrich_index = self._nss_enrichment_index()
+        if not enrich_index:
+            return
+        mc = load_config().mc_mass_function
+        # Prefer per-sample monte_carlo.n_draws when present.
+        n_draws = int(mc.n_draws)
+        if self.spec.monte_carlo is not None and self.spec.monte_carlo.n_draws is not None:
+            n_draws = int(self.spec.monte_carlo.n_draws)
+
+        for row in rows:
+            if row.get("_sigma_m2_astrometric_provenance") == "elbadry2026_m1_tilde_fixed":
+                continue
+            if row.get("sigma_m2_astrometric_msun") is not None:
+                continue
+            m1 = row.get("m1_tilde_msun")
+            if isinstance(m1, NotApplicable) or m1 is None:
+                continue
+            try:
+                m1_f = float(m1)
+            except (TypeError, ValueError):
+                continue
+            key = _enrichment_join_key(row)
+            extra = enrich_index.get(key)
+            if extra is None:
+                continue
+            mapping = merge_nss_enrichment_into_row(row, extra)
+            cov = reconstruct_nss_covariance(
+                mapping, nss_solution_type=mapping.get("nss_solution_type")
+            )
+            if cov.parameter_set is None:
+                continue
+            sid = int(row["source_id"])
+            seed = int(mc.random_seed) ^ (sid & 0x7FFFFFFF)
+            sigma = sigma_m2_tilde_astrometric_msun(
+                cov.parameter_set,
+                m1_tilde_msun=m1_f,
+                n_draws=n_draws,
+                random_seed=seed,
+                eig_rel_floor=float(mc.eig_rel_floor),
+                eig_abs_floor=float(mc.eig_abs_floor),
+                source_id=sid,
+            )
+            if sigma is None:
+                continue
+            row["sigma_m2_astrometric_msun"] = sigma
+            row["_sigma_m2_astrometric_provenance"] = "elbadry2026_m1_tilde_fixed"
+
+    def _nss_enrichment_index(
+        self,
+    ) -> dict[tuple[int, str], dict[str, Any]]:
+        """Lazy ``(source_id, nss_solution_type) → enrichment row`` map."""
+        cached = getattr(self, "_nss_enrichment_index_cache", None)
+        if cached is not None:
+            return cached
+        from darkhunter_pop.config_loader import repo_root
+        from darkhunter_pop.data_acquisition import (
+            _enrichment_join_key,
+            load_gaia_snapshot,
+        )
+
+        meta = (
+            repo_root()
+            / "data"
+            / "dr3"
+            / "gaia_snapshots"
+            / "nss_enrichment"
+            / "meta.yaml"
+        )
+        index: dict[tuple[int, str], dict[str, Any]] = {}
+        if meta.is_file():
+            _emeta, table = load_gaia_snapshot(meta, verify_checksum=False)
+            for erow in table:
+                mapping = {name: erow[name] for name in table.colnames}
+                index[_enrichment_join_key(mapping)] = mapping
+        self._nss_enrichment_index_cache = index
+        return index
 
 
 def evaluate_cut(
@@ -1480,10 +1593,8 @@ def candidate_to_selection_row(candidate: CandidateRecord) -> dict[str, Any]:
         row.setdefault("dec_deg", candidate.dec_deg)
 
     row.update(_pipeline_mass_fields(candidate))
-    if "sigma_m2_msun" in row and "sigma_m2_astrometric_msun" not in row:
-        row["sigma_m2_astrometric_msun"] = row["sigma_m2_msun"]
-    if "sigma_m2_msun" in row and "m2_msun_error" not in row:
-        row["m2_msun_error"] = row["sigma_m2_msun"]
+    # Pipeline M2 σ may feed forward-model cuts; do not treat Andrews MC
+    # sigma_m2_msun as El-Badry sigma_m2_astrometric_msun.
     return row
 
 
@@ -1623,9 +1734,6 @@ def attach_mc_mass_function_columns(
     )
     row.update(quantities)
     if "sigma_m2_msun" in quantities:
-        row.setdefault(
-            "sigma_m2_astrometric_msun", quantities["sigma_m2_msun"]
-        )
         row.setdefault("m2_msun_error", quantities["sigma_m2_msun"])
     return row
 
