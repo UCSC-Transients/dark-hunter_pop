@@ -1013,6 +1013,13 @@ class RvConsistencyConfig(BaseModel):
     joint_prior_omega_rad: float = Field(0.2, gt=0)
     joint_prior_t_peri_day: float = Field(5.0, gt=0)
     joint_fit_max_nfev: int = Field(200, ge=20)
+    # Sort gate input by on-disk summary mtime (newest first). Prefer current
+    # pipeline outputs over stale pre-pipeline summaries.
+    prefer_recent_summary_mtime: bool = True
+    # Optional known-truth / calibrator source_ids (e.g. Gaia BH1) scored first.
+    priority_source_ids: list[int] = Field(default_factory=list)
+    # Prefer candidates whose rv_summary has non-empty external_rvs (public/lit).
+    prefer_public_external_rvs: bool = True
 
 
 class CompanionNatureConfig(BaseModel):

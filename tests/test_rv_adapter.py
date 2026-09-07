@@ -81,6 +81,54 @@ def test_attached_rv_summary_flows_through_gate() -> None:
     assert gated[0].rv_summary.get("n_epochs") == 6
 
 
+def test_gate_prefers_priority_then_recent_mtime(tmp_path) -> None:
+    import os
+    import time
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    root = tmp_path / "rv"
+    root.mkdir()
+    tweaked.dr3.rv_summary_root = str(root)
+    tweaked.rv_consistency.priority_source_ids = [111]
+    tweaked.rv_consistency.prefer_recent_summary_mtime = True
+    tweaked.rv_consistency.prefer_public_external_rvs = False
+
+    def _write(sid: int, mtime: float) -> None:
+        path = root / f"Gaia_DR3_{sid}_summary.json"
+        path.write_text(
+            '{"schema_version":1,"source_id":%d,"n_epochs":3,'
+            '"nss_orbital":{"period_day":100.0,"eccentricity":0.1,'
+            '"t_periastron_day":10.0,"semi_amp_primary_kms":10.0,'
+            '"arg_periastron_deg":30.0},'
+            '"pipeline_epochs":['
+            '{"mjd":58000.0,"rv_kms":1.0,"rv_err_kms":0.5,"instrument":"APF"},'
+            '{"mjd":58010.0,"rv_kms":2.0,"rv_err_kms":0.5,"instrument":"APF"},'
+            '{"mjd":58020.0,"rv_kms":1.5,"rv_err_kms":0.5,"instrument":"APF"}'
+            "],"
+            '"external_rvs":[]}' % sid,
+            encoding="utf-8",
+        )
+        os.utime(path, (mtime, mtime))
+
+    now = time.time()
+    _write(222, now - 100)  # older
+    _write(333, now - 10)  # newer non-priority
+    _write(111, now - 50)  # priority calibrator
+
+    cands = [
+        CandidateRecord(
+            source_id=sid,
+            nss_orbital={"period": 100.0, "eccentricity": 0.1, "t_periastron": 10.0},
+        )
+        for sid in (222, 333, 111)
+    ]
+    gated, diag = run_gate_on_candidates(cands, tweaked)
+    assert diag.n_scored >= 1
+    # Priority id first, then newer mtime (333 before 222).
+    assert [c.source_id for c in gated[:3]] == [111, 333, 222]
+
+
 def test_kept_existing_rv_summary_not_overwritten() -> None:
     cfg = load_config()
     tweaked = cfg.model_copy(deep=True)

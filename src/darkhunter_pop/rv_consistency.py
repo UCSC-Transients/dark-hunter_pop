@@ -45,7 +45,7 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
-from darkhunter_pop.rv_adapter import attach_rv_summaries
+from darkhunter_pop.rv_adapter import attach_rv_summaries, rv_summary_mtime
 from darkhunter_pop.schemas import (
     CandidateRecord,
     InstrumentNuisance,
@@ -738,6 +738,27 @@ def run_gate_on_candidate(
     return updated, result, None
 
 
+def _gate_priority_key(
+    candidate: CandidateRecord,
+    config: PipelineConfig,
+) -> tuple[int, int, float]:
+    """Higher tuple sorts first: calibrators → public RVs → newer summary mtime."""
+    rc = config.rv_consistency
+    priority_ids = set(rc.priority_source_ids)
+    is_priority = 1 if candidate.source_id in priority_ids else 0
+    has_public = 0
+    if rc.prefer_public_external_rvs:
+        ext = (candidate.rv_summary or {}).get("external_rvs") or []
+        if isinstance(ext, list) and len(ext) > 0:
+            has_public = 1
+    mtime = (
+        rv_summary_mtime(config, candidate.source_id)
+        if rc.prefer_recent_summary_mtime
+        else 0.0
+    )
+    return (is_priority, has_public, mtime)
+
+
 def run_gate_on_candidates(
     candidates: Sequence[CandidateRecord],
     config: PipelineConfig,
@@ -746,18 +767,24 @@ def run_gate_on_candidates(
 
     Re-attaches ``dark-hunter_rv`` JSON summaries from the configured root so a
     root fill after ``data_acquisition`` still scores systems with epochs.
+    Order: known calibrators, public/lit RVs, then newest on-disk summary mtime.
     """
     attached, rv_stats = attach_rv_summaries(candidates, config)
+    ordered = sorted(
+        attached,
+        key=lambda c: _gate_priority_key(c, config),
+        reverse=True,
+    )
     rc = config.rv_consistency
     diag = GateDiagnostics(
-        n_input=len(attached),
+        n_input=len(ordered),
         rv_summary_attached=int(rv_stats.get("attached", 0)),
         rv_summary_missing=int(rv_stats.get("missing", 0)),
         rv_summary_kept_existing=int(rv_stats.get("kept_existing", 0)),
         rv_summary_disabled=int(rv_stats.get("disabled", 0)),
     )
     out: list[CandidateRecord] = []
-    for candidate in attached:
+    for candidate in ordered:
         updated, result, skip = run_gate_on_candidate(candidate, rc)
         if is_sb2_candidate(candidate):
             diag.n_sb2 += 1

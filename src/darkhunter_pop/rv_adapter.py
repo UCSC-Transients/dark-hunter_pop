@@ -33,6 +33,17 @@ def resolve_rv_summary_path(config: PipelineConfig, source_id: int) -> Path | No
     return root / dr.rv_summary_filename_template.format(source_id=source_id)
 
 
+def rv_summary_mtime(config: PipelineConfig, source_id: int) -> float:
+    """On-disk mtime of the summary JSON (0 if missing). Used for recent-first priority."""
+    path = resolve_rv_summary_path(config, source_id)
+    if path is None or not path.is_file():
+        return 0.0
+    try:
+        return float(path.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
 def load_rv_summary_json(path: Path) -> dict[str, Any]:
     """Read one dark-hunter_rv summary JSON file."""
     with path.open(encoding="utf-8") as handle:

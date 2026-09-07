@@ -45,6 +45,11 @@ rv_consistency:
   joint_prior_omega_rad: 0.2
   joint_prior_t_peri_day: 5.0
   joint_fit_max_nfev: 200
+  prefer_recent_summary_mtime: true
+  priority_source_ids:
+  - 4373465352415301632
+  - 5870569352746779008
+  prefer_public_external_rvs: true
 companion_nature:
   delta_bic_threshold: 10.0
   evidence_scale: 1.0

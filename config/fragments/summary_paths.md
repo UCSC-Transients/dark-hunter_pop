@@ -51,8 +51,15 @@ Systems with JSON epochs are scored; passers feed `joint_orbit_fit`
 (`OrbitTier.joint_astrometry_rv`). Missing/failed stay skipped with an
 explicit reason — never silent drop.
 
+Gate ordering (config): `priority_source_ids` (e.g. Gaia BH1/BH2) first,
+then public/`external_rvs`, then **newest on-disk summary mtime**. When
+snapshotting JSON from `dark-hunter_rv/output`, preserve `*_summary.txt`
+mtime onto the JSON (`os.utime`) so stale pre-pipeline summaries sort last.
+
 **Escalate:** if `Gaia_DR3_*_summary.json` is absent upstream (only
 `*_summary.txt`), do not invent a second format — land / backfill JSON in
-`dark-hunter_rv` first.
+`dark-hunter_rv` first. Many NSS Orbital solutions lack `semi_amp_primary`
+(Thiele–Innes only); those stay `missing_astrometric_elements` until K is
+derived (Joker / predicted-K + inclination).
 
 Fixtures: `tests/fixtures/rv_summaries/Gaia_DR3_*_summary.json`.
