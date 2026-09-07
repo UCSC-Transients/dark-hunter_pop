@@ -81,7 +81,6 @@ def _mc_one(payload: tuple[Any, ...]) -> tuple[int, dict[str, Any] | None]:
         return int(source_id), None
     q = ensemble_row_quantities(draws, m2_threshold_msun=float(m2_thr))
     if "sigma_m2_msun" in q:
-        q["sigma_m2_astrometric_msun"] = q["sigma_m2_msun"]
         q["m2_msun_error"] = q["sigma_m2_msun"]
     return int(source_id), q
 
