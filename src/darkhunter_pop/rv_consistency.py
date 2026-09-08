@@ -3,7 +3,10 @@
 Consumes ``dark-hunter_rv`` JSON summaries into ``CandidateRecord.rv_summary``
 (ARCHITECTURE.md §4; ``docs/RV_SUMMARY_JSON`` in dark-hunter_rv).
 
-Gate: hold astrometric P, e, T_periastron, K, ω fixed; fit γ + jitter per instrument;
+Gate: hold astrometric P, e, T_periastron, ω fixed; K is an **RV** quantity —
+use measured ``semi_amp_primary`` / Joker K when present, otherwise estimate K from
+M1, M2, and inclination (``predicted_k_kms``). Inclination comes from NSS/summary
+when published, else from Thiele–Innes → Campbell. Fit γ + jitter per instrument;
 score whole-curve chi2/dof vs ``rv_consistency.chi2_dof_threshold``. SB2 orbits that
 disagree with astrometry fail the gate (outlier path); consistent SB2 unlocks the
 mass-ratio channel for ``companion_nature_likelihood``.
@@ -35,7 +38,10 @@ from darkhunter_pop.diagnostics import (
 )
 from darkhunter_pop.mass_derivation import read_stage_hdf5 as read_mass_stage_hdf5
 from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mass_stage_hdf5
-from darkhunter_pop.physics_utils import spectroscopic_mass_function
+from darkhunter_pop.physics_utils import (
+    spectroscopic_mass_function,
+    thiele_innes_to_campbell,
+)
 from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -301,9 +307,24 @@ def _nss_blocks(candidate: CandidateRecord) -> dict[str, Any]:
     return merged
 
 
+def _ti_abfg(candidate: CandidateRecord) -> tuple[float, float, float, float] | None:
+    """Return (A,B,F,G) mas from candidate or rv_summary thiele_innes, if complete."""
+    ti = candidate.thiele_innes
+    if ti is not None and None not in (ti.A, ti.B, ti.F, ti.G):
+        return float(ti.A), float(ti.B), float(ti.F), float(ti.G)
+    summary = candidate.rv_summary or {}
+    block = summary.get("thiele_innes")
+    if isinstance(block, Mapping):
+        vals = [_finite(block.get(k)) for k in ("A", "B", "F", "G")]
+        if all(v is not None for v in vals):
+            return float(vals[0]), float(vals[1]), float(vals[2]), float(vals[3])
+    return None
+
+
 def _inclination_deg(
     candidate: CandidateRecord, nss: Mapping[str, Any]
 ) -> float | None:
+    """Inclination in degrees: NSS/Joker first, else Thiele–Innes → Campbell."""
     inc = _first_finite(nss, ("inclination_deg", "inclination", "Inclination"))
     if inc is not None:
         return inc
@@ -313,7 +334,20 @@ def _inclination_deg(
         inc = _finite(joker.get("inclination_deg"))
         if inc is not None:
             return inc
-    return None
+    # Published inclination sometimes lives under gaia_metadata after JSON refresh.
+    meta = summary.get("gaia_metadata")
+    if isinstance(meta, Mapping):
+        inc = _first_finite(meta, ("Inclination", "inclination_deg", "inclination"))
+        if inc is not None:
+            return inc
+    abfg = _ti_abfg(candidate)
+    if abfg is None:
+        return None
+    _a0, _omega, inc_rad = thiele_innes_to_campbell(*abfg)
+    inc_val = float(np.rad2deg(np.asarray(inc_rad, dtype=np.float64)))
+    if not np.isfinite(inc_val):
+        return None
+    return inc_val
 
 
 def _omega_from_joker_block(block: Mapping[str, Any]) -> float | None:
@@ -361,6 +395,25 @@ def _omega_rad(nss: Mapping[str, Any], summary: Mapping[str, Any]) -> float | No
         if om is not None:
             return om
     return None
+
+
+def _omega_rad_for_candidate(
+    candidate: CandidateRecord,
+    nss: Mapping[str, Any],
+    summary: Mapping[str, Any],
+) -> float | None:
+    """ω from NSS/Joker, else from Thiele–Innes Campbell conversion."""
+    om = _omega_rad(nss, summary)
+    if om is not None:
+        return om
+    abfg = _ti_abfg(candidate)
+    if abfg is None:
+        return None
+    _a0, omega, _inc = thiele_innes_to_campbell(*abfg)
+    om_val = float(np.asarray(omega, dtype=np.float64))
+    if not np.isfinite(om_val):
+        return None
+    return om_val
 
 
 def _k_from_joker(summary: Mapping[str, Any]) -> float | None:
@@ -414,7 +467,13 @@ def _k_kms(
 
 
 def extract_astrometric_orbit(candidate: CandidateRecord) -> AstrometricOrbit | None:
-    """Resolve fixed gate elements from NSS / rv_summary / predicted K."""
+    """Resolve fixed gate elements: astrometric P,e,T,ω + RV K.
+
+    K is not an NSS Orbital column for pure astrometric solutions. Prefer measured
+    RV/Joker K; otherwise estimate from M1, M2, and inclination
+    (``predicted_k_kms``). Inclination / ω fall back to Thiele–Innes → Campbell
+    when not published on the NSS row.
+    """
     nss = _nss_blocks(candidate)
     summary = candidate.rv_summary or {}
     period = _first_finite(nss, ("period_day", "period", "Period", "P_days"))
@@ -427,7 +486,7 @@ def extract_astrometric_orbit(candidate: CandidateRecord) -> AstrometricOrbit | 
         return None
     t_mjd = t_periastron_to_mjd(t_raw)
     inc = _inclination_deg(candidate, nss)
-    omega = _omega_rad(nss, summary)
+    omega = _omega_rad_for_candidate(candidate, nss, summary)
     if omega is None:
         omega = 0.0
     k = _k_kms(
