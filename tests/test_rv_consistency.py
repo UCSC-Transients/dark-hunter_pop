@@ -34,6 +34,7 @@ from darkhunter_pop.schemas import (
     OrbitTier,
     ParameterSet,
     StageStatus,
+    ThieleInnesElements,
 )
 
 pytestmark = pytest.mark.unit
@@ -215,6 +216,75 @@ def test_collect_epochs_and_orbit_extract() -> None:
     assert orbit is not None
     assert orbit.period_day == pytest.approx(200.0)
     assert orbit.k_kms == pytest.approx(15.0)
+
+
+def test_predicted_k_from_thiele_innes_inclination() -> None:
+    """NSS Orbital has no K; estimate RV K from M1/M2 + i(TI→Campbell)."""
+    period = 185.76565789
+    ecc = 0.48893589
+    t_gaia = -12.02468037
+    # BH1-like Thiele–Innes (mas); Campbell i ≈ 121.3 deg.
+    ti = ThieleInnesElements(
+        A=-0.26228912,
+        B=2.92911590,
+        F=1.52480715,
+        G=0.53436859,
+    )
+    m1 = ParameterSet(
+        names=["M1"], values=[0.93], covariance=[[0.01]], provenance="TAG10"
+    )
+    m2 = ParameterSet(
+        names=["M2"], values=[9.6], covariance=[[1.0]], provenance="gaiamock"
+    )
+    epochs = _synthetic_epochs(
+        n=6,
+        period_day=period,
+        eccentricity=ecc,
+        t_peri_mjd=t_periastron_to_mjd(t_gaia),
+        k_kms=80.0,
+        omega_rad=0.5,
+        gamma_kms=30.0,
+        instrument="APF",
+    )
+    cand = CandidateRecord(
+        source_id=4373465352415301632,
+        nss_solution_type="Orbital",
+        nss_orbital={
+            "period_day": period,
+            "eccentricity": ecc,
+            "t_periastron_day": t_gaia,
+            # No semi_amp_primary — pure astrometric Orbital.
+        },
+        thiele_innes=ti,
+        m1=m1,
+        m2=m2,
+        rv_summary={
+            "schema_version": 1,
+            "source_id": 4373465352415301632,
+            "n_epochs": len(epochs),
+            "pipeline_epochs": epochs,
+            "external_rvs": [],
+            "thiele_innes": {
+                "A": ti.A,
+                "B": ti.B,
+                "F": ti.F,
+                "G": ti.G,
+            },
+        },
+    )
+    orbit = extract_astrometric_orbit(cand)
+    assert orbit is not None
+    assert orbit.inclination_deg == pytest.approx(121.3, abs=0.5)
+    expected_k = predicted_k_kms(
+        0.93, 9.6, period, ecc, float(orbit.inclination_deg)
+    )
+    assert expected_k is not None
+    assert orbit.k_kms == pytest.approx(expected_k, rel=1e-6)
+
+    cfg = load_config()
+    _gated, diag = run_gate_on_candidates([cand], cfg)
+    assert diag.n_scored == 1
+    assert diag.n_skipped_elements == 0
 
 
 def test_gate_passes_consistent_and_fails_outlier() -> None:
