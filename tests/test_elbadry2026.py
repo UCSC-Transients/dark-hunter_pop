@@ -110,6 +110,34 @@ def test_janssens_solar_anchor_and_no_extrapolation() -> None:
     assert forbidden.reason == "outside_janssens_range"
 
 
+def test_janssens_table_is_immutable_shared_cache() -> None:
+    """Regression #152: load_janssens_table is @lru_cache'd; every caller shares
+
+    the same object. A mutable dict/list return would let one caller's
+    mutation poison global state for the rest of the process. Prove the
+    returned structure is read-only at every level a caller could reach:
+    the top-level mapping, a nested segment mapping, and a nested list
+    (which must come back as a tuple, since MappingProxyType only wraps
+    dicts).
+    """
+    table = load_janssens_table()
+
+    with pytest.raises(TypeError):
+        table["segments"] = ()  # type: ignore[index]
+
+    segments = table["segments"]
+    assert isinstance(segments, tuple)
+    first_segment = segments[0]
+    with pytest.raises(TypeError):
+        first_segment["a"] = 999.0  # type: ignore[index]
+
+    mass_range = table["mass_range_msun"]
+    assert isinstance(mass_range, tuple)
+
+    # Repeated calls (cache hit) return the identical shared object.
+    assert load_janssens_table() is table
+
+
 def test_amrf_is_cube_root_of_mf_over_m1() -> None:
     a0, plx, p, m1 = 2.0, 1.0, 365.25, 1.5
     mf = float(astrometric_mass_function(a0, plx, p))

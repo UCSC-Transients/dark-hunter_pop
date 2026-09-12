@@ -8,7 +8,8 @@ from __future__ import annotations
 from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from types import MappingProxyType
+from typing import Any, Literal, Mapping
 
 import numpy as np
 import yaml
@@ -58,18 +59,41 @@ def _mg_of_mass(mass_msun: float, a: float, b: float) -> float:
     return float(a * np.log10(mass_msun) + b)
 
 
+def _freeze_deep(obj: Any) -> Any:
+    """Recursively freeze a JSON/YAML-shaped structure.
+
+    Dicts become read-only ``MappingProxyType`` views (recursing into their
+    values) and lists become tuples (``MappingProxyType`` only wraps dicts,
+    so nested lists need the separate ``tuple()`` conversion). Scalars pass
+    through unchanged. Used to protect the module-level ``lru_cache`` on
+    ``load_janssens_table`` from accidental downstream mutation, since every
+    caller shares the same cached object (issue #152).
+    """
+    if isinstance(obj, dict):
+        return MappingProxyType({key: _freeze_deep(value) for key, value in obj.items()})
+    if isinstance(obj, list):
+        return tuple(_freeze_deep(value) for value in obj)
+    return obj
+
+
 @lru_cache(maxsize=8)
-def _load_janssens_table_cached(table_path: str) -> dict[str, Any]:
+def _load_janssens_table_cached(table_path: str) -> Mapping[str, Any]:
     raw = yaml.safe_load(Path(table_path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"Janssens table root must be a mapping: {table_path}")
-    return raw
+    frozen = _freeze_deep(raw)
+    assert isinstance(frozen, MappingProxyType)
+    return frozen
 
 
-def load_janssens_table(path: str | Path | None = None) -> dict[str, Any]:
+def load_janssens_table(path: str | Path | None = None) -> Mapping[str, Any]:
     """Load the frozen Janssens Table 1 YAML (verbatim segments).
 
     Cached by resolved path — ``enrich_elbadry2026_row`` hits this per system.
+    Returned structure is a recursively read-only view (``MappingProxyType``
+    for mappings, ``tuple`` for lists): every caller shares the cached
+    object, so a downstream mutation attempt raises ``TypeError`` instead of
+    silently corrupting shared state for the rest of the process (#152).
     """
     table_path = Path(path) if path is not None else repo_root() / DEFAULT_TABLE
     if not table_path.is_absolute():
@@ -77,7 +101,7 @@ def load_janssens_table(path: str | Path | None = None) -> dict[str, Any]:
     return _load_janssens_table_cached(str(table_path.resolve()))
 
 
-def segments_from_table(raw: dict[str, Any] | None = None) -> tuple[JanssensSegment, ...]:
+def segments_from_table(raw: Mapping[str, Any] | None = None) -> tuple[JanssensSegment, ...]:
     """Build segments with precomputed ``M_G`` intervals from mass bounds."""
     table = raw if raw is not None else load_janssens_table()
     out: list[JanssensSegment] = []
@@ -104,7 +128,7 @@ def segments_from_table(raw: dict[str, Any] | None = None) -> tuple[JanssensSegm
 def invert_mg_to_mass(
     mg: float,
     *,
-    table: dict[str, Any] | None = None,
+    table: Mapping[str, Any] | None = None,
     segments: tuple[JanssensSegment, ...] | None = None,
     ab_correlation: float = 0.0,
 ) -> JanssensInversionResult:
