@@ -34,9 +34,16 @@ def _out_dir() -> Path:
     return path
 
 
-def _table_checksum(table: Table) -> str:
-    raw = table.to_pandas().to_csv(index=False).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+def _file_checksum(path: Path) -> str:
+    """SHA-256 of on-disk bytes (no pandas; avoids re-serializing huge corr_vec)."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def launch() -> int:
@@ -76,8 +83,9 @@ def poll_and_save(jobid: str) -> int:
     if not isinstance(table, Table):
         raise TypeError(f"expected Table, got {type(table)!r}")
     result_path = out / "query.ecsv"
+    print(f"fetch_nss_enrichment: writing {result_path} ({len(table)} rows)...", flush=True)
     table.write(result_path, format="ascii.ecsv", overwrite=True)
-    checksum = _table_checksum(table)
+    checksum = _file_checksum(result_path)
     meta = {
         "snapshot_id": f"nss_enrichment_{jobid}",
         "query_date": datetime.now(timezone.utc).isoformat(),

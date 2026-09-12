@@ -618,6 +618,47 @@ def test_candidate_to_selection_row_flattens_orbital_photometry_masses() -> None
     assert row["m2_snr"] == pytest.approx(4.0)
 
 
+def test_bind_row_aliases_mc_sigma_and_missing_logg() -> None:
+    """Andrews YAML uses m2_msun_error; missing logg_apsis must bind as None.
+
+    Andrews ``sigma_m2_msun`` must NOT become El-Badry ``sigma_m2_astrometric_msun``.
+    """
+    config = load_config()
+    selection = SampleSelectionRegistry(config).selection("andrews2022")
+    bound = selection.bind_row(
+        {
+            "source_id": 1,
+            "nss_solution_type": "Orbital",
+            "p_m2_above": 0.99,
+            "m2_msun": 2.0,
+            "sigma_m2_msun": 0.25,
+        }
+    )
+    assert bound["m2_msun_error"] == pytest.approx(0.25)
+    assert "sigma_m2_astrometric_msun" not in bound
+    assert bound["logg_apsis"] is None
+
+
+def test_elbadry_enrich_strips_andrews_aliased_sigma() -> None:
+    config = load_config()
+    selection = SampleSelectionRegistry(config).selection("elbadry2026")
+    rows = selection._enrich_rows_for_spec(
+        [
+            {
+                "source_id": 1,
+                "nss_solution_type": "Orbital",
+                "main_sequence": True,
+                "m1_tilde_msun": 1.0,
+                "m2_tilde_msun": 1.2,
+                "sigma_m2_msun": 0.01,
+                "sigma_m2_astrometric_msun": 0.01,  # Andrews alias pollution
+            }
+        ]
+    )
+    assert "sigma_m2_astrometric_msun" not in rows[0]
+    assert rows[0].get("sigma_m2_msun") == pytest.approx(0.01)
+
+
 def test_stage_loads_da_rows_when_rows_none(tmp_path: Path) -> None:
     """Regression #129: empty ``rows or ()`` must not silently yield n_parent=0."""
     da_cand = CandidateRecord(

@@ -5,6 +5,7 @@ Frozen Table 1 parameters only. Do not re-fit, re-digitize, or extrapolate.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -57,15 +58,23 @@ def _mg_of_mass(mass_msun: float, a: float, b: float) -> float:
     return float(a * np.log10(mass_msun) + b)
 
 
-def load_janssens_table(path: str | Path | None = None) -> dict[str, Any]:
-    """Load the frozen Janssens Table 1 YAML (verbatim segments)."""
-    table_path = Path(path) if path is not None else repo_root() / DEFAULT_TABLE
-    if not table_path.is_absolute():
-        table_path = repo_root() / table_path
-    raw = yaml.safe_load(table_path.read_text(encoding="utf-8"))
+@lru_cache(maxsize=8)
+def _load_janssens_table_cached(table_path: str) -> dict[str, Any]:
+    raw = yaml.safe_load(Path(table_path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"Janssens table root must be a mapping: {table_path}")
     return raw
+
+
+def load_janssens_table(path: str | Path | None = None) -> dict[str, Any]:
+    """Load the frozen Janssens Table 1 YAML (verbatim segments).
+
+    Cached by resolved path — ``enrich_elbadry2026_row`` hits this per system.
+    """
+    table_path = Path(path) if path is not None else repo_root() / DEFAULT_TABLE
+    if not table_path.is_absolute():
+        table_path = repo_root() / table_path
+    return _load_janssens_table_cached(str(table_path.resolve()))
 
 
 def segments_from_table(raw: dict[str, Any] | None = None) -> tuple[JanssensSegment, ...]:
