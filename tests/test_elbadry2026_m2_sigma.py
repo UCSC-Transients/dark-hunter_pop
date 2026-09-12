@@ -45,3 +45,20 @@ def test_clear_strips_unprovenance_sigma() -> None:
         }
     )
     assert kept["sigma_m2_astrometric_msun"] == pytest.approx(0.05)
+
+
+def test_clear_keeps_independently_supplied_sigma() -> None:
+    """A σ_M̃2 that is not an Andrews copy survives, tag or no tag.
+
+    Regression: stripping every untagged value collapsed the El-Badry 2026
+    ``sub_chandrasekhar`` subsample from 22 to 0 on catalog/fixture rows that
+    carry their own ``sigma_m2_astrometric_msun``.
+    """
+    own_column = clear_non_elbadry_m2_astrometric_sigma(
+        {"source_id": 200, "sigma_m2_astrometric_msun": 0.05}
+    )
+    assert own_column["sigma_m2_astrometric_msun"] == pytest.approx(0.05)
+    distinct = clear_non_elbadry_m2_astrometric_sigma(
+        {"sigma_m2_astrometric_msun": 0.05, "sigma_m2_msun": 0.25}
+    )
+    assert distinct["sigma_m2_astrometric_msun"] == pytest.approx(0.05)

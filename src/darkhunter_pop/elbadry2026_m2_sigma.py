@@ -47,15 +47,48 @@ def sigma_m2_tilde_astrometric_msun(
     return sigma
 
 
-def clear_non_elbadry_m2_astrometric_sigma(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Drop ``sigma_m2_astrometric_msun`` unless tagged as El-Badry M̃2 MC.
+def _looks_like_andrews_alias(row: Mapping[str, Any]) -> bool:
+    """True when ``sigma_m2_astrometric_msun`` is a copy of Andrews ``sigma_m2_msun``.
 
-    Parent caches may carry Andrews ``sigma_m2_msun`` aliased into the
-    astrometric column; that value must not feed ``sub_chandrasekhar``.
+    The pre-reconciliation alias wrote the *same object* into both keys, so
+    numeric equality of the two columns is the alias fingerprint. A row that
+    carries only one of the two, or two genuinely different values, is left
+    alone.
+    """
+    astrometric = row.get("sigma_m2_astrometric_msun")
+    andrews = row.get("sigma_m2_msun")
+    if astrometric is None or andrews is None:
+        return False
+    try:
+        return bool(np.isclose(float(astrometric), float(andrews), rtol=0.0, atol=0.0))
+    except (TypeError, ValueError):
+        return False
+
+
+def clear_non_elbadry_m2_astrometric_sigma(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop ``sigma_m2_astrometric_msun`` when it is an Andrews-σ alias.
+
+    Parent caches built before the alias was removed carry Andrews
+    ``sigma_m2_msun`` (fixed ``M1 = 1.0``) copied into the astrometric column;
+    that value must never feed ``sub_chandrasekhar``, which needs σ_M̃2 at the
+    fixed Janssens ``M̃1``. Column ownership is strict (CLAUDE.md Gotchas).
+
+    Kept untouched:
+
+    - rows tagged ``_sigma_m2_astrometric_provenance ==
+      "elbadry2026_m1_tilde_fixed"`` (produced by the MC path here);
+    - rows that supply ``sigma_m2_astrometric_msun`` in their own right — a
+      published catalog column or a test fixture — recognized by the absence of
+      an equal ``sigma_m2_msun`` beside it.
+
+    Limitation: the alias test is numeric equality, so a genuine σ_M̃2 that
+    happens to equal Andrews' σ to the bit is dropped and then recomputed by
+    the MC path. That is conservative, not lossy.
     """
     out = dict(row)
     if out.get("_sigma_m2_astrometric_provenance") == "elbadry2026_m1_tilde_fixed":
         return out
-    out.pop("sigma_m2_astrometric_msun", None)
-    out.pop("_sigma_m2_astrometric_provenance", None)
+    if _looks_like_andrews_alias(out):
+        out.pop("sigma_m2_astrometric_msun", None)
+        out.pop("_sigma_m2_astrometric_provenance", None)
     return out
