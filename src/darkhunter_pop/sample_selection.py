@@ -1481,7 +1481,12 @@ def _pipeline_mass_fields(candidate: CandidateRecord) -> dict[str, Any]:
         if math.isfinite(m2.sigma):
             out["m2_msun_error"] = float(m2.sigma)
             out["sigma_m2_msun"] = float(m2.sigma)
-            out["sigma_m2_astrometric_msun"] = float(m2.sigma)
+            # Do NOT set sigma_m2_astrometric_msun here: that column is
+            # El-Badry 2026's alone (fixed-Janssens-M̃1 NSS MC), populated
+            # only by _attach_elbadry_m2_sigma_inplace. Aliasing the generic
+            # pipeline M2 sigma into it is the column-ownership violation
+            # CLAUDE.md's Gotchas section forbids ("never alias Andrews'
+            # sigma into El-Badry's") — see issue #152.
             if m2.sigma > 0.0:
                 out["m2_snr"] = float(m2.value) / float(m2.sigma)
     return out
