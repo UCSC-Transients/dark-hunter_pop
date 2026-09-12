@@ -53,6 +53,7 @@ from darkhunter_pop.sample_selection import (
     SampleSelectionError,
     SampleSelectionRegistry,
     UnhandledSampleSelectionModeError,
+    _pipeline_mass_fields,
     assert_nonzero_parent_when_da_nonempty,
     candidate_to_selection_row,
     evaluate_cut,
@@ -618,6 +619,56 @@ def test_candidate_to_selection_row_flattens_orbital_photometry_masses() -> None
     assert row["m2_snr"] == pytest.approx(4.0)
 
 
+def test_pipeline_mass_fields_never_populates_elbadry_sigma_column() -> None:
+    """Regression #152: sigma_m2_astrometric_msun is El-Badry 2026's column alone.
+
+    Andrews owns m2_msun_error / sigma_m2_msun at fixed M1 = 1.0; El-Badry 2026
+    owns sigma_m2_astrometric_msun at fixed Janssens M̃1
+    (``_attach_elbadry_m2_sigma_inplace`` in elbadry2026_m2_sigma.py is the only
+    place allowed to set it). Construct a candidate whose generic pipeline M2
+    sigma (0.5) differs from a would-be El-Badry astrometric sigma (0.9, never
+    written by this code path) and prove ``_pipeline_mass_fields`` leaves
+    ``sigma_m2_astrometric_msun`` out of the row entirely — not merely equal to
+    the generic value by coincidence, but absent, so
+    ``_attach_elbadry_m2_sigma_inplace``'s ``row.get(...) is not None`` guard
+    still sees it as unfilled and does not skip the row.
+    """
+    would_be_elbadry_sigma = 0.9
+    generic_pipeline_sigma = 0.5
+    assert would_be_elbadry_sigma != generic_pipeline_sigma
+
+    cand = CandidateRecord(
+        source_id=99,
+        nss_solution_type="Orbital",
+        parallax_mas=10.0,
+        m1=ParameterSet(
+            names=["M1"],
+            values=[1.0],
+            covariance=[[0.01]],
+            provenance="test",
+            units=["Msun"],
+        ),
+        m2=ParameterSet(
+            names=["M2"],
+            values=[1.5],
+            covariance=[[generic_pipeline_sigma**2]],
+            provenance="test",
+            units=["Msun"],
+        ),
+    )
+    fields = _pipeline_mass_fields(cand)
+    assert fields["sigma_m2_msun"] == pytest.approx(generic_pipeline_sigma)
+    assert fields["m2_msun_error"] == pytest.approx(generic_pipeline_sigma)
+    assert "sigma_m2_astrometric_msun" not in fields
+
+    row = candidate_to_selection_row(cand)
+    assert row["sigma_m2_msun"] == pytest.approx(generic_pipeline_sigma)
+    assert "sigma_m2_astrometric_msun" not in row
+    # The El-Badry inplace-fill guard (`row.get("sigma_m2_astrometric_msun")
+    # is not None`) must still see this row as unfilled.
+    assert row.get("sigma_m2_astrometric_msun") is None
+
+
 def test_bind_row_aliases_mc_sigma_and_missing_logg() -> None:
     """Andrews YAML uses m2_msun_error; missing logg_apsis must bind as None.
 
@@ -833,7 +884,10 @@ def test_candidate_row_flattens_smf_and_aliases_sigma_m2() -> None:
     assert row["k1_significance"] == pytest.approx(20.0)
     assert row["significance"] == pytest.approx(20.0)
     assert row["semi_amplitude_primary"] == pytest.approx(20.0)
-    assert row["sigma_m2_astrometric_msun"] == pytest.approx(0.2)
+    assert row["sigma_m2_msun"] == pytest.approx(0.2)
+    # sigma_m2_astrometric_msun is El-Badry 2026's column alone (fixed
+    # Janssens M̃1); the generic pipeline path must never populate it (#152).
+    assert "sigma_m2_astrometric_msun" not in row
 
 
 def test_build_nss_enrichment_adql_has_corr_and_k1() -> None:
