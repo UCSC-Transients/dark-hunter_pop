@@ -127,7 +127,14 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "sample_selection",
             "darkhunter_pop.sample_selection",
             inputs_from=("mass_derivation_bulk",),
-            config_keys=("sample_selection",),
+            deps=(
+                "darkhunter_pop.sample_selection",
+                "darkhunter_pop.elbadry2026_m2_sigma",
+                "darkhunter_pop.janssens_mass",
+                "darkhunter_pop.elbadry2026_selection",
+                "darkhunter_pop.mc_mass_function",
+            ),
+            config_keys=("sample_selection", "mc_mass_function"),
         ),
         _spec(
             "mass_derivation_refined",
