@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import darkhunter_pop.run_management as run_management
 from darkhunter_pop.config_loader import config_checksum, load_config
 from darkhunter_pop.run_management import (
     STAGE_ORDER,
@@ -22,6 +23,7 @@ from darkhunter_pop.run_management import (
     list_incomplete_runs,
     mark_stage_finished,
     mark_stage_started,
+    module_file_path,
     new_run_for_force_rerun,
     plan_stage,
     purge_run,
@@ -267,3 +269,89 @@ def test_list_incomplete_sorted_by_run_id_not_mtime(tmp_path: Path) -> None:
         save_run_manifest(m2, runs / f"{m2.run_id}.yaml")
     incomplete = list_incomplete_runs(runs)
     assert incomplete[0].run_id == newer.run_id
+
+
+def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
+    """Regression for #151: sample_selection.py's code path pulls in
+    elbadry2026_m2_sigma (Q12 sigma_m2_astrometric_msun derivation),
+    elbadry2026_selection + janssens_mass (enrich_elbadry2026_row), and
+    mc_mass_function (load_selection_rows_from_uncut_snapshot(attach_mc=True)
+    / _attach_elbadry_m2_sigma_inplace). All four must feed source_hash.
+
+    elbadry2024_selection is deliberately excluded: sample_selection.py never
+    imports it (only sample_diagnostics.py does, for a different stage).
+    """
+    spec = STAGE_REGISTRY["sample_selection"]
+    assert set(spec.dependency_modules) == {
+        "darkhunter_pop.sample_selection",
+        "darkhunter_pop.elbadry2026_m2_sigma",
+        "darkhunter_pop.janssens_mass",
+        "darkhunter_pop.elbadry2026_selection",
+        "darkhunter_pop.mc_mass_function",
+    }
+    assert "darkhunter_pop.elbadry2024_selection" not in spec.dependency_modules
+    # Every declared dependency must actually resolve to a source file.
+    for module_name in spec.dependency_modules:
+        assert module_file_path(module_name).is_file()
+
+
+def test_sample_selection_config_fingerprint_covers_mc_mass_function() -> None:
+    """Regression for #151: mc_mass_function.{n_draws,random_seed,eig_*_floor}
+    change the science output (draw count, seed, covariance-eigenvalue floors
+    used by the fixed-M1-tilde MC) and the parent-cache directory name
+    (``+enrich+mc{n_draws}``), so both must move the stage's config
+    fingerprint / artifact path.
+    """
+    spec = STAGE_REGISTRY["sample_selection"]
+    assert "mc_mass_function" in spec.config_fingerprint_keys
+
+    cfg = load_config()
+    base_subset = config_subset_for_stage(cfg, spec)
+
+    seed_tweaked = cfg.model_copy(deep=True)
+    seed_tweaked.mc_mass_function.random_seed += 1
+    assert config_subset_for_stage(seed_tweaked, spec) != base_subset
+
+    draws_tweaked = cfg.model_copy(deep=True)
+    draws_tweaked.mc_mass_function.n_draws += 1
+    assert config_subset_for_stage(draws_tweaked, spec) != base_subset
+
+    run_id = "runA"
+    p_base = stage_artifact_path(cfg, spec, run_id=run_id)
+    p_seed = stage_artifact_path(seed_tweaked, spec, run_id=run_id)
+    p_draws = stage_artifact_path(draws_tweaked, spec, run_id=run_id)
+    assert p_base != p_seed
+    assert p_base != p_draws
+
+
+def test_sample_selection_source_hash_sensitive_to_elbadry2026_m2_sigma(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for #151: an edit to elbadry2026_m2_sigma.py must move the
+    stage's source_hash, since sample_selection._attach_elbadry_m2_sigma_inplace
+    imports ``sigma_m2_tilde_astrometric_msun`` from it. Simulated via a
+    shadow copy of the real file redirected through ``module_file_path`` so no
+    real source file is touched (per #151's "Do not touch sample_selection.py's
+    science logic" and the general no-edit-to-prove-it constraint).
+    """
+    spec = STAGE_REGISTRY["sample_selection"]
+    target = "darkhunter_pop.elbadry2026_m2_sigma"
+    assert target in spec.dependency_modules
+
+    real_resolve = run_management.module_file_path
+    real_path = real_resolve(target)
+    shadow = tmp_path / "elbadry2026_m2_sigma.py"
+    shadow.write_bytes(real_path.read_bytes())
+
+    def _resolve(module_name: str) -> Path:
+        if module_name == target:
+            return shadow
+        return real_resolve(module_name)
+
+    monkeypatch.setattr(run_management, "module_file_path", _resolve)
+
+    h_before = compute_source_hash(spec)
+    shadow.write_bytes(real_path.read_bytes() + b"\n# regression-test edit\n")
+    h_after = compute_source_hash(spec)
+    assert h_before != h_after
