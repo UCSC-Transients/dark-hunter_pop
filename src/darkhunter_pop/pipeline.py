@@ -29,6 +29,7 @@ from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     StageAction,
     StagePlanEntry,
+    assert_plan_not_stale,
     assert_stage_source_hash,
     create_run_manifest,
     format_incomplete_runs_table,
@@ -78,6 +79,7 @@ def _run_selection_function_astrometric_stage(
     spec = STAGE_REGISTRY["selection_function_astrometric"]
     plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
+    assert_plan_not_stale(plan)
 
     if plan.action is StageAction.SKIP_CACHED:
         return manifest
@@ -111,6 +113,7 @@ def _run_selection_function_followup_stage(
     spec = STAGE_REGISTRY["selection_function_followup"]
     plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
+    assert_plan_not_stale(plan)
 
     if plan.action is StageAction.SKIP_CACHED:
         return manifest
@@ -300,10 +303,22 @@ def execute_plan(
     """Execute planned stages; skip cached / skip-reason entries without science work.
 
     Per-stage start/end lines are printed to stdout (ARCHITECTURE.md §5).
+
+    A ``REFUSE_STALE`` entry raises ``StaleStageCacheError`` before any stage in
+    the plan executes, so a run whose recorded ``source_hash`` or artifact
+    fingerprint no longer matches the current code/config neither reuses the
+    stale artifact nor silently rebuilds it. The operator resolves it with an
+    explicit ``--force-rerun <stage>``.
     """
     registry = runners if runners is not None else STAGE_RUNNERS
     forced = set(force_rerun_stages)
     current = manifest
+
+    # Refuse before ANY stage work: a stale cached artifact is neither reused
+    # nor silently rebuilt (ARCHITECTURE.md §5). Checked over the whole plan so
+    # a stale stage late in the order cannot be reached after partial work.
+    for entry in plan:
+        assert_plan_not_stale(entry)
 
     for entry in plan:
         print(f"[stage] {entry.stage}: {entry.detail}", flush=True)

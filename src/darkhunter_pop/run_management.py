@@ -284,6 +284,21 @@ class StageAction(str, Enum):
     RUN = "run"
     SKIP_CACHED = "skip_cached"
     SKIP_REASON = "skip_reason"
+    #: A completed/cached record exists, but its ``source_hash`` or artifact
+    #: fingerprint no longer matches what the current code/config produce. The
+    #: artifact is stale: neither reused nor silently re-run (ARCHITECTURE.md §5).
+    REFUSE_STALE = "refuse_stale"
+
+
+class StaleStageCacheError(RuntimeError):
+    """A cached stage artifact is stale w.r.t. current code/config.
+
+    Raised instead of silently reusing the stale artifact or silently
+    re-running the stage. Matches the run-management refusal convention used
+    for a config-checksum or gaiamock-version mismatch: the operator must pass
+    an explicit ``--force-rerun <stage>`` (which starts a new run file) to
+    proceed.
+    """
 
 
 # Canonical skip detail when ``config.triples.enabled`` is false (ARCHITECTURE.md §4).
@@ -574,6 +589,81 @@ def assert_stage_source_hash(
     return current
 
 
+def stale_cache_detail(
+    spec: StageSpec,
+    record: StageRecord,
+    current_artifact: Path,
+) -> str | None:
+    """Describe why a completed stage record is stale, or ``None`` if it is current.
+
+    Two independent staleness conditions are checked against the **current**
+    working tree and config, in the order they are reported:
+
+    1. ``record.source_hash`` differs from ``compute_source_hash(spec)`` — a
+       dependency module of this stage changed since the artifact was written.
+    2. The recorded artifact's **file name** (the config-subset fingerprint)
+       differs from ``current_artifact``'s — the stage's config subset now
+       fingerprints differently, so the recorded artifact was produced under a
+       different configuration. Only the file name is compared, never the full
+       path: ``new_run_for_force_rerun`` legitimately copies prior stage records
+       forward still pointing into the *parent* run's artifact directory, and
+       that is not staleness.
+
+    Parameters
+    ----------
+    spec:
+        Registered stage spec whose ``dependency_modules`` define the hash.
+    record:
+        The manifest's completion record for this stage. Callers only pass
+        records already known to be ``COMPLETED``/``CACHED`` with an existing
+        artifact file.
+    current_artifact:
+        Artifact path the current config would produce for this run
+        (``stage_artifact_path``).
+
+    Limitations
+    -----------
+    A record carrying no ``source_hash`` (pre-dating hash recording) cannot be
+    checked for condition 1 and is not reported stale on that basis; the
+    fingerprint check still applies. Upstream stages are deliberately **not**
+    checked here — per-stage hashing is scoped to the stage itself
+    (ARCHITECTURE.md §5), and human judgment owns upstream re-runs.
+    """
+    reasons: list[str] = []
+    recorded_hash = record.source_hash
+    if recorded_hash:
+        current_hash = compute_source_hash(spec)
+        if recorded_hash != current_hash:
+            reasons.append(
+                f"source_hash recorded={recorded_hash} current={current_hash}"
+            )
+    recorded_artifact = record.artifact_path
+    if recorded_artifact and Path(recorded_artifact).name != current_artifact.name:
+        reasons.append(
+            f"artifact fingerprint recorded={Path(recorded_artifact).name} "
+            f"current={current_artifact.name}"
+        )
+    if not reasons:
+        return None
+    return "; ".join(reasons)
+
+
+def assert_plan_not_stale(entry: StagePlanEntry) -> None:
+    """Raise ``StaleStageCacheError`` for a ``REFUSE_STALE`` plan entry.
+
+    No-op for every other action, so callers can invoke it unconditionally right
+    after ``plan_stage``.
+    """
+    if entry.action is StageAction.REFUSE_STALE:
+        raise StaleStageCacheError(
+            f"stale cached artifact for stage {entry.stage}: {entry.detail}\n"
+            "Refusing to reuse it and refusing to silently re-run. Re-run "
+            f"explicitly with --force-rerun {entry.stage} (which starts a new "
+            "run file), or select a run whose record matches the current code "
+            "and config."
+        )
+
+
 def plan_stage(
     spec: StageSpec,
     manifest: RunManifest,
@@ -582,10 +672,16 @@ def plan_stage(
     force_rerun: bool = False,
     skip_reason: str | None = None,
 ) -> StagePlanEntry:
-    """Decide whether a stage should run, use cache, or skip for another reason.
+    """Decide whether a stage should run, use cache, refuse, or skip.
 
     When ``skip_reason`` is omitted, ``stage_default_skip_reason`` may still skip
     (e.g. ``triples`` with ``enabled=false``). Explicit ``skip_reason`` wins.
+
+    A completed/cached record is honored as ``SKIP_CACHED`` **only** when its
+    recorded ``source_hash`` and artifact fingerprint still match what the
+    current code and config produce; otherwise the entry is ``REFUSE_STALE``, so
+    the run plan stays printable (``--dry-run`` reports the staleness) while
+    execution refuses via ``assert_plan_not_stale``.
     """
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
     effective_skip = (
@@ -614,6 +710,18 @@ def plan_stage(
         and record.artifact_path
         and Path(record.artifact_path).is_file()
     ):
+        stale = stale_cache_detail(spec, record, artifact)
+        if stale is not None:
+            return StagePlanEntry(
+                stage=spec.name,
+                action=StageAction.REFUSE_STALE,
+                detail=(
+                    f"stale cache: recorded artifact {record.artifact_path} "
+                    f"no longer matches current code/config ({stale}); "
+                    f"re-run with --force-rerun {spec.name}"
+                ),
+                artifact_path=Path(record.artifact_path),
+            )
         return StagePlanEntry(
             stage=spec.name,
             action=StageAction.SKIP_CACHED,
@@ -621,6 +729,23 @@ def plan_stage(
             artifact_path=Path(record.artifact_path),
         )
     if artifact.is_file():
+        # Artifact sits at the current config fingerprint by construction, so
+        # only the dependency hash can be stale here (and only if some record
+        # exists to compare against).
+        if record is not None and record.source_hash:
+            current_hash = compute_source_hash(spec)
+            if record.source_hash != current_hash:
+                return StagePlanEntry(
+                    stage=spec.name,
+                    action=StageAction.REFUSE_STALE,
+                    detail=(
+                        f"stale cache: output exists at {artifact} but "
+                        f"source_hash recorded={record.source_hash} "
+                        f"current={current_hash}; "
+                        f"re-run with --force-rerun {spec.name}"
+                    ),
+                    artifact_path=artifact,
+                )
         return StagePlanEntry(
             stage=spec.name,
             action=StageAction.SKIP_CACHED,

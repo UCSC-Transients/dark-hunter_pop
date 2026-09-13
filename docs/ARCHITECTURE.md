@@ -425,9 +425,32 @@ main program checks whether that exact output already exists; if so, it skips. A
 subset yields a different path (no silent overwrite / false cache hit). Cache paths and artifact
 details are recorded in the run file so resume can resolve inputs.
 
+**Cache validation (`run_management.plan_stage`)**: a `completed` / `cached` stage record whose
+artifact exists on disk is honored as `SKIP_CACHED` **only** when both of the following still hold
+against the *current* working tree and config:
+
+1. the record's `source_hash` equals `compute_source_hash(spec)` for the stage's declared
+   `dependency_modules`, and
+2. the record's artifact **file name** — the config-subset fingerprint — equals the one
+   `stage_artifact_path` produces now.
+
+Otherwise the plan entry is `StageAction.REFUSE_STALE`: the artifact is neither reused nor silently
+re-run. The run plan still prints (so `--dry-run` reports exactly which stage is stale and why),
+and `pipeline.execute_plan` validates the whole plan through `assert_plan_not_stale` **before any
+stage executes**, raising `StaleStageCacheError`. This matches the refusal convention already used
+for a config-checksum or gaiamock-version mismatch. The operator's escape hatch is an explicit
+`--force-rerun <stage>`, which bypasses the cache check and (for a completed stage) starts a new
+run file.
+
+Only the artifact *file name* is compared, never the full path: `new_run_for_force_rerun` copies
+prior stage records forward still pointing into the **parent** run's artifact directory, which is
+correct, not stale. A record carrying no `source_hash` at all cannot fail check 1 (only check 2
+applies to it).
+
 **Per-stage source hash**: each stage declares which package modules (and vendored pins) affect its
-answers. At stage completion the run file records `source_hash` for that dependency set. At stage
-start, only **that stage's** current hash is checked — not upstream stages. Reproducibility is the
+answers. At stage completion the run file records `source_hash` for that dependency set. Only
+**that stage's** current hash is checked — never upstream stages — both on the cached path (above)
+and, via `assert_stage_source_hash`, at stage start on the execute path. Reproducibility is the
 tuple `(stage_name, source_hash_at_run, config_subset, artifact_path)` per stage. Docstring /
 plotting / display-only modules are omitted from dependency lists so they do not spuriously
 invalidate science stages. Human judgment owns whether upstream stages must be force-re-run after
@@ -451,6 +474,7 @@ artifacts and re-run it, **amending** the same run file.
 | Stop between stages; resume at the next incomplete stage; config checksum OK; stage hash OK | **Amend** same run file |
 | Force-re-run of a completed stage | **New** run file (copy prior stage records) |
 | Config checksum mismatch | **Refuse**; new run required |
+| Cached stage record whose `source_hash` or artifact fingerprint no longer matches current code/config | **Refuse** (`REFUSE_STALE` → `StaleStageCacheError`); require explicit `--force-rerun <stage>` |
 | gaiamock version mismatch (gaiamock-using stage) | **Refuse** |
 | Mid-stage crash | Wipe partials; **amend**; re-run that stage |
 | Docstring / plotting-only edits | Ignored (not in stage dependency hash) |
@@ -474,7 +498,8 @@ version triple; per stage: `status`, `started_at`, `finished_at`, `source_hash`,
 **Required screen output at run start**: before any stage executes, print a run plan — which run
 file is used/created, and for every stage whether it will run or be skipped and why
 ("cached: output exists at `<path>`" / "running: output missing" / "running: force_rerun=True" /
-"skipped: rv_astrometry_gate_failed"), plus which config values/variant each stage will use.
+"skipped: rv_astrometry_gate_failed" / "stale cache: … re-run with `--force-rerun <stage>`"), plus
+which config values/variant each stage will use.
 Per-stage start/end status is reported during execution. (Exempt from caveman compression.)
 
 ## 6. DR3 / DR4 mode matrix
