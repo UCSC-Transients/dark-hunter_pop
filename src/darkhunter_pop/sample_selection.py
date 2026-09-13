@@ -44,11 +44,9 @@ from darkhunter_pop.config_schema import (
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
-    StageAction,
-    assert_plan_not_stale,
     mark_stage_finished,
     mark_stage_started,
-    plan_stage,
+    plan_and_guard,
     save_run_manifest,
     stage_artifact_path,
 )
@@ -1947,25 +1945,13 @@ def run_sample_selection_stage(
 ) -> RunManifest:
     """Execute or skip ``sample_selection`` and update the run manifest."""
     spec = STAGE_REGISTRY["sample_selection"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
-    assert_plan_not_stale(plan)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action is StageAction.SKIP_CACHED:
-        return manifest
-
-    if plan.action is StageAction.SKIP_REASON:
-        manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
-        save_run_manifest(manifest, run_path)
-        manifest = mark_stage_finished(
-            manifest,
-            spec,
-            status=StageStatus.SKIPPED,
-            reason=plan.detail,
-            artifact_path=None,
-        )
-        save_run_manifest(manifest, run_path)
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)

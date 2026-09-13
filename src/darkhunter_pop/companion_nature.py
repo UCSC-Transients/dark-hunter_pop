@@ -36,7 +36,7 @@ from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
     mark_stage_started,
-    plan_stage,
+    plan_and_guard,
     save_run_manifest,
     stage_artifact_path,
 )
@@ -1109,11 +1109,13 @@ def run_companion_nature_likelihood(
     """Execute ``companion_nature_likelihood`` → HDF5 + age-bin diagnostic."""
     require_dr3_active_for_v1(config)
     spec = STAGE_REGISTRY[STAGE_NAME]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action.name == "SKIP_CACHED":
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)

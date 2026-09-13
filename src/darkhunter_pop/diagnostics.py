@@ -99,7 +99,7 @@ from darkhunter_pop.run_management import (
     TRIPLES_DISABLED_SKIP_REASON,
     mark_stage_finished,
     mark_stage_started,
-    plan_stage,
+    plan_and_guard,
     save_run_manifest,
     stage_artifact_path,
 )
@@ -2624,11 +2624,13 @@ def run_diagnostics_stage(
 ) -> RunManifest:
     """Execute the ``diagnostics`` suite stage and update the run manifest."""
     spec = STAGE_REGISTRY["diagnostics"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action.name == "SKIP_CACHED":
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)

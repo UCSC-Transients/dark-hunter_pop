@@ -442,6 +442,18 @@ for a config-checksum or gaiamock-version mismatch. The operator's escape hatch 
 `--force-rerun <stage>`, which bypasses the cache check and (for a completed stage) starts a new
 run file.
 
+**Stage runners use `run_management.plan_and_guard`, never a bare `plan_stage`** (issues #167,
+#172). A runner invoked directly — outside `pipeline.execute_plan`, as tests and recovery scripts
+do — gets the identical contract: `REFUSE_STALE` raises `StaleStageCacheError` before any manifest
+mutation or artifact write, `SKIP_CACHED` returns the manifest untouched, `SKIP_REASON` records
+`running` then `skipped` (plan detail as the reason, no artifact) on the run file, and only `RUN`
+proceeds into science. An unrecognized `StageAction` raises `ValueError` instead of defaulting to
+"run", so a future action cannot silently reintroduce the fallthrough. `plan_and_guard` returns a
+`StageGuardOutcome` (`plan`, `manifest`, `proceed`); the runner still owns `mark_stage_started`,
+the artifact write, and `mark_stage_finished`. The plan-printing path (`build_stage_plan` /
+`format_run_plan`, used by `--dry-run`) keeps calling `plan_stage` directly, so it reports a stale
+stage without raising.
+
 Only the artifact *file name* is compared, never the full path: `new_run_for_force_rerun` copies
 prior stage records forward still pointing into the **parent** run's artifact directory, which is
 correct, not stale. A record carrying no `source_hash` at all cannot fail check 1 (only check 2
