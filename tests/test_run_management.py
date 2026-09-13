@@ -32,7 +32,7 @@ from darkhunter_pop.run_management import (
     stage_artifact_path,
     validate_registry_inputs_from,
 )
-from darkhunter_pop.schemas import StageStatus
+from darkhunter_pop.schemas import StageRecord, StageStatus
 
 pytestmark = pytest.mark.unit
 
@@ -241,6 +241,182 @@ def test_triples_default_skip_in_plan_stage() -> None:
     entry = plan_stage(STAGE_REGISTRY["triples"], manifest, cfg)
     assert entry.action is StageAction.SKIP_REASON
     assert entry.detail == TRIPLES_DISABLED_SKIP_REASON
+
+
+def _completed_record(
+    stage_name: str,
+    *,
+    artifact: Path,
+    source_hash: str,
+) -> StageRecord:
+    """Build a ``COMPLETED`` stage record pointing at ``artifact``."""
+    return StageRecord(
+        stage_name=stage_name,
+        status=StageStatus.COMPLETED,
+        source_hash=source_hash,
+        artifact_path=str(artifact),
+    )
+
+
+def test_stale_source_hash_is_not_treated_as_cached(tmp_path: Path) -> None:
+    """Regression for #157.
+
+    A ``completed`` record whose artifact exists on disk but whose recorded
+    ``source_hash`` predates a dependency-module change must NOT plan as
+    ``SKIP_CACHED``. It refuses (``REFUSE_STALE``), and ``--force-rerun`` is
+    the documented escape hatch.
+    """
+    cfg = load_config()
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    manifest = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["sample_selection"]
+    artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"hdf5-placeholder")
+
+    current = compute_source_hash(spec)
+    fresh = manifest.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name, artifact=artifact, source_hash=current
+                )
+            }
+        }
+    )
+    assert plan_stage(spec, fresh, cfg).action is StageAction.SKIP_CACHED
+
+    stale = manifest.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name, artifact=artifact, source_hash="0" * 64
+                )
+            }
+        }
+    )
+    entry = plan_stage(spec, stale, cfg)
+    assert entry.action is StageAction.REFUSE_STALE
+    assert entry.action is not StageAction.SKIP_CACHED
+    assert "source_hash" in entry.detail
+    assert "--force-rerun" in entry.detail
+    with pytest.raises(run_management.StaleStageCacheError, match="stale cached"):
+        run_management.assert_plan_not_stale(entry)
+
+    # Explicit force-rerun is the documented way through.
+    forced = plan_stage(spec, stale, cfg, force_rerun=True)
+    assert forced.action is StageAction.RUN
+    run_management.assert_plan_not_stale(forced)
+
+
+def test_stale_artifact_fingerprint_is_not_treated_as_cached(tmp_path: Path) -> None:
+    """Regression for #157: a config change that re-fingerprints the artifact
+    must refuse rather than reuse the record's old artifact."""
+    cfg = load_config()
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    manifest = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["mass_derivation_bulk"]
+    old_artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
+    old_artifact.parent.mkdir(parents=True, exist_ok=True)
+    old_artifact.write_bytes(b"hdf5-placeholder")
+    recorded = manifest.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name,
+                    artifact=old_artifact,
+                    source_hash=compute_source_hash(spec),
+                )
+            }
+        }
+    )
+    assert plan_stage(spec, recorded, cfg).action is StageAction.SKIP_CACHED
+
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.mass_calibration.sigma_logM = 0.05
+    assert (
+        stage_artifact_path(tweaked, spec, run_id=manifest.run_id).name
+        != old_artifact.name
+    )
+    entry = plan_stage(spec, recorded, tweaked)
+    assert entry.action is StageAction.REFUSE_STALE
+    assert "artifact fingerprint" in entry.detail
+
+
+def test_copied_forward_record_from_parent_run_is_still_cached(
+    tmp_path: Path,
+) -> None:
+    """A force-rerun child run copies prior records forward pointing into the
+    PARENT run's artifact directory. Only the fingerprint (file name) is
+    compared, so that must not read as stale (#157)."""
+    cfg = load_config()
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    parent = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["data_acquisition"]
+    parent_artifact = stage_artifact_path(cfg, spec, run_id=parent.run_id)
+    parent_artifact.parent.mkdir(parents=True, exist_ok=True)
+    parent_artifact.write_bytes(b"hdf5-placeholder")
+    parent = parent.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name,
+                    artifact=parent_artifact,
+                    source_hash=compute_source_hash(spec),
+                )
+            }
+        }
+    )
+    child = create_run_manifest(
+        cfg,
+        parent_run_id=parent.run_id,
+        stages_seed=copy_stages_before(parent, "mass_derivation_bulk"),
+        when=datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert child.run_id != parent.run_id
+    # The copied-forward record still points into the parent's artifact dir.
+    recorded = child.stages[spec.name].artifact_path or ""
+    assert parent.run_id in recorded
+    assert child.run_id not in recorded
+    entry = plan_stage(spec, child, cfg)
+    assert entry.action is StageAction.SKIP_CACHED
+
+
+def test_execute_plan_refuses_stale_before_running_anything(tmp_path: Path) -> None:
+    """#157: ``execute_plan`` must raise on a stale entry before any runner
+    executes — including a stale stage late in ``STAGE_ORDER``."""
+    from darkhunter_pop.pipeline import execute_plan
+    from darkhunter_pop.run_management import StagePlanEntry
+
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    called: list[str] = []
+
+    def _runner(current, config, *, run_path, force_rerun):  # type: ignore[no-untyped-def]
+        called.append("ran")
+        return current
+
+    plan = [
+        StagePlanEntry(
+            stage="data_acquisition",
+            action=StageAction.RUN,
+            detail="running: output missing",
+        ),
+        StagePlanEntry(
+            stage="sample_selection",
+            action=StageAction.REFUSE_STALE,
+            detail="stale cache: source_hash recorded=0 current=1",
+        ),
+    ]
+    with pytest.raises(run_management.StaleStageCacheError):
+        execute_plan(
+            manifest,
+            cfg,
+            plan,
+            run_path=tmp_path / "run.yaml",
+            runners={"data_acquisition": _runner},
+        )
+    assert called == []
 
 
 def test_list_incomplete_sorted_by_run_id_not_mtime(tmp_path: Path) -> None:
