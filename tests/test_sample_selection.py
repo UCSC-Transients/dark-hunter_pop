@@ -37,7 +37,9 @@ from darkhunter_pop.run_management import (
     SAMPLE_SELECTION_NO_SAMPLES_SKIP_REASON,
     STAGE_ORDER,
     STAGE_REGISTRY,
+    StaleStageCacheError,
     StageAction,
+    compute_source_hash,
     create_run_manifest,
     plan_stage,
     save_run_manifest,
@@ -565,6 +567,56 @@ def test_stage_runner_skip_and_run(tmp_path: Path) -> None:
     assert rec.status is StageStatus.COMPLETED
     assert rec.artifact_path is not None
     assert Path(rec.artifact_path).is_file()
+
+
+def test_stage_runner_refuses_stale_cache_instead_of_silently_rerunning(
+    tmp_path: Path,
+) -> None:
+    """Regression for #167.
+
+    ``run_sample_selection_stage`` calls ``plan_stage`` directly (not via
+    ``pipeline.execute_plan``), so it must itself refuse a ``REFUSE_STALE``
+    plan entry rather than falling through its ``SKIP_CACHED`` / ``SKIP_REASON``
+    checks into re-running the stage. Before the fix, a stale ``source_hash``
+    fell straight into the run branch and silently re-ran/overwrote the
+    artifact; the stage runner must instead raise ``StaleStageCacheError`` and
+    must not mutate the run manifest (no ``started``/``finished`` record
+    written for this stage).
+    """
+    cfg = _pipeline_with_samples(_entry("paper_a", "paper_a.yaml"))
+    cfg.paths.artifact_root = str(tmp_path / "output")
+    manifest = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["sample_selection"]
+    artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"hdf5-placeholder")
+
+    stale_record = StageRecord(
+        stage_name=spec.name,
+        status=StageStatus.COMPLETED,
+        source_hash="0" * 64,
+        artifact_path=str(artifact),
+    )
+    manifest = manifest.model_copy(
+        update={"stages": {spec.name: stale_record}}
+    )
+    run_path = tmp_path / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+
+    # Confirm the fixture actually reaches REFUSE_STALE before trusting the
+    # stage-runner assertion below.
+    assert plan_stage(spec, manifest, cfg).action is StageAction.REFUSE_STALE
+
+    with pytest.raises(StaleStageCacheError):
+        run_sample_selection_stage(
+            manifest, cfg, run_path=run_path, rows=_paper_a_rows()
+        )
+
+    # The manifest on disk must be untouched: still the stale COMPLETED record,
+    # never overwritten by a silent re-run.
+    reloaded = yaml.safe_load(run_path.read_text(encoding="utf-8"))
+    assert reloaded["stages"][spec.name]["source_hash"] == "0" * 64
+    assert reloaded["stages"][spec.name]["status"] == "completed"
 
 
 def test_illegal_expression_rejected() -> None:

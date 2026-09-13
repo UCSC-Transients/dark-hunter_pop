@@ -21,6 +21,7 @@ from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     StageAction,
+    assert_plan_not_stale,
     mark_stage_finished,
     mark_stage_started,
     plan_stage,
@@ -196,6 +197,7 @@ def run_triples_stage(
     """
     spec = STAGE_REGISTRY["triples"]
     plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    assert_plan_not_stale(plan)
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
 
     if plan.action is StageAction.SKIP_CACHED:
