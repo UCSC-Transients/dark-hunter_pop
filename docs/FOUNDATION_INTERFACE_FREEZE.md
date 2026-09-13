@@ -134,8 +134,9 @@ comparison catalog loaders); it is listed in the ``diagnostics`` stage
 Each stage: `dependency_modules` → `source_hash`; `config_fingerprint_keys` → artifact path;
 optional `uses_gaiamock`.
 
-Helpers: `resolve_run_file`, `plan_stage`, `format_run_plan`, `new_run_for_force_rerun`,
-`purge_run`, `compute_source_hash`, `assert_stage_source_hash`.
+Helpers: `resolve_run_file`, `plan_stage`, `plan_and_guard` (→ `StageGuardOutcome`; the stage-runner
+entry point, see ARCHITECTURE.md §5), `format_run_plan`, `new_run_for_force_rerun`, `purge_run`,
+`compute_source_hash`, `assert_stage_source_hash`.
 
 ---
 
