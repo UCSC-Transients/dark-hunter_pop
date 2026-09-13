@@ -37,8 +37,6 @@ from darkhunter_pop.forward_model import (
 from darkhunter_pop.gaiamock_vendor import GaiamockModVersions, is_overlay_ready
 from darkhunter_pop.schemas import ActiveDRMode
 
-pytestmark = pytest.mark.unit
-
 
 def _orbital_cascade(
     *,
@@ -79,6 +77,7 @@ def _orbital_cascade(
     ]
 
 
+@pytest.mark.unit
 def test_config_loads_selection_function_fragment() -> None:
     cfg = load_config()
     assert cfg.selection_function_astrometric.extinction_model is ExtinctionModel.COMBINED19
@@ -90,6 +89,7 @@ def test_config_loads_selection_function_fragment() -> None:
     require_dr3_active_for_v1(cfg)
 
 
+@pytest.mark.unit
 def test_draw_mock_binary_params_spreads_elbadry_prior() -> None:
     cfg = load_config()
     pop = cfg.selection_function_astrometric.mock_population
@@ -101,6 +101,7 @@ def test_draw_mock_binary_params_spreads_elbadry_prior() -> None:
     assert sum(d.faint_draw for d in draws) >= 10
 
 
+@pytest.mark.unit
 def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
     cfg = load_config()
     pop = cfg.selection_function_astrometric.mock_population
@@ -120,6 +121,7 @@ def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
     assert not rec.accepted_orbital
 
 
+@pytest.mark.unit
 def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
     cfg = load_config()
     panels_ref, st_ref = load_reference_panels(cfg)
@@ -137,6 +139,7 @@ def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
     assert set(st) == set(SOLUTION_TYPE_LABELS)
 
 
+@pytest.mark.unit
 def test_classify_cascade_sentinels() -> None:
     rec = classify_cascade_result([0.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01)
     assert rec.solution_type is SolutionType.INSUFFICIENT_VISIBILITY
@@ -151,6 +154,7 @@ def test_classify_cascade_sentinels() -> None:
     assert rec9.solution_type is SolutionType.NINE_PARAMETER
 
 
+@pytest.mark.unit
 def test_classify_orbital_passes_dr3_cuts() -> None:
     rec = classify_cascade_result(
         _orbital_cascade(),
@@ -164,6 +168,7 @@ def test_classify_orbital_passes_dr3_cuts() -> None:
     assert rec.inv_parallax_mas_inv == pytest.approx(0.2)
 
 
+@pytest.mark.unit
 def test_classify_orbital_fails_cuts() -> None:
     bad = _orbital_cascade()
     bad[17] = 0.01
@@ -175,6 +180,7 @@ def test_classify_orbital_fails_cuts() -> None:
     assert not rec_bad.accepted_orbital
 
 
+@pytest.mark.unit
 def test_classify_negative_parallax_not_sentinel_is_failed_cuts() -> None:
     bad = _orbital_cascade()
     bad[0] = -0.12
@@ -185,6 +191,7 @@ def test_classify_negative_parallax_not_sentinel_is_failed_cuts() -> None:
     assert not rec.accepted_orbital
 
 
+@pytest.mark.unit
 def test_solution_type_fractions_sum_to_one() -> None:
     records = [
         MockRealizationRecord(SolutionType.FIVE_PARAMETER, False),
@@ -197,6 +204,7 @@ def test_solution_type_fractions_sum_to_one() -> None:
     assert frac["twelve_parameter_orbital"] == pytest.approx(0.5)
 
 
+@pytest.mark.unit
 def test_six_panel_validation_identical_passes() -> None:
     rng = np.random.default_rng(0)
     n = 200
@@ -225,6 +233,7 @@ def test_six_panel_validation_identical_passes() -> None:
     assert result.all_passed
 
 
+@pytest.mark.unit
 def test_solution_type_validation_pass_fail() -> None:
     records = [
         MockRealizationRecord(SolutionType.FIVE_PARAMETER, False),
@@ -238,6 +247,7 @@ def test_solution_type_validation_pass_fail() -> None:
     assert ok.passed is True
 
 
+@pytest.mark.unit
 def test_load_reference_panels_fixture() -> None:
     cfg = load_config()
     panels, st = load_reference_panels(cfg)
@@ -246,6 +256,7 @@ def test_load_reference_panels_fixture() -> None:
     assert set(st) == set(SOLUTION_TYPE_LABELS)
 
 
+@pytest.mark.unit
 def test_write_artifact_round_trip(tmp_path: Path) -> None:
     versions = GaiamockModVersions(
         gaiamock_mod_release="gaiamock-mod-v1",
@@ -282,6 +293,7 @@ def test_write_artifact_round_trip(tmp_path: Path) -> None:
         assert bool(handle.attrs["validation_gate_passed"])
 
 
+@pytest.mark.unit
 def test_format_validation_gate_report() -> None:
     cfg = load_config()
     panels, st = load_reference_panels(cfg)
@@ -316,6 +328,7 @@ def test_format_validation_gate_report() -> None:
     assert "overall_passed" in text
 
 
+@pytest.mark.unit
 def test_dr4_refused() -> None:
     cfg = load_config()
     bad = cfg.model_copy(update={"active_dr_mode": ActiveDRMode.DR4})
@@ -347,9 +360,27 @@ def test_run_selection_function_astrometric_smoke(tmp_path: Path) -> None:
 @pytest.mark.gaiamock
 @pytest.mark.slow
 def test_validation_gate_elbadry_prior_against_fixture(tmp_path: Path) -> None:
-    """El-Badry prior mocks should populate insufficient_visibility and accepted orbits."""
+    """El-Badry prior mocks should populate insufficient_visibility and accepted orbits.
+
+    Pins the legacy ``numpy.random`` global state before invoking the gaiamock
+    cascade. ``vendor/gaiamock/gaiamock_mod.py`` draws its per-epoch measurement
+    noise, its random 10% observation rejection, and its cascade-fit
+    initial-guess perturbations via the legacy ``numpy.random.*`` module-level
+    functions -- an RNG stream entirely separate from the
+    ``np.random.default_rng(mock_population.random_seed)`` Generator this
+    pipeline seeds explicitly for its own mock-population draws (gaiamock is
+    vendored and must not be reimplemented, see ``docs/GAIAMOCK_API.md``, so
+    that internal RNG usage cannot be swapped for a Generator here). Without
+    pinning the legacy global state, this test's accepted-orbital count
+    silently depends on how many legacy ``numpy.random`` calls other tests
+    already made earlier in the same process -- exactly the mechanism that let
+    it fail once in a full-suite run and pass immediately after in isolation.
+    Seeding here makes the outcome deterministic and independent of test
+    order/collection; it does not change the statistical assertions below.
+    """
     if not is_overlay_ready():
         pytest.skip("run scripts/install_gaiamock_mod.sh first")
+    np.random.seed(20260908)
     cfg = load_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.selection_function_astrometric.extinction_model = ExtinctionModel.NONE
@@ -386,6 +417,7 @@ def test_run_mock_injections_returns_records() -> None:
     assert len(g_mag) == 1
 
 
+@pytest.mark.unit
 def test_config_loads_selection_function_followup_fragment() -> None:
     cfg = load_config()
     fu = cfg.selection_function_followup
@@ -398,6 +430,7 @@ def test_config_loads_selection_function_followup_fragment() -> None:
     assert fu.target_list_sheet.revision_history_incompleteness_caveat is True
 
 
+@pytest.mark.unit
 def test_followup_observability_and_tiers() -> None:
     from darkhunter_pop.forward_model import (
         ad_hoc_literature_probability,
@@ -451,6 +484,7 @@ def test_followup_observability_and_tiers() -> None:
     assert 0 < p_adhoc <= 1
 
 
+@pytest.mark.unit
 def test_mine_adoption_dates_and_weekly_snapshot(tmp_path: Path) -> None:
     from darkhunter_pop.forward_model import (
         SHEETS_REVISION_INCOMPLETENESS_CAVEAT,
@@ -491,6 +525,7 @@ def test_mine_adoption_dates_and_weekly_snapshot(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.unit
 def test_fetch_sheet_revision_exports_injectable(tmp_path: Path) -> None:
     from darkhunter_pop.forward_model import fetch_sheet_revision_exports
 
@@ -516,6 +551,7 @@ def test_fetch_sheet_revision_exports_injectable(tmp_path: Path) -> None:
     assert exports[0][0] == "2024-01-10"
 
 
+@pytest.mark.unit
 def test_run_selection_function_followup_writes_hdf5(tmp_path: Path) -> None:
     from darkhunter_pop.forward_model import (
         format_followup_calibration_report,
@@ -540,6 +576,7 @@ def test_run_selection_function_followup_writes_hdf5(tmp_path: Path) -> None:
     assert "sheets_caveat" in report
 
 
+@pytest.mark.unit
 def test_followup_dr4_refused(tmp_path: Path) -> None:
     from darkhunter_pop.forward_model import run_selection_function_followup
 
