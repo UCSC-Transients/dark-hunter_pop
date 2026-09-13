@@ -15,6 +15,9 @@ plots/
 *.npy
 !tests/fixtures/*
 
+# Ad hoc script run logs/pids (e.g. scripts/attach_mc_to_selection_cache.py) — not manifest data
+runs/logs/
+
 # Large external / local staging data (never commit)
 data/
 mod_files/

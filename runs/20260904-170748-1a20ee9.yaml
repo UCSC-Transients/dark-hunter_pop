@@ -1,0 +1,238 @@
+run_id: 20260904-170748-1a20ee9
+created_at: '2026-09-04T17:07:48.732425Z'
+parent_run_id: 20260904-152655-674c989
+config_checksum: 3631bb45f1269eac96040e210adf4ee5a04453f30ec1c49ae0c84ef3d1e8d5c1
+active_dr_mode: dr3
+artifact_root: output
+gaiamock_mod_release: gaiamock-mod-v1
+gaiamock_mod_sha256: null
+gaiamock_git_commit: null
+random_seeds: {}
+stages:
+  data_acquisition:
+    stage_name: data_acquisition
+    status: completed
+    started_at: '2026-09-04T15:27:23.578881Z'
+    finished_at: '2026-09-04T15:30:57.475764Z'
+    source_hash: 719c8d7858f3ef22b262ca3f440f14e39d74d5f17b0807b53581179cf6e3b2b5
+    config_subset:
+      active_dr_mode: dr3
+      dr3.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr4.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr3.external_photometry_crossmatches:
+      - band: NUV
+        neighbour_table: gaiadr3.galex_ais_best_neighbour
+        catalog_table: gaiadr3.galex_ais_dr3
+        mag_column: nuv_mag
+        mag_err_column: nuv_mag_err
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: g_mean_psf_mag
+        mag_err_column: g_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: r_mean_psf_mag
+        mag_err_column: r_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: i_mean_psf_mag
+        mag_err_column: i_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: z_mean_psf_mag
+        mag_err_column: z_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: y_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: y_mean_psf_mag
+        mag_err_column: y_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: J
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: j_m
+        mag_err_column: j_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: H
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: h_m
+        mag_err_column: h_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: Ks
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: ks_m
+        mag_err_column: ks_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: W1
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w1mpro
+        mag_err_column: w1mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: W2
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w2mpro
+        mag_err_column: w2mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: u
+        mag_err_column: err_u
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: g
+        mag_err_column: err_g
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: r
+        mag_err_column: err_r
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: i
+        mag_err_column: err_i
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: z
+        mag_err_column: err_z
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_decam
+        neighbour_table: gaiadr3.decam_best_neighbour
+        catalog_table: gaiadr3.decam_dr2
+        mag_column: mag_u
+        mag_err_column: magerr_u
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      dr4.external_photometry_crossmatches: []
+      dr3.nss_table: gaiadr3.nss_two_body_orbit
+      dr4.nss_table: gaiadr4.nss_two_body_orbit
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/data_acquisition/6a1e0a1176c60bcb.h5
+    code_commit: 674c989
+    force_rerun: true
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  mass_derivation_bulk:
+    stage_name: mass_derivation_bulk
+    status: completed
+    started_at: '2026-09-04T15:32:28.538635Z'
+    finished_at: '2026-09-04T15:32:58.629286Z'
+    source_hash: 1835878fd3ab906d862f5af225f9f0ff94509882f0d6d14c2e55251b1f78e51d
+    config_subset:
+      mass_calibration:
+        method: TAG10
+        sigma_logM: 0.027
+        sigma_logR: 0.014
+        santos_correction: true
+        delta_M_Ch_msun: 0.0
+      mass_derivation.dark_companion_flux_ratio: 0.0
+      classification.M_MIN_msun: 1.1
+      classification.n_sigma_mass_cut: 2.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/mass_derivation_bulk/dbcfab1b48af00a2.h5
+    code_commit: 674c989
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: gaiamock-mod-v1
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null

@@ -1,0 +1,855 @@
+run_id: 20260826-233413-a1a20a9
+created_at: '2026-08-26T23:34:13.451235Z'
+parent_run_id: null
+config_checksum: 9a59269ed05292208f0265e21af646196093b4209763afd7a6a5ff4eb2ad76ca
+active_dr_mode: dr3
+artifact_root: output
+gaiamock_mod_release: gaiamock-mod-v1
+gaiamock_mod_sha256: null
+gaiamock_git_commit: null
+stages:
+  data_acquisition:
+    stage_name: data_acquisition
+    status: completed
+    started_at: '2026-09-02T07:50:36.585627Z'
+    finished_at: '2026-09-02T07:53:57.967532Z'
+    source_hash: 27d31a043fe7cbd82760265794451c4ced45fe27ad742c7db1191fe585f6f16f
+    config_subset:
+      active_dr_mode: dr3
+      dr3.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr4.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr3.external_photometry_crossmatches:
+      - band: NUV
+        neighbour_table: gaiadr3.galex_ais_best_neighbour
+        catalog_table: gaiadr3.galex_ais_dr3
+        mag_column: nuv_mag
+        mag_err_column: nuv_mag_err
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: g_mean_psf_mag
+        mag_err_column: g_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: r_mean_psf_mag
+        mag_err_column: r_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: i_mean_psf_mag
+        mag_err_column: i_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: z_mean_psf_mag
+        mag_err_column: z_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: y_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: y_mean_psf_mag
+        mag_err_column: y_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: J
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: j_m
+        mag_err_column: j_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: H
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: h_m
+        mag_err_column: h_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: Ks
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: ks_m
+        mag_err_column: ks_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: W1
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w1mpro
+        mag_err_column: w1mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: W2
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w2mpro
+        mag_err_column: w2mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: u
+        mag_err_column: err_u
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: g
+        mag_err_column: err_g
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: r
+        mag_err_column: err_r
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: i
+        mag_err_column: err_i
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: z
+        mag_err_column: err_z
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_decam
+        neighbour_table: gaiadr3.decam_best_neighbour
+        catalog_table: gaiadr3.decam_dr2
+        mag_column: mag_u
+        mag_err_column: magerr_u
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      dr4.external_photometry_crossmatches: []
+      dr3.nss_table: gaiadr3.nss_two_body_orbit
+      dr4.nss_table: gaiadr4.nss_two_body_orbit
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/data_acquisition/6a1e0a1176c60bcb.h5
+    code_commit: d81cfaf
+    force_rerun: true
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  mass_derivation_bulk:
+    stage_name: mass_derivation_bulk
+    status: completed
+    started_at: '2026-08-27T03:14:33.346782Z'
+    finished_at: '2026-09-02T05:35:55.909349Z'
+    source_hash: 0a469fddea8e72344c9d1a2739729c561943d813e4e81493b0ca4769634bb10a
+    config_subset:
+      mass_calibration:
+        method: TAG10
+        sigma_logM: 0.027
+        sigma_logR: 0.014
+        santos_correction: true
+        delta_M_Ch_msun: 0.0
+      mass_derivation.dark_companion_flux_ratio: 0.0
+      classification.M_MIN_msun: 1.1
+      classification.n_sigma_mass_cut: 2.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/mass_derivation_bulk/dbcfab1b48af00a2.h5
+    code_commit: a6a7c55
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: gaiamock-mod-v1
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  mass_derivation_refined:
+    stage_name: mass_derivation_refined
+    status: completed
+    started_at: '2026-08-27T05:00:55.847971Z'
+    finished_at: '2026-08-27T05:00:57.585992Z'
+    source_hash: 4b141d74f4a71de998ed07b593a81cdddb55e891d7b154c7991e6258b302e37d
+    config_subset:
+      mass_calibration:
+        method: TAG10
+        sigma_logM: 0.027
+        sigma_logR: 0.014
+        santos_correction: true
+        delta_M_Ch_msun: 0.0
+      mass_derivation:
+        dark_companion_flux_ratio: 0.0
+        uberms_m1_prior_max_msun: 3.0
+        uberms_m1_watchlist_fraction: 0.95
+        information_gain_sigma_floor_msun: 0.01
+        sed_queue_max_stars: null
+        require_sed_package: false
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/mass_derivation_refined/af6c0c46ced9d5ac.h5
+    code_commit: 7ffae17
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  rv_astrometry_gate:
+    stage_name: rv_astrometry_gate
+    status: completed
+    started_at: '2026-08-27T05:01:56.446757Z'
+    finished_at: '2026-08-27T05:01:58.628381Z'
+    source_hash: 363bd59d129b7ea9b120d34ab0b7b24be455e951c525aaff5bef0df1f8bc29db
+    config_subset:
+      rv_consistency:
+        chi2_dof_threshold: 5.0
+        min_epochs_per_instrument: 3
+        min_epochs_total: 3
+        jitter_max_kms: 10.0
+        sb2_period_frac_tol: 0.1
+        sb2_ecc_abs_tol: 0.15
+        joker_seed_variant: full
+        joint_prior_period_frac: 0.05
+        joint_prior_ecc_abs: 0.05
+        joint_prior_omega_rad: 0.2
+        joint_prior_t_peri_day: 5.0
+        joint_fit_max_nfev: 200
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/rv_astrometry_gate/50bf09a3f5a61821.h5
+    code_commit: 7ffae17
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  joint_orbit_fit:
+    stage_name: joint_orbit_fit
+    status: skipped
+    started_at: '2026-08-27T05:02:39.055677Z'
+    finished_at: '2026-08-27T05:02:40.827394Z'
+    source_hash: 363bd59d129b7ea9b120d34ab0b7b24be455e951c525aaff5bef0df1f8bc29db
+    config_subset:
+      rv_consistency:
+        chi2_dof_threshold: 5.0
+        min_epochs_per_instrument: 3
+        min_epochs_total: 3
+        jitter_max_kms: 10.0
+        sb2_period_frac_tol: 0.1
+        sb2_ecc_abs_tol: 0.15
+        joker_seed_variant: full
+        joint_prior_period_frac: 0.05
+        joint_prior_ecc_abs: 0.05
+        joint_prior_omega_rad: 0.2
+        joint_prior_t_peri_day: 5.0
+        joint_fit_max_nfev: 200
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/joint_orbit_fit/50bf09a3f5a61821.h5
+    code_commit: 7ffae17
+    force_rerun: false
+    reason: rv_astrometry_gate_failed
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  companion_nature_likelihood:
+    stage_name: companion_nature_likelihood
+    status: completed
+    started_at: '2026-08-27T05:05:45.799039Z'
+    finished_at: '2026-08-27T05:05:47.863333Z'
+    source_hash: 3c51c237cac80e34afe96b4abf0b5d409745808af33e731081388d1adc389c98
+    config_subset:
+      companion_nature:
+        delta_bic_threshold: 10.0
+        evidence_scale: 1.0
+        weight_floor: 1.0e-06
+        dark_to_bh_fraction: 0.5
+        outlier_gate_blend: 0.8
+        use_photometry: true
+        use_xp: true
+        use_sb2: true
+        default_mag_err: 0.05
+        n_params_dark: 0
+        n_params_wd: 2
+        n_params_other: 2
+        wd_mg_zero_point: 12.0
+        wd_mg_mass_slope: -2.5
+        other_mg_zero_point: 5.0
+        other_mg_mass_slope: -5.0
+        xp_chi2_dark_key: xp_chi2_dark
+        xp_chi2_wd_key: xp_chi2_wd
+        xp_chi2_other_key: xp_chi2_other
+        xp_n_data_key: xp_n_data
+        phot_chi2_dark_key: phot_chi2_dark
+        phot_chi2_wd_key: phot_chi2_wd
+        phot_chi2_other_key: phot_chi2_other
+        phot_n_data_key: phot_n_data
+        primary_mg_zero_point: 4.5
+        primary_mg_mass_slope: -5.0
+        sb2_wd_likeness_key: sb2_wd_likeness
+        sb2_score_n_data: 4
+        sb2_dark_chi2_per_datum: 25.0
+        sb2_type_chi2_scale: 9.0
+        default_tier: fast
+        full_tier_ambiguity_delta_bic: 5.0
+        full_tier_m2_msun_min: null
+        full_queue_max: null
+        full_tier_grid_factor: 3
+        age_bin_edges_gyr:
+        - 0.0
+        - 1.0
+        - 3.0
+        - 10.0
+        - 14.0
+        age_extras_key: age_gyr
+      physics.cooling_tracks: bedard
+      physics.cooling_atmosphere: DA
+      physics.cooling_tracks_path: null
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/companion_nature_likelihood/5c7d43921b9f1198.h5
+    code_commit: 7ffae17
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  triples:
+    stage_name: triples
+    status: skipped
+    started_at: '2026-08-27T05:06:44.120106Z'
+    finished_at: '2026-08-27T05:06:44.148825Z'
+    source_hash: ae92915ed5a133c9478d71cb7d59d50d401679059fd418767d6e8fe3018b0979
+    config_subset:
+      triples:
+        enabled: false
+        tess_variability_channel: true
+        rotation_consistency_channel: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/triples/fa3e8689b68cc523.h5
+    code_commit: 7ffae17
+    force_rerun: false
+    reason: triples.enabled=false
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  selection_function_astrometric:
+    stage_name: selection_function_astrometric
+    status: completed
+    started_at: '2026-09-02T06:14:43.312356Z'
+    finished_at: '2026-09-02T06:26:33.598724Z'
+    source_hash: 0dfc8b60fc9faeb5d54df66227da3764acd9ea2bcab6e074ab75f079cda4d554
+    config_subset:
+      gaiamock:
+        mod_release: gaiamock-mod-v1
+        mod_sha256: null
+        git_commit: null
+      active_dr_mode: dr3
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      selection_function_astrometric:
+        extinction_model: combined19
+        validation_gate:
+          ks_pvalue_min: 0.01
+          solution_type_fraction_max_abs_delta: 0.05
+          reference_path: null
+        mock_population:
+          period_days: 1000.0
+          Mg_tot: 4.0
+          flux_ratio: 0.01
+          m1_msun: 1.0
+          m2_msun: 0.5
+          eccentricity: 0.3
+          N_realizations: 100
+          ruwe_min: 1.4
+          skip_acceleration: false
+          hz_pc: 300.0
+      dr3.selection_function_astrometric:
+        d_min_pc: 100.0
+        d_max_pc: 500.0
+      dr4.selection_function_astrometric:
+        d_min_pc: 100.0
+        d_max_pc: 500.0
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/selection_function_astrometric/ea471a54ec9c2d78.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: gaiamock-mod-v1
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  selection_function_followup:
+    stage_name: selection_function_followup
+    status: completed
+    started_at: '2026-09-02T06:26:33.615388Z'
+    finished_at: '2026-09-02T06:26:33.665576Z'
+    source_hash: 0dfc8b60fc9faeb5d54df66227da3764acd9ea2bcab6e074ab75f079cda4d554
+    config_subset:
+      active_dr_mode: dr3
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      selection_function_followup:
+        target_lists:
+        - name: andrews
+          adoption_dates_path: config/target_lists/derived/andrews_adoption_dates.yaml
+          cooler_star_preference: true
+        - name: elbadry
+          adoption_dates_path: config/target_lists/derived/elbadry_adoption_dates.yaml
+          cooler_star_preference: true
+        - name: accel_jerk
+          adoption_dates_path: config/target_lists/derived/accel_jerk_adoption_dates.yaml
+          cooler_star_preference: false
+        declination_min_deg: -35.0
+        declination_max_deg: 90.0
+        g_mag_bright_limit: 5.0
+        g_mag_faint_limit: 15.0
+        cooler_star_teff_max_k: 6500.0
+        cooler_star_weight: 1.5
+        major_surveys:
+        - name: APOGEE
+          selection_function_path: config/target_lists/survey_sfs/apogee.yaml
+          tier: documented
+        - name: RAVE
+          selection_function_path: config/target_lists/survey_sfs/rave.yaml
+          tier: documented
+        - name: LAMOST
+          selection_function_path: config/target_lists/survey_sfs/lamost.yaml
+          tier: documented
+        - name: DESI
+          selection_function_path: config/target_lists/survey_sfs/desi.yaml
+          tier: documented
+        ad_hoc_literature:
+          use_brightness: true
+          use_declination: true
+          use_proper_motion: true
+          pm_total_min_mas_yr: 0.0
+          base_probability: 0.05
+        calibration:
+          n_obs_bin_edges:
+          - 0.0
+          - 1.0
+          - 2.0
+          - 3.0
+          - 5.0
+          - 10.0
+          - 20.0
+          - 50.0
+          time_span_day_bin_edges:
+          - 0.0
+          - 30.0
+          - 90.0
+          - 180.0
+          - 365.0
+          - 730.0
+          - 1500.0
+          ks_pvalue_min: 0.01
+          real_followup_catalog_path: null
+        target_list_sheet:
+          spreadsheet_id: ''
+          sheet_range: Sheet1
+          credentials_env: GOOGLE_APPLICATION_CREDENTIALS
+          revision_history_incompleteness_caveat: true
+          weekly_snapshot_relative_dir: target_lists/snapshots
+          derived_adoption_dates_relative_dir: config/target_lists/derived
+      dr3.selection_function_followup:
+        accel_jerk_catalog_id: dr3_accel_jerk_pinned
+      dr4.selection_function_followup:
+        accel_jerk_catalog_id: dr4_accel_jerk_pinned
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/selection_function_followup/499f37c7bd9923e7.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  population_model:
+    stage_name: population_model
+    status: completed
+    started_at: '2026-09-02T06:26:33.679415Z'
+    finished_at: '2026-09-02T06:26:33.714461Z'
+    source_hash: cc01770bb448fb848c197d0e10c024c79b3071c8e995250b7178907af695fc7e
+    config_subset:
+      population_model:
+        p_single: 0.0
+        p_binary: 1.0
+        p_triple: 0.0
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        compact_object_classes:
+        - BH
+        - NS
+        - WD
+        mass_function_model: free_height_bins
+        bin_edge_policy: equal_log_m
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        m_tov_soft_width_msun: 0.05
+        m_tov_prior_sigma_msun: 0.2
+        m_tov_prior_n_quad: 21
+        m1_family: kroupa
+        period_family: flat_log_p
+        eccentricity_family: thermal
+        apply_sensitivity_covariates: true
+        gp_length_scale_log_m: 0.5
+        gp_variance: 1.0
+        allow_external_co_mf_priors: false
+        random_seed: 57
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      classification:
+        M_MIN_msun: 1.1
+        n_sigma_mass_cut: 2.0
+        M_TOV_msun: 2.2
+      mass_calibration.delta_M_Ch_msun: 0.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/population_model/6aee2f3b085706c2.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  sensitivity_analysis:
+    stage_name: sensitivity_analysis
+    status: completed
+    started_at: '2026-09-02T06:26:33.727906Z'
+    finished_at: '2026-09-02T06:26:33.811094Z'
+    source_hash: fe7a293c2dc494d355c5eb6ff85f328cc243659593e9e36283e3de2f3e3ccc83
+    config_subset:
+      physics.mc_noise_threshold: 0.1
+      sensitivity_analysis:
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        candidate_covariates:
+        - ruwe
+        - eccentricity
+        - period_day
+        joint_dimensions:
+        - mass_msun
+        - period_day
+        - eccentricity
+        bic_delta_include_covariate: 6.0
+        bic_delta_prefer_joint_nd: 10.0
+        mean_count_per_bin_unbinned_preference: 5.0
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        n_mock_start: 50
+        n_mock_max: 10000
+        n_mock_growth_factor: 2.0
+        n_synthetic_systems: 400
+        random_seed: 38
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/sensitivity_analysis/31bc2f484db8ddbb.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  inference:
+    stage_name: inference
+    status: completed
+    started_at: '2026-09-02T06:26:33.826090Z'
+    finished_at: '2026-09-02T06:26:33.889713Z'
+    source_hash: f35d322a63e17e51deb1d39257fe0a18afde86623aeed8a690e8b4af840315ae
+    config_subset:
+      inference:
+        apply_sensitivity_dimensionality: true
+        likelihood_form: auto
+        eccentricity_hypothesis: thermal
+        circular_implies_wd: false
+        circular_e_threshold: 0.05
+        log_height_min: -5.0
+        log_height_max: 5.0
+        n_mass_grid: 64
+        default_astrometric_sf: 1.0
+        default_followup_sf: 1.0
+        nlive: 20
+        dlogz: 0.5
+        maxcall: 400
+        sample: rwalk
+        random_seed: 63
+        n_robustness_runs: 1
+        robustness_nlive_scale: 1.5
+        robustness_seed_stride: 17
+        posterior_prior_overlap_threshold: 0.85
+        zero_count_ul_confidence: 0.95
+        skip_sampler: false
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      classification:
+        M_MIN_msun: 1.1
+        n_sigma_mass_cut: 2.0
+        M_TOV_msun: 2.2
+      population_model:
+        p_single: 0.0
+        p_binary: 1.0
+        p_triple: 0.0
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        compact_object_classes:
+        - BH
+        - NS
+        - WD
+        mass_function_model: free_height_bins
+        bin_edge_policy: equal_log_m
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        m_tov_soft_width_msun: 0.05
+        m_tov_prior_sigma_msun: 0.2
+        m_tov_prior_n_quad: 21
+        m1_family: kroupa
+        period_family: flat_log_p
+        eccentricity_family: thermal
+        apply_sensitivity_covariates: true
+        gp_length_scale_log_m: 0.5
+        gp_variance: 1.0
+        allow_external_co_mf_priors: false
+        random_seed: 57
+      mass_calibration.delta_M_Ch_msun: 0.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/inference/cdeb778836f1bb83.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+  diagnostics:
+    stage_name: diagnostics
+    status: completed
+    started_at: '2026-09-02T06:26:33.907537Z'
+    finished_at: '2026-09-02T06:26:35.489678Z'
+    source_hash: 8cec2c4aeec7309ff64556aecfd94182497c4cfba4416f3da9ca441656b93170
+    config_subset:
+      paths.artifact_root: output
+      diagnostics:
+        figure_dpi: 120
+        figures_subdir: figures
+        reports_subdir: reports
+        write_figures: true
+        write_reports: true
+        histogram_max_bins: 80
+        sky_map_point_size: 0.1
+        sky_map_alpha: 0.25
+        info_gain_top_n: 20
+        sampler_logz_sigma_tol: 3.0
+        hooks:
+          funnel_sky: true
+          elbadry_six_panel: true
+          fit_tier_coverage: true
+          gate_pass_rate: true
+          age_stratified_wd: true
+          triples_robustness: true
+          info_gain_followup: true
+          sampler_consistency: true
+          mc_noise_convergence: true
+          solution_type_fractions: true
+          known_truth_benchmarks: true
+          comparison_catalogs: true
+          sbc_recovery: true
+        sbc:
+          enabled: true
+          run_in_stage: false
+          recovery_backend: analytic_binned
+          credible_interval_level: 0.68
+          coverage_abs_tolerance: 0.2
+          n_repeats: 24
+          n_mass_bins: 4
+          expected_total_rate: 40.0
+          astrometric_sf: 1.0
+          followup_sf: 1.0
+          random_seed: 69
+          n_posterior_samples: 2000
+          inference_nlive: 12
+          inference_maxcall: 200
+          inference_dlogz: 1.0
+          inference_n_mass_grid: 24
+          injected_profiles:
+          - name: flat
+            relative_heights:
+            - 1.0
+            - 1.0
+            - 1.0
+            - 1.0
+          - name: rising
+            relative_heights:
+            - 0.5
+            - 1.0
+            - 2.0
+            - 3.0
+          - name: falling
+            relative_heights:
+            - 3.0
+            - 2.0
+            - 1.0
+            - 0.5
+          - name: peaked
+            relative_heights:
+            - 0.5
+            - 2.5
+            - 2.5
+            - 0.5
+      benchmarks:
+        known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
+        ruwe_match_tolerance: 0.25
+        catalogs:
+          ns_candidate_21:
+            path: config/benchmarks/catalogs/ns_candidate_21.yaml
+            role: comparison_only
+            never_as_prior: true
+          companions_156:
+            path: config/benchmarks/catalogs/companions_156.yaml
+            role: comparison_only
+            never_as_prior: true
+          amrf_binary_masses:
+            path: config/benchmarks/catalogs/amrf_binary_masses.yaml
+            role: comparison_only
+            never_as_prior: true
+          andrews:
+            path: config/benchmarks/catalogs/andrews.yaml
+            role: comparison_only
+            never_as_prior: true
+          shahaf:
+            path: config/benchmarks/catalogs/shahaf.yaml
+            role: comparison_only
+            never_as_prior: true
+          pulsar_mf:
+            path: config/benchmarks/catalogs/pulsar_mf.yaml
+            role: comparison_only
+            never_as_prior: true
+          ligo_bh_mf:
+            path: config/benchmarks/catalogs/ligo_bh_mf.yaml
+            role: comparison_only
+            never_as_prior: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260826-233413-a1a20a9/diagnostics/e5ce460457cac73d.h5
+    code_commit: 7e661c5
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
