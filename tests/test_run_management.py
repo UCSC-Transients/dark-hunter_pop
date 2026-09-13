@@ -448,11 +448,16 @@ def test_list_incomplete_sorted_by_run_id_not_mtime(tmp_path: Path) -> None:
 
 
 def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
-    """Regression for #151: sample_selection.py's code path pulls in
+    """Regression for #151/#158: sample_selection.py's code path pulls in
     elbadry2026_m2_sigma (Q12 sigma_m2_astrometric_msun derivation),
     elbadry2026_selection + janssens_mass (enrich_elbadry2026_row), and
     mc_mass_function (load_selection_rows_from_uncut_snapshot(attach_mc=True)
-    / _attach_elbadry_m2_sigma_inplace). All four must feed source_hash.
+    / _attach_elbadry_m2_sigma_inplace). Per #158, the transitive imports
+    those modules pull in are also declared: physics_utils (imported by
+    elbadry2026_selection.py and mc_mass_function.py for the AMRF/a0/M-tilde-2
+    chain), sensitivity_analysis (imported by mc_mass_function.py), and
+    data_acquisition (imported directly by sample_selection.py). All eight
+    must feed source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -464,6 +469,9 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
         "darkhunter_pop.janssens_mass",
         "darkhunter_pop.elbadry2026_selection",
         "darkhunter_pop.mc_mass_function",
+        "darkhunter_pop.physics_utils",
+        "darkhunter_pop.sensitivity_analysis",
+        "darkhunter_pop.data_acquisition",
     }
     assert "darkhunter_pop.elbadry2024_selection" not in spec.dependency_modules
     # Every declared dependency must actually resolve to a source file.
