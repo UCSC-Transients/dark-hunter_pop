@@ -38,6 +38,7 @@ from darkhunter_pop.run_management import (
     mark_stage_finished,
     mark_stage_started,
     new_run_for_force_rerun,
+    plan_and_guard,
     plan_stage,
     resolve_run_file,
     run_file_path,
@@ -77,12 +78,13 @@ def _run_selection_function_astrometric_stage(
 ) -> RunManifest:
     """Wire ``run_selection_function_astrometric`` into the run-file protocol."""
     spec = STAGE_REGISTRY["selection_function_astrometric"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-    assert_plan_not_stale(plan)
-
-    if plan.action is StageAction.SKIP_CACHED:
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
@@ -111,12 +113,13 @@ def _run_selection_function_followup_stage(
 ) -> RunManifest:
     """Wire ``run_selection_function_followup`` into the run-file protocol."""
     spec = STAGE_REGISTRY["selection_function_followup"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-    assert_plan_not_stale(plan)
-
-    if plan.action is StageAction.SKIP_CACHED:
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)

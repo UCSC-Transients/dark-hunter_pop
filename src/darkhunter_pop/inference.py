@@ -60,7 +60,7 @@ from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
     mark_stage_started,
-    plan_stage,
+    plan_and_guard,
     save_run_manifest,
     stage_artifact_path,
 )
@@ -961,11 +961,13 @@ def run_inference_stage(
 ) -> RunManifest:
     """Execute ``inference``: Poisson×SF×dynesty, write HDF5, update manifest."""
     spec = STAGE_REGISTRY["inference"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action.name == "SKIP_CACHED":
-        return manifest
 
     def _resolved(stage_name: str, explicit: Path | None) -> Path | None:
         if explicit is not None:

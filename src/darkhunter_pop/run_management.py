@@ -850,6 +850,106 @@ def mark_stage_finished(
     return manifest.model_copy(update={"stages": stages})
 
 
+@dataclass(frozen=True)
+class StageGuardOutcome:
+    """Result of ``plan_and_guard``: the plan entry plus what the runner must do.
+
+    Attributes
+    ----------
+    plan:
+        The ``StagePlanEntry`` produced by ``plan_stage`` for this stage.
+    manifest:
+        The manifest the caller must carry forward. Unchanged for
+        ``SKIP_CACHED`` and ``RUN``; carries the ``skipped`` completion record
+        for ``SKIP_REASON``.
+    proceed:
+        ``True`` only for ``StageAction.RUN``. A runner must return
+        ``outcome.manifest`` immediately when this is ``False`` and perform no
+        science work and no artifact write.
+    """
+
+    plan: StagePlanEntry
+    manifest: RunManifest
+    proceed: bool
+
+
+def plan_and_guard(
+    spec: StageSpec,
+    manifest: RunManifest,
+    config: PipelineConfig,
+    *,
+    run_path: Path,
+    force_rerun: bool = False,
+    skip_reason: str | None = None,
+) -> StageGuardOutcome:
+    """Plan a stage and handle every non-``RUN`` ``StageAction`` exhaustively.
+
+    The single entry point every stage runner uses instead of a bare
+    ``plan_stage`` call, so the caching contract of ARCHITECTURE.md §5 is
+    implemented once rather than re-derived per runner (issues #167, #172):
+
+    * ``REFUSE_STALE`` → raises ``StaleStageCacheError`` via
+      ``assert_plan_not_stale`` **before** any manifest mutation or artifact
+      write, so a stale cached artifact is neither reused nor silently rebuilt.
+    * ``SKIP_CACHED`` → ``proceed=False``, manifest untouched.
+    * ``SKIP_REASON`` → records ``running`` then ``skipped`` (with
+      ``plan.detail`` as the reason and no artifact) on the run file, and
+      returns ``proceed=False``.
+    * ``RUN`` → ``proceed=True``; the caller owns ``mark_stage_started`` and the
+      rest of the stage protocol.
+
+    Parameters
+    ----------
+    spec:
+        Registry entry for the stage being planned (``STAGE_REGISTRY[name]``).
+    manifest / config:
+        Live run manifest and loaded pipeline config.
+    run_path:
+        Run-file path used to persist the ``SKIP_REASON`` records. Never written
+        for any other action.
+    force_rerun:
+        Per-stage force-re-run override, forwarded to ``plan_stage``.
+    skip_reason:
+        Explicit skip detail (e.g. ``rv_astrometry_gate_failed``); wins over
+        ``stage_default_skip_reason``.
+
+    Limitations
+    -----------
+    This is a caching/run-file guard only: it performs no science and does not
+    validate upstream artifacts. An unrecognized ``StageAction`` raises
+    ``ValueError`` rather than defaulting to "run", so a future action added to
+    the enum cannot silently reintroduce the fallthrough this helper exists to
+    prevent.
+    """
+    plan = plan_stage(
+        spec, manifest, config, force_rerun=force_rerun, skip_reason=skip_reason
+    )
+    assert_plan_not_stale(plan)
+
+    if plan.action is StageAction.SKIP_CACHED:
+        return StageGuardOutcome(plan=plan, manifest=manifest, proceed=False)
+
+    if plan.action is StageAction.SKIP_REASON:
+        updated = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
+        save_run_manifest(updated, run_path)
+        updated = mark_stage_finished(
+            updated,
+            spec,
+            status=StageStatus.SKIPPED,
+            reason=plan.detail,
+            artifact_path=None,
+        )
+        save_run_manifest(updated, run_path)
+        return StageGuardOutcome(plan=plan, manifest=updated, proceed=False)
+
+    if plan.action is StageAction.RUN:
+        return StageGuardOutcome(plan=plan, manifest=manifest, proceed=True)
+
+    raise ValueError(
+        f"unhandled StageAction {plan.action!r} for stage {plan.stage}"
+    )
+
+
 def wipe_stage_artifacts(manifest: RunManifest, stage_name: str) -> None:
     """Delete partial/complete artifact for a stage (mid-stage crash amend)."""
     record = manifest.stages.get(stage_name)

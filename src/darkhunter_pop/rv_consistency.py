@@ -47,7 +47,7 @@ from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
     mark_stage_started,
-    plan_stage,
+    plan_and_guard,
     save_run_manifest,
     stage_artifact_path,
 )
@@ -1364,11 +1364,13 @@ def run_rv_astrometry_gate(
     """Execute ``rv_astrometry_gate`` → HDF5 + pass-rate diagnostics."""
     require_dr3_active_for_v1(config)
     spec = STAGE_REGISTRY["rv_astrometry_gate"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action.name == "SKIP_CACHED":
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
@@ -1406,11 +1408,13 @@ def run_joint_orbit_fit(
     """Execute ``joint_orbit_fit`` for gate passers; failures keep astrometry_only."""
     require_dr3_active_for_v1(config)
     spec = STAGE_REGISTRY["joint_orbit_fit"]
-    plan = plan_stage(spec, manifest, config, force_rerun=force_rerun)
+    guard = plan_and_guard(
+        spec, manifest, config, run_path=run_path, force_rerun=force_rerun
+    )
+    if not guard.proceed:
+        return guard.manifest
+    manifest = guard.manifest
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
-
-    if plan.action.name == "SKIP_CACHED":
-        return manifest
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
