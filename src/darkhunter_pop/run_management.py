@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -721,6 +721,7 @@ def plan_stage(
     *,
     force_rerun: bool = False,
     skip_reason: str | None = None,
+    extra_note: str | None = None,
 ) -> StagePlanEntry:
     """Decide whether a stage should run, use cache, refuse, or skip.
 
@@ -733,7 +734,28 @@ def plan_stage(
     the run plan stays printable (``--dry-run`` reports the staleness) while
     execution refuses via ``assert_plan_not_stale``. A record with **no**
     recorded ``source_hash`` is refused identically to a mismatched one (#169).
+
+    ``extra_note``, when given, is appended to the resulting entry's ``detail``
+    (``"<detail> | <extra_note>"``) so a caller can surface a stage-specific,
+    plan-time-known condition in the printed run plan without changing the
+    cache/refuse/skip decision itself — e.g. ``mass_derivation_refined``'s
+    degraded-SED-unavailable note (issue #181).
     """
+    entry = _plan_stage_decision(spec, manifest, config, force_rerun=force_rerun, skip_reason=skip_reason)
+    if extra_note:
+        entry = dataclass_replace(entry, detail=f"{entry.detail} | {extra_note}")
+    return entry
+
+
+def _plan_stage_decision(
+    spec: StageSpec,
+    manifest: RunManifest,
+    config: PipelineConfig,
+    *,
+    force_rerun: bool = False,
+    skip_reason: str | None = None,
+) -> StagePlanEntry:
+    """Core cache/refuse/skip/run decision for ``plan_stage`` (no note appending)."""
     artifact = stage_artifact_path(config, spec, run_id=manifest.run_id)
     effective_skip = (
         skip_reason

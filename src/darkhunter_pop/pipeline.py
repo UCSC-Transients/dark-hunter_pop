@@ -22,6 +22,7 @@ from darkhunter_pop.inference import run_inference_stage
 from darkhunter_pop.mass_derivation import (
     run_mass_derivation_bulk,
     run_mass_derivation_refined,
+    sed_unavailable_plan_note,
 )
 from darkhunter_pop.population_model import run_population_model_stage
 from darkhunter_pop.run_management import (
@@ -188,8 +189,14 @@ def build_stage_plan(
     plan: list[StagePlanEntry] = []
     for name in names:
         skip_reason: str | None = None
+        extra_note: str | None = None
         if name == "joint_orbit_fit":
             skip_reason = joint_orbit_plan_skip_reason(manifest)
+        if name == "mass_derivation_refined":
+            # Issue #181: make the darkhunter_rv-uninstalled degraded path loud
+            # in the run-plan printout itself, before any stage executes — not
+            # only after the fact in the artifact/run-file record.
+            extra_note = sed_unavailable_plan_note(config)
         plan.append(
             plan_stage(
                 STAGE_REGISTRY[name],
@@ -197,6 +204,7 @@ def build_stage_plan(
                 config,
                 force_rerun=name in forced,
                 skip_reason=skip_reason,
+                extra_note=extra_note,
             )
         )
     return plan
