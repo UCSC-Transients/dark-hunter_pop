@@ -31,6 +31,14 @@ from darkhunter_pop.config_schema import (
 )
 from darkhunter_pop.mass_derivation import read_stage_hdf5 as read_mass_stage_hdf5
 from darkhunter_pop.mass_derivation import write_stage_hdf5 as write_mass_stage_hdf5
+from darkhunter_pop.phot_sed_adapter import (
+    PROVENANCE_ANALYTIC_FALLBACK,
+    PROVENANCE_PHOT_SED,
+    PROVENANCE_PRECOMPUTED_EXTRAS,
+    attach_phot_sed_evidence,
+    evidence_provenance,
+    phot_sed_root,
+)
 from darkhunter_pop.plotting import plot_histogram
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -187,6 +195,38 @@ class CompanionNatureDiagnostics:
     delta_bic_wd_vs_dark: list[float] = field(default_factory=list)
     age_diagnostic: AgeBinDiagnostic | None = None
     track_source: str | None = None
+    # --- phot_sed evidence coverage (issue #197) ---
+    phot_sed_root: str | None = None
+    #: Candidates per evidence-provenance tag (``phot_sed`` /
+    #: ``analytic_fallback`` / ``precomputed_extras``).
+    n_by_evidence_provenance: dict[str, int] = field(default_factory=dict)
+    #: Per-hypothesis count of real Path-2 summaries found (``dark``/``WD``/``other``).
+    phot_sed_model_coverage: dict[str, int] = field(default_factory=dict)
+    #: Counts of adapter notes (``missing:1star``, ``malformed:wd``, ...).
+    phot_sed_note_counts: dict[str, int] = field(default_factory=dict)
+    #: Summed weights per provenance, used for the broken-out means.
+    weight_sums_by_evidence_provenance: dict[str, dict[str, float]] = field(
+        default_factory=dict
+    )
+
+    def mean_weights_by_evidence_provenance(self) -> dict[str, dict[str, float]]:
+        """Mean WD and dark (= BH + NS) weight, split by evidence provenance.
+
+        Empty groups are omitted. ``dark`` is the summed BH + NS weight, since
+        the photometric ``dark`` hypothesis is split by
+        ``companion_nature.dark_to_bh_fraction`` on the way to the five keys.
+        """
+        out: dict[str, dict[str, float]] = {}
+        for tag, sums in self.weight_sums_by_evidence_provenance.items():
+            n = int(self.n_by_evidence_provenance.get(tag, 0))
+            if n < 1:
+                continue
+            out[tag] = {
+                "n": float(n),
+                "mean_weight_WD": sums.get("WD", 0.0) / n,
+                "mean_weight_dark": (sums.get("BH", 0.0) + sums.get("NS", 0.0)) / n,
+            }
+        return out
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -200,6 +240,13 @@ class CompanionNatureDiagnostics:
             "n_no_channels": self.n_no_channels,
             "delta_bic_wd_vs_dark": list(self.delta_bic_wd_vs_dark),
             "track_source": self.track_source,
+            "phot_sed_root": self.phot_sed_root,
+            "n_by_evidence_provenance": dict(self.n_by_evidence_provenance),
+            "phot_sed_model_coverage": dict(self.phot_sed_model_coverage),
+            "phot_sed_note_counts": dict(self.phot_sed_note_counts),
+            "mean_weights_by_evidence_provenance": (
+                self.mean_weights_by_evidence_provenance()
+            ),
         }
         if self.age_diagnostic is not None:
             payload["age_diagnostic"] = self.age_diagnostic.as_dict()
@@ -926,18 +973,42 @@ def run_companion_nature_on_candidates(
     *,
     tracks: CoolingTrackTable | None = None,
 ) -> tuple[list[CandidateRecord], CompanionNatureDiagnostics]:
-    """Score every candidate; return all with weights (no discard)."""
+    """Score every candidate; return all with weights (no discard).
+
+    Each candidate first passes through
+    :func:`darkhunter_pop.phot_sed_adapter.attach_phot_sed_evidence`, so real
+    ``dark-hunter_sed`` Path-2 evidence is used where it exists and the analytic
+    magnitude–mass relations only where it does not. Candidates with no
+    ``phot_sed`` summaries score exactly as before; the only change to them is
+    the evidence-provenance labelling in ``extras``.
+    """
     track_table = tracks if tracks is not None else load_cooling_tracks(config)
     cfg = config.companion_nature
+    root = phot_sed_root(config)
     diag = CompanionNatureDiagnostics(
         n_input=len(candidates),
         track_source=track_table.source_path,
+        phot_sed_root=str(root) if root is not None else None,
     )
     out: list[CandidateRecord] = []
     full_queue = 0
     max_full = cfg.full_queue_max
 
-    for cand in candidates:
+    for raw_cand in candidates:
+        cand, phot_sed = attach_phot_sed_evidence(raw_cand, config)
+        provenance = evidence_provenance(cand)
+        diag.n_by_evidence_provenance[provenance] = (
+            diag.n_by_evidence_provenance.get(provenance, 0) + 1
+        )
+        for hypothesis in phot_sed.summaries:
+            diag.phot_sed_model_coverage[hypothesis] = (
+                diag.phot_sed_model_coverage.get(hypothesis, 0) + 1
+            )
+        for note in phot_sed.notes:
+            diag.phot_sed_note_counts[note] = (
+                diag.phot_sed_note_counts.get(note, 0) + 1
+            )
+
         # Provisional tier from fast pass; may promote to full.
         evidence = evaluate_companion_nature(cand, config, tracks=track_table)
         if evidence.tier == "full":
@@ -955,6 +1026,11 @@ def run_companion_nature_on_candidates(
 
         updated = apply_nature_to_candidate(cand, evidence)
         out.append(updated)
+        sums = diag.weight_sums_by_evidence_provenance.setdefault(
+            provenance, {k: 0.0 for k in NATURE_CLASSES}
+        )
+        for key in NATURE_CLASSES:
+            sums[key] += float(evidence.weights.get(key, 0.0))
         diag.n_weighted += 1
         if evidence.tier == "full":
             diag.n_full += 1
@@ -1035,7 +1111,25 @@ def format_companion_nature_report(
         f"  channel_sb2: {diagnostics.n_sb2}",
         f"  no_channels: {diagnostics.n_no_channels}",
         f"  track_source: {diagnostics.track_source or 'analytic_fallback'}",
+        "  --- photometric evidence provenance (phot_sed vs analytic) ---",
+        f"  phot_sed_root: {diagnostics.phot_sed_root or 'disabled (null)'}",
+        f"  real phot_sed evidence ({PROVENANCE_PHOT_SED}): "
+        f"{diagnostics.n_by_evidence_provenance.get(PROVENANCE_PHOT_SED, 0)}",
+        f"  analytic fallback ({PROVENANCE_ANALYTIC_FALLBACK}): "
+        f"{diagnostics.n_by_evidence_provenance.get(PROVENANCE_ANALYTIC_FALLBACK, 0)}",
+        f"  pre-existing extras ({PROVENANCE_PRECOMPUTED_EXTRAS}): "
+        f"{diagnostics.n_by_evidence_provenance.get(PROVENANCE_PRECOMPUTED_EXTRAS, 0)}",
+        f"  phot_sed summaries found by hypothesis: "
+        f"{dict(sorted(diagnostics.phot_sed_model_coverage.items()))}",
+        f"  phot_sed adapter notes: "
+        f"{dict(sorted(diagnostics.phot_sed_note_counts.items()))}",
     ]
+    for tag, means in sorted(diagnostics.mean_weights_by_evidence_provenance().items()):
+        lines.append(
+            f"  mean weights [{tag}] (n={int(means['n'])}): "
+            f"WD={means['mean_weight_WD']:.4f} "
+            f"dark(BH+NS)={means['mean_weight_dark']:.4f}"
+        )
     if diagnostics.delta_bic_wd_vs_dark:
         arr = np.asarray(diagnostics.delta_bic_wd_vs_dark, dtype=np.float64)
         lines.append(

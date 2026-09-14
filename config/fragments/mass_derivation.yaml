@@ -10,6 +10,10 @@ mass_derivation:
   # Snapshot/copy of dark-hunter_sed output/sed_summaries (see summary_paths.md).
   sed_summary_root: data/sed_summaries
   sed_summary_filename_template: "Gaia_DR3_{source_id}_sed_summary.json"
+  # Snapshot/copy of dark-hunter_sed output/phot_sed (Path-2 model comparison);
+  # read by phot_sed_adapter into the companion_nature photometry channel.
+  phot_sed_root: data/phot_sed
+  phot_sed_filename_template: "Gaia_DR3_{source_id}_{model}_summary.json"
   require_sed_package: false
   bulk_progress_log_interval: 10000
   bulk_m2_histogram_xmin_msun: 0.0

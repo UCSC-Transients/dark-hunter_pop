@@ -169,8 +169,14 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "companion_nature_likelihood",
             "darkhunter_pop.companion_nature",
             inputs_from=("joint_orbit_fit", "mass_derivation_refined"),
+            deps=(
+                "darkhunter_pop.companion_nature",
+                "darkhunter_pop.phot_sed_adapter",
+            ),
             config_keys=(
                 "companion_nature",
+                "mass_derivation.phot_sed_root",
+                "mass_derivation.phot_sed_filename_template",
                 "physics.cooling_tracks",
                 "physics.cooling_atmosphere",
                 "physics.cooling_tracks_path",
