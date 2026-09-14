@@ -445,7 +445,8 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   `selection_function_astrometric.extinction_model: combined19`.
 - Do not host or require the default ~984 MB `healpix_scans.zip`.
 - `scripts/attach_mc_to_selection_cache.py` (referenced by `docs/SELECTION_REPRODUCTION_STATUS.md`
-  for rebuilding the Andrews `+enrich+mc10000` cache) is **not on `main`** — it lives in a
-  reproduction worktree. The cache itself is already built under `data/dr3/gaia_snapshots/`.
+  for rebuilding the Andrews `+enrich+mc10000` cache) **is on `main`**, landed via PR #150
+  (issue #141, merge SHA `03a452a`). The cache itself is already built under
+  `data/dr3/gaia_snapshots/`.
 - Never read `dark-hunter_rv` / `dark-hunter_sed` production output directories live — snapshot with
   a timestamp (and preserve mtimes, which the gate now orders by).

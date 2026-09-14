@@ -47,8 +47,9 @@ actually invalidates it:
 .venv/bin/python scripts/attach_mc_to_selection_cache.py --workers 10
 ```
 
-That script is **not on `main`** — it lives in a reproduction worktree (see §6). The cache it produces
-is already built, and is what the numbers below were measured against.
+That script **is on `main`** at `scripts/attach_mc_to_selection_cache.py`, landed via PR #150
+(issue #141, merge SHA `03a452a`) — see §6. The cache it produces is already built, and is what
+the numbers below were measured against.
 
 Eval pattern: `_read_selection_parent_cache(…+enrich+mc10000/…)` then
 `SampleSelectionRegistry(load_config()).selection(name).evaluate(rows, membership=…)`.
@@ -242,8 +243,8 @@ sweep including El-Badry 2026.
 - RV / SED live integration (landed in Wave 2, PRs #136–#138).
 - Retuning frozen selection YAML numbers. Ever, without escalation.
 - Re-fetching NSS enrichment. The job is COMPLETED unless `nss_enrichment/meta.yaml` is missing.
-- Rebuilding the `+enrich+mc10000` cache. `scripts/attach_mc_to_selection_cache.py` is not on `main`
-  (it lives in a reproduction worktree) and the cache it builds already exists.
+- Rebuilding the `+enrich+mc10000` cache. `scripts/attach_mc_to_selection_cache.py` is on `main`
+  (landed via PR #150 / issue #141, merge SHA `03a452a`) and the cache it builds already exists.
 
 When a §3 gate goes green — or an escalation is explicitly accepted — rewrite that row **together with
 the commit SHA it was measured at**. A number in this document without a SHA beside it is not evidence.
