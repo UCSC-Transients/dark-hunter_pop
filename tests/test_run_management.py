@@ -173,6 +173,46 @@ def test_run_plan_text_is_legible() -> None:
     assert "config_subset" in text
 
 
+def test_run_plan_reports_no_host_profile_by_default() -> None:
+    """No profile selected (issue #196): the plan says so explicitly, never blank."""
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    assert manifest.host_profile is None
+    text = format_run_plan(
+        manifest, cfg, [], run_path=Path("runs/example.yaml"), created_new=True
+    )
+    assert "host_profile: none (config.yaml as authored)" in text
+
+
+def test_run_manifest_and_plan_record_selected_host_profile() -> None:
+    """The active profile name is written into the run file and printed in the plan."""
+    cfg = load_config(host_profile="laptop")
+    manifest = create_run_manifest(cfg)
+    assert manifest.host_profile == "laptop"
+    text = format_run_plan(
+        manifest, cfg, [], run_path=Path("runs/example.yaml"), created_new=True
+    )
+    assert "host_profile: laptop" in text
+
+
+def test_new_run_for_force_rerun_carries_host_profile_forward() -> None:
+    cfg = load_config(host_profile="laptop")
+    parent = create_run_manifest(cfg)
+    parent = parent.model_copy(
+        update={
+            "stages": {
+                "data_acquisition": StageRecord(
+                    stage_name="data_acquisition",
+                    status=StageStatus.COMPLETED,
+                    source_hash="x",
+                )
+            }
+        }
+    )
+    child = new_run_for_force_rerun(parent, cfg, "data_acquisition")
+    assert child.host_profile == "laptop"
+
+
 def test_purge_refuses_completed_without_force(tmp_path: Path) -> None:
     cfg = load_config()
     manifest = create_run_manifest(cfg)

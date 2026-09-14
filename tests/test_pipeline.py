@@ -230,3 +230,50 @@ def test_cli_dry_run_exit_zero(
     out = capsys.readouterr().out
     assert "=== dark-hunter_pop run plan ===" in out
     assert list(runs.glob("*.yaml")) == []
+
+
+def test_cli_host_profile_flag_selects_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--host-profile (issue #196) is explicit; the run plan shows the selection."""
+    cli_path = Path(__file__).resolve().parents[1] / "scripts" / "run_pipeline.py"
+    spec = importlib.util.spec_from_file_location("run_pipeline_cli_hp", cli_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["run_pipeline_cli_hp"] = mod
+    spec.loader.exec_module(mod)
+
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    monkeypatch.setattr("darkhunter_pop.pipeline.runs_dir", lambda: runs)
+    monkeypatch.setattr("darkhunter_pop.run_management.runs_dir", lambda: runs)
+
+    code = mod.main(["--dry-run", "--host-profile", "laptop"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "host_profile: laptop" in out
+
+
+def test_cli_host_profile_rejects_unknown_choice(tmp_path: Path) -> None:
+    cli_path = Path(__file__).resolve().parents[1] / "scripts" / "run_pipeline.py"
+    spec = importlib.util.spec_from_file_location("run_pipeline_cli_hp_bad", cli_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["run_pipeline_cli_hp_bad"] = mod
+    spec.loader.exec_module(mod)
+
+    with pytest.raises(SystemExit):
+        mod.main(["--dry-run", "--host-profile", "not_a_real_host"])
+
+
+def test_run_pipeline_threads_host_profile_through_load_config(
+    tmp_path: Path,
+) -> None:
+    """When ``config`` is not passed directly, ``host_profile`` reaches ``load_config``."""
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    manifest, _path, text = run_pipeline(
+        dry_run=True, runs=runs, host_profile="laptop"
+    )
+    assert manifest.host_profile == "laptop"
+    assert "host_profile: laptop" in text

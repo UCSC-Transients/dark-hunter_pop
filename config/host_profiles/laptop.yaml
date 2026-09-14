@@ -1,0 +1,21 @@
+# Host profile: laptop — issue #196.
+#
+# EXERCISED. This is the only profile any run has actually used. Selecting it must
+# not change behavior: every value below reproduces config.yaml's own current
+# effective value exactly, so a run with --host-profile laptop and a run with no
+# profile at all produce the identical merged config.
+#
+# Only the path-shaped keys covered by issue #196 belong here. Do not add anything
+# else (dynesty sizing, worker counts, ...) — that is Wave E, not this ticket.
+paths:
+  artifact_root: output
+  data_root: data
+mass_derivation:
+  sed_summary_root: data/sed_summaries
+  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
+  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
+  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+dr3:
+  rv_summary_root: data/dr3/rv_summaries
+dr4:
+  rv_summary_root: data/dr4/rv_summaries
