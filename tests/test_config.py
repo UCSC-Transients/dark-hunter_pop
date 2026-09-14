@@ -9,12 +9,14 @@ import yaml
 from pydantic import ValidationError
 
 from darkhunter_pop.config_loader import (
+    KNOWN_HOST_PROFILES,
     assert_config_checksum,
     audit_dr_independence,
     config_checksum,
     deep_merge,
     effective_M_Ch_msun,
     load_config,
+    load_host_profile_dict,
     require_dr3_active_for_v1,
 )
 from darkhunter_pop.config_schema import (
@@ -268,3 +270,92 @@ def test_checksum_includes_phase2_shared_sections() -> None:
     ss_flip = cfg.model_copy(deep=True)
     ss_flip.sample_selection.enabled = False
     assert config_checksum(ss_flip) != base
+
+
+# --- Host profiles (issue #196) -------------------------------------------------
+
+
+def test_known_host_profiles_have_files() -> None:
+    from darkhunter_pop.config_loader import _HOST_PROFILES_DIR  # noqa: PLC0415
+
+    assert set(KNOWN_HOST_PROFILES) == {"laptop", "ziggy", "lux"}
+    for name in KNOWN_HOST_PROFILES:
+        assert (_HOST_PROFILES_DIR / f"{name}.yaml").is_file()
+
+
+def test_laptop_profile_reproduces_effective_paths_exactly() -> None:
+    """Selecting laptop must not change behavior: no path value may differ."""
+    base = load_config()
+    laptop = load_config(host_profile="laptop")
+    assert laptop.paths.artifact_root == base.paths.artifact_root
+    assert laptop.paths.data_root == base.paths.data_root
+    assert laptop.mass_derivation.sed_summary_root == base.mass_derivation.sed_summary_root
+    assert laptop.dr3.rv_summary_root == base.dr3.rv_summary_root
+    assert laptop.dr4.rv_summary_root == base.dr4.rv_summary_root
+    # Only the recorded profile name itself differs from the no-profile default.
+    assert base.paths.host_profile is None
+    assert laptop.paths.host_profile == "laptop"
+    stamped_base = base.model_copy(deep=True)
+    stamped_base.paths.host_profile = "laptop"
+    assert config_checksum(stamped_base) == config_checksum(laptop)
+
+
+def test_ziggy_and_lux_profiles_validate_against_schema() -> None:
+    """ziggy/lux are unexercised: only schema validity + the known ziggy anchor."""
+    ziggy = load_config(host_profile="ziggy")
+    lux = load_config(host_profile="lux")
+    assert ziggy.paths.host_profile == "ziggy"
+    assert lux.paths.host_profile == "lux"
+    # Known anchor from CLAUDE.md: dark-hunter_sed lives at this path on ziggy.
+    assert ziggy.mass_derivation.sed_summary_root is not None
+    assert ziggy.mass_derivation.sed_summary_root.startswith(
+        "/data2/darkhunter/dark-hunter_sed/"
+    )
+    # Every path key issue #196 covers must be set (non-null) on both profiles.
+    for cfg in (ziggy, lux):
+        assert cfg.paths.artifact_root
+        assert cfg.paths.data_root
+        assert cfg.mass_derivation.sed_summary_root
+        assert cfg.dr3.rv_summary_root
+        assert cfg.dr4.rv_summary_root
+
+
+def test_host_profile_only_touches_path_keys() -> None:
+    """A host profile must not silently change any non-path config (Wave E is not authorized)."""
+    base = load_config()
+    for name in KNOWN_HOST_PROFILES:
+        profiled = load_config(host_profile=name)
+        base_dump = base.model_dump(mode="json")
+        profiled_dump = profiled.model_dump(mode="json")
+        base_dump["paths"] = None
+        profiled_dump["paths"] = None
+        base_dump["mass_derivation"]["sed_summary_root"] = None
+        profiled_dump["mass_derivation"]["sed_summary_root"] = None
+        base_dump["dr3"]["rv_summary_root"] = None
+        profiled_dump["dr3"]["rv_summary_root"] = None
+        base_dump["dr4"]["rv_summary_root"] = None
+        profiled_dump["dr4"]["rv_summary_root"] = None
+        assert base_dump == profiled_dump, f"{name} touched a non-path key"
+
+
+def test_load_config_rejects_unknown_host_profile() -> None:
+    with pytest.raises(FileNotFoundError, match="unknown host profile"):
+        load_config(host_profile="nonexistent_host")
+
+
+def test_load_host_profile_dict_only_has_path_shaped_keys(tmp_path: Path) -> None:
+    for name in KNOWN_HOST_PROFILES:
+        raw = load_host_profile_dict(name)
+        assert set(raw) <= {"paths", "mass_derivation", "dr3", "dr4"}
+        assert set(raw.get("paths", {})) <= {"artifact_root", "data_root"}
+        assert set(raw.get("mass_derivation", {})) <= {"sed_summary_root"}
+        assert set(raw.get("dr3", {})) <= {"rv_summary_root"}
+        assert set(raw.get("dr4", {})) <= {"rv_summary_root"}
+    with pytest.raises(FileNotFoundError):
+        load_host_profile_dict("nonexistent_host", profiles_dir=tmp_path)
+
+
+def test_host_profile_name_is_never_inferred_from_hostname() -> None:
+    """No profile is applied unless explicitly requested (issue #196)."""
+    cfg = load_config()
+    assert cfg.paths.host_profile is None

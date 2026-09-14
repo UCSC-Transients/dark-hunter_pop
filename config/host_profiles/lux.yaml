@@ -1,0 +1,25 @@
+# Host profile: lux (supercomputer) — issue #196.
+#
+# DEFERRED / UNEXERCISED. lux is out of scope for the current authorized work
+# (EXECUTION_PLAN.md §2); this profile validates against the schema only. No agent
+# has connected to lux or run against these paths — treat every value below as a
+# best-guess placeholder, not a confirmed layout, until someone actually reaches
+# the host. CLAUDE.md records no anchor path for lux (unlike ziggy's
+# /data2/darkhunter/dark-hunter_sed/), so these are written blind under a scratch
+# convention and must be corrected against lux's real filesystem before use.
+paths:
+  artifact_root: /scratch/darkhunter_pop/output
+  data_root: /scratch/darkhunter_pop/data
+mass_derivation:
+  # lux is production inference + sensitivity_analysis mock volume (CLAUDE.md); it
+  # is not expected to run mass_derivation_refined itself, but the key must still
+  # validate. Placeholder, unverified.
+  sed_summary_root: /scratch/darkhunter_pop/sed_summaries
+  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
+  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
+  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+dr3:
+  rv_summary_root: /scratch/darkhunter_pop/rv_summaries
+dr4:
+  # Placeholder — DR4 is reserved, not runnable in v1 (config_loader.require_dr3_active_for_v1).
+  rv_summary_root: /scratch/darkhunter_pop/rv_summaries_dr4
