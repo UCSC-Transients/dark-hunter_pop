@@ -137,7 +137,7 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 | `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** | FAIL until Andrews and Q9 close |
 | `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL |
-| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — §3.4 |
+| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4 |
 
 `primary_ns_bh` attrition:
 
@@ -163,9 +163,12 @@ point-estimate `M̃2` / `a0` / extinction / main-sequence-CMD chain — **not** 
 
 ### 3.4 Simon 2026 exclusion breakdown
 
-Re-measured at `c905575` via `sample_diagnostics.run_simon2026_diagnostic`, over the 1085 El-Badry 2026
-survivors. Acceptance target is 5 / 2 / 1 / 1 for the four exclusion reasons, plus 11 overlapping
-sources in sample (CONTINUATION_PLAN §8.9):
+Re-measured at `eb009d8` (post Wave −1, ahead of Wave A) via
+`sample_diagnostics.run_simon2026_diagnostic`/`elbadry2026_selection.simon2026_exclusion_breakdown`,
+fed the real `elbadry2026` `sample_selection` stage output (`surviving_source_ids`, 1088 rows — the
+orphaned artifact `output/20260912-165745-c4aa127/sample_selection/19b58e641119bbd8.h5`, the closest
+on-disk artifact to the `main` @ `c905575` baseline). Acceptance target is 5 / 2 / 1 / 1 for the four
+exclusion reasons, plus 11 overlapping sources in sample (CONTINUATION_PLAN §8.9):
 
 ```
 in_sample:                11   expected=—   n/a
@@ -176,11 +179,47 @@ fails_m2_over_m1:          0   expected=1   NO
 unclassified:              1   expected=—   n/a
 ```
 
-Identical to the previously recorded 5 / 2 / 1 / 0 (+1 unclassified). Three of the four slots match and
-`in_sample` = 11 is correct; the failure is one object in `fails_m2_over_m1` landing in `unclassified`
-instead — plausibly the same object, mis-bucketed on the mass-ratio path.
+Unchanged from the previously recorded 5 / 2 / 1 / 0 (+1 unclassified) — issue #200's root-cause
+investigation.
 
-Because the El-Badry 2026 sample this is computed over is itself inflated (1085 against a published
+**Root cause found and it is (c): downstream of the extinction/`a0`/mass-ratio chain (#133), not a bug
+in `classify_simon2026_row` / `simon2026_exclusion_breakdown` themselves.** Per-source detail (Table 1
+values transcribed in `config/selections/external/simon2026_orbital.yaml`, our own re-derived values
+from `enrich_elbadry2026_row` on the real `+enrich+mc10000` parent-cache rows):
+
+- The **unclassified** source is `1864406790238257536` (`AstroSpectroSB1`, paper `m2_over_m1 = 5.083`
+  — per the paper's own numbers this source should be a real detection, not `fails_m2_over_m1`). Our
+  pipeline classifies it `main_sequence = False` (`mg_0 = 1.077`, `bp_rp_0 = 0.844`), so
+  `paper_m1_from_mg` returns `NotApplicable("evolved")` and it never reaches the `m2_over_m1` cut at
+  all — it drops out of `primary_ns_bh` for a **cut-not-applicable** reason `classify_simon2026_row`
+  has no bucket for (Q10-shaped symptom, checked first per the issue — but the *cause* is not a Q10
+  boolean-logic bug: given its inputs, `is_main_sequence` classifies correctly).
+- The reason it has those inputs: `sample_selection.candidate_to_selection_row` aliases `mg_0` /
+  `bp_rp_0` straight from `abs_g_mag` / `bp_rp` (**no dereddening**) whenever a dereddened value isn't
+  already present upstream (`src/darkhunter_pop/sample_selection.py:1578-1581`) — the exact `mg_0` /
+  extinction gap #133 already names for `primary_ns_bh` 42 ≠ 47.
+- The **compensating** source is `3263804373319076480` (`AstroSpectroSB1`, paper `m2_over_m1 = 0.753`,
+  `m1 = 0.97`, `m2_lower = 0.73` — should be `fails_m2_over_m1`). Our pipeline puts it `main_sequence =
+  True` and computes `m1_tilde_msun = 1.10`, `m2_tilde_msun = 2.87` (`amrf = 1.11` via
+  `photocenter_a0_from_thiele_innes`) — an `M̃2` about 4x the paper's `m2_lower`, so it clears
+  `m2_over_m1_min = 1.2` and survives into the sample instead of being excluded. Same `a0`/AMRF chain
+  as Q7 (nsstools vs. `thiele_innes_to_campbell`), not a new bug.
+- These two sources are a like-for-like swap: our pipeline includes the one the paper excludes and
+  excludes the one the paper includes, net `in_sample = 11` (right count, wrong two members) and one
+  orphaned bucket. **No threshold was or should be touched** — `simon2026_exclusion_breakdown`'s cut
+  values (`g_mag_faint_limit=15`, `goodness_of_fit_max=10`, `k1_significance_min=10`,
+  `m2_over_m1_min=1.2`) are exactly the frozen `elbadry2026.yaml` values, and
+  `test_simon2026_exclusion_breakdown_5_2_1_1` (a fixed-`in_sample`-fixture unit test, decoupled from
+  the real pipeline) already asserts and passes 5/2/1/1 given the paper's own membership — the
+  classification logic is correct; only the real pipeline's re-derived masses for these two sources
+  are wrong, and that is the extinction/`a0` chain, #133's territory.
+
+Per issue #200's own decision rule: **do not fix here.** This is filed against #133 (comment added,
+same root cause, not a new issue) rather than fixed under #200's mass-ratio-path-bug branch. Once
+#133 lands a real dereddened `mg_0`/`bp_rp_0` and the nsstools-vs-Thiele–Innes `a0` delta is resolved,
+re-run this diagnostic — it should self-correct without touching `elbadry2026_selection.py`.
+
+Because the El-Badry 2026 sample this is computed over is itself inflated (1088 against a published
 227), the breakdown sits downstream of an already-failing gate and is not independently diagnostic yet.
 Close `primary_ns_bh` and the spectroscopic branch first; re-check this afterwards.
 
@@ -201,7 +240,7 @@ different shape.
 | `sub_chandrasekhar` 861 (current) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | Fix the `a0` / extinction / AMRF chain |
 | `primary_ns_bh` 42 ≠ 47 | Extinction maps / `mg_0` / `a0` method (Q7 nsstools) | #133; **measure** the nsstools delta before choosing |
 | Spectro 123 ≠ 151 | K1 is fine; downstream `mass_route` / MS / `m2_min` | Binding, not the Orbital MC |
-| Simon `fails_m2_over_m1` 0 ≠ 1 | One object mis-bucketed / mass-ratio path | Only after `primary_ns_bh` and spectro close |
+| Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap via `mg_0`/`a0` chain — `1864406790238257536` wrongly `evolved` (unextincted `mg_0`), `3263804373319076480` wrongly clears `m2_over_m1` (AMRF `M̃2` ≈4x paper) | Same root cause as #133; fix there, not by editing `elbadry2026_selection.py` |
 
 **Column ownership** (strict — violating this is what produced the 740):
 
