@@ -592,6 +592,53 @@ def assert_stage_source_hash(
     return current
 
 
+#: Placeholder printed in place of a stage record's ``source_hash`` when the
+#: record carries none at all (pre-dating hash recording). Such a record is
+#: refused exactly like a mismatched hash (issue #169, ARCHITECTURE.md §5).
+MISSING_SOURCE_HASH_DETAIL = "<missing>"
+
+
+def source_hash_stale_reason(spec: StageSpec, recorded: str | None) -> str | None:
+    """Why ``recorded`` fails this stage's source-hash check, or ``None`` if it passes.
+
+    A **missing** recorded hash (``None`` or empty) is treated identically to a
+    **mismatched** one: both return a reason, so the caller refuses rather than
+    reusing the artifact (issue #169; Ryan's decision of 2026-09-14). Rationale:
+    a record with no hash cannot be shown to match the current dependency
+    modules, and the run-management posture on uncertainty is to refuse and
+    require an explicit ``--force-rerun``. The no-hash population is finite —
+    only run files written before hash recording — because every freshly
+    executed stage records a real hash (``mark_stage_started`` /
+    ``mark_stage_finished``).
+
+    Parameters
+    ----------
+    spec:
+        Registered stage spec whose ``dependency_modules`` define the hash.
+    recorded:
+        The hash stored on the stage record, or ``None`` / ``""`` when absent.
+
+    Returns
+    -------
+    str | None
+        ``"source_hash recorded=... current=..."`` when stale (with
+        ``MISSING_SOURCE_HASH_DETAIL`` standing in for an absent recorded
+        hash), otherwise ``None``.
+
+    Limitations
+    -----------
+    Only *this* stage's hash is considered — upstream stages are never checked
+    here (ARCHITECTURE.md §5). Hashing the dependency modules requires their
+    source files to be readable in the working tree; ``compute_source_hash``
+    raises if one is missing.
+    """
+    current = compute_source_hash(spec)
+    if recorded == current:
+        return None
+    shown = recorded if recorded else MISSING_SOURCE_HASH_DETAIL
+    return f"source_hash recorded={shown} current={current}"
+
+
 def stale_cache_detail(
     spec: StageSpec,
     record: StageRecord,
@@ -604,6 +651,8 @@ def stale_cache_detail(
 
     1. ``record.source_hash`` differs from ``compute_source_hash(spec)`` — a
        dependency module of this stage changed since the artifact was written.
+       A record carrying **no** ``source_hash`` at all fails this condition too:
+       missing is treated exactly like mismatched (issue #169).
     2. The recorded artifact's **file name** (the config-subset fingerprint)
        differs from ``current_artifact``'s — the stage's config subset now
        fingerprints differently, so the recorded artifact was produced under a
@@ -626,20 +675,18 @@ def stale_cache_detail(
 
     Limitations
     -----------
-    A record carrying no ``source_hash`` (pre-dating hash recording) cannot be
-    checked for condition 1 and is not reported stale on that basis; the
-    fingerprint check still applies. Upstream stages are deliberately **not**
-    checked here — per-stage hashing is scoped to the stage itself
-    (ARCHITECTURE.md §5), and human judgment owns upstream re-runs.
+    A record carrying no ``source_hash`` (pre-dating hash recording) is reported
+    stale on condition 1 — it cannot be shown to match, so it is refused and
+    needs an explicit ``--force-rerun`` (issue #169). Consequence: run files
+    written before hash recording are unresumable without that flag. Upstream
+    stages are deliberately **not** checked here — per-stage hashing is scoped
+    to the stage itself (ARCHITECTURE.md §5), and human judgment owns upstream
+    re-runs.
     """
     reasons: list[str] = []
-    recorded_hash = record.source_hash
-    if recorded_hash:
-        current_hash = compute_source_hash(spec)
-        if recorded_hash != current_hash:
-            reasons.append(
-                f"source_hash recorded={recorded_hash} current={current_hash}"
-            )
+    hash_reason = source_hash_stale_reason(spec, record.source_hash)
+    if hash_reason is not None:
+        reasons.append(hash_reason)
     recorded_artifact = record.artifact_path
     if recorded_artifact and Path(recorded_artifact).name != current_artifact.name:
         reasons.append(
@@ -685,7 +732,8 @@ def plan_stage(
     recorded ``source_hash`` and artifact fingerprint still match what the
     current code and config produce; otherwise the entry is ``REFUSE_STALE``, so
     the run plan stays printable (``--dry-run`` reports the staleness) while
-    execution refuses via ``assert_plan_not_stale``.
+    execution refuses via ``assert_plan_not_stale``. A record with **no**
+    recorded ``source_hash`` is refused identically to a mismatched one (#169).
 
     ``extra_note``, when given, is appended to the resulting entry's ``detail``
     (``"<detail> | <extra_note>"``) so a caller can surface a stage-specific,
@@ -756,17 +804,17 @@ def _plan_stage_decision(
     if artifact.is_file():
         # Artifact sits at the current config fingerprint by construction, so
         # only the dependency hash can be stale here (and only if some record
-        # exists to compare against).
-        if record is not None and record.source_hash:
-            current_hash = compute_source_hash(spec)
-            if record.source_hash != current_hash:
+        # exists to compare against). A record with no recorded hash is refused
+        # exactly like a mismatched one (#169).
+        if record is not None:
+            hash_reason = source_hash_stale_reason(spec, record.source_hash)
+            if hash_reason is not None:
                 return StagePlanEntry(
                     stage=spec.name,
                     action=StageAction.REFUSE_STALE,
                     detail=(
                         f"stale cache: output exists at {artifact} but "
-                        f"source_hash recorded={record.source_hash} "
-                        f"current={current_hash}; "
+                        f"{hash_reason}; "
                         f"re-run with --force-rerun {spec.name}"
                     ),
                     artifact_path=artifact,
