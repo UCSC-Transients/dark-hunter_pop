@@ -4,6 +4,7 @@
 # Phase 2–5 integration checkpoints materialize fragment domains into this file
 # (incl. rv_consistency, companion_nature, population_model, triples, inference).
 # Phase 6 (#72): benchmarks + diagnostics.sbc / hooks.sbc_recovery materialized.
+# #195: spectroscopic_mass_function materialized (values identical to schema defaults).
 
 paths:
   artifact_root: output
@@ -32,6 +33,23 @@ mass_derivation:
   bulk_m2_histogram_xmin_msun: 0.0
   bulk_m2_histogram_xmax_msun: 30.0
   bulk_m2_histogram_log_y: true
+spectroscopic_mass_function:
+  nss_solution_types: [SB1, SB1C]
+  circular_solution_types: [SB1C]
+  v1_inference_eligible: false
+  v1_role: reproduction_and_validation_only
+  published_table_path: config/selections/external/elbadry2026_table8.yaml
+  # Paper text is ``significance > 10``; Table 8 values are 1-decimal, so the
+  # reproduction gate against the frozen fixture is ``>=`` (one row is 10.0).
+  k1_significance_min: 10.0
+  fm_msun_min: 3.0
+  m2_min_msun_floor: 1.4
+  expected_union_n: 151
+  expected_n_ms_min_companion: 136
+  expected_n_high_fm: 30
+  expected_n_both_routes: 15
+  inversion_max_m2_msun: 500.0
+  inversion_n_bisection: 200
 rv_consistency:
   chi2_dof_threshold: 5.0
   min_epochs_per_instrument: 3
