@@ -247,7 +247,7 @@ def _completed_record(
     stage_name: str,
     *,
     artifact: Path,
-    source_hash: str,
+    source_hash: str | None,
 ) -> StageRecord:
     """Build a ``COMPLETED`` stage record pointing at ``artifact``."""
     return StageRecord(
@@ -307,6 +307,120 @@ def test_stale_source_hash_is_not_treated_as_cached(tmp_path: Path) -> None:
     forced = plan_stage(spec, stale, cfg, force_rerun=True)
     assert forced.action is StageAction.RUN
     run_management.assert_plan_not_stale(forced)
+
+
+def test_missing_source_hash_is_refused_like_a_mismatch(tmp_path: Path) -> None:
+    """Regression for #169 (Ryan's decision, 2026-09-14): REFUSE, not accept.
+
+    A ``completed`` record with **no** recorded ``source_hash`` (a run file
+    predating hash recording) must behave identically to a record whose hash
+    mismatches: ``REFUSE_STALE``, the same ``StaleStageCacheError`` message
+    shape, and ``--force-rerun`` as the only remedy. Covers both cache paths in
+    ``plan_stage`` — the recorded-artifact path and the
+    artifact-exists-at-the-current-fingerprint path.
+    """
+    cfg = load_config()
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    manifest = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["sample_selection"]
+    artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"hdf5-placeholder")
+
+    no_hash = manifest.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name, artifact=artifact, source_hash=None
+                )
+            }
+        }
+    )
+    assert no_hash.stages[spec.name].source_hash is None
+
+    entry = plan_stage(spec, no_hash, cfg)
+    assert entry.action is StageAction.REFUSE_STALE
+    assert entry.action is not StageAction.SKIP_CACHED
+    assert "source_hash" in entry.detail
+    assert run_management.MISSING_SOURCE_HASH_DETAIL in entry.detail
+    assert "--force-rerun" in entry.detail
+    with pytest.raises(run_management.StaleStageCacheError, match="stale cached"):
+        run_management.assert_plan_not_stale(entry)
+
+    # Same detail string shape as a mismatched hash (identical treatment).
+    mismatched = plan_stage(
+        spec,
+        manifest.model_copy(
+            update={
+                "stages": {
+                    spec.name: _completed_record(
+                        spec.name, artifact=artifact, source_hash="0" * 64
+                    )
+                }
+            }
+        ),
+        cfg,
+    )
+    assert mismatched.action is entry.action
+    assert entry.detail.replace(
+        run_management.MISSING_SOURCE_HASH_DETAIL, "0" * 64
+    ) == mismatched.detail
+
+    # Explicit force-rerun is the documented way through.
+    forced = plan_stage(spec, no_hash, cfg, force_rerun=True)
+    assert forced.action is StageAction.RUN
+    run_management.assert_plan_not_stale(forced)
+
+    # Second path: the record points elsewhere (parent run, file absent) while
+    # an artifact exists at the current fingerprint.
+    absent = no_hash.model_copy(
+        update={
+            "stages": {
+                spec.name: _completed_record(
+                    spec.name,
+                    artifact=tmp_path / "gone" / artifact.name,
+                    source_hash=None,
+                )
+            }
+        }
+    )
+    second = plan_stage(spec, absent, cfg)
+    assert second.action is StageAction.REFUSE_STALE
+    assert run_management.MISSING_SOURCE_HASH_DETAIL in second.detail
+    assert "--force-rerun" in second.detail
+
+
+def test_fresh_stage_records_always_carry_a_source_hash() -> None:
+    """#169: nothing can newly enter the no-hash population.
+
+    ``mark_stage_started`` computes the hash at stage start and
+    ``mark_stage_finished`` falls back to computing it at completion, so a
+    freshly executed stage's record can never have ``source_hash=None``.
+    """
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    for stage_name in STAGE_ORDER:
+        spec = STAGE_REGISTRY[stage_name]
+        started = mark_stage_started(manifest, spec, cfg)
+        assert started.stages[stage_name].source_hash == compute_source_hash(spec)
+        finished = mark_stage_finished(
+            started, spec, status=StageStatus.COMPLETED
+        )
+        assert finished.stages[stage_name].source_hash == compute_source_hash(spec)
+        # Even a record that somehow lost its hash regains one at completion.
+        blanked = started.model_copy(
+            update={
+                "stages": {
+                    stage_name: started.stages[stage_name].model_copy(
+                        update={"source_hash": None}
+                    )
+                }
+            }
+        )
+        repaired = mark_stage_finished(
+            blanked, spec, status=StageStatus.COMPLETED
+        )
+        assert repaired.stages[stage_name].source_hash == compute_source_hash(spec)
 
 
 def test_stale_artifact_fingerprint_is_not_treated_as_cached(tmp_path: Path) -> None:

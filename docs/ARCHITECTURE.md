@@ -430,7 +430,7 @@ artifact exists on disk is honored as `SKIP_CACHED` **only** when both of the fo
 against the *current* working tree and config:
 
 1. the record's `source_hash` equals `compute_source_hash(spec)` for the stage's declared
-   `dependency_modules`, and
+   `dependency_modules` — a record carrying **no** `source_hash` fails this check, and
 2. the record's artifact **file name** — the config-subset fingerprint — equals the one
    `stage_artifact_path` produces now.
 
@@ -456,8 +456,16 @@ stage without raising.
 
 Only the artifact *file name* is compared, never the full path: `new_run_for_force_rerun` copies
 prior stage records forward still pointing into the **parent** run's artifact directory, which is
-correct, not stale. A record carrying no `source_hash` at all cannot fail check 1 (only check 2
-applies to it).
+correct, not stale.
+
+**A record with no `source_hash` at all is refused, exactly like a mismatched hash** (issue #169,
+Ryan's decision of 2026-09-14). It cannot be shown to match the current dependency modules, so
+check 1 fails with `source_hash recorded=<missing> current=<hash>`, the plan entry is
+`REFUSE_STALE`, and the remedy is the same explicit `--force-rerun <stage>`. Consequence, accepted
+deliberately: run files written before `source_hash` recording are unresumable without that flag.
+This population only shrinks — every freshly executed stage records a real hash
+(`mark_stage_started` computes it at stage start; `mark_stage_finished` falls back to computing it
+at completion), and `StageRecord` is never constructed anywhere else.
 
 **Per-stage source hash**: each stage declares which package modules (and vendored pins) affect its
 answers. At stage completion the run file records `source_hash` for that dependency set. Only
@@ -487,6 +495,7 @@ artifacts and re-run it, **amending** the same run file.
 | Force-re-run of a completed stage | **New** run file (copy prior stage records) |
 | Config checksum mismatch | **Refuse**; new run required |
 | Cached stage record whose `source_hash` or artifact fingerprint no longer matches current code/config | **Refuse** (`REFUSE_STALE` → `StaleStageCacheError`); require explicit `--force-rerun <stage>` |
+| Cached stage record with **no recorded** `source_hash` (pre-dates hash recording) | **Refuse**, identically to a mismatch (#169); require explicit `--force-rerun <stage>` |
 | gaiamock version mismatch (gaiamock-using stage) | **Refuse** |
 | Mid-stage crash | Wipe partials; **amend**; re-run that stage |
 | Docstring / plotting-only edits | Ignored (not in stage dependency hash) |
