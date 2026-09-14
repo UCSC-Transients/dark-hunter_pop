@@ -28,7 +28,6 @@ Read these before making a design change. **Docs-first: update the spec via PR b
 | `docs/SELECTION_REPRODUCTION_STATUS.md` | Live hand-off: which literature reproduction numbers currently fail and why |
 | `docs/GAIAMOCK_API.md` | `gaiamock_mod` public API; what must **not** be reimplemented |
 | `docs/PLOTS.md` | Figure style guide + `plotting:` config defaults |
-| `docs/ESCALATE_RV_SUMMARY_JSON.md` | RV JSON summary upstream gap (partly superseded — see Status) |
 | `docs/PHASE1_KICKOFF.md` … `PHASE7_KICKOFF.md` | Historical per-phase paste prompts |
 
 README prose is a summary, never a substitute for the locked decisions above.
@@ -139,8 +138,7 @@ fragment. Record which profile a run used in its run file.
 by `rv_adapter` into `CandidateRecord.rv_summary` and by `rv_consistency`. Upstream doc:
 `dark-hunter_rv/docs/RV_SUMMARY_JSON.md`, which names pop issue #31 as its parent and requires a docs
 PR here (against `FOUNDATION_INTERFACE_FREEZE.md`) before any breaking field rename.
-`darkhunter_rv.rv_summary_json` and `summary_paths` are on that repo's `main`, so
-`docs/ESCALATE_RV_SUMMARY_JSON.md` is **obsolete** and should be retired.
+`darkhunter_rv.rv_summary_json` and `summary_paths` are on that repo's `main`.
 
 Note the coupling: `dark-hunter_sed`'s `push_m1` writes fitted M1 **back into the RV summary JSON**.
 That file is the shared per-star record across all three repos, not an RV-only artifact.
@@ -371,8 +369,8 @@ under restricted permissions.
   `rv_summary_root` wired, RV JSON re-attached at the gate, gate ordering by calibrators → public
   RVs → summary mtime, and gate `K` derived from Thiele–Innes inclination when NSS omits
   `Semi_Amp_Primary`. **154 `Gaia_DR3_*_summary.json` RV files are now staged** under
-  `data/dr3/rv_summaries/`. `docs/ESCALATE_RV_SUMMARY_JSON.md` is now obsolete — the JSON writer is
-  on `dark-hunter_rv` `main`. Only 2 SED summaries are staged so far.
+  `data/dr3/rv_summaries/`. The JSON writer is on `dark-hunter_rv` `main`. Only 2 SED summaries are
+  staged so far.
 - **Literature selection reproduction is the active blocker**, and is Wave A's work. Every number
   below was measured on `main` @ `c905575` (#144), not on a branch: Andrews N=**33** vs 24 (**352** vs
   106 after the `m2_probability` cut), El-Badry 2026 `primary_ns_bh` **42** vs 47, `sub_chandrasekhar`
