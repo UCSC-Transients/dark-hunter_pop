@@ -325,7 +325,7 @@ under restricted permissions.
 12. Every wave ends in a hard stop for operator review, with a written handoff note, before the next
    begins (§5.9).
 
-## Status (as of 2026-09-13, `main` @ c905575)
+## Status (as of 2026-09-14, `main` @ b2ce634)
 
 - **Scope: the laptop only.** The current objective is the whole workflow running smoothly on
   `/Users/rfoley/darkhunter/pop/dark-hunter_pop/`. ziggy and lux are deferred and out of scope —
@@ -352,6 +352,14 @@ under restricted permissions.
   - **Every `SELECTION_REPRODUCTION_STATUS.md` §3 number was re-measured on `main`** and the document
     rewritten with the SHA beside each number. No escalation signal tripped: all three exact-match
     equalities hold, nothing moved by an order of magnitude, nothing collapsed to or appeared from zero.
+  - **Docs provenance corrected** (#187 / PR #188 / `b2ce634`): `scripts/attach_mc_to_selection_cache.py`
+    is on `main` (it landed with the reconciliation, PR #150), not in an orphaned worktree as earlier
+    docs claimed. A few more instances of the same "stale not-on-`main`" defect class remain, tracked
+    under #189 rather than fixed piecemeal.
+  - **Wave gate teardown**: 26 stale worktrees and 70 stale branches removed, each independently
+    re-verified fully merged before deletion. One branch (`fix/selection-reproduction-binding`, fully
+    superseded, patch-equivalent to what's on `main`) is left pending an explicit human
+    `git branch -D` — its deletion was correctly refused by the permission system.
   - **Gate −1 awaits operator review.** Wave 0 is not dispatched until then.
 - **Phases 0–8 complete on `main`.** The pipeline has run end-to-end on the real DR3 NSS catalog:
   `runs/20260904-152655-674c989.yaml` reaches `inference` completed, with `joint_orbit_fit` skipped
