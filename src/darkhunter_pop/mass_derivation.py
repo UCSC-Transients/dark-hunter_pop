@@ -66,6 +66,55 @@ except ImportError:  # pragma: no cover - optional sibling package
     _sed_summary_path = None  # type: ignore[assignment]
     _SED_AVAILABLE = False
 
+# Loud, machine-grep-able condition string for the ``darkhunter_rv``-uninstalled
+# degraded path (issue #181, Ryan's Option B decision 2026-09-14: darkhunter_rv
+# stays uninstalled by default; this makes the resulting skip visible, not a bug
+# to fix by installing anything). Reused by the ``RefinedDiagnostics`` report,
+# the ``mass_derivation_refined`` run-file ``reason``, and the run-plan note.
+SED_UNAVAILABLE_CONDITION = (
+    "darkhunter_sed.batch cannot import darkhunter_rv.summary_paths "
+    "(darkhunter_rv not installed)"
+)
+# Canonical ``StageRecord.reason`` prefix recorded on the ``mass_derivation_refined``
+# run-file entry when the stage completed with at least one candidate left
+# unrefined because the SED package was unavailable and
+# ``require_sed_package=false`` (degrade, don't refuse). The full reason string
+# (built by ``refined_completion_reason``) appends the affected/queued counts.
+SED_UNAVAILABLE_SKIP_REASON = "sed_unavailable_refinement_skipped"
+
+
+def sed_unavailable_plan_note(config: PipelineConfig) -> str | None:
+    """Plan-time note for ``mass_derivation_refined`` when SED is unavailable.
+
+    Returns ``None`` when ``darkhunter_sed`` (and transitively ``darkhunter_rv``)
+    is importable, i.e. real uberMS refinement will run normally. Otherwise
+    returns a human-readable note describing what will actually happen so the
+    run-plan printout (``run_pipeline.py --dry-run`` and the real run's printed
+    plan, ARCHITECTURE.md §5) makes the degraded path loud *before* execution,
+    not only after the fact in the artifact/run-file record (issue #181).
+
+    Parameters
+    ----------
+    config:
+        Loaded pipeline config; only ``config.mass_derivation.require_sed_package``
+        is consulted, since that flag decides whether the stage refuses (raises)
+        or degrades (skips refinement, passes bulk M1 through) when SED is
+        unavailable.
+    """
+    if _SED_AVAILABLE:
+        return None
+    if config.mass_derivation.require_sed_package:
+        return (
+            f"SED UNAVAILABLE ({SED_UNAVAILABLE_CONDITION}); "
+            "require_sed_package=true so this stage will REFUSE at run time (ImportError)"
+        )
+    return (
+        f"SED UNAVAILABLE ({SED_UNAVAILABLE_CONDITION}); require_sed_package=false "
+        "so this stage will RUN in DEGRADED mode: bulk M1 estimates pass through "
+        "unrefined for every candidate, refinement is skipped"
+    )
+
+
 # Gaia astrophysical_parameters keys expected on CandidateRecord.extras
 # (populated by data_acquisition when the AP join is present).
 _MSC_TEFF = "teff_msc1"
@@ -154,6 +203,13 @@ class RefinedDiagnostics:
     fit_failed: int
     watchlist_source_ids: tuple[int, ...]
     information_gain_order: tuple[int, ...]
+    # Loud flag (issue #181): whether darkhunter_sed (and transitively
+    # darkhunter_rv) was importable when this diagnostics object was built.
+    # False means every candidate above fell through the "doc is None" path in
+    # ``run_refined_on_candidates`` and kept its bulk M1 estimate unrefined —
+    # never inferred silently from fit_succeeded==0, which also fires for other
+    # reasons (e.g. no sed_summary.json staged yet).
+    sed_package_available: bool = True
 
 
 def _finite(value: Any) -> float | None:
@@ -517,6 +573,7 @@ def format_refined_report(diagnostics: RefinedDiagnostics) -> str:
     """Human-readable refined-stage report (exempt from caveman compression)."""
     lines = [
         "mass_derivation_refined report",
+        f"  sed_package_available:  {diagnostics.sed_package_available}",
         f"  queued:                 {diagnostics.queued}",
         f"  fit_attempted:          {diagnostics.fit_attempted}",
         f"  fit_cached:             {diagnostics.fit_cached}",
@@ -526,12 +583,53 @@ def format_refined_report(diagnostics: RefinedDiagnostics) -> str:
         f"  watchlist_source_ids:   {list(diagnostics.watchlist_source_ids)}",
         f"  information_gain_order: {list(diagnostics.information_gain_order)}",
     ]
-    if diagnostics.queued > 0 and diagnostics.fit_succeeded == 0:
+    if not diagnostics.sed_package_available:
+        unrefined = diagnostics.queued - diagnostics.fit_succeeded
+        lines.append("  " + "*" * 70)
+        lines.append(f"  * SED PACKAGE UNAVAILABLE: {SED_UNAVAILABLE_CONDITION}")
+        lines.append(
+            "  * Live uberMS fitting is disabled; only candidates with a "
+            "pre-staged sed_summary.json snapshot could be refined."
+        )
+        if unrefined > 0:
+            lines.append(
+                f"  * {unrefined}/{diagnostics.queued} queued candidate(s) kept "
+                "their unrefined mass_derivation_bulk (TAG10) M1 estimate."
+            )
+        else:
+            lines.append(
+                f"  * All {diagnostics.queued} queued candidate(s) were refined "
+                "from pre-staged snapshots this run."
+            )
+        lines.append("  " + "*" * 70)
+    elif diagnostics.queued > 0 and diagnostics.fit_succeeded == 0:
         lines.append(
             "  WARNING: fit_succeeded=0 — check sed_summary_root layout "
             "(Gaia_DR3_{source_id}_sed_summary.json) or darkhunter_sed queue."
         )
     return "\n".join(lines)
+
+
+def refined_completion_reason(diagnostics: RefinedDiagnostics) -> str | None:
+    """``StageRecord.reason`` for a COMPLETED ``mass_derivation_refined`` record.
+
+    Issue #181: a completed record must never look indistinguishable from a
+    run where every queued candidate was actually refined. Returns ``None``
+    when either the SED package was available, or it was unavailable but every
+    queued candidate still got refined from a pre-staged snapshot (no impact
+    to record loudly). Otherwise returns a machine-parseable reason string
+    (prefixed with ``SED_UNAVAILABLE_SKIP_REASON``) naming exactly how many
+    candidates were left with their unrefined bulk M1 estimate.
+    """
+    if diagnostics.sed_package_available:
+        return None
+    unrefined = diagnostics.queued - diagnostics.fit_succeeded
+    if unrefined <= 0:
+        return None
+    return (
+        f"{SED_UNAVAILABLE_SKIP_REASON}: {unrefined}/{diagnostics.queued} "
+        f"queued candidate(s) kept bulk M1 ({SED_UNAVAILABLE_CONDITION})"
+    )
 
 
 def process_bulk_candidate(
@@ -1083,13 +1181,29 @@ def run_refined_on_candidates(
     summary_loader: Callable[[int], dict[str, Any] | None] | None = None,
     needs_update_fn: Callable[[int], tuple[bool, str]] | None = None,
     fit_fn: Callable[[int], dict[str, Any] | None] | None = None,
+    sed_package_available: bool | None = None,
 ) -> tuple[list[CandidateRecord], RefinedDiagnostics]:
-    """Queue and apply uberMS refined M1; prioritize by information-gain stub."""
+    """Queue and apply uberMS refined M1; prioritize by information-gain stub.
+
+    Parameters
+    ----------
+    sed_package_available:
+        Overrides the module-level ``_SED_AVAILABLE`` (real import result of
+        ``darkhunter_sed``/``darkhunter_rv``) for the returned
+        ``RefinedDiagnostics.sed_package_available`` flag. ``None`` (default)
+        uses the real environment; tests use this to exercise the loud-skip
+        path (issue #181) without installing or uninstalling anything, while
+        independently mocking ``summary_loader``/``needs_update_fn``/``fit_fn``.
+    """
     if config.mass_derivation.require_sed_package and not _SED_AVAILABLE:
         raise ImportError(
             "mass_derivation.require_sed_package=true but darkhunter_sed "
-            "is not importable"
+            f"is not importable ({SED_UNAVAILABLE_CONDITION})"
         )
+
+    effective_sed_available = (
+        _SED_AVAILABLE if sed_package_available is None else sed_package_available
+    )
 
     loader = summary_loader or _sed_summary_loader_for_config(config)
     needs_update = needs_update_fn or _sed_needs_update_for_config(config)
@@ -1176,6 +1290,7 @@ def run_refined_on_candidates(
         fit_failed=fit_failed,
         watchlist_source_ids=tuple(watchlist),
         information_gain_order=order_ids,
+        sed_package_available=effective_sed_available,
     )
     return updated, diagnostics
 
@@ -1236,6 +1351,7 @@ def run_mass_derivation_refined(
         updated,
         stage_name="mass_derivation_refined",
         diagnostics={
+            "sed_package_available": diagnostics.sed_package_available,
             "queued": diagnostics.queued,
             "fit_attempted": diagnostics.fit_attempted,
             "fit_cached": diagnostics.fit_cached,
@@ -1247,10 +1363,17 @@ def run_mass_derivation_refined(
     )
     write_refined_diagnostic_artifacts(diagnostics, artifact)
 
+    # Issue #181: never let this stage complete silently as if it refined data
+    # it didn't. The run-file ``reason`` field is otherwise unused on a
+    # COMPLETED record, so a non-None value here is unambiguous evidence a
+    # reader (or #49's verification agent) cannot miss when scanning the run
+    # manifest.
+    completion_reason = refined_completion_reason(diagnostics)
     manifest = mark_stage_finished(
         manifest,
         spec,
         status=StageStatus.COMPLETED,
+        reason=completion_reason,
         artifact_path=artifact,
     )
     save_run_manifest(manifest, run_path)

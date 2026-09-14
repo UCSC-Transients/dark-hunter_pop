@@ -7,9 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import darkhunter_pop.mass_derivation as mass_derivation
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.config_schema import MassCalibrationMethod
 from darkhunter_pop.mass_derivation import (
+    SED_UNAVAILABLE_SKIP_REASON,
     BulkDiagnostics,
     BulkFunnel,
     apply_santos_correction,
@@ -22,11 +24,13 @@ from darkhunter_pop.mass_derivation import (
     parameterset_from_sed_summary,
     passes_m2_mass_cut,
     read_stage_hdf5,
+    refined_completion_reason,
     resolve_atmosphere,
     run_bulk_on_candidates,
     run_mass_derivation_bulk,
     run_mass_derivation_refined,
     run_refined_on_candidates,
+    sed_unavailable_plan_note,
     tag10_log_mass_radius,
     write_bulk_diagnostic_artifacts,
     write_stage_hdf5,
@@ -334,6 +338,197 @@ def test_refined_queue_cache_and_watchlist() -> None:
     assert out[0].fit_tier is FitTier.FULL_UBERMS
     assert 42 in diag.watchlist_source_ids
     assert format_refined_report(diag).startswith("mass_derivation_refined")
+
+
+# --- Issue #181: loud SED-unavailable degraded path (never silent) ---------
+
+
+def _unrefined_candidate(source_id: int) -> CandidateRecord:
+    return CandidateRecord(
+        source_id=source_id,
+        m1=ParameterSet(
+            names=["M1"], values=[1.0], covariance=[[0.01]], provenance="TAG10"
+        ),
+        fit_tier=FitTier.BULK_ESTIMATE,
+    )
+
+
+def test_refined_diagnostics_loud_when_sed_unavailable() -> None:
+    """No pre-staged snapshot + SED unavailable: skip is recorded, never silent."""
+    cfg = load_config()
+    cand = _unrefined_candidate(1)
+
+    out, diag = run_refined_on_candidates(
+        [cand],
+        cfg,
+        summary_loader=lambda _sid: None,
+        needs_update_fn=lambda _sid: (True, "no snapshot"),
+        fit_fn=lambda _sid: None,
+        sed_package_available=False,
+    )
+
+    assert diag.sed_package_available is False
+    assert diag.fit_succeeded == 0
+    assert out[0].fit_tier is FitTier.BULK_ESTIMATE  # unrefined, kept bulk M1
+
+    report = format_refined_report(diag)
+    assert "SED PACKAGE UNAVAILABLE" in report
+    assert "1/1 queued candidate(s) kept" in report
+
+    reason = refined_completion_reason(diag)
+    assert reason is not None
+    assert reason.startswith(SED_UNAVAILABLE_SKIP_REASON)
+    assert "1/1" in reason
+
+
+def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
+    """SED package unavailable but every candidate had a staged snapshot: no
+    candidate was actually left unrefined, so the completion reason (which
+    drives the run-file record) must not falsely claim a skip happened."""
+    cfg = load_config()
+    cand = _unrefined_candidate(2)
+    doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
+
+    out, diag = run_refined_on_candidates(
+        [cand],
+        cfg,
+        summary_loader=lambda _sid: doc,
+        needs_update_fn=lambda _sid: (False, "up to date"),
+        fit_fn=lambda _sid: (_ for _ in ()).throw(AssertionError("should not fit")),
+        sed_package_available=False,
+    )
+
+    assert diag.sed_package_available is False
+    assert diag.fit_succeeded == 1
+    assert out[0].fit_tier is FitTier.FULL_UBERMS
+
+    report = format_refined_report(diag)
+    assert "SED PACKAGE UNAVAILABLE" in report  # the fact is still visible
+    assert "All 1 queued candidate(s) were refined" in report
+
+    # No candidate was actually left unrefined, so nothing loud belongs on the
+    # run-file record for this run.
+    assert refined_completion_reason(diag) is None
+
+
+def test_refined_diagnostics_quiet_when_sed_available() -> None:
+    """Baseline: SED package available, normal behavior is unaffected."""
+    cfg = load_config()
+    cand = _unrefined_candidate(3)
+    doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
+
+    _out, diag = run_refined_on_candidates(
+        [cand],
+        cfg,
+        summary_loader=lambda _sid: doc,
+        needs_update_fn=lambda _sid: (False, "up to date"),
+        fit_fn=lambda _sid: (_ for _ in ()).throw(AssertionError("should not fit")),
+        sed_package_available=True,
+    )
+
+    assert diag.sed_package_available is True
+    report = format_refined_report(diag)
+    assert "SED PACKAGE UNAVAILABLE" not in report
+    assert refined_completion_reason(diag) is None
+
+
+def test_sed_unavailable_plan_note_none_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plan-time note is silent when darkhunter_sed is importable."""
+    monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", True)
+    cfg = load_config()
+    assert sed_unavailable_plan_note(cfg) is None
+
+
+def test_sed_unavailable_plan_note_degraded_vs_refuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plan-time note distinguishes degrade (default) vs refuse (require_sed_package=true)."""
+    monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", False)
+    cfg = load_config()
+
+    degraded_note = sed_unavailable_plan_note(cfg)
+    assert degraded_note is not None
+    assert "DEGRADED" in degraded_note
+
+    strict_cfg = cfg.model_copy(
+        update={
+            "mass_derivation": cfg.mass_derivation.model_copy(
+                update={"require_sed_package": True}
+            )
+        }
+    )
+    refuse_note = sed_unavailable_plan_note(strict_cfg)
+    assert refuse_note is not None
+    assert "REFUSE" in refuse_note
+
+
+def test_build_stage_plan_surfaces_sed_unavailable_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The printed run plan (--dry-run and the real run) carries the note, not
+    just the artifact after the fact (issue #181)."""
+    monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", False)
+    from darkhunter_pop.pipeline import build_stage_plan
+    from darkhunter_pop.run_management import create_run_manifest
+
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    plan = build_stage_plan(
+        manifest, cfg, stage_subset=["data_acquisition", "mass_derivation_refined"]
+    )
+    refined_entry = next(e for e in plan if e.stage == "mass_derivation_refined")
+    assert "SED UNAVAILABLE" in refined_entry.detail
+    daq_entry = next(e for e in plan if e.stage == "data_acquisition")
+    assert "SED UNAVAILABLE" not in daq_entry.detail
+
+
+def test_run_mass_derivation_refined_records_loud_reason_on_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end stage runner: when SED is unavailable and a candidate has no
+    pre-staged snapshot, the run-file StageRecord.reason and the HDF5
+    diagnostics attr both carry the loud flag — never a silent COMPLETED."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", False)
+
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(
+                update={"artifact_root": str(tmp_path / "output")}
+            )
+        }
+    )
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    manifest = create_run_manifest(cfg)
+    run_path = runs / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+
+    manifest = run_mass_derivation_refined(
+        manifest,
+        cfg,
+        run_path=run_path,
+        candidates=[_unrefined_candidate(99)],
+        summary_loader=lambda _sid: None,
+        needs_update_fn=lambda _sid: (True, "no snapshot"),
+        fit_fn=lambda _sid: None,
+    )
+
+    ref = manifest.stages["mass_derivation_refined"]
+    assert ref.status is StageStatus.COMPLETED
+    assert ref.reason is not None
+    assert ref.reason.startswith(SED_UNAVAILABLE_SKIP_REASON)
+
+    refined, _ = read_stage_hdf5(Path(ref.artifact_path))
+    assert refined[0].fit_tier is FitTier.BULK_ESTIMATE  # unrefined, not silently kept as if refined
+
+    import h5py
+
+    with h5py.File(ref.artifact_path, "r") as handle:
+        assert handle["diagnostics"].attrs["sed_package_available"] == False  # noqa: E712
 
 
 def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
