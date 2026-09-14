@@ -755,8 +755,9 @@ so this wave can run wide.
 
 *Quick wins (#28–#31).* Retire the obsolete RV escalation doc (the JSON writer is on
 `dark-hunter_rv` `main`). Commit the untracked run files — a run file that exists only on a laptop is
-not a manifest. Merge the orphaned `spectroscopic_mass_function` fragment into `config.yaml`. Land the
-MC-cache script on `main`. Run the full suite including optional markers once and file what fails.
+not a manifest. Merge the orphaned `spectroscopic_mass_function` fragment into `config.yaml`. (The
+MC-cache script already landed on `main` via PR #150 / issue #141 — see item 52 above.) Run the full
+suite including optional markers once and file what fails.
 Build the host profiles (#29) so the later ziggy move is a flag, exercising only `laptop` now. Wire
 the `phot_sed` adapter (#30) — pop gains real BIC/lnZ for whatever stars `dark-hunter_sed` has already
 fitted and falls back to the analytic relations only where it must, with the funnel reporting the
