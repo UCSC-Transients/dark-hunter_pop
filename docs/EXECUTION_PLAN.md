@@ -4,11 +4,13 @@
 after reading `dark-hunter_sed` and `dark-hunter_rv`, and again after operator input on scope,
 dispatch, and merge policy.
 
-**Wave −1 is complete** as of 2026-09-13, `main` @ `c905575` — roster #50–#55 all landed, the
-reproduction-binding reconciliation is on `main`, and the baseline (full suite, peak RSS, §3
-re-measured on `main`) exists. See §7's Wave −1 section for what it measured, §5.6 for the concurrency
-cap those measurements set, and the handoff note in umbrella issue **#145**, which the orchestrator
-writes per §5.9. **Wave 0 is not dispatched until the operator approves Gate −1.**
+**Wave −1 is complete** as of 2026-09-14, `main` @ `b2ce634` — roster #50–#55 all landed and
+independently verified (9 merges, plus a docs-provenance correction pass), the reproduction-binding
+reconciliation is on `main`, the baseline (full suite, peak RSS, §3 re-measured on `main`) exists,
+and gate teardown removed 26 stale worktrees and 70 stale branches. See §7's Wave −1 section for
+what it measured, §5.6 for the concurrency cap those measurements set (four heavy sessions), and the
+handoff note in umbrella issue **#145**, which the orchestrator writes per §5.9. **Wave 0 is not
+dispatched until the operator approves Gate −1.**
 
 **Current authorized scope: Waves −1 through D, on the laptop only.** Waves E–H are planned below but **not
 authorized** — see §2.
