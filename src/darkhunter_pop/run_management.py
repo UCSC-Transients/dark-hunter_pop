@@ -27,6 +27,7 @@ from darkhunter_pop.schemas import (
     RunManifest,
     StageRecord,
     StageStatus,
+    SyntheticStandIn,
 )
 
 _RUNS_DIR = repo_root() / "runs"
@@ -506,7 +507,39 @@ def create_run_manifest(
     parent_run_id: str | None = None,
     stages_seed: Mapping[str, StageRecord] | None = None,
     when: datetime | None = None,
+    random_seeds: Mapping[str, Any] | None = None,
+    dry_run: bool = False,
+    dry_run_label: str | None = None,
+    synthetic_stand_ins: Sequence[SyntheticStandIn] = (),
 ) -> RunManifest:
+    """Build a fresh ``RunManifest`` stamped with everything known at run birth.
+
+    Parameters
+    ----------
+    config:
+        Loaded pipeline config; supplies the checksum, active DR mode, artifact
+        root, host profile and gaiamock version triple.
+    parent_run_id:
+        Set when copying prior stage records forward from a force-re-run.
+    stages_seed:
+        Stage records copied forward (``copy_stages_before``).
+    when:
+        Creation timestamp; also fixes the ``run_id`` prefix. Defaults to now.
+    random_seeds:
+        Seeds actually in effect for this run, recorded for accounting —
+        ``dynesty`` is validated by multi-run posterior agreement, never by
+        bitwise seed replay (ARCHITECTURE.md §4 ``inference``).
+    dry_run / dry_run_label / synthetic_stand_ins:
+        Dry-run labeling, applied **at birth** (issue #201). ``RunManifest``
+        refuses ``dry_run=True`` without both a label and at least one declared
+        stand-in, so a mislabeled dry run cannot be written at all.
+
+    Limitations
+    -----------
+    Nothing here validates that ``random_seeds`` matches what the stages will
+    actually consume, nor that ``synthetic_stand_ins`` is exhaustive — both are
+    declarations the caller is responsible for.
+    """
     now = when or datetime.now(tz=timezone.utc)
     run_id = make_run_id(when=now)
     return RunManifest(
@@ -520,6 +553,10 @@ def create_run_manifest(
         gaiamock_mod_release=config.gaiamock.mod_release,
         gaiamock_mod_sha256=config.gaiamock.mod_sha256,
         gaiamock_git_commit=config.gaiamock.git_commit,
+        random_seeds=dict(random_seeds or {}),
+        dry_run=dry_run,
+        dry_run_label=dry_run_label,
+        synthetic_stand_ins=[s.model_copy(deep=True) for s in synthetic_stand_ins],
         stages=dict(stages_seed or {}),
     )
 
@@ -544,11 +581,21 @@ def new_run_for_force_rerun(
     config: PipelineConfig,
     stage_name: str,
 ) -> RunManifest:
-    """Force-re-run of a completed stage → new run file with prior stages copied."""
+    """Force-re-run of a completed stage → new run file with prior stages copied.
+
+    The parent's seeds and dry-run labeling are carried forward: a child of a
+    dry run is still a dry run, with the same declared stand-ins (issue #201).
+    """
     assert_config_checksum(config, parent.config_checksum)
     seed = copy_stages_before(parent, stage_name)
     return create_run_manifest(
-        config, parent_run_id=parent.run_id, stages_seed=seed
+        config,
+        parent_run_id=parent.run_id,
+        stages_seed=seed,
+        random_seeds=parent.random_seeds,
+        dry_run=parent.dry_run,
+        dry_run_label=parent.dry_run_label,
+        synthetic_stand_ins=parent.synthetic_stand_ins,
     )
 
 
@@ -849,23 +896,56 @@ def format_run_plan(
     created_new: bool,
     dry_run: bool = False,
 ) -> str:
-    """Fully legible run-plan screen output (exempt from caveman compression)."""
+    """Fully legible run-plan screen output (exempt from caveman compression).
+
+    When ``manifest.dry_run`` is set, the plan leads with the dry-run banner and
+    prints **every** declared synthetic stand-in before the stage list, so an
+    operator reading the plan before execution sees what was substituted without
+    opening the run file (issue #201, EXECUTION_PLAN.md §7).
+
+    Note the two independent senses of "dry run" here, deliberately kept
+    distinct: the ``dry_run`` *argument* is ``--dry-run`` (plan and execute
+    nothing), while ``manifest.dry_run`` is the run-level label meaning "built on
+    documented substitutions, so not a science result".
+    """
     if dry_run and created_new:
         run_status = "planned (not written — dry-run)"
     elif created_new:
         run_status = "created"
     else:
         run_status = "existing"
-    lines = [
-        "=== dark-hunter_pop run plan ===",
-        f"run_file: {run_path} ({run_status})",
-        f"run_id: {manifest.run_id}",
-        f"active_dr_mode: {config.active_dr_mode.value}",
-        f"config_checksum: {manifest.config_checksum}",
-        f"artifact_root: {manifest.artifact_root}",
-        f"host_profile: {manifest.host_profile or 'none (config.yaml as authored)'}",
-        "stages:",
-    ]
+    lines = ["=== dark-hunter_pop run plan ==="]
+    if manifest.dry_run:
+        lines.append(f"*** {manifest.dry_run_label} ***")
+    lines.extend(
+        [
+            f"run_file: {run_path} ({run_status})",
+            f"run_id: {manifest.run_id}",
+            f"active_dr_mode: {config.active_dr_mode.value}",
+            f"config_checksum: {manifest.config_checksum}",
+            f"artifact_root: {manifest.artifact_root}",
+            f"host_profile: {manifest.host_profile or 'none (config.yaml as authored)'}",
+            f"code_commit: {short_git_commit()}",
+            f"gaiamock version triple: release={manifest.gaiamock_mod_release} "
+            f"sha256={manifest.gaiamock_mod_sha256} "
+            f"git_commit={manifest.gaiamock_git_commit}",
+            f"random_seeds: {manifest.random_seeds or '(none recorded)'}",
+            f"dry_run: {manifest.dry_run}",
+        ]
+    )
+    lines.append(
+        f"synthetic_stand_ins: {len(manifest.synthetic_stand_ins)} declared"
+    )
+    for stand_in in manifest.synthetic_stand_ins:
+        lines.append(f"  - {stand_in.one_line()}")
+        lines.append(f"      {stand_in.description}")
+        if stand_in.config_keys:
+            lines.append(
+                "      config keys: " + ", ".join(stand_in.config_keys)
+            )
+        if stand_in.values:
+            lines.append(f"      values: {stand_in.values}")
+    lines.append("stages:")
     for entry in plan:
         subset = config_subset_for_stage(config, STAGE_REGISTRY[entry.stage])
         lines.append(f"  - {entry.stage}: {entry.detail}")
@@ -923,6 +1003,68 @@ def mark_stage_finished(
                 str(artifact_path) if artifact_path is not None else prior.artifact_path
             ),
             "source_hash": prior.source_hash or compute_source_hash(spec),
+        }
+    )
+    return manifest.model_copy(update={"stages": stages})
+
+
+def record_stage_resources(
+    manifest: RunManifest,
+    stage_name: str,
+    *,
+    wall_clock_seconds: float,
+    peak_rss_bytes: int | None = None,
+    cumulative_peak_rss_bytes: int | None = None,
+) -> RunManifest:
+    """Attach measured wall-clock / peak-RSS to an existing stage record.
+
+    Kept separate from ``mark_stage_finished`` on purpose: measurement is the
+    caller's business, not the stage protocol's, so none of the fourteen stage
+    runners needs to know about it (issue #201, EXECUTION_PLAN.md §5.6).
+
+    Parameters
+    ----------
+    manifest:
+        Live run manifest; returned updated, never mutated in place.
+    stage_name:
+        Registered stage whose record receives the measurements. Must already
+        exist on the manifest.
+    wall_clock_seconds:
+        Monotonic elapsed time spent inside the stage runner, in seconds. This
+        is *not* ``finished_at - started_at``: it also covers the planning and
+        cache-check work around the runner call.
+    peak_rss_bytes:
+        Peak resident set size sampled during this stage only, or ``None`` when
+        unmeasured.
+    cumulative_peak_rss_bytes:
+        Process-lifetime RSS high-water mark at stage end, or ``None``.
+
+    Raises
+    ------
+    KeyError
+        If ``stage_name`` has no record on the manifest.
+
+    Limitations
+    -----------
+    A sampled ``peak_rss_bytes`` can miss a spike shorter than the sampler's
+    interval; ``cumulative_peak_rss_bytes`` is exact but monotonic across the
+    whole process, so the two disagree by construction and both are kept.
+    """
+    stages = dict(manifest.stages)
+    prior = stages.get(stage_name)
+    if prior is None:
+        raise KeyError(f"stage {stage_name} has no record to annotate")
+    stages[stage_name] = prior.model_copy(
+        update={
+            "wall_clock_seconds": float(wall_clock_seconds),
+            "peak_rss_bytes": (
+                None if peak_rss_bytes is None else int(peak_rss_bytes)
+            ),
+            "cumulative_peak_rss_bytes": (
+                None
+                if cumulative_peak_rss_bytes is None
+                else int(cumulative_peak_rss_bytes)
+            ),
         }
     )
     return manifest.model_copy(update={"stages": stages})

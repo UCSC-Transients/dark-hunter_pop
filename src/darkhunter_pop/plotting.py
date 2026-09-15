@@ -580,6 +580,188 @@ def plot_line_with_threshold(
     return save_figure(fig, path, dpi=dpi)
 
 
+def plot_dndm_by_class(
+    mass_grid_msun: Sequence[float] | NDArray[np.floating],
+    total_dndm: Sequence[float] | NDArray[np.floating],
+    class_dndm: Mapping[str, Sequence[float] | NDArray[np.floating]],
+    path: Path,
+    *,
+    dpi: int,
+    class_order: Sequence[str],
+    total_label: str = "total (raw CO)",
+    xlabel: str = r"companion mass (M$_{\odot}$)",
+    ylabel: str = r"${\rm d}N/{\rm d}M$ (M$_{\odot}^{-1}$)",
+    title: str | None = None,
+    caption: str | None = None,
+    log_x: bool = True,
+    log_y: bool = True,
+    vlines: Mapping[str, float] | None = None,
+    style: PlottingStyleConfig | None = None,
+) -> Path | None:
+    """Product figure: total ``dN/dM`` with every population class overplotted.
+
+    The deliverable shape of the eventual science result (ARCHITECTURE.md §4
+    ``diagnostics``): one panel, the tier-1 raw compact-object total plus each
+    tier-2 species-classified curve, discriminated by color **and** linestyle
+    **and** marker so the panel survives greyscale printing and color-vision
+    deficiency (``docs/PLOTS.md``).
+
+    Parameters
+    ----------
+    mass_grid_msun:
+        Companion-mass grid in solar masses, shared by every curve.
+    total_dndm:
+        Total (classification-independent) ``dN/dM`` on that grid.
+    class_dndm:
+        Per-class ``dN/dM`` on the same grid, keyed by population class.
+    path:
+        Output image path; parent directories are created.
+    dpi:
+        Raster resolution (``diagnostics.figure_dpi``).
+    class_order:
+        Plot order for the class curves. Classes present in ``class_dndm`` but
+        absent here are appended in sorted order, so no curve is silently
+        dropped by a stale order list.
+    total_label / xlabel / ylabel / title:
+        Series and axis text. Units carry no slash (``docs/PLOTS.md``).
+    caption:
+        Optional caption rendered beneath the axes. Used to carry a mandatory
+        provenance banner with the figure itself rather than only in a report
+        (issue #201). Rendered at the tick-label font size, so no text on the
+        figure is smaller than the caption.
+    log_x / log_y:
+        Log scaling. Both default on: a compact-object mass function spans
+        decades and the science question is multiplicative (``docs/PLOTS.md``).
+    vlines:
+        Optional labelled vertical reference lines, e.g.
+        ``{"M_Ch": 1.4, "M_TOV": 2.2}``. Drawn in the threshold style.
+    style:
+        Resolved ``config.plotting`` style; schema defaults when omitted.
+
+    Returns
+    -------
+    Path | None
+        The written path, or ``None`` when no curve had any finite positive
+        sample to draw (nothing is written in that case).
+
+    Limitations
+    -----------
+    Non-finite samples are dropped per curve, and on a log axis non-positive
+    samples are dropped too — so a class whose rate is identically zero (for
+    instance a class fully removed by an ``M_Ch`` truncation) simply does not
+    appear, and its absence is not annotated. This primitive draws whatever it
+    is handed: it neither normalizes, rescales, nor checks that the curves came
+    from real inputs.
+    """
+    cfg = resolve_plotting_style(style)
+    grid = np.asarray(mass_grid_msun, dtype=np.float64)
+
+    ordered: list[str] = list(class_order)
+    ordered += sorted(k for k in class_dndm if k not in ordered)
+
+    def _finite_pair(
+        values: Sequence[float] | NDArray[np.floating],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        arr = np.asarray(values, dtype=np.float64)
+        if arr.shape != grid.shape:
+            raise ValueError(
+                f"curve shape {arr.shape} does not match mass grid {grid.shape}"
+            )
+        keep = np.isfinite(arr) & np.isfinite(grid)
+        if log_y:
+            keep &= arr > 0.0
+        if log_x:
+            keep &= grid > 0.0
+        return grid[keep], arr[keep]
+
+    series: list[tuple[str, NDArray[np.float64], NDArray[np.float64]]] = []
+    tx, ty = _finite_pair(total_dndm)
+    if tx.size:
+        series.append((total_label, tx, ty))
+    for name in ordered:
+        if name not in class_dndm:
+            continue
+        cx, cy = _finite_pair(class_dndm[name])
+        if cx.size:
+            series.append((name, cx, cy))
+    if not series:
+        return None
+
+    plt = require_pyplot()
+    width, height = (float(cfg.figsize_landscape[0]), float(cfg.figsize_landscape[1]))
+    caption_lines: list[str] = []
+    if caption:
+        import textwrap
+
+        # ~11 characters per inch of figure width at the tick font size.
+        wrap_at = max(40, int(width * 11))
+        for paragraph in caption.splitlines():
+            if not paragraph.strip():
+                caption_lines.append("")
+                continue
+            caption_lines.extend(textwrap.wrap(paragraph, width=wrap_at) or [""])
+        # 0.22 in per caption line, so the caption never crowds the axes.
+        height += 0.22 * len(caption_lines) + 0.25
+
+    fig, axis = plt.subplots(figsize=(width, height))
+    for index, (label, xs, ys) in enumerate(series):
+        sty = series_style(index, cfg)
+        axis.plot(
+            xs,
+            ys,
+            label=label,
+            color=sty["color"],
+            linestyle=sty["linestyle"],
+            linewidth=sty["linewidth"],
+            marker=sty["marker"],
+            markersize=sty["markersize"],
+            markevery=max(1, xs.size // 12),
+        )
+    if log_x:
+        axis.set_xscale("log")
+    if log_y:
+        axis.set_yscale("log")
+    for name, value in (vlines or {}).items():
+        if not np.isfinite(value):
+            continue
+        axis.axvline(
+            float(value),
+            color=cfg.threshold_color,
+            linestyle=cfg.threshold_linestyle,
+            linewidth=cfg.line_width,
+            label=f"{name}={value:g}" + r" M$_{\odot}$",
+        )
+    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
+    axis.legend(
+        loc="best",
+        fontsize=cfg.legend_fontsize,
+        prop={"family": cfg.font_family},
+        ncols=2 if len(series) > 4 else 1,
+    )
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if caption_lines:
+        # Reserve the caption band explicitly instead of relying on tight_layout,
+        # which would otherwise let long caption text overlap the x-axis label.
+        band = (0.22 * len(caption_lines) + 0.25) / height
+        fig.tight_layout(rect=(0.0, band, 1.0, 1.0))
+        fig.text(
+            0.02,
+            band * 0.92,
+            "\n".join(caption_lines),
+            ha="left",
+            va="top",
+            fontfamily=cfg.font_family,
+            fontsize=cfg.tick_label_fontsize,
+            wrap=False,
+        )
+        fig.savefig(path, dpi=dpi)
+        plt.close(fig)
+        return path
+    return save_figure(fig, path, dpi=dpi)
+
+
 def plot_m2_posterior_convergence(
     probabilities: Sequence[float] | NDArray[np.floating],
     sigmas: Sequence[float] | NDArray[np.floating],
