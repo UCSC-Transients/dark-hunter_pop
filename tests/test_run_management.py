@@ -693,3 +693,71 @@ def test_sample_selection_source_hash_sensitive_to_elbadry2026_m2_sigma(
     shadow.write_bytes(real_path.read_bytes() + b"\n# regression-test edit\n")
     h_after = compute_source_hash(spec)
     assert h_before != h_after
+
+
+def test_companion_nature_source_hash_sensitive_to_phot_sed_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Post-merge pin for #197 / PR #210 — same defect class as #151 and #166.
+
+    ``companion_nature.run_companion_nature_on_candidates`` calls
+    ``phot_sed_adapter.attach_phot_sed_evidence`` for every candidate, so an
+    edit to ``phot_sed_adapter.py`` changes that stage's science output.
+    ``compute_source_hash`` is a *flat* digest over ``dependency_modules`` — it
+    does not follow imports — so dropping the declaration would silently let a
+    stale artifact be reused across an adapter change. PR #210 declared it
+    correctly, but nothing pinned it.
+
+    Uses the #151 shadow-copy technique, so no real source file is touched.
+    """
+    spec = STAGE_REGISTRY["companion_nature_likelihood"]
+    target = "darkhunter_pop.phot_sed_adapter"
+    assert target in spec.dependency_modules
+    # The stage's own module must stay declared alongside the new dependency.
+    assert "darkhunter_pop.companion_nature" in spec.dependency_modules
+
+    real_resolve = run_management.module_file_path
+    real_path = real_resolve(target)
+    shadow = tmp_path / "phot_sed_adapter.py"
+    shadow.write_bytes(real_path.read_bytes())
+
+    def _resolve(module_name: str) -> Path:
+        if module_name == target:
+            return shadow
+        return real_resolve(module_name)
+
+    monkeypatch.setattr(run_management, "module_file_path", _resolve)
+
+    h_before = compute_source_hash(spec)
+    shadow.write_bytes(real_path.read_bytes() + b"\n# regression-test edit\n")
+    h_after = compute_source_hash(spec)
+    assert h_before != h_after
+
+
+def test_companion_nature_fingerprint_covers_phot_sed_config_keys() -> None:
+    """Post-merge pin for #197 / PR #210: phot_sed root/template key the artifact.
+
+    Repointing ``mass_derivation.phot_sed_root`` at a different snapshot — or
+    unsetting it, which disables the channel and returns every candidate to the
+    analytic magnitude-mass fallback — changes the stage's science output. If
+    those keys were dropped from ``config_fingerprint_keys``, the two runs would
+    collide on a single artifact path.
+    """
+    config = load_config()
+    spec = STAGE_REGISTRY["companion_nature_likelihood"]
+    for key in (
+        "mass_derivation.phot_sed_root",
+        "mass_derivation.phot_sed_filename_template",
+    ):
+        assert key in spec.config_fingerprint_keys
+
+    disabled_config = config.model_copy(deep=True)
+    disabled_config.mass_derivation.phot_sed_root = None
+    assert config_subset_for_stage(config, spec) != config_subset_for_stage(
+        disabled_config, spec
+    )
+    run_id = "20260101-000000-abcdef0"
+    assert stage_artifact_path(config, spec, run_id=run_id) != stage_artifact_path(
+        disabled_config, spec, run_id=run_id
+    )
