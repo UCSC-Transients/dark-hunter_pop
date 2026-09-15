@@ -77,6 +77,7 @@ functions → `forward_model.py`; `rv_astrometry_gate` + `joint_orbit_fit` → `
 | `spuriousness_model.py` | Shared, sample-independent `P(spurious \| covariates)` |
 | `sample_inclusion.py`, `sample_diagnostics.py` | Multi-sample Poisson inclusion operator; attrition/reproduction reports |
 | `rv_adapter.py`, `rv_consistency.py` | RV JSON summary ingestion; chi2/dof gate; joint astrometry+RV fit |
+| `phot_sed_adapter.py` | `dark-hunter_sed` Path-2 per-model JSON summaries → `phot_chi2_*` extras (BIC→chi2, provenance tagging) |
 | `companion_nature.py` | Joint multi-band WD/other/dark likelihood (ΔBIC, Bédard cooling tracks) |
 | `forward_model.py` | Astrometric + follow-up selection functions via gaiamock |
 | `population_model.py` | Multiplicity → 5-class type mixture; non-parametric `dN/dM` |
@@ -153,23 +154,28 @@ the checkout predates `phot_sed_cli` and there are no Path-2 outputs to adapt ye
 in pop is `data/phot_sed/`. Mapping: `1star` = dark, `wd` = luminous normal + WD, `2star` = a
 **coeval** binary → `other` (pop's `other` is broader; non-coeval luminous secondaries have no
 dedicated model — a documented limitation). Bad photometry points are **not fully resolved
-upstream**, and since BIC depends on chi2 and n_data, the adapter records n_data and the
-cleaning settings behind every summary.
+upstream**, and since BIC depends on chi2 and n_data, the adapter records n_data, `n_free`, `bic`,
+`lnZ`, the fitted `sigma_int` and whatever cleaning settings a summary carries — today none, which
+is reported per model as `cleaning_settings_absent` (#207).
 
 | Artifact | Pop consumer |
 |---|---|
 | `output/sed_summaries/Gaia_DR3_<id>_sed_summary.json` — medians, credible intervals, `m1_msun` | `mass_derivation._load_sed_summary_json` → `parameterset_from_sed_summary` |
 | `output/samples/Gaia_DR3_<id>_ums.fits` / `_utp.fits` — full posterior chains | **nothing** |
-| `output/phot_sed/Gaia_DR3_<id>_<model>_summary.json` — dynesty **BIC** + **lnZ** + max-L params for `--model 1star \| 2star \| wd` | **nothing** |
+| `output/phot_sed/Gaia_DR3_<id>_<model>_summary.json` — dynesty **BIC** + **lnZ** + max-L params for `--model 1star \| 2star \| wd` | `phot_sed_adapter` → `companion_nature.photometry_channel` (`1star` / `2star` only — see #206) |
 
-- **Gap 1 — the ΔBIC channel is not wired.** `dark-hunter_sed` already implements the model
-  comparison `companion_nature_likelihood` was specified to consume: `phot_sed_cli --model` supports
-  `1star`, `2star` (coeval binary) and `wd` (`wd_model.run_wd_plus_star_fit` on
-  `bergeron_wd.BergeronGrid`), each reporting BIC and lnZ via MISTy → PHOENIX × F99 (R_V = 3.1) →
-  synphot. Pop has the hooks (`phot_chi2_dark_key`, `phot_chi2_wd_key`, `phot_chi2_other_key`,
-  `phot_n_data_key`, and the four XP equivalents) but **no adapter fills them**, so
-  `companion_nature` falls back to its analytic `*_mg_zero_point` / `*_mg_mass_slope` relations. The
-  capability is not missing; the adapter is.
+- **Gap 1 — the ΔBIC channel is wired; the WD leg still has no input.** `phot_sed_adapter` (#197)
+  reads `<mass_derivation.phot_sed_root>/Gaia_DR3_<id>_<model>_summary.json`, maps `1star` → dark,
+  `wd` → WD, `2star` → other, recovers `chi2 = BIC − k ln n` (upstream defines
+  `BIC = k ln n − 2 ln L_max`) and fills `phot_chi2_*_key` / `phot_n_data_key` **only** where real
+  summaries exist. Every candidate is tagged `phot_sed` or `analytic_fallback`, and the funnel
+  reports the split plus the WD/dark weights both ways. Two upstream gaps remain: `--model wd`
+  writes `<id>/wd/wdstar_<atm>_<ifmr>_summary.json` carrying `logevidence` only — no
+  BIC/`n_data`/`n_free`, and not at the pop-facing filename (**#206**) — and since the channel needs
+  all three hypotheses, candidates still fall back to the analytic `*_mg_zero_point` /
+  `*_mg_mass_slope` relations; and no summary records photometry-cleaning provenance (**#207**), so
+  the adapter records `cleaning_settings_absent` rather than settings. Pop reads only the JSON files;
+  it never imports or runs `darkhunter_sed`.
 - **Gap 2 — `ParameterSet` is being fed marginals.** `sed_summary.json` carries medians and credible
   intervals; the joint information is in the `_ums.fits` chains. Either the SED summary gains a
   covariance block upstream (preferred) or pop reads the chains. **Never substitute a diagonal.**
@@ -385,11 +391,12 @@ under restricted permissions.
   `sub_chandrasekhar` mass window is already 1908 wide *before* the σ cut, so σ is second-order there.
   **Do not fix by retuning frozen thresholds.** Open issues #132 (NSS enrichment / K1, largely
   unblocked) and #133 (`primary_ns_bh`; extinction / `a0` / nsstools).
-- **Companion-nature evidence is still synthetic.** `companion_nature_likelihood` computes ΔBIC from
-  analytic magnitude–mass relations, not from real SED model comparison, because the `phot_sed`
-  adapter does not exist. WD contamination is unconstrained until that adapter lands and the SED
-  queue has coverage — the operator's known blocker, and a throughput problem rather than a
-  capability one.
+- **Companion-nature evidence is still analytic in practice.** The `phot_sed` adapter landed (#197):
+  `companion_nature_likelihood` now uses real dynesty ΔBIC wherever all three Path-2 summaries exist,
+  labels every candidate `phot_sed` vs `analytic_fallback`, and reports the split. In practice
+  nothing reaches the real path yet — the `wd` model emits no readable BIC at the pop-facing path
+  (#206) and only a handful of `1star`/`2star` fits exist. WD contamination stays unconstrained
+  until #206 lands and the SED queue has coverage (ziggy throughput).
 - A sample's reproduction path is **not working** until `sample_reproduction_report` matches the
   published N exactly; until then the sample must not be enabled in `forward_model` mode for
   inference. The spuriousness model is not working until one parameter set reproduces all three
