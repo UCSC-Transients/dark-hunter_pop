@@ -220,6 +220,20 @@ real `data/` tree and the overlay present (the primary checkout, or a worktree w
 before it's trusted — #49 re-measures this routinely; a coding subagent should flag its own numbers
 as worktree-only rather than imply they're representative.
 
+**Standing note (added Wave 0, from #49's audit of PR #205):** during a burst of several Wave 0
+PRs auto-merging within minutes of each other, a verification run **inside the shared primary
+checkout** produced ~193 spurious test failures — another session's merge fast-forwarded the
+checkout's `git` state mid-suite while the shared `.venv` editable install still resolved against
+the now-stale in-memory-imported `src/`. This is not a code regression; it is the primary checkout
+being an unstable target whenever merges are landing concurrently. Any verification (or measurement)
+that must be trustworthy during concurrent dispatch should pin a commit SHA in its own worktree
+rather than running in the primary checkout — since the shared `.venv`'s editable install always
+resolves back to the primary checkout's `src/` regardless of which worktree invokes `pytest`, doing
+this correctly needs `PYTHONPATH` shadowing (point it at the worktree's `src/` ahead of the venv's
+site-packages) rather than relying on the editable install alone. A spurious mass-failure count that
+disappears on an isolated rerun of the same tests is the signature of this failure mode, not a real
+regression — check for it before escalating or reverting.
+
 ```
 1. Read and follow:
    * /Users/rfoley/.agents/skills/strict-workflow/SKILL.md
