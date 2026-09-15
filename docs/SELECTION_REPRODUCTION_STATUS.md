@@ -103,6 +103,17 @@ The "Previous" column is the last value recorded before this baseline: measured 
 | `mode_divergence` | only `4373465352415301632` in modified | matches | **matches** (only-modified `[4373465352415301632]`, only-published `[]`) | **OK** |
 | Q9: Andrews survivors with `G < 15` | 16 | 19 | **19** | FAIL — follows the Andrews over-count, not an independent defect |
 
+**Q9 re-confirmed at `main` @ `63c6f53`** (issue #198), against the same
+`20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` cache: `andrews2022`
+(frozen, N=33) restricted to `G < 15` gives **19**, unchanged from the `c905575` baseline — no drift
+across the intervening commits (#191, #192, docs-only #188/#190). `andrews2022_modified` (N=34)
+restricted to `G < 15` gives **20**: the one extra source is Gaia BH1
+(`4373465352415301632`, G=13.77), present only in the modified variant per `mode_divergence`
+above. The full source-ID sets for both are recorded in #198. Per CONTINUATION_PLAN §8.7,
+El-Badry 2026's `andrews2022_import` resolves against the **frozen** `andrews2022`, so its target
+of 16 is compared against 19, not 20 — the mismatch is inherited entirely from the Andrews
+over-count (33 vs 24), not an independent Q9 defect.
+
 Attrition, reproducing the documented shape exactly:
 
 ```
@@ -134,7 +145,7 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 | Spectroscopic branch | 151 | 123 | **123** | FAIL — after the K1 bind; `mass_route` / MS / `m2_min` |
 | `primary_ns_bh` | 47 | 42 | **42** | FAIL — **#133**, extinction / `a0` (nsstools vs Thiele–Innes) |
 | `elbadry2023_table_e1` | 5 | 5 | **5** | **OK** — exact match holds |
-| `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** | FAIL until Andrews and Q9 close |
+| `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** (re-confirmed `63c6f53`, #198) | FAIL until Andrews and Q9 close |
 | `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4 |
