@@ -15,9 +15,8 @@ mass_derivation:
   # is not expected to run mass_derivation_refined itself, but the key must still
   # validate. Placeholder, unverified.
   sed_summary_root: /scratch/darkhunter_pop/sed_summaries
-  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
-  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
-  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+  # Landed with #197. Placeholder, unverified, same caveat as sed_summary_root.
+  phot_sed_root: /scratch/darkhunter_pop/phot_sed
 dr3:
   rv_summary_root: /scratch/darkhunter_pop/rv_summaries
 dr4:

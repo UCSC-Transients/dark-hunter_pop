@@ -15,9 +15,8 @@ paths:
 mass_derivation:
   # dark-hunter_sed's own output/sed_summaries/ under the known anchor.
   sed_summary_root: /data2/darkhunter/dark-hunter_sed/output/sed_summaries
-  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
-  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
-  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+  # Landed with #197: dark-hunter_sed's own output/phot_sed/ under the known anchor.
+  phot_sed_root: /data2/darkhunter/dark-hunter_sed/output/phot_sed
 dr3:
   # Placeholder — no confirmed dark-hunter_rv output root on ziggy yet.
   rv_summary_root: /data2/darkhunter/dark-hunter_rv/output/rv_summaries

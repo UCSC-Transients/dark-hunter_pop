@@ -138,7 +138,7 @@ That file is the shared per-star record across all three repos, not an RV-only a
 |---|---|
 | `output/sed_summaries/Gaia_DR3_<id>_sed_summary.json` — medians, credible intervals, `m1_msun` | `mass_derivation._load_sed_summary_json` → `parameterset_from_sed_summary` |
 | `output/samples/Gaia_DR3_<id>_ums.fits` / `_utp.fits` — full posterior chains | **nothing** |
-| `output/phot_sed/Gaia_DR3_<id>_<model>_summary.json` — dynesty **BIC** + **lnZ** + max-L params for `--model 1star \| 2star \| wd` | **nothing** — snapshot target is `data/phot_sed/` |
+| `output/phot_sed/Gaia_DR3_<id>_<model>_summary.json` — dynesty **BIC** + **lnZ** + max-L params for `--model 1star \| 2star \| wd` | `phot_sed_adapter` → `companion_nature.photometry_channel`; snapshot target is `data/phot_sed/` (`1star` / `2star` only — see #206) |
 
 **Model → hypothesis mapping (confirmed).** `1star` = **dark** companion (no luminous secondary);
 `wd` = **WD** (luminous normal star + white dwarf); `2star` = **other**, and `2star` is specifically a
@@ -153,13 +153,17 @@ photometry set moves ΔBIC in a way pop's fixed `companion_nature.delta_bic_thre
 tuned for. The adapter must record the n_data and the cleaning settings each summary was produced
 under, so the sensitivity of the weights to photometry cleaning is measurable rather than invisible.
 
-**Gap 1 — the ΔBIC channel is not wired.** `dark-hunter_sed` already implements the model comparison
-`companion_nature_likelihood` was specified to consume: `phot_sed_cli --model` supports `1star`,
-`2star` (coeval binary) and `wd` (`wd_model.run_wd_plus_star_fit` on `bergeron_wd.BergeronGrid`),
-each reporting BIC and lnZ via MISTy → PHOENIX × F99 (R_V = 3.1) → synphot. Pop has the hooks —
-`phot_chi2_dark_key`, `phot_chi2_wd_key`, `phot_chi2_other_key`, `phot_n_data_key`, and four XP
-equivalents — but nothing fills them, so `companion_nature` falls back to its analytic
-`*_mg_zero_point` / `*_mg_mass_slope` relations. **The capability is not missing; the adapter is.**
+**Gap 1 — the adapter landed; the WD leg has no readable input (updated by #197).**
+`phot_sed_adapter` fills `phot_chi2_dark_key` / `phot_chi2_wd_key` / `phot_chi2_other_key` /
+`phot_n_data_key` from `<mass_derivation.phot_sed_root>/Gaia_DR3_<id>_<model>_summary.json`,
+recovering `chi2 = BIC − k ln n` (upstream: `BIC = k ln n − 2 ln L_max`), writing extras **only**
+where a real summary exists, tagging every candidate `phot_sed` vs `analytic_fallback`, and
+reporting the split in the `companion_nature` funnel. Measured against the real upstream checkout:
+`1star` and `2star` write that contract, **`wd` does not** — `wd_model.run_wd_plus_star_fit` writes
+`<id>/wd/wdstar_<atm>_<ifmr>_summary.json` with `logevidence` only, four atm/IFMR variants, no
+BIC/`n_data`/`n_free` (**#206**). Since the channel needs all three hypotheses, real evidence is
+still unreachable in practice. The summaries also carry no photometry-cleaning provenance and the
+`--phot-*` flags named above are absent from the checked-out `phot_sed_cli` (**#207**).
 
 **Gap 2 — `ParameterSet` is being fed marginals.** `sed_summary.json` carries medians and credible
 intervals; the joint information is in the `_ums.fits` chains, so `parameterset_from_sed_summary`

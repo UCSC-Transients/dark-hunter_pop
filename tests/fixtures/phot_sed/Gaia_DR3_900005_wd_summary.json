@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "model": "wd",
+  "gaia_id": "900005",
+  "param_names": [
+    "EEP",
+    "M",
+    "FeH",
+    "Av",
+    "parallax",
+    "sigma_int"
+  ],
+  "logz": -30.0,
+  "logz_err": 0.5,
+  "bic": 60.0,
+  "ln_l_max": -1.0,
+  "best_theta": {
+    "EEP": 300.0,
+    "M": 1.1,
+    "FeH": 0.0,
+    "Av": 0.1,
+    "parallax": 2.0,
+    "sigma_int": 0.05
+  },
+  "n_data": 20,
+  "n_free": 7,
+  "nlive": 100,
+  "n_samples": 500
+}

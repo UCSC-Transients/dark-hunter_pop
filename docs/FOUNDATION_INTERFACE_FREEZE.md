@@ -71,7 +71,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `active_dr_mode` | Default `dr3`; `require_dr3_active_for_v1()` |
 | `gaiamock.mod_release` (+ optional sha/commit pins) | Version triple with installed overlay |
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
-| `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps |
+| `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps, `sed_summary_root` + `phot_sed_root` snapshot roots/templates |
 | `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
 | `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
@@ -118,7 +118,7 @@ Canonical names and order: `run_management.STAGE_ORDER` / `STAGE_REGISTRY`.
 | `mass_derivation_refined` | `mass_derivation` | `mass_derivation_bulk` |
 | `rv_astrometry_gate` | `rv_consistency` | `mass_derivation_refined` |
 | `joint_orbit_fit` | `rv_consistency` | `rv_astrometry_gate` |
-| `companion_nature_likelihood` | `companion_nature` | `joint_orbit_fit`, `mass_derivation_refined` |
+| `companion_nature_likelihood` | `companion_nature` (+ `phot_sed_adapter`) | `joint_orbit_fit`, `mass_derivation_refined` |
 | `triples` | `triples` | `companion_nature_likelihood` |
 | `selection_function_astrometric` | `forward_model` | `data_acquisition` |
 | `selection_function_followup` | `forward_model` | `selection_function_astrometric` |

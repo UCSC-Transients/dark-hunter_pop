@@ -946,6 +946,12 @@ class MassDerivationConfig(BaseModel):
     # Snapshot root for dark-hunter_sed Gaia_DR3_*_sed_summary.json (null disables).
     sed_summary_root: str | None = None
     sed_summary_filename_template: str = "Gaia_DR3_{source_id}_sed_summary.json"
+    # Snapshot root for dark-hunter_sed Path-2 photometric model comparison
+    # (output/phot_sed/Gaia_DR3_<id>_<model>_summary.json); null disables the
+    # phot_sed evidence channel and leaves companion_nature on its analytic
+    # magnitude-mass fallback. Consumed by phot_sed_adapter.
+    phot_sed_root: str | None = None
+    phot_sed_filename_template: str = "Gaia_DR3_{source_id}_{model}_summary.json"
     # When true, refined stage raises if darkhunter_sed is not importable.
     require_sed_package: bool = False
     # Log bulk-stage progress every N input candidates; 0 disables heartbeat logs.
