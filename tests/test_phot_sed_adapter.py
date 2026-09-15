@@ -306,3 +306,49 @@ def test_report_names_the_split() -> None:
     assert "real phot_sed evidence (phot_sed): 1" in text
     assert "analytic fallback (analytic_fallback): 1" in text
     assert "mean weights [phot_sed]" in text
+
+
+# ---------------------------------------------------------------------------
+# Real upstream ``wd`` schema (issue #215, closing #206)
+#
+# ``dark-hunter_sed#67`` (``feat/wd-pop-summary``) landed
+# ``darkhunter_sed.wd_model.write_wd_pop_summary``, which writes the
+# pop-facing ``Gaia_DR3_<id>_wd_summary.json`` this adapter was already built
+# against (#197). The 900001-900007 fixtures above predate that fix and use a
+# placeholder field set. 900008 copies the real writer's field set
+# field-for-field (real ``WD_STAR_PARAM_NAMES``, ``n_free: 8``, plus the extra
+# ``atm_type``/``ifmr`` keys the real writer adds) to prove the adapter reads
+# the actual upstream contract, not just the assumed one.
+# ---------------------------------------------------------------------------
+
+
+def test_real_upstream_wd_schema_parses_and_is_usable() -> None:
+    cfg = _config()
+    cand, ev = attach_phot_sed_evidence(_candidate(900008), cfg)
+    assert ev.usable is True
+    assert set(ev.summaries) == {"dark", "WD", "other"}
+    assert ev.n_data == 20
+
+    wd_summary = ev.summaries["WD"]
+    # Real upstream WD_STAR_PARAM_NAMES has 8 entries -> n_free: 8, distinct
+    # from the placeholder fixtures' n_free: 7.
+    assert wd_summary.n_free == 8
+    assert wd_summary.sigma_int == pytest.approx(0.04)
+
+    cn = cfg.companion_nature
+    assert cand.extras[cn.phot_n_data_key] == 20
+    assert cand.extras[cn.phot_chi2_wd_key] == pytest.approx(
+        chi2_from_bic(bic=27.965858188431927, n_free=8, n_data=20)
+    )
+    assert evidence_provenance(cand) == PROVENANCE_PHOT_SED
+
+
+def test_real_upstream_wd_schema_extra_keys_are_ignored_not_asserted() -> None:
+    """``atm_type``/``ifmr`` are real upstream keys the adapter never reads."""
+    cfg = _config()
+    ev = load_phot_sed_evidence(cfg, 900008)
+    wd_dict = ev.summaries["WD"].as_dict()
+    # The adapter's own record of the summary carries no atm_type/ifmr field —
+    # those keys are upstream-only and never round-tripped by this adapter.
+    assert "atm_type" not in wd_dict
+    assert "ifmr" not in wd_dict

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "model": "wd",
+  "gaia_id": "900008",
+  "param_names": [
+    "EEP1",
+    "M1",
+    "FeH",
+    "Av",
+    "parallax",
+    "Teff_WD",
+    "logg_WD",
+    "sigma_int"
+  ],
+  "logz": -30.0,
+  "logz_err": 0.5,
+  "bic": 27.965858188431927,
+  "ln_l_max": -2.0,
+  "best_theta": {
+    "EEP1": 350.0,
+    "M1": 1.05,
+    "FeH": -0.1,
+    "Av": 0.2,
+    "parallax": 2.0,
+    "Teff_WD": 12000.0,
+    "logg_WD": 8.0,
+    "sigma_int": 0.04
+  },
+  "n_data": 20,
+  "n_free": 8,
+  "nlive": 200,
+  "n_samples": 5000,
+  "atm_type": "DA",
+  "ifmr": "MIST"
+}
