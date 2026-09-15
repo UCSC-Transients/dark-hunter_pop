@@ -29,6 +29,11 @@ from darkhunter_pop.schemas import ActiveDRMode
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG = _REPO_ROOT / "config" / "config.yaml"
 _FRAGMENTS_DIR = _REPO_ROOT / "config" / "fragments"
+_HOST_PROFILES_DIR = _REPO_ROOT / "config" / "host_profiles"
+
+# Checked-in host profiles (issue #196). Only "laptop" is exercised; "ziggy" and "lux"
+# validate against the schema but are otherwise unexercised (EXECUTION_PLAN.md §2).
+KNOWN_HOST_PROFILES: tuple[str, ...] = ("laptop", "ziggy", "lux")
 
 AuditSeverity = Literal["violation", "informational"]
 
@@ -105,15 +110,41 @@ def load_fragment_dicts(fragments_dir: Path = _FRAGMENTS_DIR) -> dict[str, Any]:
     return merged
 
 
+def load_host_profile_dict(
+    host_profile: str, profiles_dir: Path | None = None
+) -> dict[str, Any]:
+    """Load one checked-in host profile fragment (``config/host_profiles/<name>.yaml``).
+
+    Host profiles cover only the path-shaped keys (``paths.artifact_root``,
+    ``paths.data_root``, ``mass_derivation.sed_summary_root``, ``dr3.rv_summary_root``,
+    ``dr4.rv_summary_root``, and — once #197 lands — ``mass_derivation.phot_sed_root``).
+    Selection is always explicit; this function never inspects the hostname.
+    """
+    root = _HOST_PROFILES_DIR if profiles_dir is None else profiles_dir
+    path = root / f"{host_profile}.yaml"
+    if not path.is_file():
+        known = ", ".join(KNOWN_HOST_PROFILES)
+        raise FileNotFoundError(
+            f"unknown host profile {host_profile!r}: {path} does not exist "
+            f"(known profiles: {known})"
+        )
+    return _load_yaml(path)
+
+
 def load_config(
     config_path: Path | None = None,
     *,
     fragments_dir: Path | None = None,
     merge_fragments: bool = True,
+    host_profile: str | None = None,
+    host_profiles_dir: Path | None = None,
 ) -> PipelineConfig:
     """Load and validate the pipeline config.
 
-    Order: fragments (optional) ← ``config.yaml`` (canonical file wins on conflicts).
+    Order: fragments (optional) ← ``config.yaml`` (canonical file wins on conflicts)
+    ← host profile (optional, wins last — only touches the path-shaped keys it
+    declares). ``host_profile`` must be passed explicitly by the caller (a CLI flag
+    or an explicit argument); it is never inferred from the running host.
     """
     path = config_path or _DEFAULT_CONFIG
     frag_dir = _FRAGMENTS_DIR if fragments_dir is None else fragments_dir
@@ -121,6 +152,12 @@ def load_config(
     if merge_fragments:
         merged = load_fragment_dicts(frag_dir)
     merged = deep_merge(merged, _load_yaml(path))
+    if host_profile is not None:
+        profile_dict = load_host_profile_dict(host_profile, host_profiles_dir)
+        merged = deep_merge(merged, profile_dict)
+        # Record which profile produced these path values (enters the ``paths``
+        # section, and therefore the resume checksum — see PathsConfig.host_profile).
+        merged = deep_merge(merged, {"paths": {"host_profile": host_profile}})
     return PipelineConfig.model_validate(merged)
 
 

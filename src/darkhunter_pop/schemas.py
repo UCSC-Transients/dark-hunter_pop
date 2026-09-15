@@ -313,6 +313,10 @@ class RunManifest(BaseModel):
     config_checksum: str = Field(..., min_length=1)
     active_dr_mode: ActiveDRMode = ActiveDRMode.DR3
     artifact_root: str = "output"
+    # Checked-in host profile that produced the path-shaped config keys for this run
+    # (config/host_profiles/<name>.yaml), or None when no profile was selected
+    # (issue #196). Explicit selection only — never inferred from hostname.
+    host_profile: str | None = None
     gaiamock_mod_release: str | None = None
     gaiamock_mod_sha256: str | None = None
     gaiamock_git_commit: str | None = None

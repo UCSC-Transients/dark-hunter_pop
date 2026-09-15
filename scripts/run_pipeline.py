@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from darkhunter_pop.config_loader import KNOWN_HOST_PROFILES
 from darkhunter_pop.pipeline import STAGE_ORDER, run_pipeline, validate_stage_runners
 from darkhunter_pop.run_management import STAGE_REGISTRY
 
@@ -59,6 +60,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="Print STAGE_ORDER and exit",
     )
+    parser.add_argument(
+        "--host-profile",
+        choices=KNOWN_HOST_PROFILES,
+        default=None,
+        help=(
+            "Checked-in host profile (config/host_profiles/<name>.yaml) to merge on "
+            "top of --config/fragments for the path-shaped keys only (issue #196). "
+            "Explicit selection only — never inferred from hostname. Only 'laptop' "
+            "is currently exercised; 'ziggy'/'lux' validate against the schema only."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -92,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             force_rerun_stages=args.force_rerun,
             stage_subset=args.stages,
             dry_run=args.dry_run,
+            host_profile=args.host_profile,
         )
     except Exception as exc:  # noqa: BLE001 — CLI boundary
         print(f"run_pipeline: {exc}", file=sys.stderr)

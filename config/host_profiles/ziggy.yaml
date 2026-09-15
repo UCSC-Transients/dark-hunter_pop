@@ -1,0 +1,26 @@
+# Host profile: ziggy (ziggy.ucolick.org) — issue #196.
+#
+# DEFERRED / UNEXERCISED. ziggy is out of scope for the current authorized work
+# (EXECUTION_PLAN.md §2); this profile validates against the schema only. No agent
+# has connected to ziggy or run against these paths — treat every value below as a
+# best-guess placeholder, not a confirmed layout, until someone actually reaches
+# the host.
+#
+# The one anchor CLAUDE.md records for ziggy: dark-hunter_sed production lives at
+# /data2/darkhunter/dark-hunter_sed/. The remaining paths below follow that same
+# /data2/darkhunter/ convention by analogy and are unverified.
+paths:
+  artifact_root: /data2/darkhunter/dark-hunter_pop/output
+  data_root: /data2/darkhunter/dark-hunter_pop/data
+mass_derivation:
+  # dark-hunter_sed's own output/sed_summaries/ under the known anchor.
+  sed_summary_root: /data2/darkhunter/dark-hunter_sed/output/sed_summaries
+  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
+  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
+  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+dr3:
+  # Placeholder — no confirmed dark-hunter_rv output root on ziggy yet.
+  rv_summary_root: /data2/darkhunter/dark-hunter_rv/output/rv_summaries
+dr4:
+  # Placeholder — DR4 is reserved, not runnable in v1 (config_loader.require_dr3_active_for_v1).
+  rv_summary_root: /data2/darkhunter/dark-hunter_rv/output/rv_summaries_dr4
