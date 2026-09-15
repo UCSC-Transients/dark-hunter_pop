@@ -290,6 +290,7 @@ def test_laptop_profile_reproduces_effective_paths_exactly() -> None:
     assert laptop.paths.artifact_root == base.paths.artifact_root
     assert laptop.paths.data_root == base.paths.data_root
     assert laptop.mass_derivation.sed_summary_root == base.mass_derivation.sed_summary_root
+    assert laptop.mass_derivation.phot_sed_root == base.mass_derivation.phot_sed_root
     assert laptop.dr3.rv_summary_root == base.dr3.rv_summary_root
     assert laptop.dr4.rv_summary_root == base.dr4.rv_summary_root
     # Only the recorded profile name itself differs from the no-profile default.
@@ -316,6 +317,7 @@ def test_ziggy_and_lux_profiles_validate_against_schema() -> None:
         assert cfg.paths.artifact_root
         assert cfg.paths.data_root
         assert cfg.mass_derivation.sed_summary_root
+        assert cfg.mass_derivation.phot_sed_root
         assert cfg.dr3.rv_summary_root
         assert cfg.dr4.rv_summary_root
 
@@ -331,6 +333,8 @@ def test_host_profile_only_touches_path_keys() -> None:
         profiled_dump["paths"] = None
         base_dump["mass_derivation"]["sed_summary_root"] = None
         profiled_dump["mass_derivation"]["sed_summary_root"] = None
+        base_dump["mass_derivation"]["phot_sed_root"] = None
+        profiled_dump["mass_derivation"]["phot_sed_root"] = None
         base_dump["dr3"]["rv_summary_root"] = None
         profiled_dump["dr3"]["rv_summary_root"] = None
         base_dump["dr4"]["rv_summary_root"] = None
@@ -348,7 +352,10 @@ def test_load_host_profile_dict_only_has_path_shaped_keys(tmp_path: Path) -> Non
         raw = load_host_profile_dict(name)
         assert set(raw) <= {"paths", "mass_derivation", "dr3", "dr4"}
         assert set(raw.get("paths", {})) <= {"artifact_root", "data_root"}
-        assert set(raw.get("mass_derivation", {})) <= {"sed_summary_root"}
+        assert set(raw.get("mass_derivation", {})) <= {
+            "sed_summary_root",
+            "phot_sed_root",
+        }
         assert set(raw.get("dr3", {})) <= {"rv_summary_root"}
         assert set(raw.get("dr4", {})) <= {"rv_summary_root"}
     with pytest.raises(FileNotFoundError):

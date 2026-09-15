@@ -12,9 +12,9 @@ paths:
   data_root: data
 mass_derivation:
   sed_summary_root: data/sed_summaries
-  # phot_sed_root: introduced by the concurrent #197 phot_sed-adapter ticket. Add
-  # this key here once #197 lands and mass_derivation.phot_sed_root exists in the
-  # schema — tracked as a follow-up in the #196 PR rather than blocked on here.
+  # Landed with #197. Matches config.yaml's own value exactly, so selecting this
+  # profile stays behavior-neutral.
+  phot_sed_root: data/phot_sed
 dr3:
   rv_summary_root: data/dr3/rv_summaries
 dr4:
