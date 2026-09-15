@@ -510,6 +510,7 @@ def create_run_manifest(
         config_checksum=config_checksum(config),
         active_dr_mode=config.active_dr_mode,
         artifact_root=config.paths.artifact_root,
+        host_profile=config.paths.host_profile,
         gaiamock_mod_release=config.gaiamock.mod_release,
         gaiamock_mod_sha256=config.gaiamock.mod_sha256,
         gaiamock_git_commit=config.gaiamock.git_commit,
@@ -856,6 +857,7 @@ def format_run_plan(
         f"active_dr_mode: {config.active_dr_mode.value}",
         f"config_checksum: {manifest.config_checksum}",
         f"artifact_root: {manifest.artifact_root}",
+        f"host_profile: {manifest.host_profile or 'none (config.yaml as authored)'}",
         "stages:",
     ]
     for entry in plan:
