@@ -507,6 +507,35 @@ forward from a force-re-run), `config_checksum`, `active_dr_mode`, `artifact_roo
 version triple; per stage: `status`, `started_at`, `finished_at`, `source_hash`, `config_subset`,
 `artifact_path`, `code_commit`, `force_rerun`, optional `reason` (e.g. skipped).
 
+**Dry-run labeling** (issue #201). Three further manifest fields exist so a run built on
+substitutions can never be mistaken for a science result:
+
+| Field | Meaning |
+|---|---|
+| `dry_run` | `true` when the run used documented substitutions instead of real inputs. Present in every run file, so a dry run is distinguishable by grepping rather than by reading. |
+| `dry_run_label` | The banner carried by every report and figure caption built from the run. |
+| `synthetic_stand_ins` | One `SyntheticStandIn` per substitution: `name`, `stage`, `kind`, `replaces`, `description`, the `config_keys` holding the placeholder values, and those values as resolved at run time. |
+
+`RunManifest` **refuses** `dry_run: true` without both a label and at least one declared
+stand-in, so the label is applied at birth or not at all. `format_run_plan` leads with the banner
+and prints every stand-in before the stage list. `new_run_for_force_rerun` carries all three
+forward: a child of a dry run is still a dry run. `create_run_manifest` also stamps
+`random_seeds` — accounting only, since `dynesty` is validated by multi-run posterior agreement
+and never by bitwise seed replay.
+
+**Per-stage cost** (optional; issue #201, EXECUTION_PLAN.md §5.6). `StageRecord` carries
+`wall_clock_seconds`, `peak_rss_bytes` (sampled during that stage only) and
+`cumulative_peak_rss_bytes` (the exact `getrusage` high-water mark, monotonic across stages, so
+the two disagree by construction and both are kept). All three stay `null` for cached and
+skipped stages and for any stage run without a monitor attached: measurement is applied by the
+caller via `run_management.record_stage_resources`, so no stage runner knows it is measured.
+
+**Dry-run entry point**: `scripts/run_dry_run.py` (module `darkhunter_pop.dry_run`) wraps
+`run_pipeline` with the declarations, the measurement and the product figure. It replays the
+newest **pristine** local Gaia snapshot rather than querying the archive — derived `+enrich`
+caches and the `nss_enrichment` working directory are excluded from discovery, since replaying
+either as the parent query would under-count the parent.
+
 **Run selection**:
 - If ≥1 **incomplete** run exists under `runs/` and `--run-file` is omitted: print a table of
   incomplete runs (`run_id`, status, last completed stage, created_at, config checksum short,
