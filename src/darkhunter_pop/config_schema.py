@@ -42,6 +42,15 @@ class PathsConfig(BaseModel):
     artifact_root: str = "output"
     # Relative to repo or absolute; gitignored raw data roots.
     data_root: str = "data"
+    # Name of the checked-in host profile (config/host_profiles/<name>.yaml) that was
+    # merged on top of config.yaml/fragments to produce the path-shaped keys below, or
+    # None when no profile was selected (config.yaml's own values apply unmodified).
+    # Selection is always explicit (CLI flag / caller argument) — never inferred from
+    # hostname (issue #196). Recorded here (not just in the run file) so it is part of
+    # the ``paths`` section that already enters the resume/amend checksum
+    # (SHARED_CHECKSUM_SECTIONS): a host switch must invalidate a resume even in the
+    # edge case where two profiles happen to resolve to identical path strings.
+    host_profile: str | None = None
 
 
 class DiagnosticsHooksConfig(BaseModel):

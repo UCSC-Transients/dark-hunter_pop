@@ -127,8 +127,7 @@ Read from `UCSC-Transients/dark-hunter_sed` and `UCSC-Transients/dark-hunter_rv`
 by `rv_adapter` into `CandidateRecord.rv_summary` and by `rv_consistency`. Upstream doc:
 `dark-hunter_rv/docs/RV_SUMMARY_JSON.md`, which names pop issue #31 as its parent and requires a docs
 PR here (against `FOUNDATION_INTERFACE_FREEZE.md`) before any breaking field rename.
-`darkhunter_rv.rv_summary_json` and `summary_paths` are on that repo's `main`, so
-`docs/ESCALATE_RV_SUMMARY_JSON.md` is **obsolete** and should be retired.
+`darkhunter_rv.rv_summary_json` and `summary_paths` are on that repo's `main`.
 
 Note the coupling: `dark-hunter_sed`'s `push_m1` writes fitted M1 **back into the RV summary JSON**.
 That file is the shared per-star record across all three repos, not an RV-only artifact.
@@ -590,7 +589,7 @@ defined in §5.5 and `CONTINUATION_PLAN.md` §2.2.
 | 53 | **Land or drop the remaining WIP** per the inventory, filing follow-ups for anything landed incomplete | −1 | #51, #52 | Top | Deep |
 | 54 | **Tree and environment cleanup** — untracked run manifests, orphaned bytecode, stray patch, submodule pointer; venv, `gh` auth, gaiamock overlay, auto-merge setting | −1 | #53 | Mid | Standard |
 | 55 | **Baseline** — full suite incl. optional markers, peak-RSS measurement, reproduction numbers re-measured on reconciled `main` | −1 | #54 | Mid | Standard |
-| 28 | **Wave 0 docs/config quick wins** — retire `ESCALATE_RV_SUMMARY_JSON.md`; merge the orphaned `spectroscopic_mass_function` fragment into `config.yaml` | 0 | Wave −1 | Light | Light |
+| 28 | **Wave 0 docs/config quick wins** — retire the obsolete RV-summary-JSON escalation doc (#194); merge the orphaned `spectroscopic_mass_function` fragment into `config.yaml` | 0 | Wave −1 | Light | Light |
 | 29 | **Host profiles** — `laptop` / `ziggy` / `lux` config fragments for `paths.*` and the summary roots, with the profile recorded in the run file. Only `laptop` is exercised now; the others are written and left unused | 0 | — | Mid | Standard |
 | 30 | **`phot_sed` adapter** — read `Gaia_DR3_<id>_{1star,2star,wd}_summary.json` into the `phot_chi2_*` / `phot_n_data` extras so `companion_nature` uses real BIC/lnZ where available and the analytic fallback only where it is not, reporting the split | 0 | — | Mid | Standard |
 | 31 | **Cheap measurements** — Q9 (`G<15` on reproduced Andrews → expect 16); the Q7 `nsstools` vs `thiele_innes_to_campbell` delta on `ã0`/`σ_ã0`; the #132 K1 bind; the single mis-bucketed Simon exclusion | 0 | — | Mid | Standard |

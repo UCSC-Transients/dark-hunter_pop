@@ -381,13 +381,23 @@ def run_pipeline(
     dry_run: bool = False,
     runs: Path | None = None,
     runners: Mapping[str, StageRunner] | None = None,
+    host_profile: str | None = None,
 ) -> tuple[RunManifest, Path, str]:
     """Load config, resolve run, print plan, optionally execute.
 
     Returns ``(manifest, run_path, plan_text)``. On ``dry_run``, stages are not
     executed and a new run YAML is not written when ``run_file`` is omitted.
+
+    ``host_profile`` selects a checked-in ``config/host_profiles/<name>.yaml``
+    (issue #196) merged on top of ``config_path``/fragments for the path-shaped
+    keys only; ignored when ``config`` is passed directly (already resolved by the
+    caller). Selection is always explicit — never inferred from hostname.
     """
-    cfg = config if config is not None else load_config(config_path)
+    cfg = (
+        config
+        if config is not None
+        else load_config(config_path, host_profile=host_profile)
+    )
     manifest, path, created = resolve_pipeline_run(
         cfg,
         run_file=run_file,
