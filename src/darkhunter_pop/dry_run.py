@@ -298,14 +298,16 @@ def declare_stand_ins(
             ),
             description=(
                 "The WD/other/dark decision is driven by closed-form "
-                "magnitude-mass relations, not by a real model comparison. Where "
-                "dark-hunter_sed has actually fitted a star the phot_sed adapter "
-                "supplies genuine BIC/lnZ, but coverage is a handful of stars out of "
-                "the catalog, so effectively every system's evidence here is the "
-                "analytic surrogate. Consequences: the five-class responsibilities "
-                "are a smooth function of absolute magnitude rather than a fit, they "
-                "carry no covariance of any kind (the surrogate has no uncertainty "
-                "model), and WD contamination is therefore unconstrained by this run."
+                "magnitude-mass relations, not by a real model comparison. The "
+                "phot_sed adapter that would supply genuine dynesty BIC and lnZ is "
+                "wired (#197), but nothing reaches it yet: the upstream wd model "
+                "emits no readable BIC at the pop-facing path (#206) and the channel "
+                "needs all three hypotheses, so every candidate falls back to the "
+                "analytic relations and is labelled analytic_fallback. Consequences: "
+                "the five-class responsibilities are a smooth function of absolute "
+                "magnitude rather than a fit, they carry no covariance of any kind "
+                "because the surrogate has no uncertainty model at all, and WD "
+                "contamination is entirely unconstrained by this run."
             ),
             config_keys=[
                 "companion_nature.wd_mg_zero_point",

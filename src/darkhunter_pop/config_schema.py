@@ -345,6 +345,16 @@ class PlottingStyleConfig(BaseModel):
     hist_edge_color: str = "#000000"
     threshold_color: str = "#D55E00"
     threshold_linestyle: str = "--"
+    #: Decades of dynamic range kept below the maximum on a log ``dN/dM`` panel.
+    #: A soft ``M_TOV`` truncation drives the NS rate smoothly toward zero, so an
+    #: unclipped log axis can span well over a hundred decades and flatten every
+    #: curve against the top of the frame (``docs/PLOTS.md``, "Aspect ratio and
+    #: dynamic range"). Display-only, like the rest of this section — `plotting`
+    #: is not a stage checksum input and not in any stage's artifact fingerprint.
+    dndm_y_decades: float = Field(12.0, gt=0)
+    #: Line-spacing multiple applied when a product figure reserves a caption
+    #: band beneath the axes, so wrapped caption text cannot overlap the x label.
+    caption_line_spacing: float = Field(1.45, gt=0)
 
 
 class BenchmarkCatalogEntry(BaseModel):

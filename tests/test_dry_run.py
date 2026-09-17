@@ -666,3 +666,147 @@ def test_report_names_classes_with_and_without_a_drawable_curve() -> None:
 def test_report_and_caption_filenames_are_stable() -> None:
     assert DRY_RUN_REPORT_NAME.endswith(".txt")
     assert DNDM_CAPTION_NAME.endswith(".txt")
+
+
+# ---------------------------------------------------------------------------
+# Measured caption / title layout, and log-y clipping
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib not installed")
+def test_measured_text_width_grows_with_length_and_size() -> None:
+    from darkhunter_pop.plotting import measure_text_width_inches
+
+    short = measure_text_width_inches("abc", font_family="serif", fontsize=14.0)
+    longer = measure_text_width_inches(
+        "abcabcabc", font_family="serif", fontsize=14.0
+    )
+    bigger = measure_text_width_inches("abc", font_family="serif", fontsize=28.0)
+    assert 0.0 < short < longer
+    assert bigger > short
+    assert measure_text_width_inches("", font_family="serif", fontsize=14.0) == 0.0
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib not installed")
+def test_wrapped_caption_lines_all_fit_the_budget() -> None:
+    from darkhunter_pop.plotting import (
+        measure_text_width_inches,
+        wrap_text_to_inches,
+    )
+
+    config = load_config()
+    text = caption_text(
+        _dry_manifest(config, declare_stand_ins(config, snapshot_meta=None))
+    )
+    budget = 6.5
+    lines = wrap_text_to_inches(
+        text,
+        max_width_inches=budget,
+        font_family=config.plotting.font_family,
+        fontsize=config.plotting.tick_label_fontsize,
+    )
+    assert len(lines) > len(text.splitlines()), "a long caption must wrap"
+    for line in lines:
+        # Only a single unbreakable word may exceed the budget.
+        if len(line.split()) > 1:
+            assert (
+                measure_text_width_inches(
+                    line,
+                    font_family=config.plotting.font_family,
+                    fontsize=config.plotting.tick_label_fontsize,
+                )
+                <= budget
+            ), line
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib not installed")
+def test_wrap_preserves_blank_lines() -> None:
+    from darkhunter_pop.plotting import wrap_text_to_inches
+
+    lines = wrap_text_to_inches(
+        "first\n\nsecond",
+        max_width_inches=6.0,
+        font_family="serif",
+        fontsize=14.0,
+    )
+    assert lines == ["first", "", "second"]
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib not installed")
+def test_captioned_figure_reserves_a_band_above_the_caption(tmp_path: Path) -> None:
+    from PIL import Image
+
+    config = load_config()
+    grid = np.geomspace(0.5, 20.0, 12)
+    curves = {"BH": np.ones_like(grid)}
+    kwargs: dict[str, Any] = dict(dpi=60, class_order=["BH"], style=config.plotting)
+    bare = plot_dndm_by_class(
+        grid, np.ones_like(grid), curves, tmp_path / "bare.png", **kwargs
+    )
+    captioned = plot_dndm_by_class(
+        grid,
+        np.ones_like(grid),
+        curves,
+        tmp_path / "captioned.png",
+        caption="line one\nline two\nline three\nline four",
+        **kwargs,
+    )
+    assert bare is not None and captioned is not None
+    # The reserved band makes the image strictly taller at the same width, which
+    # is how caption text is kept off the x-axis label.
+    with Image.open(bare) as b, Image.open(captioned) as c:
+        assert c.height > b.height
+        assert c.width == b.width
+
+
+def test_dndm_log_ylim_keeps_the_configured_window() -> None:
+    from darkhunter_pop.plotting import dndm_log_ylim
+
+    floor, ceiling = dndm_log_ylim(100.0, 12.0)
+    assert np.log10(ceiling) - np.log10(floor) == pytest.approx(12.5, abs=1e-9)
+    assert ceiling > 100.0, "needs headroom so the top markers are not clipped"
+    assert floor == pytest.approx(100.0 * 1e-12)
+
+
+def test_dndm_log_ylim_rejects_nonpositive_inputs() -> None:
+    from darkhunter_pop.plotting import dndm_log_ylim
+
+    with pytest.raises(ValueError, match="largest must be positive"):
+        dndm_log_ylim(0.0, 12.0)
+    with pytest.raises(ValueError, match="decades must be positive"):
+        dndm_log_ylim(1.0, 0.0)
+
+
+@pytest.mark.skipif(not matplotlib_available(), reason="matplotlib not installed")
+def test_log_y_clipping_drops_a_plunging_truncation_tail(tmp_path: Path) -> None:
+    from darkhunter_pop.plotting import dndm_log_ylim
+
+    config = load_config()
+    decades = float(config.plotting.dndm_y_decades)
+    grid = np.geomspace(0.5, 20.0, 16)
+    # A curve decaying far below the configured window, as a soft M_TOV
+    # truncation does: unclipped, the axis would span ~40 decades.
+    plunging = 10.0 ** np.linspace(0.0, -40.0, grid.size)
+    out = plot_dndm_by_class(
+        grid,
+        np.ones_like(grid),
+        {"NS": plunging},
+        tmp_path / "clip.png",
+        dpi=60,
+        class_order=["NS"],
+        style=config.plotting,
+    )
+    assert out is not None and out.is_file()
+    floor, _ceiling = dndm_log_ylim(1.0, decades)
+    assert floor > float(np.min(plunging)), "the plunging tail must be clipped off"
+
+
+def test_plotting_style_exposes_the_new_layout_knobs() -> None:
+    from darkhunter_pop.config_schema import SHARED_CHECKSUM_SECTIONS
+
+    config = load_config()
+    assert config.plotting.dndm_y_decades > 0
+    assert config.plotting.caption_line_spacing > 0
+    # Display-only: `plotting` must stay out of the resume checksum, so a style
+    # edit never invalidates a resume.
+    assert "plotting" not in SHARED_CHECKSUM_SECTIONS
