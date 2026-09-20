@@ -18,6 +18,7 @@ import pytest
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.dry_run import (
     DNDM_CAPTION_NAME,
+    AmbiguousSnapshotError,
     DRY_RUN_LABEL,
     DRY_RUN_REPORT_NAME,
     DRY_RUN_SUBDIR,
@@ -32,6 +33,7 @@ from darkhunter_pop.dry_run import (
     format_dry_run_report,
     instrumented_runners,
     latest_gaia_snapshot_meta,
+    list_gaia_snapshots,
 )
 from darkhunter_pop.plotting import matplotlib_available, plot_dndm_by_class
 from darkhunter_pop.run_management import (
@@ -372,25 +374,57 @@ def test_dry_run_seeds_resolve_against_the_real_schema() -> None:
     assert seeds["inference.random_seed"] == config.inference.random_seed
 
 
-def test_snapshot_discovery_ignores_derived_caches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _stage_snapshots(
+    root: Path, names: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = tmp_path / "gaia_snapshots"
-    for name in (
-        "20260101T000000Z_aaaa",
-        "20260202T000000Z_bbbb",
-        "20260202T000000Z_bbbb+enrich",
-        "20260202T000000Z_bbbb+enrich+mc10000",
-        "nss_enrichment",
-    ):
+    for name in names:
         (root / name).mkdir(parents=True)
         (root / name / "meta.yaml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(
         "darkhunter_pop.dry_run.gaia_snapshots_dir", lambda _cfg: root
     )
-    found = latest_gaia_snapshot_meta(load_config())
+
+
+def test_snapshot_discovery_ignores_derived_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "gaia_snapshots"
+    _stage_snapshots(
+        root,
+        (
+            "20260202T000000Z_bbbb",
+            "20260202T000000Z_bbbb+enrich",
+            "20260202T000000Z_bbbb+enrich+mc10000",
+            "nss_enrichment",
+            "QUARANTINE_20260909T000000Z_cccc",
+        ),
+        monkeypatch,
+    )
+    config = load_config()
+    found = latest_gaia_snapshot_meta(config)
     assert found is not None
     assert found.parent.name == "20260202T000000Z_bbbb"
+    assert [p.name for p in list_gaia_snapshots(config)] == [
+        "20260202T000000Z_bbbb"
+    ]
+
+
+def test_snapshot_discovery_refuses_to_guess_between_parent_queries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two pristine snapshots are two different parent queries. Picking the newer
+    # one silently changes every downstream count, so discovery must refuse
+    # rather than resolve the ambiguity by any heuristic.
+    root = tmp_path / "gaia_snapshots"
+    _stage_snapshots(
+        root, ("20260101T000000Z_aaaa", "20260202T000000Z_bbbb"), monkeypatch
+    )
+    with pytest.raises(AmbiguousSnapshotError) as excinfo:
+        latest_gaia_snapshot_meta(load_config())
+    message = str(excinfo.value)
+    assert "20260101T000000Z_aaaa" in message
+    assert "20260202T000000Z_bbbb" in message
+    assert "--snapshot" in message
 
 
 def test_snapshot_discovery_returns_none_when_nothing_pristine(

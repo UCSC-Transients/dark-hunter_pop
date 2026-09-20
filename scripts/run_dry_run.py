@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 from pathlib import Path
 
 from darkhunter_pop.config_loader import KNOWN_HOST_PROFILES, load_config
 from darkhunter_pop.dry_run import (
     DRY_RUN_LABEL,
+    AmbiguousSnapshotError,
     build_dry_run_manifest,
     latest_gaia_snapshot_meta,
     run_dry_run,
@@ -85,8 +87,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Gaia snapshot meta.yaml for data_acquisition to replay. Default: "
-            "the newest pristine local snapshot."
+            "Gaia snapshot meta.yaml for data_acquisition to replay. Defaults "
+            "to the only pristine local snapshot; if several are staged this "
+            "is required, because two snapshots are two different parent "
+            "queries and picking by recency silently changes every count."
         ),
     )
     parser.add_argument(
@@ -142,7 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config, host_profile=args.host_profile)
     snapshot = args.snapshot
     if snapshot is None and not args.live_archive:
-        snapshot = latest_gaia_snapshot_meta(config)
+        try:
+            snapshot = latest_gaia_snapshot_meta(config)
+        except AmbiguousSnapshotError as exc:
+            print(f"run_dry_run: {exc}", file=sys.stderr)
+            return 1
         if snapshot is None:
             print(
                 "run_dry_run: no pristine Gaia snapshot found under the "
@@ -192,7 +200,12 @@ def main(argv: list[str] | None = None) -> int:
             monitor_interval_seconds=args.monitor_interval,
         )
     except Exception as exc:  # noqa: BLE001 — CLI boundary
+        # Print the full traceback, not just the message: this harness runs
+        # unattended for twenty minutes, and an opaque one-line failure from
+        # deep inside a stage (an h5py "name already exists", say) is not
+        # actionable without it.
         print(f"run_dry_run: {exc}", file=sys.stderr)
+        traceback.print_exc()
         return 1
 
     print("")

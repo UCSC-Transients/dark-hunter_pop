@@ -192,37 +192,72 @@ class StageResourceMonitor:
 _SNAPSHOT_DIR_PATTERN: Final[str] = r"^\d{8}T\d{6}Z_[0-9a-f]+$"
 
 
-def latest_gaia_snapshot_meta(config: PipelineConfig) -> Path | None:
-    """Newest pristine local Gaia snapshot ``meta.yaml``, or ``None`` if none staged.
+class AmbiguousSnapshotError(RuntimeError):
+    """More than one pristine Gaia snapshot is staged, so replay cannot be inferred.
 
-    Only directories whose names match a raw snapshot id are considered, so a
-    derived ``+enrich`` / ``+enrich+mc10000`` cache or the ``nss_enrichment``
-    working directory can never be replayed as if it were the parent query — both
-    would silently under-count the parent (CLAUDE.md "Gotchas"). "Newest" is by
-    the UTC timestamp in the directory name, never filesystem mtime, matching the
-    run-selection rule in ARCHITECTURE.md §5.
+    Choosing by recency is exactly the mistake this exists to prevent. Two
+    snapshots are two *different parent queries*; replaying the wrong one changes
+    every downstream count with no visible error, and CLAUDE.md is explicit that
+    literature-sample parent queries must run against the documented uncut
+    snapshot rather than whichever one happens to be newest.
+    """
 
-    Limitations
-    -----------
-    Returns whichever pristine snapshot sorts last by timestamp; it does not
-    check that the snapshot's stored ADQL matches what the current config would
-    query. A caller that needs one specific snapshot must pass its path.
+
+def list_gaia_snapshots(config: PipelineConfig) -> list[Path]:
+    """Every pristine local Gaia snapshot directory, oldest first.
+
+    Only directories whose names match a raw snapshot id are returned, so a
+    derived ``+enrich`` / ``+enrich+mc10000`` cache, the ``nss_enrichment``
+    working directory, or anything an operator has renamed aside is never
+    replayed as if it were the parent query — each would silently mis-count the
+    parent (CLAUDE.md "Gotchas"). Ordering is by the UTC timestamp in the
+    directory name, never filesystem mtime, matching ARCHITECTURE.md §5.
     """
     import re
 
     root = gaia_snapshots_dir(config)
     if not root.is_dir():
-        return None
-    candidates = sorted(
+        return []
+    return sorted(
         p
         for p in root.iterdir()
         if p.is_dir()
         and re.match(_SNAPSHOT_DIR_PATTERN, p.name)
         and (p / "meta.yaml").is_file()
     )
+
+
+def latest_gaia_snapshot_meta(config: PipelineConfig) -> Path | None:
+    """The single pristine local Gaia snapshot's ``meta.yaml``, or ``None``.
+
+    Returns a path **only when the choice is unambiguous** — exactly one pristine
+    snapshot is staged. With several it raises instead of guessing, and the
+    caller passes ``--snapshot`` explicitly.
+
+    Raises
+    ------
+    AmbiguousSnapshotError
+        If more than one pristine snapshot is staged; the message lists them.
+
+    Limitations
+    -----------
+    Does not check that the snapshot's stored ADQL matches what the current
+    config would query. Two snapshots produced by the *same* ADQL months apart
+    are still different data, which is why ambiguity is refused rather than
+    resolved by any heuristic.
+    """
+    candidates = list_gaia_snapshots(config)
     if not candidates:
         return None
-    return candidates[-1] / "meta.yaml"
+    if len(candidates) > 1:
+        listed = "\n".join(f"  {p.name}" for p in candidates)
+        raise AmbiguousSnapshotError(
+            f"{len(candidates)} pristine Gaia snapshots are staged under "
+            f"{gaia_snapshots_dir(config)}; refusing to guess which parent "
+            "query to replay. Pass --snapshot <dir>/meta.yaml explicitly.\n"
+            + listed
+        )
+    return candidates[0] / "meta.yaml"
 
 
 def _relative_to_repo(path: Path) -> str:
