@@ -8,9 +8,18 @@ dispatch, and merge policy.
 independently verified (9 merges, plus a docs-provenance correction pass), the reproduction-binding
 reconciliation is on `main`, the baseline (full suite, peak RSS, §3 re-measured on `main`) exists,
 and gate teardown removed 26 stale worktrees and 70 stale branches. See §7's Wave −1 section for
-what it measured, §5.6 for the concurrency cap those measurements set (four heavy sessions), and the
-handoff note in umbrella issue **#145**, which the orchestrator writes per §5.9. **Wave 0 is not
-dispatched until the operator approves Gate −1.**
+what it measured and the handoff note in umbrella issue **#145**.
+
+**Wave 0 is complete** as of 2026-09-20, `main` @ `13356e5` — roster #28–#32 all landed and
+independently verified. The pipeline ran end to end for the first time
+(`runs/20260920-033431-121d6de.yaml`, all 14 stages terminal, reproducible on three independent
+invocations), producing a labeled `dN/dM`-by-class figure meeting `docs/PLOTS.md` standards. §5.6
+below carries the measured end-to-end RSS/timing refinement from that run — see its own note on
+why the concurrency cap should move to three heavy sessions once issue #224 (which corrects that
+section's cited provenance) lands. See the handoff note in umbrella issue **#202** for the full
+account, including #221 (a real correctness bug needing Ryan's data-model decision before Wave A)
+and the quarantined snapshot's still-open disposition. **Wave A is not dispatched until the
+operator approves Gate 0.**
 
 **Current authorized scope: Waves −1 through D, on the laptop only.** Waves E–H are planned below but **not
 authorized** — see §2.
