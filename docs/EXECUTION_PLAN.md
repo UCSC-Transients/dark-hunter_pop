@@ -472,6 +472,54 @@ These numbers replace the previous estimate; **#28's measurement is discharged**
 (Wave −1), which took them. Re-measure if `_read_selection_parent_cache` changes how rows are
 materialized, if the MC draw count moves off 10,000, or if the parent cache grows.
 
+#### Refinement from the Wave 0 end-to-end run (#201)
+
+The dry run is the first time all fourteen stages ran in **one process**, which is a different
+measurement from timing each workload separately: memory accumulates across stages. Measured on
+the laptop, replaying the documented uncut snapshot, by `scripts/run_dry_run.py`'s own per-stage
+instrumentation.
+
+`rss_high_water` is the `getrusage` process-lifetime mark at each stage's end — what the machine
+had to hold by that point. `rss_added` is the increase across that stage; `0` means the stage
+never pushed the process past an earlier peak, which is true of most of them.
+
+| Stage | Wall clock | rss_added | **rss_high_water** |
+|---|---:|---:|---:|
+| `data_acquisition` | 196.1 s | 7.22 GiB | **7.36 GiB** |
+| `mass_derivation_bulk` | 29.4 s | 0 | 7.36 GiB |
+| `sample_selection` | 478.2 s | 1.33 GiB | **8.68 GiB** |
+| `mass_derivation_refined` | 1.9 s | 0 | 8.68 GiB |
+| `rv_astrometry_gate` | 1.9 s | 0 | 8.68 GiB |
+| `joint_orbit_fit` | 2.8 s | 0 | 8.68 GiB |
+| `companion_nature_likelihood` | 2.5 s | 0 | 8.68 GiB |
+| `triples` | skipped | — | — |
+| `selection_function_astrometric` | 586.6 s | 0 | 8.68 GiB |
+| `selection_function_followup` | 0.1 s | 0 | 8.68 GiB |
+| `population_model` | 1.1 s | 0 | 8.68 GiB |
+| `sensitivity_analysis` | 0.1 s | 0 | 8.68 GiB |
+| `inference` | 1.7 s | 0 | 8.68 GiB |
+| `diagnostics` | 99.1 s | 0 | 8.68 GiB |
+| **whole run** | **~23 min** | | **8.68 GiB** |
+
+**Two things this changes.**
+
+1. **The end-to-end ceiling is higher than 6.82 GiB.** One full run peaks at **8.68 GiB** — the
+   El-Badry 2026 MC inside `sample_selection` landing on top of the ~7.2 GiB the snapshot load
+   already left resident. Four such sessions would be 34.7 GiB, which is not inside the 40 GB
+   budget with any headroom worth the name. **Count a session that runs the pipeline end to end
+   as ~9 GiB, and run at most three of those at once.** The cap of four stays correct for the
+   per-workload profile it was set from (gate, sweep, cache read); the end-to-end profile is the
+   new thing.
+2. **Three stages are the entire wall clock.** `selection_function_astrometric` (586 s),
+   `sample_selection` (478 s) and `data_acquisition` (196 s) are 93% of it; the other eleven
+   total under two minutes. Anything that makes the pipeline feel faster has to come from those
+   three, and `data_acquisition`'s share is almost entirely the 963 MB ECSV parse (#220).
+
+Caveats, so these are not over-read: one run, one machine, nothing else heavy running, `triples`
+skipped by config, and CI-scale dynesty — `inference`'s 1.7 s says nothing about a production
+sampler. Both RSS figures derive from a monotonic high-water mark, so they cannot rank the
+standalone cost of the later stages.
+
 Rule: **cap the heavy sessions, let the light ones run free** (light sessions are ~1 GB; a handful is
 free). Never let it swap — swapping does not degrade a run gracefully, it turns a twenty-minute suite
 into a lost afternoon. Wave 0 is mostly light and can run wide; Waves A and D are mostly heavy and
