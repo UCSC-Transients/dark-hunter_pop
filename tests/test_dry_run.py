@@ -896,3 +896,15 @@ def test_stage_resource_monitor_starts_no_thread() -> None:
     assert threading.active_count() == before, "no sampling thread may be started"
     monitor.stop()
     assert threading.active_count() == before
+
+
+def test_degraded_sed_path_is_declared_when_it_applies() -> None:
+    # mass_derivation_refined silently degrades to unrefined bulk M1 when
+    # dark-hunter_sed is not importable (#181). That is a substitution, so it
+    # must appear in the declared list exactly when it is in force.
+    from darkhunter_pop.mass_derivation import sed_unavailable_plan_note
+
+    config = load_config()
+    names = {s.name for s in declare_stand_ins(config, snapshot_meta=None)}
+    degraded = sed_unavailable_plan_note(config) is not None
+    assert ("unrefined_primary_masses" in names) is degraded

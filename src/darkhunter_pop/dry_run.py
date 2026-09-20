@@ -40,6 +40,7 @@ from darkhunter_pop.config_loader import effective_M_Ch_msun, repo_root
 from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.data_acquisition import gaia_snapshots_dir, run_data_acquisition
 from darkhunter_pop.inference import read_inference_artifact
+from darkhunter_pop.mass_derivation import sed_unavailable_plan_note
 from darkhunter_pop.pipeline import STAGE_RUNNERS, run_pipeline
 from darkhunter_pop.plotting import matplotlib_available, plot_dndm_by_class
 from darkhunter_pop.population_model import (
@@ -90,7 +91,7 @@ DNDM_CAPTION_NAME: Final[str] = "dndm_by_class_caption.txt"
 # ---------------------------------------------------------------------------
 
 
-def _rusage_rss_increase_bytes() -> int:
+def _rusage_high_water_bytes() -> int:
     """Process-lifetime RSS high-water mark in bytes, from ``getrusage``.
 
     ``ru_maxrss`` is bytes on Darwin and kibibytes on Linux; both are normalized
@@ -144,7 +145,7 @@ class StageResourceMonitor:
     @staticmethod
     def high_water() -> int:
         """Process-lifetime RSS high-water mark, in bytes, right now."""
-        return _rusage_rss_increase_bytes()
+        return _rusage_high_water_bytes()
 
     def start(self) -> None:
         """Record the baseline high-water mark for a stage about to run."""
@@ -347,6 +348,36 @@ def declare_stand_ins(
             },
         )
     )
+
+    sed_note = sed_unavailable_plan_note(config)
+    if sed_note is not None:
+        stand_ins.append(
+            SyntheticStandIn(
+                name="unrefined_primary_masses",
+                stage="mass_derivation_refined",
+                kind="disabled_path",
+                replaces="uberMS-refined primary masses M1",
+                description=(
+                    "dark-hunter_sed is not importable in this environment, and "
+                    "mass_derivation.require_sed_package is false, so the stage "
+                    "runs in its documented degraded mode (issue #181): the bulk "
+                    "TAG10 M1 estimate passes through unrefined for every "
+                    "candidate and no refinement happens at all. M1 feeds the "
+                    "companion mass, so every M2 downstream carries the bulk "
+                    "estimate's error budget rather than a refined one."
+                ),
+                config_keys=[
+                    "mass_derivation.require_sed_package",
+                    "mass_derivation.sed_summary_root",
+                ],
+                values={
+                    "require_sed_package": (
+                        config.mass_derivation.require_sed_package
+                    ),
+                    "plan_note": sed_note,
+                },
+            )
+        )
 
     stand_ins.append(
         SyntheticStandIn(
@@ -624,7 +655,7 @@ def instrumented_runners(
             record = updated.stages.get(stage)
             if record is None:
                 return updated
-            cumulative = _rusage_rss_increase_bytes()
+            cumulative = _rusage_high_water_bytes()
             updated = record_stage_resources(
                 updated,
                 stage,
