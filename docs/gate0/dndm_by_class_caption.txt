@@ -1,0 +1,10 @@
+SYNTHETIC INPUTS — PLUMBING CHECK, NOT A SCIENCE RESULT.
+Run 20260920-033431-121d6de (laptop), config_checksum 50415d8486ac. Total is the tier-1 raw compact-object rate with no M_TOV assumption; the class curves are tier-2 species-classified with M_TOV marginalized for NS. Axis values are NOT a measurement of the mass function and must not be quoted.
+Stand-ins in force for this run:
+  - offline_gaia_snapshot_replay (offline_replay, data_acquisition): replaces a live gaiadr3.nss_two_body_orbit archive query.
+  - analytic_companion_nature_evidence (analytic_surrogate, companion_nature_likelihood): replaces per-star SED / XP model comparison evidence (dark vs WD vs other).
+  - unrefined_primary_masses (disabled_path, mass_derivation_refined): replaces uberMS-refined primary masses M1.
+  - per_sample_selection_weights (config_placeholder, inference): replaces forward-modeled per-sample selection functions SF_sample_s(theta).
+  - no_reproducing_literature_sample (disabled_path, sample_selection): replaces a reproducing literature sample feeding inference.
+  - ci_scale_dynesty (ci_scale_sampler, inference): replaces a production nested-sampling run.
+  - fiducial_mass_function_heights (config_placeholder, population_model): replaces mass-function bin heights informed by anything.
