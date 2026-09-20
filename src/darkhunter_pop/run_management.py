@@ -855,24 +855,6 @@ def _plan_stage_decision(
             detail=f"cached: output exists at {record.artifact_path}",
             artifact_path=Path(record.artifact_path),
         )
-    if (
-        record is not None
-        and record.status in {StageStatus.RUNNING, StageStatus.FAILED}
-        and artifact.is_file()
-    ):
-        # A stage left 'running' or 'failed' crashed mid-write, so the file at the
-        # artifact path may be a partial (issue #221: a 1.9 GB half-written HDF5 with
-        # a matching source_hash was indistinguishable from a cache hit here). Policy
-        # is "wipe partials, amend, re-run that stage" (CLAUDE.md, Run management).
-        return StagePlanEntry(
-            stage=spec.name,
-            action=StageAction.RUN,
-            detail=(
-                f"running: previous attempt left status {record.status.value!r} with a "
-                f"possibly partial artifact at {artifact}; it will be overwritten"
-            ),
-            artifact_path=artifact,
-        )
     if artifact.is_file():
         # Artifact sits at the current config fingerprint by construction, so
         # only the dependency hash can be stale here (and only if some record

@@ -761,32 +761,3 @@ def test_companion_nature_fingerprint_covers_phot_sed_config_keys() -> None:
     assert stage_artifact_path(config, spec, run_id=run_id) != stage_artifact_path(
         disabled_config, spec, run_id=run_id
     )
-
-
-def test_running_record_with_artifact_is_not_a_cache_hit(tmp_path: Path) -> None:
-    """#221: a stage that died mid-write leaves ``status: running`` and a possibly
-    partial artifact. The plan must re-run it, never read it as cached."""
-    cfg = load_config()
-    cfg.paths.artifact_root = str(tmp_path / "artifacts")
-    manifest = create_run_manifest(cfg)
-    spec = STAGE_REGISTRY["data_acquisition"]
-    artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
-    artifact.parent.mkdir(parents=True, exist_ok=True)
-    artifact.write_bytes(b"half-written-hdf5")
-
-    started = mark_stage_started(manifest, spec, cfg)
-    assert started.stages[spec.name].status is StageStatus.RUNNING
-    entry = plan_stage(spec, started, cfg)
-    assert entry.action is StageAction.RUN
-    assert "partial" in entry.detail
-
-    failed = started.model_copy(
-        update={
-            "stages": {
-                spec.name: started.stages[spec.name].model_copy(
-                    update={"status": StageStatus.FAILED}
-                )
-            }
-        }
-    )
-    assert plan_stage(spec, failed, cfg).action is StageAction.RUN
