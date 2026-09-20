@@ -1,0 +1,1240 @@
+run_id: 20260920-033431-121d6de
+created_at: '2026-09-20T03:34:31.195082Z'
+parent_run_id: null
+config_checksum: 50415d8486ac1bdb1633ae6fb864c6becc4c3d8f4b32ed713e3666da28ee2655
+active_dr_mode: dr3
+artifact_root: output
+host_profile: laptop
+gaiamock_mod_release: gaiamock-mod-v1
+gaiamock_mod_sha256: null
+gaiamock_git_commit: null
+random_seeds:
+  inference.random_seed: 63
+  inference.robustness_seed_stride: 17
+  population_model.random_seed: 57
+  sensitivity_analysis.random_seed: 38
+  mc_mass_function.random_seed: 19
+  diagnostics.sbc.random_seed: 69
+  selection_function_astrometric.mock_population.random_seed: 42
+dry_run: true
+dry_run_label: "synthetic inputs \u2014 plumbing check, not a science result"
+synthetic_stand_ins:
+- name: offline_gaia_snapshot_replay
+  stage: data_acquisition
+  kind: offline_replay
+  replaces: a live gaiadr3.nss_two_body_orbit archive query
+  description: "data_acquisition is replayed from a Gaia snapshot already on this\
+    \ laptop instead of re-querying the archive. The rows are real DR3 NSS rows, not\
+    \ synthetic \u2014 but they are frozen at the snapshot's query date, so this run\
+    \ says nothing about the current archive contents, and the funnel counts it reports\
+    \ are the snapshot's. Replay also makes the run reproducible, which a live query\
+    \ is not."
+  config_keys:
+  - dr3.nss_table
+  - paths.data_root
+  values:
+    snapshot_meta: data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/meta.yaml
+- name: analytic_companion_nature_evidence
+  stage: companion_nature_likelihood
+  kind: analytic_surrogate
+  replaces: per-star SED / XP model comparison evidence (dark vs WD vs other)
+  description: 'The WD/other/dark decision is driven by closed-form magnitude-mass
+    relations, not by a real model comparison. The phot_sed adapter that would supply
+    genuine dynesty BIC and lnZ is wired (#197), but nothing reaches it yet: the upstream
+    wd model emits no readable BIC at the pop-facing path (#206) and the channel needs
+    all three hypotheses, so every candidate falls back to the analytic relations
+    and is labelled analytic_fallback. Consequences: the five-class responsibilities
+    are a smooth function of absolute magnitude rather than a fit, they carry no covariance
+    of any kind because the surrogate has no uncertainty model at all, and WD contamination
+    is entirely unconstrained by this run.'
+  config_keys:
+  - companion_nature.wd_mg_zero_point
+  - companion_nature.wd_mg_mass_slope
+  - companion_nature.other_mg_zero_point
+  - companion_nature.other_mg_mass_slope
+  - companion_nature.primary_mg_zero_point
+  - companion_nature.primary_mg_mass_slope
+  - companion_nature.dark_to_bh_fraction
+  - companion_nature.delta_bic_threshold
+  values:
+    wd_mg_zero_point: 12.0
+    wd_mg_mass_slope: -2.5
+    other_mg_zero_point: 5.0
+    other_mg_mass_slope: -5.0
+    dark_to_bh_fraction: 0.5
+    delta_bic_threshold: 10.0
+- name: unrefined_primary_masses
+  stage: mass_derivation_refined
+  kind: disabled_path
+  replaces: uberMS-refined primary masses M1
+  description: 'dark-hunter_sed is not importable in this environment, and mass_derivation.require_sed_package
+    is false, so the stage runs in its documented degraded mode (issue #181): the
+    bulk TAG10 M1 estimate passes through unrefined for every candidate and no refinement
+    happens at all. M1 feeds the companion mass, so every M2 downstream carries the
+    bulk estimate''s error budget rather than a refined one.'
+  config_keys:
+  - mass_derivation.require_sed_package
+  - mass_derivation.sed_summary_root
+  values:
+    require_sed_package: false
+    plan_note: 'SED UNAVAILABLE (darkhunter_sed.batch cannot import darkhunter_rv.summary_paths
+      (darkhunter_rv not installed)); require_sed_package=false so this stage will
+      RUN in DEGRADED mode: bulk M1 estimates pass through unrefined for every candidate,
+      refinement is skipped'
+- name: per_sample_selection_weights
+  stage: inference
+  kind: config_placeholder
+  replaces: forward-modeled per-sample selection functions SF_sample_s(theta)
+  description: 'Each published sample''s own cut chain is itself a selection function
+    and must be forward-modeled (CLAUDE.md, Phase 8). None of them reproduces its
+    published N yet, so none may be forward-modeled here. The multi-sample inclusion
+    operator instead runs on flat catalog weights and one flat spurious rate shared
+    by every sample. Flat is the crudest available stand-in and that is the point:
+    a weight chosen to make the output look plausible would be worse than an obviously
+    crude one. No inference conclusion survives this.'
+  config_keys:
+  - inference.multi_sample.default_catalog_sf
+  - inference.multi_sample.default_p_spurious
+  - inference.default_astrometric_sf
+  - inference.default_followup_sf
+  values:
+    default_catalog_sf:
+      andrews2022_modified: 1.0
+      elbadry2024: 1.0
+      elbadry2026: 1.0
+    default_p_spurious: 0.25
+    default_astrometric_sf: 1.0
+    default_followup_sf: 1.0
+- name: no_reproducing_literature_sample
+  stage: sample_selection
+  kind: disabled_path
+  replaces: a reproducing literature sample feeding inference
+  description: "No literature sample reproduces its published N yet (CLAUDE.md Status;\
+    \ that is Wave A's work), so the sample-selection layer contributes nothing trustworthy\
+    \ to this run either way. Samples in reproduction mode are regression tests against\
+    \ a published number and are never inference inputs by construction. This run's\
+    \ config additionally leaves andrews2022_modified enabled in forward_model mode,\
+    \ inherited from config.yaml as authored \u2014 this harness neither enabled it\
+    \ nor changed it. Its contribution is still meaningless here, because the per-sample\
+    \ weight it would carry is the flat placeholder described under per_sample_selection_weights,\
+    \ not a forward-modeled selection function."
+  config_keys:
+  - sample_selection.samples
+  values:
+    modes:
+      andrews2022: reproduction
+      andrews2022_modified: forward_model
+      elbadry2024: reproduction
+      elbadry2026: reproduction
+    forward_model_mode_samples:
+    - andrews2022_modified
+- name: ci_scale_dynesty
+  stage: inference
+  kind: ci_scale_sampler
+  replaces: a production nested-sampling run
+  description: "dynesty stays at the CI smoke settings. The posterior is not converged,\
+    \ the evidence is not usable, and the multi-run robustness protocol that validates\
+    \ a real dynesty result (ARCHITECTURE.md \xA74 inference) has not been satisfied.\
+    \ The cluster recipe lives in config/fragments/inference.yaml and is deliberately\
+    \ not used: raising these numbers here would buy a slower run with no more meaning,\
+    \ since the likelihood it samples is built on the placeholders above."
+  config_keys:
+  - inference.nlive
+  - inference.dlogz
+  - inference.maxcall
+  - inference.n_robustness_runs
+  values:
+    nlive: 20
+    dlogz: 0.5
+    maxcall: 400
+    n_robustness_runs: 1
+- name: fiducial_mass_function_heights
+  stage: population_model
+  kind: config_placeholder
+  replaces: mass-function bin heights informed by anything
+  description: 'The non-parametric mass function starts from fiducial bin heights
+    on bin edges fixed in config before any real count was looked at (which is the
+    correct guardrail, not a stand-in). What makes it a stand-in is that the heights
+    themselves are a configured fiducial: the shape of the product figure is set by
+    that fiducial and by the class truncations, not by the data. Read the figure as
+    a check that a shape propagates, and read nothing else from it.'
+  config_keys:
+  - population_model.mass_function_model
+  - population_model.mass_bin_edges_msun
+  - population_model.default_bin_height
+  values:
+    mass_function_model: free_height_bins
+    n_bins: 8
+stages:
+  data_acquisition:
+    stage_name: data_acquisition
+    status: completed
+    started_at: '2026-09-20T03:34:31.259674Z'
+    finished_at: '2026-09-20T03:37:45.410804Z'
+    source_hash: 079ea52995785a413d6036a5e442606b174ea4200a7b638bdb8720184c11900a
+    config_subset:
+      active_dr_mode: dr3
+      dr3.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr4.quality_cut_bins:
+      - g_min: null
+        g_max: 13.0
+        gof_max: 10.0
+      - g_min: 13.0
+        g_max: null
+        gof_max: 5.0
+      dr3.external_photometry_crossmatches:
+      - band: NUV
+        neighbour_table: gaiadr3.galex_ais_best_neighbour
+        catalog_table: gaiadr3.galex_ais_dr3
+        mag_column: nuv_mag
+        mag_err_column: nuv_mag_err
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: g_mean_psf_mag
+        mag_err_column: g_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: r_mean_psf_mag
+        mag_err_column: r_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: i_mean_psf_mag
+        mag_err_column: i_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: z_mean_psf_mag
+        mag_err_column: z_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: y_ps1
+        neighbour_table: gaiadr3.panstarrs1_best_neighbour
+        catalog_table: gaiadr2.panstarrs1_original_valid
+        mag_column: y_mean_psf_mag
+        mag_err_column: y_mean_psf_mag_error
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=obj_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: J
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: j_m
+        mag_err_column: j_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: H
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: h_m
+        mag_err_column: h_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: Ks
+        neighbour_table: gaiadr3.tmass_psc_xsc_best_neighbour
+        catalog_table: gaiadr1.tmass_original_valid
+        mag_column: ks_m
+        mag_err_column: ks_msigcom
+        enabled: true
+        neighbour_to_catalog: null
+        join_table: gaiadr3.tmass_psc_xsc_join
+        neighbour_to_join: clean_tmass_psc_xsc_oid=clean_tmass_psc_xsc_oid
+        join_to_catalog: original_psc_source_id=designation
+      - band: W1
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w1mpro
+        mag_err_column: w1mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: W2
+        neighbour_table: gaiadr3.allwise_best_neighbour
+        catalog_table: gaiadr1.allwise_original_valid
+        mag_column: w2mpro
+        mag_err_column: w2mpro_error
+        enabled: true
+        neighbour_to_catalog: allwise_oid=allwise_oid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: u
+        mag_err_column: err_u
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: g_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: g
+        mag_err_column: err_g
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: r_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: r
+        mag_err_column: err_r
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: i_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: i
+        mag_err_column: err_i
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: z_sdss
+        neighbour_table: gaiadr3.sdssdr13_best_neighbour
+        catalog_table: external.sdssdr13_photoprimary
+        mag_column: z
+        mag_err_column: err_z
+        enabled: true
+        neighbour_to_catalog: original_ext_source_id=objid
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      - band: u_decam
+        neighbour_table: gaiadr3.decam_best_neighbour
+        catalog_table: gaiadr3.decam_dr2
+        mag_column: mag_u
+        mag_err_column: magerr_u
+        enabled: false
+        neighbour_to_catalog: original_ext_source_id=original_ext_source_id
+        join_table: null
+        neighbour_to_join: null
+        join_to_catalog: null
+      dr4.external_photometry_crossmatches: []
+      dr3.nss_table: gaiadr3.nss_two_body_orbit
+      dr4.nss_table: gaiadr4.nss_two_body_orbit
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/data_acquisition/6a1e0a1176c60bcb.h5
+    code_commit: 121d6de
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 194.92210083303507
+    rss_increase_bytes: 7869857792
+    rss_high_water_bytes: 8012480512
+  mass_derivation_bulk:
+    stage_name: mass_derivation_bulk
+    status: completed
+    started_at: '2026-09-20T03:37:46.184737Z'
+    finished_at: '2026-09-20T03:38:13.343356Z'
+    source_hash: cb811b85ab34c5f8836696c404609e587cf800dc0a66a834c999d84a41451688
+    config_subset:
+      mass_calibration:
+        method: TAG10
+        sigma_logM: 0.027
+        sigma_logR: 0.014
+        santos_correction: true
+        delta_M_Ch_msun: 0.0
+      mass_derivation.dark_companion_flux_ratio: 0.0
+      classification.M_MIN_msun: 1.1
+      classification.n_sigma_mass_cut: 2.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/mass_derivation_bulk/dbcfab1b48af00a2.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: gaiamock-mod-v1
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 27.631636707985308
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 8012480512
+  sample_selection:
+    stage_name: sample_selection
+    status: completed
+    started_at: '2026-09-20T03:38:13.828154Z'
+    finished_at: '2026-09-20T03:46:12.098373Z'
+    source_hash: f00e0e2c46e072537339ff78a71f43349aa69d2be5f5e3e4c56fe0554b91e85b
+    config_subset:
+      sample_selection:
+        enabled: true
+        samples:
+        - name: andrews2022
+          enabled: true
+          path: config/selections/andrews2022.yaml
+          mode: reproduction
+        - name: andrews2022_modified
+          enabled: true
+          path: config/selections/andrews2022_modified.yaml
+          mode: forward_model
+        - name: elbadry2024
+          enabled: true
+          path: config/selections/elbadry2024.yaml
+          mode: reproduction
+        - name: elbadry2026
+          enabled: true
+          path: config/selections/elbadry2026.yaml
+          mode: reproduction
+        - name: accel_jerk
+          enabled: false
+          path: config/selections/accel_jerk.yaml
+          mode: forward_model
+      mc_mass_function:
+        n_draws: 10000
+        random_seed: 19
+        covariance: full_12x12
+        eig_rel_floor: 1.0e-12
+        eig_abs_floor: 1.0e-18
+        boundary_n_sigma: 1.0
+      active_dr_mode: dr3
+      enabled_selection_content_sha256: a0c9c330707addf423ddbd46135ce2cdb6bc2356b2e9c72dd811d72dd2fc0d07
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/sample_selection/19b58e641119bbd8.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 478.88887125003384
+    rss_increase_bytes: 1389314048
+    rss_high_water_bytes: 9401794560
+  mass_derivation_refined:
+    stage_name: mass_derivation_refined
+    status: completed
+    started_at: '2026-09-20T03:46:12.727391Z'
+    finished_at: '2026-09-20T03:46:14.488920Z'
+    source_hash: cb811b85ab34c5f8836696c404609e587cf800dc0a66a834c999d84a41451688
+    config_subset:
+      mass_calibration:
+        method: TAG10
+        sigma_logM: 0.027
+        sigma_logR: 0.014
+        santos_correction: true
+        delta_M_Ch_msun: 0.0
+      mass_derivation:
+        dark_companion_flux_ratio: 0.0
+        uberms_m1_prior_max_msun: 3.0
+        uberms_m1_watchlist_fraction: 0.95
+        information_gain_sigma_floor_msun: 0.01
+        sed_queue_max_stars: null
+        sed_summary_root: data/sed_summaries
+        sed_summary_filename_template: Gaia_DR3_{source_id}_sed_summary.json
+        phot_sed_root: data/phot_sed
+        phot_sed_filename_template: Gaia_DR3_{source_id}_{model}_summary.json
+        require_sed_package: false
+        bulk_progress_log_interval: 10000
+        bulk_m2_histogram_xmin_msun: 0.0
+        bulk_m2_histogram_xmax_msun: 30.0
+        bulk_m2_histogram_log_y: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/mass_derivation_refined/c925fd23650d894f.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: 'sed_unavailable_refinement_skipped: 7816/7816 queued candidate(s) kept
+      bulk M1 (darkhunter_sed.batch cannot import darkhunter_rv.summary_paths (darkhunter_rv
+      not installed))'
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 1.8101380000007339
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  rv_astrometry_gate:
+    stage_name: rv_astrometry_gate
+    status: completed
+    started_at: '2026-09-20T03:46:14.547420Z'
+    finished_at: '2026-09-20T03:46:16.513257Z'
+    source_hash: 7e0c5f1fe86698a6d02a4f9d1c4120277c2a55ac826e55fc9195e2173177dc2b
+    config_subset:
+      rv_consistency:
+        chi2_dof_threshold: 5.0
+        min_epochs_per_instrument: 3
+        min_epochs_total: 3
+        jitter_max_kms: 10.0
+        sb2_period_frac_tol: 0.1
+        sb2_ecc_abs_tol: 0.15
+        joker_seed_variant: full
+        joint_prior_period_frac: 0.05
+        joint_prior_ecc_abs: 0.05
+        joint_prior_omega_rad: 0.2
+        joint_prior_t_peri_day: 5.0
+        joint_fit_max_nfev: 200
+        prefer_recent_summary_mtime: true
+        priority_source_ids:
+        - 4373465352415301632
+        - 5870569352746779008
+        prefer_public_external_rvs: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/rv_astrometry_gate/9fae3abe34ac162c.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 2.010227707971353
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  joint_orbit_fit:
+    stage_name: joint_orbit_fit
+    status: completed
+    started_at: '2026-09-20T03:46:16.568400Z'
+    finished_at: '2026-09-20T03:46:19.316056Z'
+    source_hash: 7e0c5f1fe86698a6d02a4f9d1c4120277c2a55ac826e55fc9195e2173177dc2b
+    config_subset:
+      rv_consistency:
+        chi2_dof_threshold: 5.0
+        min_epochs_per_instrument: 3
+        min_epochs_total: 3
+        jitter_max_kms: 10.0
+        sb2_period_frac_tol: 0.1
+        sb2_ecc_abs_tol: 0.15
+        joker_seed_variant: full
+        joint_prior_period_frac: 0.05
+        joint_prior_ecc_abs: 0.05
+        joint_prior_omega_rad: 0.2
+        joint_prior_t_peri_day: 5.0
+        joint_fit_max_nfev: 200
+        prefer_recent_summary_mtime: true
+        priority_source_ids:
+        - 4373465352415301632
+        - 5870569352746779008
+        prefer_public_external_rvs: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/joint_orbit_fit/9fae3abe34ac162c.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 2.8024442919995636
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  companion_nature_likelihood:
+    stage_name: companion_nature_likelihood
+    status: completed
+    started_at: '2026-09-20T03:46:19.385564Z'
+    finished_at: '2026-09-20T03:46:22.001798Z'
+    source_hash: a851c801c069d99614a1f14450893045b189e0edf989725f6e49c50079bc3c3b
+    config_subset:
+      companion_nature:
+        delta_bic_threshold: 10.0
+        evidence_scale: 1.0
+        weight_floor: 1.0e-06
+        dark_to_bh_fraction: 0.5
+        outlier_gate_blend: 0.8
+        use_photometry: true
+        use_xp: true
+        use_sb2: true
+        default_mag_err: 0.05
+        n_params_dark: 0
+        n_params_wd: 2
+        n_params_other: 2
+        wd_mg_zero_point: 12.0
+        wd_mg_mass_slope: -2.5
+        other_mg_zero_point: 5.0
+        other_mg_mass_slope: -5.0
+        xp_chi2_dark_key: xp_chi2_dark
+        xp_chi2_wd_key: xp_chi2_wd
+        xp_chi2_other_key: xp_chi2_other
+        xp_n_data_key: xp_n_data
+        phot_chi2_dark_key: phot_chi2_dark
+        phot_chi2_wd_key: phot_chi2_wd
+        phot_chi2_other_key: phot_chi2_other
+        phot_n_data_key: phot_n_data
+        primary_mg_zero_point: 4.5
+        primary_mg_mass_slope: -5.0
+        sb2_wd_likeness_key: sb2_wd_likeness
+        sb2_score_n_data: 4
+        sb2_dark_chi2_per_datum: 25.0
+        sb2_type_chi2_scale: 9.0
+        default_tier: fast
+        full_tier_ambiguity_delta_bic: 5.0
+        full_tier_m2_msun_min: null
+        full_queue_max: null
+        full_tier_grid_factor: 3
+        age_bin_edges_gyr:
+        - 0.0
+        - 1.0
+        - 3.0
+        - 10.0
+        - 14.0
+        age_extras_key: age_gyr
+      mass_derivation.phot_sed_root: data/phot_sed
+      mass_derivation.phot_sed_filename_template: Gaia_DR3_{source_id}_{model}_summary.json
+      physics.cooling_tracks: bedard
+      physics.cooling_atmosphere: DA
+      physics.cooling_tracks_path: null
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/companion_nature_likelihood/1306ebaef88e2f71.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 2.690076250000857
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  triples:
+    stage_name: triples
+    status: skipped
+    started_at: '2026-09-20T03:57:11.182359Z'
+    finished_at: '2026-09-20T03:57:11.217777Z'
+    source_hash: 363a0134ea5914d959b24e4d7d9fc09fdd0ee5861bfe2eedd209877e408a53c6
+    config_subset:
+      triples:
+        enabled: false
+        tess_variability_channel: true
+        rotation_consistency_channel: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/triples/fa3e8689b68cc523.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: triples.enabled=false
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: null
+    rss_increase_bytes: null
+    rss_high_water_bytes: null
+  selection_function_astrometric:
+    stage_name: selection_function_astrometric
+    status: completed
+    started_at: '2026-09-20T03:46:22.178867Z'
+    finished_at: '2026-09-20T03:55:11.626275Z'
+    source_hash: e0735116a83dccf2b4b23e12a595076a552d05419fd4f0bd0fb0c2360c8d5b76
+    config_subset:
+      gaiamock:
+        mod_release: gaiamock-mod-v1
+        mod_sha256: null
+        git_commit: null
+      active_dr_mode: dr3
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      selection_function_astrometric:
+        extinction_model: combined19
+        validation_gate:
+          ks_pvalue_min: 0.01
+          solution_type_fraction_max_abs_delta: 0.05
+          reference_path: null
+        mock_population:
+          sampling: elbadry_prior
+          random_seed: 42
+          period_days: 1000.0
+          Mg_tot: 4.0
+          flux_ratio: 0.01
+          m1_msun: 1.0
+          m2_msun: 0.5
+          eccentricity: 0.3
+          period_days_min: 60.0
+          period_days_max: 8500.0
+          eccentricity_max: 0.65
+          m1_msun_min: 0.7
+          m1_msun_max: 2.8
+          m2_msun_min: 0.08
+          m2_msun_max: 3.5
+          flux_ratio_min: 0.0001
+          flux_ratio_max: 0.15
+          Mg_tot_min: 3.0
+          Mg_tot_max: 6.5
+          faint_draw_fraction: 0.45
+          faint_Mg_tot_min: 8.0
+          faint_Mg_tot_max: 11.5
+          N_realizations: 500
+          ruwe_min: 1.4
+          skip_acceleration: false
+          hz_pc: 300.0
+      dr3.selection_function_astrometric:
+        d_min_pc: 50.0
+        d_max_pc: 1200.0
+      dr4.selection_function_astrometric:
+        d_min_pc: 50.0
+        d_max_pc: 1200.0
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/selection_function_astrometric/b5393a0abb5f5d0c.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: gaiamock-mod-v1
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 529.4641017499962
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  selection_function_followup:
+    stage_name: selection_function_followup
+    status: completed
+    started_at: '2026-09-20T03:55:11.657877Z'
+    finished_at: '2026-09-20T03:55:11.750587Z'
+    source_hash: e0735116a83dccf2b4b23e12a595076a552d05419fd4f0bd0fb0c2360c8d5b76
+    config_subset:
+      active_dr_mode: dr3
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      selection_function_followup:
+        target_lists:
+        - name: andrews
+          adoption_dates_path: config/target_lists/derived/andrews_adoption_dates.yaml
+          cooler_star_preference: true
+        - name: elbadry
+          adoption_dates_path: config/target_lists/derived/elbadry_adoption_dates.yaml
+          cooler_star_preference: true
+        - name: accel_jerk
+          adoption_dates_path: config/target_lists/derived/accel_jerk_adoption_dates.yaml
+          cooler_star_preference: false
+        declination_min_deg: -35.0
+        declination_max_deg: 90.0
+        g_mag_bright_limit: 5.0
+        g_mag_faint_limit: 15.0
+        cooler_star_teff_max_k: 6500.0
+        cooler_star_weight: 1.5
+        major_surveys:
+        - name: APOGEE
+          selection_function_path: config/target_lists/survey_sfs/apogee.yaml
+          tier: documented
+        - name: RAVE
+          selection_function_path: config/target_lists/survey_sfs/rave.yaml
+          tier: documented
+        - name: LAMOST
+          selection_function_path: config/target_lists/survey_sfs/lamost.yaml
+          tier: documented
+        - name: DESI
+          selection_function_path: config/target_lists/survey_sfs/desi.yaml
+          tier: documented
+        ad_hoc_literature:
+          use_brightness: true
+          use_declination: true
+          use_proper_motion: true
+          pm_total_min_mas_yr: 0.0
+          base_probability: 0.05
+        calibration:
+          n_obs_bin_edges:
+          - 0.0
+          - 1.0
+          - 2.0
+          - 3.0
+          - 5.0
+          - 10.0
+          - 20.0
+          - 50.0
+          time_span_day_bin_edges:
+          - 0.0
+          - 30.0
+          - 90.0
+          - 180.0
+          - 365.0
+          - 730.0
+          - 1500.0
+          ks_pvalue_min: 0.01
+          real_followup_catalog_path: null
+        target_list_sheet:
+          spreadsheet_id: ''
+          sheet_range: Sheet1
+          credentials_env: GOOGLE_APPLICATION_CREDENTIALS
+          revision_history_incompleteness_caveat: true
+          weekly_snapshot_relative_dir: target_lists/snapshots
+          derived_adoption_dates_relative_dir: config/target_lists/derived
+      dr3.selection_function_followup:
+        accel_jerk_catalog_id: dr3_accel_jerk_pinned
+      dr4.selection_function_followup:
+        accel_jerk_catalog_id: dr4_accel_jerk_pinned
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/selection_function_followup/499f37c7bd9923e7.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 0.11037354200379923
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  population_model:
+    stage_name: population_model
+    status: completed
+    started_at: '2026-09-20T03:55:11.783926Z'
+    finished_at: '2026-09-20T03:55:12.960729Z'
+    source_hash: 685bda4eb4fc66d09cc95038521884c4b583f1cd618344a6ac8da00119b23629
+    config_subset:
+      population_model:
+        p_single: 0.0
+        p_binary: 1.0
+        p_triple: 0.0
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        compact_object_classes:
+        - BH
+        - NS
+        - WD
+        mass_function_model: free_height_bins
+        bin_edge_policy: equal_log_m
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        m_tov_soft_width_msun: 0.05
+        m_tov_prior_sigma_msun: 0.2
+        m_tov_prior_n_quad: 21
+        m1_family: kroupa
+        period_family: flat_log_p
+        eccentricity_family: thermal
+        apply_sensitivity_covariates: true
+        gp_length_scale_log_m: 0.5
+        gp_variance: 1.0
+        allow_external_co_mf_priors: false
+        random_seed: 57
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      classification:
+        M_MIN_msun: 1.1
+        n_sigma_mass_cut: 2.0
+        M_TOV_msun: 2.2
+      mass_calibration.delta_M_Ch_msun: 0.0
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/population_model/6aee2f3b085706c2.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 1.224221332988236
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  sensitivity_analysis:
+    stage_name: sensitivity_analysis
+    status: completed
+    started_at: '2026-09-20T03:55:13.024488Z'
+    finished_at: '2026-09-20T03:55:13.151286Z'
+    source_hash: c1ad00a754f1c24219d0c5966ca69304d11e808bcf70768b5b54bec92958a7a7
+    config_subset:
+      physics.mc_noise_threshold: 0.1
+      sensitivity_analysis:
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        candidate_covariates:
+        - ruwe
+        - eccentricity
+        - period_day
+        joint_dimensions:
+        - mass_msun
+        - period_day
+        - eccentricity
+        bic_delta_include_covariate: 6.0
+        bic_delta_prefer_joint_nd: 10.0
+        mean_count_per_bin_unbinned_preference: 5.0
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        n_mock_start: 50
+        n_mock_max: 10000
+        n_mock_growth_factor: 2.0
+        n_synthetic_systems: 400
+        random_seed: 38
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/sensitivity_analysis/31bc2f484db8ddbb.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 0.14506833296036348
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  inference:
+    stage_name: inference
+    status: completed
+    started_at: '2026-09-20T03:55:13.190382Z'
+    finished_at: '2026-09-20T03:55:14.846037Z'
+    source_hash: e0c20c3e699e9b52176acb04ba0093690490be390382d821e9db33046e10445d
+    config_subset:
+      inference:
+        apply_sensitivity_dimensionality: true
+        likelihood_form: auto
+        eccentricity_hypothesis: thermal
+        circular_implies_wd: false
+        circular_e_threshold: 0.05
+        log_height_min: -5.0
+        log_height_max: 5.0
+        n_mass_grid: 64
+        default_astrometric_sf: 1.0
+        default_followup_sf: 1.0
+        multi_sample:
+          formulation: unified_inclusion_indicator
+          sample_names:
+          - andrews2022_modified
+          - elbadry2024
+          - elbadry2026
+          default_catalog_sf:
+            andrews2022_modified: 1.0
+            elbadry2024: 1.0
+            elbadry2026: 1.0
+          default_p_spurious: 0.25
+          require_unified_for_joint: true
+        nlive: 20
+        dlogz: 0.5
+        maxcall: 400
+        sample: rwalk
+        random_seed: 63
+        n_robustness_runs: 1
+        robustness_nlive_scale: 1.5
+        robustness_seed_stride: 17
+        posterior_prior_overlap_threshold: 0.85
+        zero_count_ul_confidence: 0.95
+        skip_sampler: false
+      physics:
+        cooling_tracks: bedard
+        cooling_atmosphere: DA
+        cooling_tracks_path: null
+        imf: kroupa
+        mc_noise_threshold: 0.1
+      classification:
+        M_MIN_msun: 1.1
+        n_sigma_mass_cut: 2.0
+        M_TOV_msun: 2.2
+      population_model:
+        p_single: 0.0
+        p_binary: 1.0
+        p_triple: 0.0
+        population_classes:
+        - BH
+        - NS
+        - WD
+        - other
+        - outlier
+        compact_object_classes:
+        - BH
+        - NS
+        - WD
+        mass_function_model: free_height_bins
+        bin_edge_policy: equal_log_m
+        n_mass_bins: 8
+        mass_min_msun: 0.2
+        mass_max_msun: 20.0
+        fiducial_expected_counts:
+        - 5.0
+        - 8.0
+        - 12.0
+        - 10.0
+        - 6.0
+        - 4.0
+        - 2.0
+        - 1.0
+        m_tov_soft_width_msun: 0.05
+        m_tov_prior_sigma_msun: 0.2
+        m_tov_prior_n_quad: 21
+        m1_family: kroupa
+        period_family: flat_log_p
+        eccentricity_family: thermal
+        apply_sensitivity_covariates: true
+        gp_length_scale_log_m: 0.5
+        gp_variance: 1.0
+        allow_external_co_mf_priors: false
+        random_seed: 57
+      mass_calibration.delta_M_Ch_msun: 0.0
+      sample_selection:
+        enabled: true
+        samples:
+        - name: andrews2022
+          enabled: true
+          path: config/selections/andrews2022.yaml
+          mode: reproduction
+        - name: andrews2022_modified
+          enabled: true
+          path: config/selections/andrews2022_modified.yaml
+          mode: forward_model
+        - name: elbadry2024
+          enabled: true
+          path: config/selections/elbadry2024.yaml
+          mode: reproduction
+        - name: elbadry2026
+          enabled: true
+          path: config/selections/elbadry2026.yaml
+          mode: reproduction
+        - name: accel_jerk
+          enabled: false
+          path: config/selections/accel_jerk.yaml
+          mode: forward_model
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/inference/5fa5cb27ffb7ccd2.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 1.6778494580066763
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560
+  diagnostics:
+    stage_name: diagnostics
+    status: completed
+    started_at: '2026-09-20T03:55:14.889125Z'
+    finished_at: '2026-09-20T03:56:53.865952Z'
+    source_hash: b47c82c9f2ddbf76522df40591a0e63fd9f48a457fd762e1bdd080fdd349c26b
+    config_subset:
+      paths.artifact_root: output
+      diagnostics:
+        figure_dpi: 120
+        figures_subdir: figures
+        reports_subdir: reports
+        write_figures: true
+        write_reports: true
+        histogram_max_bins: 80
+        sky_map_point_size: 0.1
+        sky_map_alpha: 0.25
+        info_gain_top_n: 20
+        sampler_logz_sigma_tol: 3.0
+        hooks:
+          funnel_sky: true
+          elbadry_six_panel: true
+          fit_tier_coverage: true
+          gate_pass_rate: true
+          age_stratified_wd: true
+          triples_robustness: true
+          info_gain_followup: true
+          sampler_consistency: true
+          mc_noise_convergence: true
+          solution_type_fractions: true
+          known_truth_benchmarks: true
+          comparison_catalogs: true
+          sbc_recovery: true
+          m2_posterior_convergence: true
+          sample_attrition_waterfall: true
+          sample_reproduction_report: true
+          simon2026_exclusion_breakdown: true
+          covariance_health: true
+          sample_selection_function: true
+          mode_divergence: true
+          janssens_segment_occupancy: true
+        sbc:
+          enabled: true
+          run_in_stage: false
+          recovery_backend: analytic_binned
+          credible_interval_level: 0.68
+          coverage_abs_tolerance: 0.2
+          n_repeats: 24
+          n_mass_bins: 4
+          expected_total_rate: 40.0
+          astrometric_sf: 1.0
+          followup_sf: 1.0
+          random_seed: 69
+          n_posterior_samples: 2000
+          inference_nlive: 12
+          inference_maxcall: 200
+          inference_dlogz: 1.0
+          inference_n_mass_grid: 24
+          injected_profiles:
+          - name: flat
+            relative_heights:
+            - 1.0
+            - 1.0
+            - 1.0
+            - 1.0
+          - name: rising
+            relative_heights:
+            - 0.5
+            - 1.0
+            - 2.0
+            - 3.0
+          - name: falling
+            relative_heights:
+            - 3.0
+            - 2.0
+            - 1.0
+            - 0.5
+          - name: peaked
+            relative_heights:
+            - 0.5
+            - 2.5
+            - 2.5
+            - 0.5
+        sample_reproduction:
+          published_tables:
+            andrews2022: null
+            elbadry2024: null
+            elbadry2026: null
+            elbadry2026_astrometric: config/selections/external/elbadry2026_table7.yaml
+            elbadry2026_spectroscopic: config/selections/external/elbadry2026_table8.yaml
+          simon2026_table: config/selections/external/simon2026_orbital.yaml
+          janssens_table: config/selections/external/janssens2022_mass_magnitude.yaml
+          selection_function:
+            m2_msun:
+            - 0.5
+            - 1.0
+            - 1.4
+            - 2.0
+            - 5.0
+            - 10.0
+            period_day:
+            - 10.0
+            - 100.0
+            - 365.0
+            - 900.0
+            - 1200.0
+            g_mag:
+            - 10.0
+            - 12.0
+            - 14.0
+            - 15.0
+            - 16.0
+            template:
+              nss_solution_type: Orbital
+              main_sequence: true
+              m1_msun: 1.0
+              m1_tilde_msun: 1.0
+              paper_m1_msun: 1.0
+              pipeline_m1_msun: 1.0
+              m2_msun: 2.0
+              m2_tilde_msun: 2.0
+              m2_msun_error: 0.1
+              sigma_m2_astrometric_msun: 0.05
+              p_m2_above: 1.0
+              p_m2_gt_threshold: 1.0
+              goodness_of_fit: 1.0
+              period_day: 200.0
+              phot_g_mean_mag: 12.0
+              logg_apsis: 4.0
+              abs_g_mag: 5.0
+              bp_rp: 0.8
+              k1_significance: 20.0
+              fm_msun: 4.0
+              m2_min_msun: 2.0
+              andrews_member: false
+          mode_divergence_pairs:
+          - left: andrews2022
+            right: andrews2022_modified
+            expected_only_in_right:
+            - 4373465352415301632
+            expected_only_in_left: []
+      benchmarks:
+        known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
+        ruwe_match_tolerance: 0.25
+        catalogs:
+          ns_candidate_21:
+            path: config/benchmarks/catalogs/ns_candidate_21.yaml
+            role: comparison_only
+            never_as_prior: true
+          companions_156:
+            path: config/benchmarks/catalogs/companions_156.yaml
+            role: comparison_only
+            never_as_prior: true
+          amrf_binary_masses:
+            path: config/benchmarks/catalogs/amrf_binary_masses.yaml
+            role: comparison_only
+            never_as_prior: true
+          andrews:
+            path: config/benchmarks/catalogs/andrews.yaml
+            role: comparison_only
+            never_as_prior: true
+          shahaf:
+            path: config/benchmarks/catalogs/shahaf.yaml
+            role: comparison_only
+            never_as_prior: true
+          pulsar_mf:
+            path: config/benchmarks/catalogs/pulsar_mf.yaml
+            role: comparison_only
+            never_as_prior: true
+          ligo_bh_mf:
+            path: config/benchmarks/catalogs/ligo_bh_mf.yaml
+            role: comparison_only
+            never_as_prior: true
+      active_dr_mode: dr3
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/wave0-dry-run-harness/output/20260920-033431-121d6de/diagnostics/99d41d4f6edb2e20.h5
+    code_commit: 51fcaf7
+    force_rerun: false
+    reason: null
+    gaiamock_mod_release: null
+    gaiamock_mod_sha256: null
+    gaiamock_git_commit: null
+    wall_clock_seconds: 99.03375370800495
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9401794560

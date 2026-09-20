@@ -282,6 +282,91 @@ class FollowUpRecord(BaseModel):
     pm_dec_mas_yr: float | None = None
 
 
+#: Recognized :attr:`SyntheticStandIn.kind` values.
+#:
+#: ``analytic_surrogate``
+#:     A closed-form relation standing in for a real fit / model comparison.
+#: ``config_placeholder``
+#:     A config value that is a deliberate placeholder, not a measured or
+#:     forward-modeled quantity.
+#: ``offline_replay``
+#:     Real data replayed from a local snapshot instead of re-acquired live.
+#: ``ci_scale_sampler``
+#:     Sampler settings deliberately kept at CI smoke scale.
+#: ``disabled_path``
+#:     A pipeline path deliberately left off, so its contribution is absent.
+STAND_IN_KINDS: Final[frozenset[str]] = frozenset(
+    {
+        "analytic_surrogate",
+        "config_placeholder",
+        "offline_replay",
+        "ci_scale_sampler",
+        "disabled_path",
+    }
+)
+
+
+class SyntheticStandIn(BaseModel):
+    """One documented substitution used in place of a real pipeline input.
+
+    Recorded on :class:`RunManifest` and printed in the run plan, so a run built
+    on placeholders can never be mistaken for a science result (issue #201). A
+    stand-in is *declared*, never inferred: whichever harness injects it owns
+    listing it here.
+
+    Attributes
+    ----------
+    name:
+        Short stable identifier, unique within one run (e.g.
+        ``per_sample_selection_weights``).
+    stage:
+        Registered stage name the substitution affects, or ``"pipeline"`` when it
+        is not scoped to a single stage.
+    kind:
+        Which *sort* of substitution this is — one of :data:`STAND_IN_KINDS`.
+    replaces:
+        The real input that does not yet exist, in one phrase.
+    description:
+        Full-detail prose (exempt from caveman compression): what the stand-in
+        actually is, and why nothing downstream of it is a result.
+    config_keys:
+        Dotted config keys carrying the placeholder values, so a reader can go
+        read the numbers rather than trust this prose.
+    values:
+        Optional snapshot of the placeholder values as resolved at run time.
+        Free-form but JSON-serializable only (it is written to YAML).
+
+    Limitations
+    -----------
+    This record is documentation, not enforcement. Nothing verifies that a
+    declared stand-in is the *only* substitution in effect, and nothing stops a
+    stage from using a placeholder without declaring one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    stage: str = Field(..., min_length=1)
+    kind: str = Field(..., min_length=1)
+    replaces: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    config_keys: list[str] = Field(default_factory=list)
+    values: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, value: str) -> str:
+        if value not in STAND_IN_KINDS:
+            raise ValueError(
+                f"unknown stand-in kind {value!r}; known: {sorted(STAND_IN_KINDS)}"
+            )
+        return value
+
+    def one_line(self) -> str:
+        """One run-plan line: ``<name> [<kind>] @<stage> — replaces <replaces>``."""
+        return f"{self.name} [{self.kind}] @{self.stage} — replaces {self.replaces}"
+
+
 class StageRecord(BaseModel):
     """One stage entry in the live run file (``RunManifest``)."""
 
@@ -300,6 +385,20 @@ class StageRecord(BaseModel):
     gaiamock_mod_release: str | None = None
     gaiamock_mod_sha256: str | None = None
     gaiamock_git_commit: str | None = None
+    # Measured cost of this stage's execution, when the caller monitored it.
+    # All three stay None for cached / skipped stages and for any stage run
+    # without a resource monitor attached (issue #201, EXECUTION_PLAN.md §5.6).
+    wall_clock_seconds: float | None = None
+    #: Increase in the process RSS high-water mark across this stage, in bytes:
+    #: what the stage added beyond whatever was already resident. ``0`` is a real
+    #: answer — the stage never pushed the process past an earlier peak — so a
+    #: stage peaking below an earlier one cannot be ranked by this alone.
+    rss_increase_bytes: int | None = None
+    #: The process-lifetime RSS high-water mark at this stage's end, in bytes.
+    #: Exact (``getrusage``) and monotonic, so it never decreases across stages.
+    #: This is the figure a concurrency budget cares about: what the machine had
+    #: to hold (EXECUTION_PLAN.md §5.6).
+    rss_high_water_bytes: int | None = None
 
 
 class RunManifest(BaseModel):
@@ -322,7 +421,42 @@ class RunManifest(BaseModel):
     gaiamock_git_commit: str | None = None
     # Sampler / MC seeds actually used (accounting, not bitwise replay).
     random_seeds: dict[str, Any] = Field(default_factory=dict)
+    # True when this run was built on documented substitutions rather than the
+    # real inputs, so nothing it produces is a result (issue #201). Set at run
+    # *birth*, never after the fact, and printed in the run plan. Present in the
+    # YAML for every run, so a dry run is distinguishable from a science run by
+    # grepping the file rather than by reading it.
+    dry_run: bool = False
+    #: Human-readable banner carried by every report and figure caption built
+    #: from this run. Required whenever ``dry_run`` is true.
+    dry_run_label: str | None = None
+    #: Every substitution in effect for this run (issue #201). Must be non-empty
+    #: when ``dry_run`` is true — a dry run with nothing declared is a dry run
+    #: whose stand-ins were not enumerated.
+    synthetic_stand_ins: list[SyntheticStandIn] = Field(default_factory=list)
     stages: dict[str, StageRecord] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _dry_run_must_be_labeled(self) -> RunManifest:
+        """A dry run carries a label and at least one declared stand-in.
+
+        Enforces the Wave 0 "label it at birth" requirement structurally rather
+        than by convention (EXECUTION_PLAN.md §7, issue #201): a manifest with
+        ``dry_run=True`` cannot be saved without the banner text and without
+        naming what was substituted.
+        """
+        if self.dry_run:
+            if not (self.dry_run_label or "").strip():
+                raise ValueError(
+                    "dry_run=True requires a non-empty dry_run_label "
+                    "(label the run at birth — EXECUTION_PLAN.md §7)"
+                )
+            if not self.synthetic_stand_ins:
+                raise ValueError(
+                    "dry_run=True requires at least one entry in "
+                    "synthetic_stand_ins (enumerate every substitution)"
+                )
+        return self
 
     @field_validator("run_id")
     @classmethod

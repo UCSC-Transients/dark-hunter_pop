@@ -99,6 +99,31 @@ Rules:
   (config defaults: labels 18 pt, ticks/legend 14 pt). Do not shrink annotation
   text below the tick size to “make it fit.”
 
+## Product figures
+
+Paper-ready product figures call the same `plotting.py` primitives as the diagnostic
+hooks, from a separate "what's a deliverable" path (`docs/ARCHITECTURE.md` §4
+`diagnostics`).
+
+`plot_dndm_by_class` is the product primitive for the headline result shape: the
+tier-1 raw compact-object total plus every tier-2 species-classified curve on one
+log-log panel, with optional labelled `M_Ch` / `M_TOV` reference lines. Two
+conventions it fixes:
+
+- **A curve is never silently dropped by a stale order list.** Classes present in
+  the data but missing from `class_order` are appended rather than skipped.
+  Classes with no positive rate anywhere on the grid do vanish (a log axis cannot
+  show them), and the caller is expected to say so in its report.
+- **`caption=` reserves its own band.** Long captions are wrapped and drawn into
+  space reserved below the axes, never left to `tight_layout`, which would let
+  caption text overlap the x-axis label. Caption text renders at the tick-label
+  size, so nothing on the figure is smaller than the caption.
+
+A figure built on placeholder inputs carries its provenance in the caption
+itself, not only in a neighbouring report — a figure escapes its run directory,
+a report does not (issue #201, `docs/EXECUTION_PLAN.md` §7 "Labeling
+requirement").
+
 ## Checklist before merging a figure change
 
 1. Colorblind- and B/W-safe series discrimination (color + linestyle/marker).

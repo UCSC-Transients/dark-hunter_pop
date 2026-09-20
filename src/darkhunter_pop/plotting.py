@@ -10,7 +10,7 @@ Style defaults live in ``config.plotting`` / ``PlottingStyleConfig`` (see ``docs
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Final, Mapping, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -578,6 +578,380 @@ def plot_line_with_threshold(
         axis.set_xscale("log")
     apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
     return save_figure(fig, path, dpi=dpi)
+
+
+def measure_text_width_inches(
+    text: str, *, font_family: str, fontsize: float
+) -> float:
+    """Rendered width of ``text`` in inches, for layout that must not overflow.
+
+    Character-count heuristics overflow badly for serif text at label sizes, so
+    layout code that has to fit text inside a known width measures instead. The
+    measurement uses a throwaway figure and its renderer, then discards both.
+
+    Parameters
+    ----------
+    text:
+        String to measure. Newlines are not handled — measure one line at a time.
+    font_family / fontsize:
+        Font as it will actually be drawn (``plotting.font_family`` and the
+        relevant ``*_fontsize``).
+
+    Returns
+    -------
+    float
+        Width in inches. ``0.0`` for empty text.
+
+    Limitations
+    -----------
+    The measurement is taken at the probe figure's DPI and assumes the real
+    figure renders the same font at the same size — true for the Agg/PDF paths
+    used here. Mathtext is measured as mathtext, so a ``$...$`` fragment is
+    sized correctly. Falls back to a conservative per-character estimate if the
+    backend cannot supply a renderer.
+    """
+    if not text:
+        return 0.0
+    plt = require_pyplot()
+    probe = plt.figure(figsize=(1.0, 1.0))
+    try:
+        artist = probe.text(0.0, 0.0, text, fontfamily=font_family, fontsize=fontsize)
+        try:
+            renderer = probe.canvas.get_renderer()  # type: ignore[attr-defined]
+            extent = artist.get_window_extent(renderer=renderer)
+        except (AttributeError, RuntimeError, ValueError):
+            # Conservative fallback: 0.6 em per character.
+            return 0.6 * float(fontsize) / 72.0 * len(text)
+        return float(extent.width) / float(probe.dpi)
+    finally:
+        plt.close(probe)
+
+
+def wrap_text_to_inches(
+    text: str,
+    *,
+    max_width_inches: float,
+    font_family: str,
+    fontsize: float,
+) -> list[str]:
+    """Wrap ``text`` so no rendered line exceeds ``max_width_inches``.
+
+    Blank input lines are preserved as blank output lines, so paragraph and list
+    structure in a caption survives wrapping.
+
+    Parameters
+    ----------
+    text:
+        Possibly multi-line text. Each input line is wrapped independently.
+    max_width_inches:
+        Hard width budget per line, in inches.
+    font_family / fontsize:
+        Font as it will be drawn.
+
+    Returns
+    -------
+    list[str]
+        Wrapped lines, ready to join with newlines.
+
+    Limitations
+    -----------
+    Breaks on whitespace only: a single word (or one long unbroken path or hash)
+    wider than the budget is emitted on its own over-wide line rather than being
+    hyphenated or truncated. Measuring every candidate line makes this O(words)
+    in renderer calls, so it is meant for captions, not for bulk labelling.
+    """
+    if max_width_inches <= 0.0:
+        return text.splitlines()
+    char_width = measure_text_width_inches(
+        "n", font_family=font_family, fontsize=fontsize
+    )
+    # First-pass wrap by an estimated character budget, then repair any line that
+    # still measures too wide. Two passes keep renderer calls bounded.
+    est_chars = max(20, int(max_width_inches / max(char_width, 1e-6)))
+    import textwrap
+
+    out: list[str] = []
+    for paragraph in text.splitlines():
+        if not paragraph.strip():
+            out.append("")
+            continue
+        indent = " " * (len(paragraph) - len(paragraph.lstrip(" ")))
+        for candidate in textwrap.wrap(
+            paragraph,
+            width=est_chars,
+            subsequent_indent=indent + "  ",
+        ) or [""]:
+            while (
+                measure_text_width_inches(
+                    candidate, font_family=font_family, fontsize=fontsize
+                )
+                > max_width_inches
+                and " " in candidate.strip()
+            ):
+                head, _, tail = candidate.rpartition(" ")
+                out.append(head)
+                candidate = indent + "  " + tail
+            out.append(candidate)
+    return out
+
+
+#: Headroom above the largest sample on a clipped log axis, in decades, so the
+#: top curve's markers are not clipped by the frame.
+_LOG_Y_HEADROOM_DECADES: Final[float] = 0.5
+
+
+def dndm_log_ylim(largest: float, decades: float) -> tuple[float, float]:
+    """Log y limits keeping ``decades`` of range below ``largest``.
+
+    A soft ``M_TOV`` truncation decays smoothly toward zero, so the raw data
+    range on a log axis can exceed a hundred decades and flatten every curve
+    against the top of the frame. Clipping to a fixed window keeps the relevant
+    dynamic range filling the panel (``docs/PLOTS.md``).
+
+    Parameters
+    ----------
+    largest:
+        Largest positive sample across every drawn curve.
+    decades:
+        Decades of range to keep below ``largest`` (``plotting.dndm_y_decades``).
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(floor, ceiling)``, with half a decade of headroom above ``largest``.
+
+    Raises
+    ------
+    ValueError
+        If ``largest`` or ``decades`` is not positive — neither is meaningful on
+        a log axis.
+
+    Limitations
+    -----------
+    Curves lying entirely below the floor vanish without annotation. The caller
+    is expected to report which classes had no drawable curve.
+    """
+    if not largest > 0.0:
+        raise ValueError(f"largest must be positive on a log axis, got {largest!r}")
+    if not decades > 0.0:
+        raise ValueError(f"decades must be positive, got {decades!r}")
+    return (
+        float(largest) * 10.0 ** (-float(decades)),
+        float(largest) * 10.0**_LOG_Y_HEADROOM_DECADES,
+    )
+
+
+def plot_dndm_by_class(
+    mass_grid_msun: Sequence[float] | NDArray[np.floating],
+    total_dndm: Sequence[float] | NDArray[np.floating],
+    class_dndm: Mapping[str, Sequence[float] | NDArray[np.floating]],
+    path: Path,
+    *,
+    dpi: int,
+    class_order: Sequence[str],
+    total_label: str = "total (raw CO)",
+    xlabel: str = r"companion mass (M$_{\odot}$)",
+    ylabel: str = r"${\rm d}N/{\rm d}M$ (M$_{\odot}^{-1}$)",
+    title: str | None = None,
+    caption: str | None = None,
+    log_x: bool = True,
+    log_y: bool = True,
+    vlines: Mapping[str, float] | None = None,
+    style: PlottingStyleConfig | None = None,
+) -> Path | None:
+    """Product figure: total ``dN/dM`` with every population class overplotted.
+
+    The deliverable shape of the eventual science result (ARCHITECTURE.md §4
+    ``diagnostics``): one panel, the tier-1 raw compact-object total plus each
+    tier-2 species-classified curve, discriminated by color **and** linestyle
+    **and** marker so the panel survives greyscale printing and color-vision
+    deficiency (``docs/PLOTS.md``).
+
+    Parameters
+    ----------
+    mass_grid_msun:
+        Companion-mass grid in solar masses, shared by every curve.
+    total_dndm:
+        Total (classification-independent) ``dN/dM`` on that grid.
+    class_dndm:
+        Per-class ``dN/dM`` on the same grid, keyed by population class.
+    path:
+        Output image path; parent directories are created.
+    dpi:
+        Raster resolution (``diagnostics.figure_dpi``).
+    class_order:
+        Plot order for the class curves. Classes present in ``class_dndm`` but
+        absent here are appended in sorted order, so no curve is silently
+        dropped by a stale order list.
+    total_label / xlabel / ylabel / title:
+        Series and axis text. Units carry no slash (``docs/PLOTS.md``).
+    caption:
+        Optional caption rendered beneath the axes. Used to carry a mandatory
+        provenance banner with the figure itself rather than only in a report
+        (issue #201). Rendered at the tick-label font size, so no text on the
+        figure is smaller than the caption, and wrapped to a *measured* width
+        with its own reserved band, so it can never overlap the x-axis label.
+        A long ``title`` is wrapped the same way instead of being clipped.
+    log_x / log_y:
+        Log scaling. Both default on: a compact-object mass function spans
+        decades and the science question is multiplicative (``docs/PLOTS.md``).
+        With ``log_y``, the y range is clipped to ``plotting.dndm_y_decades``
+        below the largest sample, so a smoothly decaying truncation cannot
+        stretch the axis over a hundred decades and flatten every curve.
+    vlines:
+        Optional labelled vertical reference lines, e.g.
+        ``{"M_Ch": 1.4, "M_TOV": 2.2}``. Drawn in the threshold style.
+    style:
+        Resolved ``config.plotting`` style; schema defaults when omitted.
+
+    Returns
+    -------
+    Path | None
+        The written path, or ``None`` when no curve had any finite positive
+        sample to draw (nothing is written in that case).
+
+    Limitations
+    -----------
+    Non-finite samples are dropped per curve, and on a log axis non-positive
+    samples are dropped too — so a class whose rate is identically zero (for
+    instance a class fully removed by an ``M_Ch`` truncation) simply does not
+    appear, and its absence is not annotated. This primitive draws whatever it
+    is handed: it neither normalizes, rescales, nor checks that the curves came
+    from real inputs.
+    """
+    cfg = resolve_plotting_style(style)
+    grid = np.asarray(mass_grid_msun, dtype=np.float64)
+
+    ordered: list[str] = list(class_order)
+    ordered += sorted(k for k in class_dndm if k not in ordered)
+
+    def _finite_pair(
+        values: Sequence[float] | NDArray[np.floating],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        arr = np.asarray(values, dtype=np.float64)
+        if arr.shape != grid.shape:
+            raise ValueError(
+                f"curve shape {arr.shape} does not match mass grid {grid.shape}"
+            )
+        keep = np.isfinite(arr) & np.isfinite(grid)
+        if log_y:
+            keep &= arr > 0.0
+        if log_x:
+            keep &= grid > 0.0
+        return grid[keep], arr[keep]
+
+    series: list[tuple[str, NDArray[np.float64], NDArray[np.float64]]] = []
+    tx, ty = _finite_pair(total_dndm)
+    if tx.size:
+        series.append((total_label, tx, ty))
+    for name in ordered:
+        if name not in class_dndm:
+            continue
+        cx, cy = _finite_pair(class_dndm[name])
+        if cx.size:
+            series.append((name, cx, cy))
+    if not series:
+        return None
+
+    plt = require_pyplot()
+    width, height = (float(cfg.figsize_landscape[0]), float(cfg.figsize_landscape[1]))
+
+    # Side gutter for the caption band, and the width a wrapped title may use.
+    gutter = 0.18
+    caption_width = width - 2.0 * gutter
+    caption_lines: list[str] = []
+    caption_line_height = 0.0
+    band = 0.0
+    if caption:
+        caption_lines = wrap_text_to_inches(
+            caption,
+            max_width_inches=caption_width,
+            font_family=cfg.font_family,
+            fontsize=cfg.tick_label_fontsize,
+        )
+        caption_line_height = (
+            float(cfg.tick_label_fontsize) * float(cfg.caption_line_spacing) / 72.0
+        )
+        band = caption_line_height * len(caption_lines) + 2.0 * gutter
+        height += band
+
+    title_text = title
+    if title:
+        title_lines = wrap_text_to_inches(
+            title,
+            max_width_inches=width - 1.6,  # leave room for the y-axis label column
+            font_family=cfg.font_family,
+            fontsize=cfg.title_fontsize,
+        )
+        title_text = "\n".join(title_lines)
+
+    fig, axis = plt.subplots(figsize=(width, height))
+    for index, (label, xs, ys) in enumerate(series):
+        sty = series_style(index, cfg)
+        axis.plot(
+            xs,
+            ys,
+            label=label,
+            color=sty["color"],
+            linestyle=sty["linestyle"],
+            linewidth=sty["linewidth"],
+            marker=sty["marker"],
+            markersize=sty["markersize"],
+            markevery=max(1, xs.size // 12),
+        )
+    if log_x:
+        axis.set_xscale("log")
+    if log_y:
+        axis.set_yscale("log")
+        # Clip the dynamic range: a soft M_TOV truncation decays smoothly toward
+        # zero, so an unclipped log axis can span >100 decades and flatten every
+        # curve against the top of the frame (docs/PLOTS.md).
+        axis.set_ylim(
+            *dndm_log_ylim(
+                max(float(np.max(ys)) for _label, _xs, ys in series),
+                float(cfg.dndm_y_decades),
+            )
+        )
+    for name, value in (vlines or {}).items():
+        if not np.isfinite(value):
+            continue
+        axis.axvline(
+            float(value),
+            color=cfg.threshold_color,
+            linestyle=cfg.threshold_linestyle,
+            linewidth=cfg.line_width,
+            label=f"{name}={value:g}" + r" M$_{\odot}$",
+        )
+    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title_text)
+    axis.legend(
+        loc="best",
+        fontsize=cfg.legend_fontsize,
+        prop={"family": cfg.font_family},
+        ncols=2 if len(series) > 4 else 1,
+    )
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not caption_lines:
+        return save_figure(fig, path, dpi=dpi)
+
+    # Reserve the caption band explicitly rather than relying on tight_layout,
+    # which would let long caption text overlap the x-axis label.
+    band_fraction = band / height
+    fig.tight_layout(rect=(0.0, band_fraction, 1.0, 1.0))
+    fig.text(
+        gutter / width,
+        (band - gutter) / height,
+        "\n".join(caption_lines),
+        ha="left",
+        va="top",
+        fontfamily=cfg.font_family,
+        fontsize=cfg.tick_label_fontsize,
+        linespacing=float(cfg.caption_line_spacing),
+    )
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)
+    return path
 
 
 def plot_m2_posterior_convergence(

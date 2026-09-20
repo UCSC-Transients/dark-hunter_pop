@@ -35,3 +35,9 @@ plotting:
   hist_edge_color: "#000000"
   threshold_color: "#D55E00"
   threshold_linestyle: "--"
+  # Product-figure layout knobs (display-only; `plotting` is not a checksum input).
+  # Decades of log dN/dM range kept below the maximum: a soft M_TOV truncation
+  # decays smoothly toward zero, so an unclipped axis spans >100 decades.
+  dndm_y_decades: 12.0
+  # Line spacing used when a product figure reserves a caption band.
+  caption_line_spacing: 1.45
