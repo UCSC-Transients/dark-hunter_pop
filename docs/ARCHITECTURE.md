@@ -524,15 +524,21 @@ forward: a child of a dry run is still a dry run. `create_run_manifest` also sta
 and never by bitwise seed replay.
 
 **Per-stage cost** (optional; issue #201, EXECUTION_PLAN.md §5.6). `StageRecord` carries
-`wall_clock_seconds`, `peak_rss_bytes` (sampled during that stage only) and
-`cumulative_peak_rss_bytes` (the exact `getrusage` high-water mark, monotonic across stages, so
-the two disagree by construction and both are kept). All three stay `null` for cached and
-skipped stages and for any stage run without a monitor attached: measurement is applied by the
-caller via `run_management.record_stage_resources`, so no stage runner knows it is measured.
+`wall_clock_seconds`, `rss_high_water_bytes` (the `getrusage` process-lifetime high-water mark
+at that stage's end — the figure a concurrency budget must hold) and `rss_increase_bytes` (the
+increase in that mark across the stage). Because the mark is monotonic, a stage peaking below an
+earlier stage's peak reports `0` added; that is information, not a failure, and these numbers
+cannot rank the standalone cost of later stages. All three stay `null` for cached and skipped
+stages and for any stage run without a monitor attached: measurement is applied by the caller via
+`run_management.record_stage_resources`, so no stage runner knows it is measured.
+
+The monitor is deliberately **fork-free**. An earlier version sampled `ps` from a background
+thread; on macOS that is the fork-in-a-threaded-process hazard, and it deadlocked a real run
+mid-stage. A measurement harness must not be able to hang the thing it measures.
 
 **Dry-run entry point**: `scripts/run_dry_run.py` (module `darkhunter_pop.dry_run`) wraps
 `run_pipeline` with the declarations, the measurement and the product figure. It replays the
-newest **pristine** local Gaia snapshot rather than querying the archive — derived `+enrich`
+only pristine local Gaia snapshot rather than querying the archive, refusing to guess when several are staged — derived `+enrich`
 caches and the `nss_enrichment` working directory are excluded from discovery, since replaying
 either as the parent query would under-count the parent.
 

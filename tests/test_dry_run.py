@@ -222,13 +222,13 @@ def test_record_stage_resources_annotates_the_record() -> None:
         manifest,
         "inference",
         wall_clock_seconds=1.25,
-        peak_rss_bytes=3 << 30,
-        cumulative_peak_rss_bytes=4 << 30,
+        rss_increase_bytes=3 << 30,
+        rss_high_water_bytes=4 << 30,
     )
     record = updated.stages["inference"]
     assert record.wall_clock_seconds == pytest.approx(1.25)
-    assert record.peak_rss_bytes == 3 << 30
-    assert record.cumulative_peak_rss_bytes == 4 << 30
+    assert record.rss_increase_bytes == 3 << 30
+    assert record.rss_high_water_bytes == 4 << 30
     # Original untouched (manifests are copied, never mutated).
     assert manifest.stages["inference"].wall_clock_seconds is None
 
@@ -250,8 +250,8 @@ def test_unmeasured_stage_keeps_null_cost_fields() -> None:
     )
     record = manifest.stages["triples"]
     assert record.wall_clock_seconds is None
-    assert record.peak_rss_bytes is None
-    assert record.cumulative_peak_rss_bytes is None
+    assert record.rss_increase_bytes is None
+    assert record.rss_high_water_bytes is None
 
 
 def test_instrumented_runner_measures_and_persists(tmp_path: Path) -> None:
@@ -510,8 +510,8 @@ def test_report_includes_cost_columns_and_the_measurement_caveat() -> None:
         manifest,
         "inference",
         wall_clock_seconds=2.5,
-        peak_rss_bytes=2 << 30,
-        cumulative_peak_rss_bytes=3 << 30,
+        rss_increase_bytes=2 << 30,
+        rss_high_water_bytes=3 << 30,
     )
     text = format_dry_run_report(
         manifest,
@@ -844,3 +844,55 @@ def test_plotting_style_exposes_the_new_layout_knobs() -> None:
     # Display-only: `plotting` must stay out of the resume checksum, so a style
     # edit never invalidates a resume.
     assert "plotting" not in SHARED_CHECKSUM_SECTIONS
+
+
+# ---------------------------------------------------------------------------
+# The resource monitor must not be able to hang what it measures
+# ---------------------------------------------------------------------------
+
+
+def test_stage_resource_monitor_reports_an_increase() -> None:
+    from darkhunter_pop.dry_run import StageResourceMonitor
+
+    monitor = StageResourceMonitor()
+    assert monitor.stop() is None, "stop before start reports nothing"
+    monitor.start()
+    ballast = bytearray(256 * 1024 * 1024)
+    increase = monitor.stop()
+    del ballast
+    assert increase is not None
+    assert increase >= 0
+    assert StageResourceMonitor.high_water() > 0
+
+
+def test_stage_resource_monitor_spawns_no_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression guard for a real deadlock: sampling RSS by forking `ps` from a
+    # background thread hung a live run mid-stage on macOS. The monitor must
+    # stay a plain getrusage read.
+    import subprocess
+
+    def _forbidden(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("the resource monitor must not fork a subprocess")
+
+    from darkhunter_pop.dry_run import StageResourceMonitor
+
+    monkeypatch.setattr(subprocess, "run", _forbidden)
+    monkeypatch.setattr(subprocess, "Popen", _forbidden)
+    monitor = StageResourceMonitor()
+    monitor.start()
+    assert monitor.stop() is not None
+
+
+def test_stage_resource_monitor_starts_no_thread() -> None:
+    import threading
+
+    from darkhunter_pop.dry_run import StageResourceMonitor
+
+    before = threading.active_count()
+    monitor = StageResourceMonitor()
+    monitor.start()
+    assert threading.active_count() == before, "no sampling thread may be started"
+    monitor.stop()
+    assert threading.active_count() == before

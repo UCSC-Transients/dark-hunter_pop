@@ -1013,8 +1013,8 @@ def record_stage_resources(
     stage_name: str,
     *,
     wall_clock_seconds: float,
-    peak_rss_bytes: int | None = None,
-    cumulative_peak_rss_bytes: int | None = None,
+    rss_increase_bytes: int | None = None,
+    rss_high_water_bytes: int | None = None,
 ) -> RunManifest:
     """Attach measured wall-clock / peak-RSS to an existing stage record.
 
@@ -1033,11 +1033,12 @@ def record_stage_resources(
         Monotonic elapsed time spent inside the stage runner, in seconds. This
         is *not* ``finished_at - started_at``: it also covers the planning and
         cache-check work around the runner call.
-    peak_rss_bytes:
-        Peak resident set size sampled during this stage only, or ``None`` when
-        unmeasured.
-    cumulative_peak_rss_bytes:
-        Process-lifetime RSS high-water mark at stage end, or ``None``.
+    rss_increase_bytes:
+        Increase in the process RSS high-water mark across the stage, in bytes,
+        or ``None`` when unmeasured.
+    rss_high_water_bytes:
+        The process-lifetime RSS high-water mark at stage end, in bytes, or
+        ``None``.
 
     Raises
     ------
@@ -1046,9 +1047,10 @@ def record_stage_resources(
 
     Limitations
     -----------
-    A sampled ``peak_rss_bytes`` can miss a spike shorter than the sampler's
-    interval; ``cumulative_peak_rss_bytes`` is exact but monotonic across the
-    whole process, so the two disagree by construction and both are kept.
+    Both figures derive from ``getrusage``'s monotonic high-water mark, so a
+    stage peaking below an earlier stage's peak reports an increase of ``0``
+    and cannot be ranked by these numbers alone. Neither covers shared pages,
+    swap, or child processes.
     """
     stages = dict(manifest.stages)
     prior = stages.get(stage_name)
@@ -1057,13 +1059,13 @@ def record_stage_resources(
     stages[stage_name] = prior.model_copy(
         update={
             "wall_clock_seconds": float(wall_clock_seconds),
-            "peak_rss_bytes": (
-                None if peak_rss_bytes is None else int(peak_rss_bytes)
+            "rss_increase_bytes": (
+                None if rss_increase_bytes is None else int(rss_increase_bytes)
             ),
-            "cumulative_peak_rss_bytes": (
+            "rss_high_water_bytes": (
                 None
-                if cumulative_peak_rss_bytes is None
-                else int(cumulative_peak_rss_bytes)
+                if rss_high_water_bytes is None
+                else int(rss_high_water_bytes)
             ),
         }
     )

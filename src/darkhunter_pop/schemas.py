@@ -389,12 +389,16 @@ class StageRecord(BaseModel):
     # All three stay None for cached / skipped stages and for any stage run
     # without a resource monitor attached (issue #201, EXECUTION_PLAN.md §5.6).
     wall_clock_seconds: float | None = None
-    #: Peak resident set size sampled *during this stage only*, in bytes.
-    peak_rss_bytes: int | None = None
-    #: Process-lifetime RSS high-water mark read at this stage's end, in bytes.
-    #: Exact (``getrusage``) but cumulative, so it never decreases across
-    #: stages — the cross-check on the sampled per-stage figure.
-    cumulative_peak_rss_bytes: int | None = None
+    #: Increase in the process RSS high-water mark across this stage, in bytes:
+    #: what the stage added beyond whatever was already resident. ``0`` is a real
+    #: answer — the stage never pushed the process past an earlier peak — so a
+    #: stage peaking below an earlier one cannot be ranked by this alone.
+    rss_increase_bytes: int | None = None
+    #: The process-lifetime RSS high-water mark at this stage's end, in bytes.
+    #: Exact (``getrusage``) and monotonic, so it never decreases across stages.
+    #: This is the figure a concurrency budget cares about: what the machine had
+    #: to hold (EXECUTION_PLAN.md §5.6).
+    rss_high_water_bytes: int | None = None
 
 
 class RunManifest(BaseModel):

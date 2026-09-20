@@ -26,11 +26,9 @@ from __future__ import annotations
 
 import math
 import resource
-import subprocess
-import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Final
@@ -92,7 +90,7 @@ DNDM_CAPTION_NAME: Final[str] = "dndm_by_class_caption.txt"
 # ---------------------------------------------------------------------------
 
 
-def _rusage_peak_rss_bytes() -> int:
+def _rusage_rss_increase_bytes() -> int:
     """Process-lifetime RSS high-water mark in bytes, from ``getrusage``.
 
     ``ru_maxrss`` is bytes on Darwin and kibibytes on Linux; both are normalized
@@ -105,79 +103,64 @@ def _rusage_peak_rss_bytes() -> int:
     return raw if sys.platform == "darwin" else raw * 1024
 
 
-def _current_rss_bytes(pid: int) -> int | None:
-    """Current RSS of ``pid`` in bytes via ``ps``, or ``None`` when unavailable.
-
-    Uses ``ps`` rather than ``psutil`` so the harness adds no dependency to the
-    shared ``.venv`` (every other ticket runs in it). ``ps -o rss=`` reports
-    kibibytes on both Darwin and Linux.
-    """
-    try:
-        out = subprocess.run(
-            ["ps", "-o", "rss=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    text = out.stdout.strip()
-    if not text.isdigit():
-        return None
-    return int(text) * 1024
-
-
 @dataclass
 class StageResourceMonitor:
-    """Sample this process's RSS in a background thread for one stage at a time.
+    """Track the RSS high-water mark across one stage, without forking.
 
-    Parameters
-    ----------
-    interval_seconds:
-        Sampling period. Smaller catches shorter spikes at the cost of more
-        ``ps`` invocations.
+    Deliberately **fork-free**. An earlier version sampled ``ps`` from a
+    background thread every half second; on macOS that is the classic
+    fork-in-a-threaded-process hazard, and it deadlocked a real run mid-stage —
+    the process sat at 0.2 CPU-seconds per minute with every thread idle. A
+    measurement harness must not be able to hang the thing it is measuring, so
+    the sampler now reads ``getrusage`` only, which is a syscall on the calling
+    thread and cannot block.
+
+    What the two numbers mean, given that ``ru_maxrss`` is a **process-lifetime**
+    high-water mark that never decreases:
+
+    * :meth:`stop` returns the *increase* in the high-water mark across the
+      stage — what this stage added beyond whatever was already resident. Zero
+      means the stage never pushed the process past an earlier peak, which is
+      information, not a failure.
+    * :meth:`high_water` is the absolute mark at that moment, which is the
+      quantity a concurrency budget actually cares about: what the machine had
+      to hold.
 
     Limitations
     -----------
-    A spike shorter than ``interval_seconds`` can be missed entirely, and the
-    figure is whole-process — a stage's number includes everything already
-    resident from earlier stages, which is the right quantity for a concurrency
-    budget but is *not* the stage's own allocation. Pair it with the exact
-    cumulative ``getrusage`` high-water mark, which the harness also records.
+    Because the mark never decreases, a stage that peaks *below* an earlier
+    stage's peak reports an increase of zero, so this cannot rank the standalone
+    cost of later stages. The absolute figure covers the whole process, not the
+    stage's own allocation. Nothing here measures shared pages, swap, or
+    children.
     """
 
+    #: Kept for API compatibility with callers that pass a sampling period; the
+    #: fork-free implementation has no sampling loop, so it is unused.
     interval_seconds: float = 0.5
-    _peak: int = 0
-    _stop: threading.Event = field(default_factory=threading.Event)
-    _thread: threading.Thread | None = None
+    _baseline: int = 0
+    _started: bool = False
+
+    @staticmethod
+    def high_water() -> int:
+        """Process-lifetime RSS high-water mark, in bytes, right now."""
+        return _rusage_rss_increase_bytes()
 
     def start(self) -> None:
-        """Begin sampling. Resets the peak; safe to call once per stage."""
-        import os
-
-        self._peak = 0
-        self._stop = threading.Event()
-        pid = os.getpid()
-
-        def _loop() -> None:
-            while not self._stop.is_set():
-                value = _current_rss_bytes(pid)
-                if value is not None and value > self._peak:
-                    self._peak = value
-                self._stop.wait(self.interval_seconds)
-
-        self._thread = threading.Thread(
-            target=_loop, name="stage-rss-monitor", daemon=True
-        )
-        self._thread.start()
+        """Record the baseline high-water mark for a stage about to run."""
+        self._baseline = self.high_water()
+        self._started = True
 
     def stop(self) -> int | None:
-        """Stop sampling and return the peak RSS in bytes (``None`` if never sampled)."""
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0 + self.interval_seconds)
-            self._thread = None
-        return self._peak or None
+        """Return the high-water *increase* over the stage, in bytes.
+
+        ``None`` when :meth:`start` was never called. ``0`` is a real answer: the
+        stage never pushed the process past an earlier peak.
+        """
+        if not self._started:
+            return None
+        self._started = False
+        return max(0, self.high_water() - self._baseline)
 
 
 # ---------------------------------------------------------------------------
@@ -568,8 +551,8 @@ class StageCost:
 
     stage: str
     wall_clock_seconds: float
-    peak_rss_bytes: int | None
-    cumulative_peak_rss_bytes: int | None
+    rss_increase_bytes: int | None
+    rss_high_water_bytes: int | None
 
 
 def instrumented_runners(
@@ -641,27 +624,27 @@ def instrumented_runners(
             record = updated.stages.get(stage)
             if record is None:
                 return updated
-            cumulative = _rusage_peak_rss_bytes()
+            cumulative = _rusage_rss_increase_bytes()
             updated = record_stage_resources(
                 updated,
                 stage,
                 wall_clock_seconds=elapsed,
-                peak_rss_bytes=peak,
-                cumulative_peak_rss_bytes=cumulative,
+                rss_increase_bytes=peak,
+                rss_high_water_bytes=cumulative,
             )
             save_run_manifest(updated, run_path)
             costs.append(
                 StageCost(
                     stage=stage,
                     wall_clock_seconds=elapsed,
-                    peak_rss_bytes=peak,
-                    cumulative_peak_rss_bytes=cumulative,
+                    rss_increase_bytes=peak,
+                    rss_high_water_bytes=cumulative,
                 )
             )
             print(
                 f"[cost] {stage}: wall_clock={elapsed:.2f}s "
-                f"peak_rss={_human_bytes(peak)} "
-                f"cumulative_peak_rss={_human_bytes(cumulative)}",
+                f"rss_increase={_human_bytes(peak)} "
+                f"rss_high_water={_human_bytes(cumulative)}",
                 flush=True,
             )
             return updated
@@ -968,7 +951,7 @@ def format_dry_run_report(
     lines.extend(["", "--- stage outcomes ---", ""])
     header = (
         f"{'stage':<34} {'status':<10} {'wall_clock':>11} "
-        f"{'peak_rss':>11} {'cum_peak_rss':>13}  reason"
+        f"{'rss_added':>11} {'rss_high_water':>15}  reason"
     )
     lines.append(header)
     lines.append("-" * len(header))
@@ -984,16 +967,19 @@ def format_dry_run_report(
         )
         lines.append(
             f"{name:<34} {record.status.value:<10} {wall:>11} "
-            f"{_human_bytes(record.peak_rss_bytes):>11} "
-            f"{_human_bytes(record.cumulative_peak_rss_bytes):>13}  "
+            f"{_human_bytes(record.rss_increase_bytes):>11} "
+            f"{_human_bytes(record.rss_high_water_bytes):>15}  "
             f"{record.reason or ''}"
         )
     lines.append("")
     lines.append(f"total harness wall clock: {total_wall_clock_seconds:.1f}s")
     lines.append(
-        "peak RSS is whole-process and sampled, so a stage's figure includes "
-        "everything already resident; cum_peak_rss is the exact getrusage "
-        "high-water mark and never decreases. Both feed EXECUTION_PLAN.md §5.6."
+        "Both RSS figures come from getrusage's process-lifetime high-water "
+        "mark, which never decreases. rss_high_water is that mark at the "
+        "stage's end and is what a concurrency budget must hold; rss_added is "
+        "the increase across the stage. A stage peaking below an earlier "
+        "stage's peak therefore reports 0 added, which is information rather "
+        "than a failure. Both feed EXECUTION_PLAN.md §5.6."
     )
 
     lines.extend(["", "--- product figure ---", ""])
