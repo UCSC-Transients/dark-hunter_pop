@@ -108,22 +108,104 @@ class SnapshotMeta:
 
 @dataclass(frozen=True)
 class FunnelCounts:
-    """Row counts at each data_acquisition filtering step."""
+    """Row counts at each data_acquisition filtering step.
+
+    ``duplicate_source_ids`` / ``duplicate_rows_removed`` record the cross-match
+    fan-out collapse (issues #221, #231): the NSS ADQL left-joins four
+    ``*_best_neighbour`` tables, and a Gaia source with more than one accepted
+    neighbour in any of them produces more than one row for a single
+    ``source_id``. They are zero when the query returned one row per source.
+    """
 
     queried: int
     after_quality_cut: int
     candidates_written: int
     covariance_ok: int = 0
     covariance_failed: int = 0
+    duplicate_source_ids: int = 0
+    duplicate_rows_removed: int = 0
+    after_duplicate_collapse: int | None = None
 
     def as_dict(self) -> dict[str, int]:
+        collapsed = (
+            self.after_duplicate_collapse
+            if self.after_duplicate_collapse is not None
+            else self.queried - self.duplicate_rows_removed
+        )
         return {
             "queried": self.queried,
+            "duplicate_source_ids": self.duplicate_source_ids,
+            "duplicate_rows_removed": self.duplicate_rows_removed,
+            "after_duplicate_collapse": collapsed,
             "after_quality_cut": self.after_quality_cut,
             "candidates_written": self.candidates_written,
             "covariance_ok": self.covariance_ok,
             "covariance_failed": self.covariance_failed,
         }
+
+
+@dataclass(frozen=True)
+class DuplicateCollapseReport:
+    """Outcome of collapsing cross-match fan-out to one row per ``source_id``.
+
+    Attributes
+    ----------
+    rows_in, rows_out:
+        Row counts before and after the collapse. Equal when nothing fanned out.
+    duplicate_source_ids:
+        Number of distinct ``source_id`` values that appeared on more than one row.
+    rows_removed:
+        ``rows_in - rows_out``: the redundant rows, not the affected sources.
+    max_multiplicity:
+        Largest number of rows carried by a single ``source_id`` (1 when clean).
+    example_source_id:
+        One duplicated ``source_id``, for the operator to inspect; ``None`` when clean.
+    cells_filled:
+        Cells in the surviving rows that were null in the base row and were filled
+        from a secondary row of the same group.
+    conflicting_cells:
+        Cells where two rows of a group both carried non-null, unequal values. The
+        base row's value survives; this count makes the discarded values visible.
+    """
+
+    rows_in: int
+    rows_out: int
+    duplicate_source_ids: int = 0
+    rows_removed: int = 0
+    max_multiplicity: int = 1
+    example_source_id: int | None = None
+    cells_filled: int = 0
+    conflicting_cells: int = 0
+
+
+class DuplicateSourceIdError(ValueError):
+    """Raised when a stage is about to persist more than one record per ``source_id``.
+
+    Carries the stage name, the duplicate count and one example ``source_id`` so the
+    failure is self-explanatory; see :func:`assert_unique_source_ids`.
+    """
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        duplicate_source_ids: int,
+        duplicate_records: int,
+        example_source_id: int,
+        example_multiplicity: int,
+    ) -> None:
+        self.stage = stage
+        self.duplicate_source_ids = duplicate_source_ids
+        self.duplicate_records = duplicate_records
+        self.example_source_id = example_source_id
+        self.example_multiplicity = example_multiplicity
+        super().__init__(
+            f"stage {stage!r}: refusing to write — {duplicate_source_ids} source_id(s) "
+            f"appear on more than one record ({duplicate_records} redundant record(s)); "
+            f"example source_id {example_source_id} appears {example_multiplicity} times. "
+            "source_id is unique per object; collapse cross-match fan-out with "
+            "collapse_duplicate_source_ids() before writing (issues #221, #231)."
+        )
 
 
 @dataclass(frozen=True)
@@ -155,6 +237,7 @@ class StageDiagnostics:
     nss_panels: dict[str, NDArray[np.floating]]
     solution_type_fractions: dict[str, float]
     covariance_health: CovarianceHealth | None = None
+    duplicate_collapse: DuplicateCollapseReport | None = None
 
 
 def gaia_snapshots_dir(config: PipelineConfig) -> Path:
@@ -265,6 +348,188 @@ def apply_quality_cuts(
             bin_counts["failed_gof"] += 1
 
     return table[keep], bin_counts
+
+
+def _column_null_mask(column: Any) -> NDArray[np.bool_]:
+    """Null mask for one astropy column: masked, NaN, or empty/placeholder string.
+
+    Limitations: multi-dimensional columns are treated as always non-null (this
+    stage's ADQL produces scalar columns only), and the string placeholders are the
+    ones astropy writes for absent ECSV values (``""``, ``"--"``, ``"nan"``).
+    """
+    values = np.asarray(column)
+    if values.ndim != 1:
+        return np.zeros(len(column), dtype=bool)
+    null = np.ma.getmaskarray(column) if np.ma.isMaskedArray(column) else np.zeros(
+        values.shape, dtype=bool
+    )
+    kind = values.dtype.kind
+    if kind == "f":
+        null = null | ~np.isfinite(np.ma.getdata(values).astype(np.float64, copy=False))
+    elif kind in {"U", "S", "O"}:
+        text = np.char.strip(np.ma.getdata(values).astype(str))
+        null = null | np.isin(text, ("", "--", "nan", "None"))
+    return np.asarray(null, dtype=bool)
+
+
+def collapse_duplicate_source_ids(
+    table: Table,
+    *,
+    source_id_column: str = "source_id",
+) -> tuple[Table, DuplicateCollapseReport]:
+    """Collapse cross-match fan-out to exactly one row per ``source_id``.
+
+    The NSS ADQL left-joins ``panstarrs1``/``tmass``/``allwise``/``sdssdr13``
+    ``*_best_neighbour``; a Gaia source with more than one accepted neighbour in any
+    of them yields more than one otherwise-identical row. ``source_id`` is unique per
+    object, so those rows describe one candidate and are merged rather than kept
+    (issue #231; decision recorded on #221).
+
+    Merge rule, applied per duplicated ``source_id`` group:
+
+    1. **Base row** — the row with the most non-null cells wins, ties broken by the
+       earliest position in ``table``. This keeps the row that already carries the
+       most matched photometry.
+    2. **Fill** — every cell still null in the base row is filled from the other rows
+       of the group, in table order, first non-null value winning. This is what
+       "keeping all matched photometry" means: a source matched in PanSTARRS1 on one
+       row and in SDSS on another ends up with both.
+    3. **Conflicts** — where two rows both carry non-null, unequal values for a cell
+       (e.g. two accepted PanSTARRS1 neighbours with different magnitudes), the base
+       row's value survives and the event is counted in
+       ``DuplicateCollapseReport.conflicting_cells``. No averaging, no row dropped
+       arbitrarily, and nothing is silent.
+
+    Output row order follows the surviving base rows' original positions. A table
+    that is already unique is returned unchanged (no copy), with a zeroed report.
+
+    Parameters
+    ----------
+    table:
+        Raw joined archive/snapshot table. Not modified.
+    source_id_column:
+        Column holding the Gaia ``source_id``. Must exist.
+
+    Returns
+    -------
+    tuple[Table, DuplicateCollapseReport]
+        The collapsed table and the counts for the funnel report.
+
+    Limitations
+    -----------
+    Merging is per cell, so a merged row can mix values from different rows of the
+    group; for the fan-out this handles that is the intent, since the differing
+    columns are per-catalog photometry blocks. It does not attempt to keep multiple
+    neighbours per catalog — v1 carries one photometry set per band.
+    """
+    if source_id_column not in table.colnames:
+        raise KeyError(
+            f"table missing {source_id_column!r} (have {list(table.colnames)!r})"
+        )
+    n_rows = len(table)
+    ids = np.asarray(np.ma.getdata(table[source_id_column])).astype(np.int64, copy=False)
+    unique_ids, counts = np.unique(ids, return_counts=True)
+    if n_rows == 0 or int(counts.max(initial=1)) <= 1:
+        return table, DuplicateCollapseReport(rows_in=n_rows, rows_out=n_rows)
+
+    dup_ids = unique_ids[counts > 1]
+    dup_rows = np.flatnonzero(np.isin(ids, dup_ids))
+    colnames = list(table.colnames)
+    # Null mask restricted to the (small) duplicated subset: rows x columns.
+    null_sub = np.column_stack(
+        [_column_null_mask(table[name])[dup_rows] for name in colnames]
+    )
+    non_null_counts = (~null_sub).sum(axis=1)
+    sub_position = {int(row): i for i, row in enumerate(dup_rows)}
+
+    groups: dict[int, list[int]] = {}
+    for row in dup_rows:
+        groups.setdefault(int(ids[row]), []).append(int(row))
+
+    drop: set[int] = set()
+    bases: dict[int, list[int]] = {}
+    for source_id, rows in groups.items():
+        best = max(rows, key=lambda r: (non_null_counts[sub_position[r]], -r))
+        bases[best] = [r for r in rows if r != best]
+        drop.update(bases[best])
+
+    keep = np.array([i for i in range(n_rows) if i not in drop], dtype=np.int64)
+    collapsed = table[keep]
+    keep_position = {int(row): i for i, row in enumerate(keep)}
+
+    cells_filled = 0
+    conflicting_cells = 0
+    for base, others in bases.items():
+        out_row = keep_position[base]
+        base_sub = sub_position[base]
+        for col_index, name in enumerate(colnames):
+            base_null = bool(null_sub[base_sub, col_index])
+            for other in others:
+                other_sub = sub_position[other]
+                if bool(null_sub[other_sub, col_index]):
+                    continue
+                value = table[name][other]
+                if base_null:
+                    collapsed[name][out_row] = value
+                    cells_filled += 1
+                    base_null = False
+                    continue
+                base_value = table[name][base]
+                if not _values_equal(base_value, value):
+                    conflicting_cells += 1
+    report = DuplicateCollapseReport(
+        rows_in=n_rows,
+        rows_out=len(collapsed),
+        duplicate_source_ids=int(dup_ids.size),
+        rows_removed=n_rows - len(collapsed),
+        max_multiplicity=int(counts.max()),
+        example_source_id=int(dup_ids[0]),
+        cells_filled=cells_filled,
+        conflicting_cells=conflicting_cells,
+    )
+    return collapsed, report
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    """Equality that tolerates numpy scalars and non-comparable cell values."""
+    try:
+        return bool(np.all(left == right))
+    except Exception:  # pragma: no cover - exotic cell types
+        return False
+
+
+def assert_unique_source_ids(
+    candidates: Sequence[CandidateRecord],
+    *,
+    stage: str = "data_acquisition",
+) -> None:
+    """Fail fast when ``candidates`` carry a repeated ``source_id``.
+
+    Called before a single HDF5 byte is written. Without it the collision only
+    surfaces deep inside the per-source covariance-matrix write, as an opaque h5py
+    "name already exists" naming neither the stage nor the ``source_id`` — and only
+    for duplicates that happen to have a reconstructable ``nss_solution``; the rest
+    passed through silently and inflated every downstream count (issue #221).
+
+    Raises
+    ------
+    DuplicateSourceIdError
+        Naming the stage, the duplicate count and one example ``source_id``.
+    """
+    seen: dict[int, int] = {}
+    for candidate in candidates:
+        seen[candidate.source_id] = seen.get(candidate.source_id, 0) + 1
+    duplicates = {sid: n for sid, n in seen.items() if n > 1}
+    if not duplicates:
+        return
+    example_source_id = min(duplicates)
+    raise DuplicateSourceIdError(
+        stage=stage,
+        duplicate_source_ids=len(duplicates),
+        duplicate_records=sum(duplicates.values()) - len(duplicates),
+        example_source_id=example_source_id,
+        example_multiplicity=duplicates[example_source_id],
+    )
 
 
 def _enabled_crossmatches(
@@ -1079,6 +1344,7 @@ def compute_stage_diagnostics(
     funnel: FunnelCounts,
     quality_cut_bin_counts: Mapping[str, int],
     covariance_health: CovarianceHealth | None = None,
+    duplicate_collapse: DuplicateCollapseReport | None = None,
 ) -> StageDiagnostics:
     """Build histogram inputs for RUWE / period / eccentricity, sky, and NSS panels."""
     ruwe = []
@@ -1164,6 +1430,7 @@ def compute_stage_diagnostics(
         nss_panels=nss_panels,
         solution_type_fractions=_compute_solution_type_fractions(candidates),
         covariance_health=health,
+        duplicate_collapse=duplicate_collapse,
     )
 
 
@@ -1172,24 +1439,56 @@ def format_funnel_table(
     quality_cut_bin_counts: Mapping[str, int],
     *,
     covariance_health: CovarianceHealth | None = None,
+    duplicate_collapse: DuplicateCollapseReport | None = None,
 ) -> str:
-    """Human-readable funnel table (exempt from caveman compression)."""
+    """Human-readable funnel table (exempt from caveman compression).
+
+    Includes the cross-match fan-out collapse block when ``duplicate_collapse`` is
+    given, so a non-zero duplicate rate is visible to an operator rather than silent.
+    """
     text = format_funnel_report(
         funnel.as_dict(),
         quality_cut_bin_counts=quality_cut_bin_counts,
         stage_name="data_acquisition",
     )
-    if covariance_health is None:
+    blocks: list[str] = []
+    if duplicate_collapse is not None:
+        blocks.append(_format_duplicate_collapse_block(duplicate_collapse))
+    if covariance_health is not None:
+        type_lines = covariance_health.by_type_lines()
+        blocks.append(
+            "  covariance_health (by solution type):\n"
+            + (
+                "\n".join(f"    {line}" for line in type_lines)
+                if type_lines
+                else "    (none)"
+            )
+        )
+    if not blocks:
         return text
     end_marker = "=== end data_acquisition funnel ==="
-    type_lines = covariance_health.by_type_lines()
-    health_block = "  covariance_health (by solution type):\n" + (
-        "\n".join(f"    {line}" for line in type_lines) if type_lines else "    (none)"
-    )
+    joined = "\n".join(blocks)
     if text.endswith(end_marker):
         body = text[: -len(end_marker)].rstrip()
-        return f"{body}\n{health_block}\n{end_marker}"
-    return f"{text}\n{health_block}"
+        return f"{body}\n{joined}\n{end_marker}"
+    return f"{text}\n{joined}"
+
+
+def _format_duplicate_collapse_block(report: DuplicateCollapseReport) -> str:
+    """Render the cross-match fan-out collapse counts for the funnel report."""
+    lines = [
+        "  duplicate_source_id_collapse (cross-match fan-out, #221/#231):",
+        f"    rows_in: {report.rows_in}",
+        f"    rows_out: {report.rows_out}",
+        f"    duplicated_source_ids: {report.duplicate_source_ids}",
+        f"    rows_removed: {report.rows_removed}",
+        f"    max_multiplicity: {report.max_multiplicity}",
+        f"    cells_filled_from_secondary_rows: {report.cells_filled}",
+        f"    conflicting_cells_base_row_kept: {report.conflicting_cells}",
+    ]
+    if report.example_source_id is not None:
+        lines.append(f"    example_source_id: {report.example_source_id}")
+    return "\n".join(lines)
 
 
 def write_diagnostic_artifacts(
@@ -1223,6 +1522,7 @@ def write_diagnostic_artifacts(
         diagnostics.funnel,
         diagnostics.quality_cut_bin_counts,
         covariance_health=diagnostics.covariance_health,
+        duplicate_collapse=diagnostics.duplicate_collapse,
     )
     legacy = dirs.root / "funnel.txt"
     legacy.write_text(funnel_text + "\n", encoding="utf-8")
@@ -1244,12 +1544,51 @@ def write_stage_hdf5(
     diagnostics: StageDiagnostics,
     spectroscopic: SpectroscopicMassFunctionConfig | None = None,
 ) -> None:
-    """Write one stage HDF5 under ``paths.artifact_root``."""
+    """Write one stage HDF5 under ``paths.artifact_root``.
+
+    Validates ``source_id`` uniqueness **before** opening the file, and writes
+    through a ``.partial`` sibling that is renamed into place only on success, so a
+    mid-write failure never leaves a truncated artifact where ``plan_stage`` could
+    read it as a cache hit (issue #221).
+
+    Raises
+    ------
+    DuplicateSourceIdError
+        When ``candidates`` repeat a ``source_id``. Nothing is written.
+    """
+    assert_unique_source_ids(candidates, stage="data_acquisition")
     path.parent.mkdir(parents=True, exist_ok=True)
     records_json = [
         json.dumps(candidate.model_dump(mode="json"), sort_keys=True)
         for candidate in candidates
     ]
+    partial = path.with_name(path.name + ".partial")
+    partial.unlink(missing_ok=True)
+    try:
+        _write_stage_hdf5_body(
+            partial,
+            candidates,
+            records_json=records_json,
+            snapshot=snapshot,
+            diagnostics=diagnostics,
+            spectroscopic=spectroscopic,
+        )
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    os.replace(partial, path)
+
+
+def _write_stage_hdf5_body(
+    path: Path,
+    candidates: Sequence[CandidateRecord],
+    *,
+    records_json: Sequence[str],
+    snapshot: SnapshotMeta,
+    diagnostics: StageDiagnostics,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+) -> None:
+    """Write the artifact contents to ``path`` (the caller owns atomicity)."""
     with h5py.File(path, "w") as handle:
         meta = handle.create_group("meta")
         meta.attrs["stage"] = "data_acquisition"
@@ -1262,6 +1601,15 @@ def write_stage_hdf5(
         funnel = handle.create_group("diagnostics")
         for key, value in diagnostics.funnel.as_dict().items():
             funnel.attrs[key] = value
+        collapse = diagnostics.duplicate_collapse
+        if collapse is not None:
+            funnel.attrs["duplicate_collapse_max_multiplicity"] = collapse.max_multiplicity
+            funnel.attrs["duplicate_collapse_cells_filled"] = collapse.cells_filled
+            funnel.attrs["duplicate_collapse_conflicting_cells"] = collapse.conflicting_cells
+            if collapse.example_source_id is not None:
+                funnel.attrs["duplicate_collapse_example_source_id"] = (
+                    collapse.example_source_id
+                )
         funnel.create_dataset(
             "quality_cut_bin_counts",
             data=np.array(
@@ -1455,24 +1803,32 @@ def run_data_acquisition(
             snapshots_dir=gaia_snapshots_dir(config),
         )
 
-    filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
+    queried = len(raw_table)
+    # Collapse cross-match fan-out before anything counts rows: one candidate per
+    # source_id, all matched photometry retained (#221, #231).
+    deduplicated, collapse = collapse_duplicate_source_ids(raw_table)
+    filtered, bin_counts = apply_quality_cuts(deduplicated, dr.quality_cut_bins)
     candidates = table_to_candidates(
         filtered, dr, spectroscopic=config.spectroscopic_mass_function
     )
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
     cov_health = _health_from_candidates(candidates)
     funnel = FunnelCounts(
-        queried=len(raw_table),
+        queried=queried,
         after_quality_cut=len(filtered),
         candidates_written=len(candidates),
         covariance_ok=cov_health.ok,
         covariance_failed=cov_health.failed,
+        duplicate_source_ids=collapse.duplicate_source_ids,
+        duplicate_rows_removed=collapse.rows_removed,
+        after_duplicate_collapse=collapse.rows_out,
     )
     diagnostics = compute_stage_diagnostics(
         candidates,
         funnel=funnel,
         quality_cut_bin_counts=bin_counts,
         covariance_health=cov_health,
+        duplicate_collapse=collapse,
     )
     write_stage_hdf5(
         artifact,
