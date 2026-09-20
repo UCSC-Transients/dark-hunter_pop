@@ -329,7 +329,7 @@ under restricted permissions.
 12. Every wave ends in a hard stop for operator review, with a written handoff note, before the next
    begins (§5.9).
 
-## Status (as of 2026-09-14, `main` @ b2ce634)
+## Status (as of 2026-09-20, `main` @ 13356e5)
 
 - **Scope: the laptop only.** The current objective is the whole workflow running smoothly on
   `/Users/rfoley/darkhunter/pop/dark-hunter_pop/`. ziggy and lux are deferred and out of scope —
@@ -365,6 +365,23 @@ under restricted permissions.
     superseded, patch-equivalent to what's on `main`) is left pending an explicit human
     `git branch -D` — its deletion was correctly refused by the permission system.
   - **Gate −1 awaits operator review.** Wave 0 is not dispatched until then.
+- **Wave 0 is complete** (umbrella #202, roster #28–#32, `main` @ `13356e5`). The pipeline ran
+  end to end for the first time: `runs/20260920-033431-121d6de.yaml` reaches all 14 stages
+  terminal (13 `completed`, `triples` `skipped` by config), reproducible on three independent
+  invocations, producing a labeled `dN/dM`-by-class figure meeting `docs/PLOTS.md` standards with
+  every synthetic stand-in named. Peak RSS for a full end-to-end run measured at **~8.7–8.8 GiB**
+  (higher than Wave −1's 6.82 GiB per-stage figure) — the heavy-session cap should move from four
+  to three once #224 (which corrects the §5.6 table's cited provenance) lands. The `phot_sed`
+  adapter's WD leg is now fully wired (#206 resolved: upstream `dark-hunter_sed` fix landed,
+  DA+MIST canonical, independently re-verified twice against the real merged code). Q9 (Andrews
+  `G<15` = 19, still short of the target 16 — inherited from the known Andrews over-count) and Q7
+  (`a0` bit-identical between `nsstools` and pop's method, ruling that out as a cause of #133's
+  42-vs-47 gap; `sigma_a0` differs by propagation method and moves `sub_chandrasekhar`'s cut) are
+  both measured. **#221 is the one real correctness bug found**: duplicate `source_id`s from
+  cross-match fan-out can silently inflate every downstream count with no diagnostic — needs
+  Ryan's data-model decision (collapse vs. keep-non-unique) before Wave A, and a check of whether
+  the documented uncut parent snapshot has the same problem. **Gate 0 awaits operator review.**
+  Wave A is not dispatched until then.
 - **Phases 0–8 complete on `main`.** The pipeline has run end-to-end on the real DR3 NSS catalog:
   `runs/20260904-152655-674c989.yaml` reaches `inference` completed, with `joint_orbit_fit` skipped
   (`rv_astrometry_gate_failed` for every system, pre-Wave-2), `triples` skipped by config, and
