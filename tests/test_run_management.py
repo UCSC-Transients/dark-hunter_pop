@@ -761,3 +761,61 @@ def test_companion_nature_fingerprint_covers_phot_sed_config_keys() -> None:
     assert stage_artifact_path(config, spec, run_id=run_id) != stage_artifact_path(
         disabled_config, spec, run_id=run_id
     )
+
+
+def test_running_or_failed_record_with_leftover_file_plans_run_not_cached(
+    tmp_path: Path,
+) -> None:
+    """Regression for #221 (re-landed after the PR #238 revert).
+
+    A stage record left ``running`` or ``failed`` crashed mid-write, so the file at
+    the artifact path may be a truncated partial. Before the fix, ``plan_stage`` fell
+    through to the plain ``artifact.is_file()`` branch and — because the recorded
+    ``source_hash`` still matched — returned ``SKIP_CACHED``, silently adopting the
+    half-written file as a cache hit. Verified against the reverted tree: with this
+    block absent both statuses returned ``SKIP_CACHED``.
+
+    Policy is "wipe partials, amend, re-run that stage" (CLAUDE.md, Run management),
+    so both statuses must plan ``RUN``. ``completed`` is unaffected and still caches.
+    """
+    cfg = load_config()
+    cfg.paths.artifact_root = str(tmp_path / "artifacts")
+    manifest = create_run_manifest(cfg)
+    spec = STAGE_REGISTRY["sample_selection"]
+    artifact = stage_artifact_path(cfg, spec, run_id=manifest.run_id)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"\x89HDF\r\n\x1a\n truncated partial")
+    current = compute_source_hash(spec)
+
+    for status in (StageStatus.RUNNING, StageStatus.FAILED):
+        crashed = manifest.model_copy(
+            update={
+                "stages": {
+                    spec.name: StageRecord(
+                        stage_name=spec.name,
+                        status=status,
+                        source_hash=current,
+                        artifact_path=str(artifact),
+                    )
+                }
+            }
+        )
+        entry = plan_stage(spec, crashed, cfg)
+        assert entry.action is StageAction.RUN
+        assert entry.action is not StageAction.SKIP_CACHED
+        assert status.value in entry.detail
+
+    # Guard the other direction: a completed record over the same file still caches.
+    completed = manifest.model_copy(
+        update={
+            "stages": {
+                spec.name: StageRecord(
+                    stage_name=spec.name,
+                    status=StageStatus.COMPLETED,
+                    source_hash=current,
+                    artifact_path=str(artifact),
+                )
+            }
+        }
+    )
+    assert plan_stage(spec, completed, cfg).action is StageAction.SKIP_CACHED
