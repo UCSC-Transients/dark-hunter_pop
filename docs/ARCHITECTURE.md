@@ -163,6 +163,15 @@ reviewed.
 
 - Query `gaiadr3.nss_two_body_orbit`. Cross-match via Gaia's `*_best_neighbour` tables (GALEX AIS,
   PS1, 2MASS, AllWISE) plus SDSS and DECam-u (additions to `gather_phot` in `dark-hunter_sed`).
+- **`source_id` uniqueness is asserted before a single HDF5 byte is written**
+  (`assert_unique_source_ids` → `DuplicateSourceIdError`, naming the stage, the duplicate count and
+  one example `source_id`). A duplicate is a **hard stop** — never a silent passthrough, and never an
+  automatic merge: on the uncut parent snapshot 5,926 of 5,932 duplicated `source_id`s are *distinct
+  NSS orbital solutions for one source* (differing `nss_solution_type` / `period` / `eccentricity`),
+  not cross-match fan-out, and merging cells across them fabricates orbits that exist in no Gaia row
+  (issue #221; PR #238 reverted by PR #239). Which solution the pipeline keeps, and whether such a
+  source counts once or twice in a literature parent sample, is an **open decision** — issues #231
+  and #237. Until it is answered, no row-collapsing logic exists.
 - Quality cut: goodness-of-fit vs. magnitude, configurable as **N separate (magnitude, threshold)
   bins** (El-Badry et al. 2023's <5/G>13, <10/G≤13 as the v1 default values; the mechanism
   supports arbitrary bin counts, since DR4 may need a different scheme).
@@ -485,7 +494,11 @@ only (not the inactive DR subtree). Mismatch on resume/amend → hard refuse; st
 **Force re-run** of an already-completed stage → **always a new run file**. Prior stages' completion
 records and artifact paths are **copied** into the new file so later stages can still resolve
 inputs. Mid-stage crash (partial outputs, no completion record) → wipe that stage's partial
-artifacts and re-run it, **amending** the same run file.
+artifacts and re-run it, **amending** the same run file. Two mechanisms enforce that rather than
+leaving it to the operator (#221): `data_acquisition` writes its HDF5 through a `.partial` sibling
+renamed into place only on success, so no truncated file ever occupies the artifact path; and
+`plan_stage` treats a stage record left `running` or `failed` with a file at the artifact path as a
+**re-run**, never a cache hit, whatever its recorded `source_hash`.
 
 **Amend vs new run** (locked):
 
@@ -497,7 +510,7 @@ artifacts and re-run it, **amending** the same run file.
 | Cached stage record whose `source_hash` or artifact fingerprint no longer matches current code/config | **Refuse** (`REFUSE_STALE` → `StaleStageCacheError`); require explicit `--force-rerun <stage>` |
 | Cached stage record with **no recorded** `source_hash` (pre-dates hash recording) | **Refuse**, identically to a mismatch (#169); require explicit `--force-rerun <stage>` |
 | gaiamock version mismatch (gaiamock-using stage) | **Refuse** |
-| Mid-stage crash | Wipe partials; **amend**; re-run that stage |
+| Mid-stage crash (record left `running` / `failed`, file present at the artifact path) | Wipe partials; **amend**; re-run that stage — `plan_stage` returns `RUN`, never `SKIP_CACHED` |
 | Docstring / plotting-only edits | Ignored (not in stage dependency hash) |
 
 **The run file** is a YAML document under `runs/`, filename `runs/{run_id}.yaml` where

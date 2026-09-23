@@ -126,6 +126,106 @@ class FunnelCounts:
         }
 
 
+class DuplicateSourceIdError(ValueError):
+    """Raised when a stage is about to persist more than one record per ``source_id``.
+
+    Carries the stage name, the duplicate count and one example ``source_id`` so the
+    failure is self-explanatory at the top of a traceback rather than surfacing as an
+    opaque h5py naming collision deep inside the per-source covariance write (#221).
+
+    This is a **hard stop, not a repair**: no row-merging or solution-selection logic
+    is authorized while #231's collapse redesign is open, because the duplicates are
+    overwhelmingly *distinct NSS orbital solutions for one source*, not cross-match
+    fan-out, and merging across them fabricates orbits (see the revert of PR #238 in
+    PR #239).
+
+    Parameters
+    ----------
+    stage:
+        Registered stage name that was about to write.
+    duplicate_source_ids:
+        Number of distinct ``source_id`` values carried by more than one record.
+    duplicate_records:
+        Redundant record count over the duplicated groups (records minus groups).
+    example_source_id, example_multiplicity:
+        One offending ``source_id`` and how many records carry it, so an operator can
+        go straight to a concrete row.
+    """
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        duplicate_source_ids: int,
+        duplicate_records: int,
+        example_source_id: int,
+        example_multiplicity: int,
+    ) -> None:
+        self.stage = stage
+        self.duplicate_source_ids = duplicate_source_ids
+        self.duplicate_records = duplicate_records
+        self.example_source_id = example_source_id
+        self.example_multiplicity = example_multiplicity
+        super().__init__(
+            f"stage {stage!r}: refusing to write — {duplicate_source_ids} source_id(s) "
+            f"appear on more than one record ({duplicate_records} redundant record(s)); "
+            f"example source_id {example_source_id} appears {example_multiplicity} "
+            "times. source_id is unique per object, so these records cannot all be "
+            "written. Gaia publishes more than one NSS orbital solution for some "
+            "sources; which solution the pipeline should keep is an open decision "
+            "(issues #221, #231, #237), so nothing is merged automatically."
+        )
+
+
+def assert_unique_source_ids(
+    candidates: Sequence[CandidateRecord],
+    *,
+    stage: str = "data_acquisition",
+) -> None:
+    """Fail fast when ``candidates`` carry a repeated ``source_id``.
+
+    Called before a single HDF5 byte is written. Without it the collision only
+    surfaces deep inside the per-source covariance-matrix write, as an opaque h5py
+    "name already exists" naming neither the stage nor the ``source_id`` — and only
+    for duplicates that happen to have a reconstructable ``nss_solution``; the rest
+    passed through silently and inflated every downstream count (issue #221).
+
+    Parameters
+    ----------
+    candidates:
+        Records about to be persisted. Not modified. An empty sequence is a no-op.
+    stage:
+        Registered stage name, reported in the error message.
+
+    Raises
+    ------
+    DuplicateSourceIdError
+        Naming the stage, the duplicate count and one example ``source_id``. The
+        example is the smallest duplicated ``source_id``, so the message is
+        deterministic across runs.
+
+    Limitations
+    -----------
+    Validation only — it never repairs, merges or drops records. Choosing among
+    several NSS orbital solutions for one source is deliberately out of scope
+    (#231, #237).
+    """
+    seen: dict[int, int] = {}
+    for candidate in candidates:
+        seen[candidate.source_id] = seen.get(candidate.source_id, 0) + 1
+    duplicates = {sid: n for sid, n in seen.items() if n > 1}
+    if not duplicates:
+        return
+    example_source_id = min(duplicates)
+    raise DuplicateSourceIdError(
+        stage=stage,
+        duplicate_source_ids=len(duplicates),
+        duplicate_records=sum(duplicates.values()) - len(duplicates),
+        example_source_id=example_source_id,
+        example_multiplicity=duplicates[example_source_id],
+    )
+
+
 @dataclass(frozen=True)
 class SB1ReproductionRoute:
     """El-Badry 2026 §8.4 route flags for reproduction checks only.
@@ -1244,12 +1344,61 @@ def write_stage_hdf5(
     diagnostics: StageDiagnostics,
     spectroscopic: SpectroscopicMassFunctionConfig | None = None,
 ) -> None:
-    """Write one stage HDF5 under ``paths.artifact_root``."""
+    """Write one stage HDF5 under ``paths.artifact_root``.
+
+    Validates ``source_id`` uniqueness **before** opening any file, and writes through
+    a ``.partial`` sibling that is renamed onto ``path`` only on success, so a
+    mid-write failure never leaves a truncated artifact where ``plan_stage`` could
+    read it as a cache hit (issue #221).
+
+    Raises
+    ------
+    DuplicateSourceIdError
+        When ``candidates`` repeat a ``source_id``. Nothing is written — neither the
+        artifact nor a ``.partial`` sibling.
+
+    Limitations
+    -----------
+    ``os.replace`` is atomic only within one filesystem; the ``.partial`` sibling
+    lives in the artifact's own directory precisely so that holds.
+    """
+    assert_unique_source_ids(candidates, stage="data_acquisition")
     path.parent.mkdir(parents=True, exist_ok=True)
     records_json = [
         json.dumps(candidate.model_dump(mode="json"), sort_keys=True)
         for candidate in candidates
     ]
+    partial = path.with_name(path.name + ".partial")
+    partial.unlink(missing_ok=True)
+    try:
+        _write_stage_hdf5_body(
+            partial,
+            candidates,
+            records_json=records_json,
+            snapshot=snapshot,
+            diagnostics=diagnostics,
+            spectroscopic=spectroscopic,
+        )
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    os.replace(partial, path)
+
+
+def _write_stage_hdf5_body(
+    path: Path,
+    candidates: Sequence[CandidateRecord],
+    *,
+    records_json: Sequence[str],
+    snapshot: SnapshotMeta,
+    diagnostics: StageDiagnostics,
+    spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+) -> None:
+    """Write the artifact contents to ``path``; the caller owns atomicity.
+
+    Split out of :func:`write_stage_hdf5` so the whole body can be redirected to a
+    ``.partial`` sibling (and so a mid-write crash is testable).
+    """
     with h5py.File(path, "w") as handle:
         meta = handle.create_group("meta")
         meta.attrs["stage"] = "data_acquisition"

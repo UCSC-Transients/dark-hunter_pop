@@ -530,3 +530,140 @@ def test_format_funnel_table_is_legible() -> None:
     assert "covariance_ok" in text
     assert "covariance_health (by solution type)" in text
     assert "Orbital" in text
+
+
+# --- duplicate source_id: fail fast, write atomically (issues #221, #231) --------
+#
+# Scope note: the *collapse* of duplicate source_ids is NOT implemented here and is
+# deliberately still open under #231. PR #238 collapsed them by merging rows
+# cell-by-cell on a cross-match-fan-out premise; on the real snapshot 5,926 of the
+# 5,932 duplicated source_ids are instead *distinct NSS orbital solutions for one
+# source*, so that merge fabricated orbits and was reverted (PR #239). Until Ryan
+# decides which solution the pipeline keeps, a duplicate is a hard stop.
+
+
+def _duplicate_solution_table() -> Table:
+    """Sample table where source_id 1002 carries two distinct NSS orbital solutions.
+
+    Mirrors the real-snapshot signature: identical photometry/astrometry, different
+    ``nss_solution_type`` and ``period``. Nothing in the pipeline may merge these.
+    """
+    table = Table(_sample_table()[[0, 1, 1, 2]])
+    table["nss_solution_type"] = ["Orbital", "Orbital", "SB1", "Orbital"]
+    table["period"] = [100.0, 200.0, 0.62, 50.0]
+    return table
+
+
+def _snapshot_meta(tmp_path: Path, *, row_count: int) -> SnapshotMeta:
+    return SnapshotMeta(
+        snapshot_id="test_snap",
+        query_date=datetime.now(tz=timezone.utc),
+        adql="SELECT 1",
+        checksum="abc",
+        row_count=row_count,
+        result_path=tmp_path / "query.ecsv",
+        meta_path=tmp_path / "meta.yaml",
+    )
+
+
+def test_assert_unique_source_ids_names_stage_count_and_example() -> None:
+    from darkhunter_pop.data_acquisition import (
+        DuplicateSourceIdError,
+        assert_unique_source_ids,
+    )
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_duplicate_solution_table(), dr)
+    with pytest.raises(DuplicateSourceIdError) as excinfo:
+        assert_unique_source_ids(candidates)
+    error = excinfo.value
+    assert error.stage == "data_acquisition"
+    assert error.duplicate_source_ids == 1
+    assert error.duplicate_records == 1
+    assert error.example_source_id == 1002
+    assert error.example_multiplicity == 2
+    message = str(error)
+    assert "data_acquisition" in message
+    assert "1002" in message
+
+    # A unique table passes silently, and so does an empty one.
+    assert_unique_source_ids(table_to_candidates(_sample_table(), dr)) is None
+    assert_unique_source_ids([]) is None
+
+
+def test_write_stage_hdf5_refuses_duplicates_before_writing_bytes(
+    tmp_path: Path,
+) -> None:
+    """#221: the refusal must land before a single HDF5 byte reaches disk."""
+    from darkhunter_pop.data_acquisition import (
+        DuplicateSourceIdError,
+        FunnelCounts,
+        compute_stage_diagnostics,
+    )
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_duplicate_solution_table(), dr)
+    diagnostics = compute_stage_diagnostics(
+        candidates,
+        funnel=FunnelCounts(queried=4, after_quality_cut=4, candidates_written=4),
+        quality_cut_bin_counts={"bin0": 4},
+    )
+    artifact = tmp_path / "stage.h5"
+    with pytest.raises(DuplicateSourceIdError):
+        write_stage_hdf5(
+            artifact,
+            candidates,
+            snapshot=_snapshot_meta(tmp_path, row_count=4),
+            diagnostics=diagnostics,
+        )
+    # Zero bytes on disk: neither the artifact nor a .partial sibling.
+    assert not artifact.exists()
+    assert list(tmp_path.glob("stage.h5*")) == []
+
+
+def test_write_stage_hdf5_leaves_no_partial_on_failure(tmp_path: Path) -> None:
+    """A mid-write crash must not leave a file where plan_stage could cache-hit it."""
+    import darkhunter_pop.data_acquisition as da
+
+    from darkhunter_pop.data_acquisition import FunnelCounts, compute_stage_diagnostics
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_sample_table()[:2], dr)
+    diagnostics = compute_stage_diagnostics(
+        candidates,
+        funnel=FunnelCounts(queried=2, after_quality_cut=2, candidates_written=2),
+        quality_cut_bin_counts={"bin0": 2},
+    )
+    artifact = tmp_path / "stage.h5"
+    original = da._write_stage_hdf5_body
+
+    def _crash_midway(path: Path, *args: object, **kwargs: object) -> None:
+        # Write real bytes first, so the test exercises cleanup of an actual partial
+        # file rather than a failure that never touched the filesystem.
+        Path(path).write_bytes(b"\x89HDF\r\n\x1a\n truncated")
+        raise RuntimeError("simulated mid-write failure")
+
+    da._write_stage_hdf5_body = _crash_midway  # type: ignore[assignment]
+    try:
+        with pytest.raises(RuntimeError, match="simulated mid-write failure"):
+            write_stage_hdf5(
+                artifact,
+                candidates,
+                snapshot=_snapshot_meta(tmp_path, row_count=2),
+                diagnostics=diagnostics,
+            )
+    finally:
+        da._write_stage_hdf5_body = original  # type: ignore[assignment]
+    assert list(tmp_path.glob("stage.h5*")) == []
+
+    # And the happy path still produces a readable artifact at the final name.
+    write_stage_hdf5(
+        artifact,
+        candidates,
+        snapshot=_snapshot_meta(tmp_path, row_count=2),
+        diagnostics=diagnostics,
+    )
+    assert artifact.is_file()
+    assert not artifact.with_name(artifact.name + ".partial").exists()
+    loaded, _meta = read_stage_hdf5(artifact)
+    assert [c.source_id for c in loaded] == [1001, 1002]
