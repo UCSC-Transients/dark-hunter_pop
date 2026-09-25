@@ -163,19 +163,23 @@ reviewed.
 
 - Query `gaiadr3.nss_two_body_orbit`. Cross-match via Gaia's `*_best_neighbour` tables (GALEX AIS,
   PS1, 2MASS, AllWISE) plus SDSS and DECam-u (additions to `gather_phot` in `dark-hunter_sed`).
-- **`source_id` uniqueness is asserted before a single HDF5 byte is written**
-  (`assert_unique_source_ids` → `DuplicateSourceIdError`, naming the stage, the duplicate count and
-  one example `source_id`). A duplicate is a **hard stop** — never a silent passthrough, and never an
-  automatic merge: on the uncut parent snapshot 5,926 of 5,932 duplicated `source_id`s are *distinct
-  NSS orbital solutions for one source* (differing `nss_solution_type` / `period` / `eccentricity`),
-  not cross-match fan-out, and merging cells across them fabricates orbits that exist in no Gaia row
-  (issue #221; PR #238 reverted by PR #239). The remaining 6 groups (0.1%) are genuine cross-match
-  fan-out (same `nss_solution_type`, same `period`, differing 2MASS photometry) and are kept
-  conceptually separate from the multi-solution case below. **Resolved (`CONTINUATION_PLAN.md` §15
-  Q17, 2026-09-24, Ryan Foley; issues #237/#231): multi-solution sources are real and must be
-  tagged, never merged or collapsed.** `assert_unique_source_ids`'s current fail-fast behavior over
-  genuine multi-solution duplicates is a placeholder pending the tag-and-keep implementation, not
-  the final design — see "Multi-solution sources" immediately below.
+- **Duplicated `source_id`s are classified before a single HDF5 byte is written**
+  (`assert_unique_source_ids` → `classify_duplicate_source_id_group`; issues #221, #237, #241,
+  #242). Never an automatic merge, either way: on the uncut parent snapshot 5,926 of 5,932
+  duplicated `source_id`s are *distinct NSS orbital solutions for one source* (differing
+  `nss_solution_type` / `period`), not cross-match fan-out, and merging cells across them fabricates
+  orbits that exist in no Gaia row (PR #238 reverted by PR #239). **Resolved and implemented
+  (`CONTINUATION_PLAN.md` §15 Q17, 2026-09-24, Ryan Foley; issues #237/#241/#242): genuine
+  multi-solution duplicates are kept and tagged, never merged or collapsed** — each duplicate group
+  is classified as `cross_type` (distinct `nss_solution_type` families) or
+  `same_type_period_aliased` (more than one period-aliased `Orbital`-family solution, possibly both
+  at once), and every row in a kept group is written through unmodified, carrying only its own
+  Gaia row's fields including its own `nss_solution_type`. The remaining 6 groups (0.1%) are genuine
+  cross-match fan-out (identical `nss_solution_type` **and** identical `period`, differing only
+  2MASS photometry) and any other unrecognized duplicate shape: both are still refused via
+  `DuplicateSourceIdError`, since no fan-out resolution logic exists yet (tracked separately from
+  #242). The funnel report (`FunnelCounts.multi_solution`, a `MultiSolutionCounts`) records the
+  per-sub-case kept counts.
 
 #### Multi-solution sources (real, not a bug — §15 Q17 resolved)
 

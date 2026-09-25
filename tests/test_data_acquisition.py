@@ -532,25 +532,60 @@ def test_format_funnel_table_is_legible() -> None:
     assert "Orbital" in text
 
 
-# --- duplicate source_id: fail fast, write atomically (issues #221, #231) --------
+# --- duplicate source_id: tag-and-keep genuine multi-solution, refuse the rest ---
+# (issues #221, #237, #241, #242) -------------------------------------------------
 #
-# Scope note: the *collapse* of duplicate source_ids is NOT implemented here and is
-# deliberately still open under #231. PR #238 collapsed them by merging rows
+# Domain decision (CONTINUATION_PLAN.md §15 Q17, resolved 2026-09-24): genuine
+# multi-solution source_id duplicates are real and must be kept, each row tagged by
+# its own nss_solution_type, never merged. PR #238 instead collapsed/merged rows
 # cell-by-cell on a cross-match-fan-out premise; on the real snapshot 5,926 of the
 # 5,932 duplicated source_ids are instead *distinct NSS orbital solutions for one
-# source*, so that merge fabricated orbits and was reverted (PR #239). Until Ryan
-# decides which solution the pipeline keeps, a duplicate is a hard stop.
+# source*, so that merge fabricated orbits and was reverted (PR #239). This file's
+# tests below cover: cross-type multi-solution (kept), same-type/period-aliased
+# multi-solution (kept), and genuine cross-match fan-out (still refused, since no
+# fan-out resolution logic exists — #242 does not design one here).
 
 
-def _duplicate_solution_table() -> Table:
-    """Sample table where source_id 1002 carries two distinct NSS orbital solutions.
+def _cross_type_multi_solution_table() -> Table:
+    """source_id 1002 carries two distinct NSS orbital solutions (cross-type, #241).
 
-    Mirrors the real-snapshot signature: identical photometry/astrometry, different
-    ``nss_solution_type`` and ``period``. Nothing in the pipeline may merge these.
+    Mirrors the dominant real-snapshot combination (Orbital + SB1, 5,290 of 5,926
+    measured genuine multi-solution source_ids): identical photometry/astrometry,
+    different ``nss_solution_type`` and ``period``. Both rows are genuine and must be
+    kept and tagged, never merged.
     """
     table = Table(_sample_table()[[0, 1, 1, 2]])
     table["nss_solution_type"] = ["Orbital", "Orbital", "SB1", "Orbital"]
     table["period"] = [100.0, 200.0, 0.62, 50.0]
+    return table
+
+
+def _same_type_period_aliased_table() -> Table:
+    """source_id 1002 carries two period-aliased ``Orbital`` solutions (#241).
+
+    Empirically zero on the real uncut snapshot
+    (``docs/multi_solution_characterization/REPORT.md``), but the classifier must not
+    assume the phenomenon is structurally impossible — this is the synthetic
+    regression case for that sub-path.
+    """
+    table = Table(_sample_table()[[0, 1, 1, 2]])
+    table["nss_solution_type"] = ["Orbital", "Orbital", "Orbital", "Orbital"]
+    table["period"] = [100.0, 200.0, 400.0, 50.0]
+    return table
+
+
+def _cross_match_fanout_table() -> Table:
+    """source_id 1002 carries the genuine cross-match fan-out signature (#221/PR #240).
+
+    Identical ``nss_solution_type`` AND identical ``period`` for both rows — the
+    ~0.1% real-snapshot case that differs only in cross-matched external photometry
+    (2MASS ``J_mag`` here). This shape has no resolution logic yet and must keep
+    raising ``DuplicateSourceIdError``.
+    """
+    table = Table(_sample_table()[[0, 1, 1, 2]])
+    table["nss_solution_type"] = ["Orbital", "Orbital", "Orbital", "Orbital"]
+    table["period"] = [100.0, 200.0, 200.0, 50.0]
+    table["J_mag"] = [11.0, 12.0, 12.5, 10.5]
     return table
 
 
@@ -566,14 +601,87 @@ def _snapshot_meta(tmp_path: Path, *, row_count: int) -> SnapshotMeta:
     )
 
 
-def test_assert_unique_source_ids_names_stage_count_and_example() -> None:
+def test_classify_duplicate_source_id_group_distinguishes_the_three_shapes() -> None:
+    from darkhunter_pop.data_acquisition import classify_duplicate_source_id_group
+
+    dr = _dr_config()
+
+    cross_type = [
+        c
+        for c in table_to_candidates(_cross_type_multi_solution_table(), dr)
+        if c.source_id == 1002
+    ]
+    assert classify_duplicate_source_id_group(cross_type) == "cross_type"
+
+    same_type = [
+        c
+        for c in table_to_candidates(_same_type_period_aliased_table(), dr)
+        if c.source_id == 1002
+    ]
+    assert classify_duplicate_source_id_group(same_type) == "same_type_period_aliased"
+
+    fanout = [
+        c
+        for c in table_to_candidates(_cross_match_fanout_table(), dr)
+        if c.source_id == 1002
+    ]
+    assert classify_duplicate_source_id_group(fanout) == "fanout"
+
+
+def test_assert_unique_source_ids_keeps_and_tags_cross_type_multi_solution() -> None:
+    """Cross-type multi-solution (#241): kept, tagged, not raised, not merged."""
+    from darkhunter_pop.data_acquisition import assert_unique_source_ids
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_cross_type_multi_solution_table(), dr)
+    counts = assert_unique_source_ids(candidates)
+    assert counts.cross_type == 1
+    assert counts.same_type_period_aliased == 0
+    assert counts.both == 0
+    assert counts.total_kept == 1
+
+    # No row was merged, dropped, or reordered: source_id 1002 still has exactly two
+    # records, one per Gaia row, each carrying only that row's own fields.
+    dup = [c for c in candidates if c.source_id == 1002]
+    assert len(dup) == 2
+    types = {c.nss_solution_type for c in dup}
+    assert types == {"Orbital", "SB1"}
+    orbital_row = next(c for c in dup if c.nss_solution_type == "Orbital")
+    sb1_row = next(c for c in dup if c.nss_solution_type == "SB1")
+    assert orbital_row.nss_orbital["period"] == pytest.approx(200.0)
+    assert sb1_row.nss_orbital["period"] == pytest.approx(0.62)
+    # Every other candidate is untouched.
+    assert {c.source_id for c in candidates} == {1001, 1002, 1003}
+
+
+def test_assert_unique_source_ids_keeps_and_tags_same_type_period_aliasing() -> None:
+    """Same-type/period-aliased multi-solution (#241): kept, tagged, not raised."""
+    from darkhunter_pop.data_acquisition import assert_unique_source_ids
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_same_type_period_aliased_table(), dr)
+    counts = assert_unique_source_ids(candidates)
+    assert counts.cross_type == 0
+    assert counts.same_type_period_aliased == 1
+    assert counts.both == 0
+    assert counts.total_kept == 1
+
+    dup = [c for c in candidates if c.source_id == 1002]
+    assert len(dup) == 2
+    assert all(c.nss_solution_type == "Orbital" for c in dup)
+    periods = {c.nss_orbital["period"] for c in dup}
+    assert periods == {200.0, 400.0}
+
+
+def test_assert_unique_source_ids_still_refuses_genuine_fanout() -> None:
+    """Cross-match fan-out (#221/PR #240) has no resolution logic yet — still a hard stop."""
     from darkhunter_pop.data_acquisition import (
         DuplicateSourceIdError,
         assert_unique_source_ids,
     )
 
     dr = _dr_config()
-    candidates = table_to_candidates(_duplicate_solution_table(), dr)
+    candidates = table_to_candidates(_cross_match_fanout_table(), dr)
     with pytest.raises(DuplicateSourceIdError) as excinfo:
         assert_unique_source_ids(candidates)
     error = excinfo.value
@@ -587,11 +695,12 @@ def test_assert_unique_source_ids_names_stage_count_and_example() -> None:
     assert "1002" in message
 
     # A unique table passes silently, and so does an empty one.
-    assert_unique_source_ids(table_to_candidates(_sample_table(), dr)) is None
-    assert_unique_source_ids([]) is None
+    empty_counts = assert_unique_source_ids(table_to_candidates(_sample_table(), dr))
+    assert empty_counts.total_kept == 0
+    assert assert_unique_source_ids([]).total_kept == 0
 
 
-def test_write_stage_hdf5_refuses_duplicates_before_writing_bytes(
+def test_write_stage_hdf5_refuses_genuine_fanout_before_writing_bytes(
     tmp_path: Path,
 ) -> None:
     """#221: the refusal must land before a single HDF5 byte reaches disk."""
@@ -602,7 +711,7 @@ def test_write_stage_hdf5_refuses_duplicates_before_writing_bytes(
     )
 
     dr = _dr_config()
-    candidates = table_to_candidates(_duplicate_solution_table(), dr)
+    candidates = table_to_candidates(_cross_match_fanout_table(), dr)
     diagnostics = compute_stage_diagnostics(
         candidates,
         funnel=FunnelCounts(queried=4, after_quality_cut=4, candidates_written=4),
@@ -619,6 +728,51 @@ def test_write_stage_hdf5_refuses_duplicates_before_writing_bytes(
     # Zero bytes on disk: neither the artifact nor a .partial sibling.
     assert not artifact.exists()
     assert list(tmp_path.glob("stage.h5*")) == []
+
+
+def test_write_stage_hdf5_keeps_genuine_multi_solution_rows(tmp_path: Path) -> None:
+    """A genuine (cross-type) multi-solution duplicate must write successfully, with
+    both rows surviving the round-trip untouched — the positive counterpart to the
+    fan-out refusal test above."""
+    from darkhunter_pop.data_acquisition import (
+        FunnelCounts,
+        assert_unique_source_ids,
+        compute_stage_diagnostics,
+    )
+
+    dr = _dr_config()
+    candidates = table_to_candidates(_cross_type_multi_solution_table(), dr)
+    multi_solution = assert_unique_source_ids(candidates)
+    diagnostics = compute_stage_diagnostics(
+        candidates,
+        funnel=FunnelCounts(
+            queried=4,
+            after_quality_cut=4,
+            candidates_written=4,
+            multi_solution=multi_solution,
+        ),
+        quality_cut_bin_counts={"bin0": 4},
+    )
+    artifact = tmp_path / "stage.h5"
+    write_stage_hdf5(
+        artifact,
+        candidates,
+        snapshot=_snapshot_meta(tmp_path, row_count=4),
+        diagnostics=diagnostics,
+    )
+    assert artifact.is_file()
+    loaded, meta_attrs = read_stage_hdf5(artifact)
+    assert sorted(c.source_id for c in loaded) == [1001, 1002, 1002, 1003]
+    dup = [c for c in loaded if c.source_id == 1002]
+    assert {c.nss_solution_type for c in dup} == {"Orbital", "SB1"}
+
+    import h5py
+
+    with h5py.File(artifact, "r") as handle:
+        funnel_attrs = handle["diagnostics"].attrs
+        assert funnel_attrs["multi_solution_cross_type"] == 1
+        assert funnel_attrs["multi_solution_same_type_period_aliased"] == 0
+        assert funnel_attrs["multi_solution_kept_total"] == 1
 
 
 def test_write_stage_hdf5_leaves_no_partial_on_failure(tmp_path: Path) -> None:
