@@ -169,9 +169,47 @@ reviewed.
   automatic merge: on the uncut parent snapshot 5,926 of 5,932 duplicated `source_id`s are *distinct
   NSS orbital solutions for one source* (differing `nss_solution_type` / `period` / `eccentricity`),
   not cross-match fan-out, and merging cells across them fabricates orbits that exist in no Gaia row
-  (issue #221; PR #238 reverted by PR #239). Which solution the pipeline keeps, and whether such a
-  source counts once or twice in a literature parent sample, is an **open decision** — issues #231
-  and #237. Until it is answered, no row-collapsing logic exists.
+  (issue #221; PR #238 reverted by PR #239). The remaining 6 groups (0.1%) are genuine cross-match
+  fan-out (same `nss_solution_type`, same `period`, differing 2MASS photometry) and are kept
+  conceptually separate from the multi-solution case below. **Resolved (`CONTINUATION_PLAN.md` §15
+  Q17, 2026-09-24, Ryan Foley; issues #237/#231): multi-solution sources are real and must be
+  tagged, never merged or collapsed.** `assert_unique_source_ids`'s current fail-fast behavior over
+  genuine multi-solution duplicates is a placeholder pending the tag-and-keep implementation, not
+  the final design — see "Multi-solution sources" immediately below.
+
+#### Multi-solution sources (real, not a bug — §15 Q17 resolved)
+
+Gaia's NSS pipeline sometimes publishes more than one row for the same `source_id` because it runs
+multiple independent solution families and more than one passes its internal quality gates. This is
+distinct from, and far more common than, the 6-group cross-match fan-out above. Two sub-cases, both
+real and both in scope:
+
+1. **Cross-type multiplicity** — different `nss_solution_type` families for the same source (e.g.
+   an `Orbital` astrometric row *and* a separate `SB1`/`AstroSpectroSB1` RV row). Different
+   observable channels on the same physical system, not competing fits of the same thing.
+2. **Same-type multiplicity (period aliasing)** — more than one `Orbital`-type solution with
+   different (aliased) periods for the same source: genuine period-aliasing ambiguity in the
+   astrometric-only solution, competing fits of the same channel.
+
+**Ruling (verbatim, Ryan Foley, 2026-09-24):** "the simulations should match each sample, including
+duplicates" and, confirming this covers period-aliasing too, "the multiple Orbital solutions should
+also be reproduced." Binding consequences for downstream design:
+
+- `data_acquisition.py` must **tag, never merge or collapse**, genuine multi-solution rows — each
+  row is kept in the output and carries its own `nss_solution_type`; the 6 genuine cross-match
+  fan-out cases stay handled by their own existing/planned logic, unaffected by this ruling.
+- `forward_model.py`'s `selection_function_astrometric` **and** `selection_function_followup` must
+  reproduce the **empirical multi-solution emission rate** — both cross-type and same-type/period-
+  aliasing — so a simulated system can emit more than one solution-type row at the rate real systems
+  do.
+- A source counts however many rows the real (and correspondingly the mock) selection process
+  actually produces for it — never idealized to always-one or always-two — so real and simulated
+  catalogs are counted the same way when compared in the likelihood.
+- `population_model.py` / `inference.py` must count a multi-row system consistently on both sides of
+  the real-vs-mock comparison so multiplicity is never double-weighted.
+
+This domain decision is authoritative and not to be second-guessed in a coding session; see
+`docs/CONTINUATION_PLAN.md` §15 Q17 for the full record.
 - Quality cut: goodness-of-fit vs. magnitude, configurable as **N separate (magnitude, threshold)
   bins** (El-Badry et al. 2023's <5/G>13, <10/G≤13 as the v1 default values; the mechanism
   supports arbitrary bin counts, since DR4 may need a different scheme).
@@ -303,6 +341,12 @@ later without restructuring anything else.
 - **Acceleration/jerk catalogs**: matched at the broad population/aggregate level only, using the
   same cascade to forward-model which systems land in which solution type. Doubles as the
   RV-follow-up target list. Tracked in a separate pending pool, promotable once resolved.
+- **Multi-solution emission (§15 Q17 resolved)**: a simulated system is not restricted to emitting
+  a single solution-type row. Both cross-type multiplicity (e.g. `Orbital` + `SB1` for the same
+  mock source) and same-type/period-aliasing multiplicity (more than one mock `Orbital` solution
+  at different periods) must be reproduced at the empirically measured real rate — see
+  "Multi-solution sources" under `data_acquisition` (§4) — so real and mock catalogs are counted
+  the same way when compared in the likelihood.
 
 ### `selection_function_followup`
 
@@ -324,6 +368,10 @@ follow-up time span, not by mechanistically modeling the adaptive stopping rule.
   frequently-edited sheet; spot-check against the UI's version-history panel where it matters.
   Going forward, this stage also takes a **weekly snapshot** of the sheet's current state into this
   project's own archive, so future reconstruction doesn't depend on Google's revision retention.
+- **Multi-solution emission (§15 Q17 resolved)**: applies here identically to
+  `selection_function_astrometric` above — a mock system's follow-up-triggered rows must reproduce
+  the real multi-solution emission rate (cross-type and same-type/period-aliasing) rather than
+  assuming one row per system.
 
 ### `population_model`
 

@@ -21,6 +21,18 @@ account, including #221 (a real correctness bug needing Ryan's data-model decisi
 and the quarantined snapshot's still-open disposition. **Wave A is not dispatched until the
 operator approves Gate 0.**
 
+**Status update, 2026-09-24:** the multi-solution `source_id` domain question raised by wA-01
+(#231) and escalated as #237 is **resolved** — Ryan Foley ruled that multi-solution sources
+(cross-`nss_solution_type` and same-type/period-aliasing duplicates alike) are real, must be
+tagged rather than merged or collapsed in `data_acquisition.py`, and must be reproduced at their
+empirical rate by the mock forward model (`selection_function_astrometric` and
+`selection_function_followup`) so real and simulated catalogs count consistently in the
+likelihood. Recorded in `docs/CONTINUATION_PLAN.md` §15 Q17 and `docs/ARCHITECTURE.md` §4
+("Multi-solution sources"). Implementation is now unblocked: four new issues track (a)
+characterizing the real multi-solution rate, (b) the `data_acquisition.py` tag-and-keep change,
+(c) the `forward_model.py` multiplicity-emission model, and (d) the `population_model.py`/
+`inference.py` counting-consistency check, filed against umbrella #236.
+
 **Current authorized scope: Waves −1 through D, on the laptop only.** Waves E–H are planned below but **not
 authorized** — see §2.
 
