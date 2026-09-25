@@ -11,7 +11,7 @@ import json
 import math
 import os
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -92,6 +92,11 @@ _AP_PARAM_STEMS: tuple[str, ...] = (
     "mh_gspphot",
 )
 
+# Multi-solution classification (#241/#242; docs/ARCHITECTURE.md §4 "Multi-solution
+# sources"). Matches the prefix ``scripts/measure_multi_solution_rate.py`` uses to
+# identify the ``Orbital`` solution-type family for same-type/period-aliasing.
+ORBITAL_FAMILY_PREFIX = "Orbital"
+
 
 @dataclass(frozen=True)
 class SnapshotMeta:
@@ -107,6 +112,42 @@ class SnapshotMeta:
 
 
 @dataclass(frozen=True)
+class MultiSolutionCounts:
+    """Per-sub-case counts of genuine multi-solution ``source_id``\\ s kept (issue #242).
+
+    Vocabulary matches issue #241's empirical measurement (``docs/multi_solution_characterization/REPORT.md``):
+    **cross-type** (distinct ``nss_solution_type`` families co-occurring for one source,
+    e.g. an ``Orbital`` row and an ``SB1`` row) and **same-type/period-aliased** (more
+    than one ``Orbital``-family solution at differing periods for one source). A single
+    ``source_id`` group can exhibit both sub-cases at once (a 3+-row group), counted in
+    ``both`` as well as in each of the two counts above — ``both`` is informational, not
+    an additional row count, mirroring ``measure_multi_solution_rate.py``'s
+    ``both_groups``.
+
+    This dataclass counts *kept* ``source_id``\\ s only — the 6 genuine cross-match
+    fan-out groups (#221/PR #240) and any duplicate shape this classifier does not
+    recognize are refused by ``assert_unique_source_ids`` and never reach here.
+    """
+
+    cross_type: int = 0
+    same_type_period_aliased: int = 0
+    both: int = 0
+
+    @property
+    def total_kept(self) -> int:
+        """Distinct kept source_ids, correcting for ``both``-counted overlap."""
+        return self.cross_type + self.same_type_period_aliased - self.both
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "multi_solution_cross_type": self.cross_type,
+            "multi_solution_same_type_period_aliased": self.same_type_period_aliased,
+            "multi_solution_both": self.both,
+            "multi_solution_kept_total": self.total_kept,
+        }
+
+
+@dataclass(frozen=True)
 class FunnelCounts:
     """Row counts at each data_acquisition filtering step."""
 
@@ -115,38 +156,50 @@ class FunnelCounts:
     candidates_written: int
     covariance_ok: int = 0
     covariance_failed: int = 0
+    multi_solution: MultiSolutionCounts = field(default_factory=MultiSolutionCounts)
 
     def as_dict(self) -> dict[str, int]:
-        return {
+        counts = {
             "queried": self.queried,
             "after_quality_cut": self.after_quality_cut,
             "candidates_written": self.candidates_written,
             "covariance_ok": self.covariance_ok,
             "covariance_failed": self.covariance_failed,
         }
+        counts.update(self.multi_solution.as_dict())
+        return counts
 
 
 class DuplicateSourceIdError(ValueError):
-    """Raised when a stage is about to persist more than one record per ``source_id``.
+    """Raised when a stage is about to persist a duplicate ``source_id`` group that is
+    not a recognized-safe genuine multi-solution shape.
 
     Carries the stage name, the duplicate count and one example ``source_id`` so the
     failure is self-explanatory at the top of a traceback rather than surfacing as an
     opaque h5py naming collision deep inside the per-source covariance write (#221).
 
-    This is a **hard stop, not a repair**: no row-merging or solution-selection logic
-    is authorized while #231's collapse redesign is open, because the duplicates are
-    overwhelmingly *distinct NSS orbital solutions for one source*, not cross-match
-    fan-out, and merging across them fabricates orbits (see the revert of PR #238 in
-    PR #239).
+    Narrower than PR #240's original blanket refusal (#237/#241/#242,
+    ``docs/ARCHITECTURE.md`` §4 "Multi-solution sources"): genuine multi-solution
+    duplicates — distinct ``nss_solution_type`` families for one source, or more than
+    one period-aliased ``Orbital``-family solution — are *not* raised as this error
+    any more; they are real and are tagged and kept unmodified. This error now fires
+    only for (a) the cross-match fan-out signature (identical ``nss_solution_type``
+    AND identical ``period`` across every row in the group — #221, PR #240), which has
+    no resolution logic yet, and (b) any other duplicate shape this classifier does
+    not recognize as one of the two known-safe multi-solution sub-cases. Either way
+    this is still a **hard stop, not a repair**: no row-merging or solution-selection
+    logic is authorized (see the revert of PR #238 in PR #239).
 
     Parameters
     ----------
     stage:
         Registered stage name that was about to write.
     duplicate_source_ids:
-        Number of distinct ``source_id`` values carried by more than one record.
+        Number of distinct ``source_id`` values *refused* (fan-out or unrecognized —
+        excludes genuine multi-solution groups, which are not an error).
     duplicate_records:
-        Redundant record count over the duplicated groups (records minus groups).
+        Redundant record count over the refused duplicated groups (records minus
+        groups).
     example_source_id, example_multiplicity:
         One offending ``source_id`` and how many records carry it, so an operator can
         go straight to a concrete row.
@@ -168,27 +221,131 @@ class DuplicateSourceIdError(ValueError):
         self.example_multiplicity = example_multiplicity
         super().__init__(
             f"stage {stage!r}: refusing to write — {duplicate_source_ids} source_id(s) "
-            f"appear on more than one record ({duplicate_records} redundant record(s)); "
+            f"appear on more than one record ({duplicate_records} redundant record(s)) "
+            "in a duplicate shape that is neither the cross-match fan-out signature "
+            "(identical nss_solution_type and period, #221) nor a recognized genuine "
+            "multi-solution shape (distinct nss_solution_type families, or multiple "
+            "period-aliased Orbital solutions, #241/#242); "
             f"example source_id {example_source_id} appears {example_multiplicity} "
             "times. source_id is unique per object, so these records cannot all be "
-            "written. Gaia publishes more than one NSS orbital solution for some "
-            "sources; which solution the pipeline should keep is an open decision "
-            "(issues #221, #231, #237), so nothing is merged automatically."
+            "written as-is. Fan-out resolution has no logic yet; an unrecognized shape "
+            "is not proven safe to keep, so nothing is merged automatically."
         )
+
+
+def _duplicate_group_period(candidate: CandidateRecord) -> float | None:
+    """``nss_orbital['period']`` as a float, or ``None`` when absent (never NaN-coerced)."""
+    value = candidate.nss_orbital.get("period")
+    if value is None:
+        return None
+    return float(value)
+
+
+def _is_cross_match_fanout(records: Sequence[CandidateRecord]) -> bool:
+    """Identical ``nss_solution_type`` AND identical ``period`` across every row.
+
+    The #221/PR #240 cross-match fan-out signature (differing only in cross-matched
+    external photometry, e.g. 2MASS) — measured at 6 groups on the uncut parent
+    snapshot (#241). Mirrors ``scripts/measure_multi_solution_rate.py``'s
+    ``SourceGroup.is_fanout``.
+    """
+    if len(records) < 2:
+        return False
+    types = {r.nss_solution_type for r in records}
+    if len(types) != 1:
+        return False
+    periods = [_duplicate_group_period(r) for r in records]
+    if any(p is None for p in periods):
+        return False
+    return len(set(periods)) == 1
+
+
+def _is_cross_type_multi_solution(records: Sequence[CandidateRecord]) -> bool:
+    """Distinct ``nss_solution_type`` families co-occurring for one ``source_id`` (#241)."""
+    return len({r.nss_solution_type for r in records}) > 1
+
+
+def _is_same_type_period_aliased(records: Sequence[CandidateRecord]) -> bool:
+    """More than one ``Orbital``-family solution at differing periods for one source (#241).
+
+    Conservative by construction: any ``Orbital``-family row missing a ``period``
+    makes this indeterminate rather than a guessed positive, so such a group falls
+    through to the "unrecognized shape" refusal in ``assert_unique_source_ids``
+    instead of being silently classified either way.
+    """
+    orbital_rows = [
+        r for r in records if (r.nss_solution_type or "").startswith(ORBITAL_FAMILY_PREFIX)
+    ]
+    if len(orbital_rows) < 2:
+        return False
+    periods = [_duplicate_group_period(r) for r in orbital_rows]
+    if any(p is None for p in periods):
+        return False
+    return len(set(periods)) > 1
+
+
+def classify_duplicate_source_id_group(records: Sequence[CandidateRecord]) -> str:
+    """Classify one ``source_id``'s duplicate records (#241/#242).
+
+    Returns one of:
+
+    - ``"fanout"``: the #221/PR #240 cross-match fan-out signature. Still refused —
+      no resolution logic exists yet.
+    - ``"cross_type"``: distinct ``nss_solution_type`` families. Genuine multi-solution;
+      kept.
+    - ``"same_type_period_aliased"``: more than one period-aliased ``Orbital``-family
+      solution. Genuine multi-solution; kept.
+    - ``"both"``: a group exhibiting both sub-cases at once (a 3+-row group). Kept.
+    - ``"unresolved"``: matches none of the above (e.g. a period missing from every
+      ``Orbital``-family row in the group). Refused, conservatively, like ``"fanout"``.
+
+    Never called for a non-duplicated ``source_id`` (``len(records) <= 1``); callers
+    are expected to have already grouped and filtered to groups of size > 1.
+    """
+    if _is_cross_match_fanout(records):
+        return "fanout"
+    is_cross_type = _is_cross_type_multi_solution(records)
+    is_same_type = _is_same_type_period_aliased(records)
+    if is_cross_type and is_same_type:
+        return "both"
+    if is_cross_type:
+        return "cross_type"
+    if is_same_type:
+        return "same_type_period_aliased"
+    return "unresolved"
 
 
 def assert_unique_source_ids(
     candidates: Sequence[CandidateRecord],
     *,
     stage: str = "data_acquisition",
-) -> None:
-    """Fail fast when ``candidates`` carry a repeated ``source_id``.
+) -> MultiSolutionCounts:
+    """Classify duplicated ``source_id``\\ s and refuse only the unsafe shapes.
 
-    Called before a single HDF5 byte is written. Without it the collision only
-    surfaces deep inside the per-source covariance-matrix write, as an opaque h5py
-    "name already exists" naming neither the stage nor the ``source_id`` — and only
-    for duplicates that happen to have a reconstructable ``nss_solution``; the rest
-    passed through silently and inflated every downstream count (issue #221).
+    Genuine multi-solution duplicates (#237/#241/#242; ``docs/ARCHITECTURE.md`` §4
+    "Multi-solution sources") are **not** an error: Gaia's NSS pipeline legitimately
+    publishes more than one row for a single physical source — e.g. an ``Orbital``
+    astrometric solution *and* a separate ``SB1`` RV solution, or more than one
+    period-aliased ``Orbital`` solution. Both sub-cases are kept exactly as read, one
+    row per Gaia row, tagged by that row's own ``nss_solution_type`` (already a
+    ``CandidateRecord`` field). This function never merges, fills, copies, drops, or
+    reorders a field between records, and never picks a "preferred"/"base" row among
+    several for one ``source_id`` — every candidate passed in is preserved verbatim
+    and, if not refused, is eligible to be written as-is.
+
+    A duplicate group is still refused when ``classify_duplicate_source_id_group``
+    returns ``"fanout"`` (the #221/PR #240 cross-match fan-out signature — same
+    ``nss_solution_type`` and same ``period`` for every row in the group; no
+    resolution logic exists for it yet — #221 remains open and now scoped to exactly
+    this narrower 6-group case) or ``"unresolved"`` (any duplicate shape this
+    classifier does not recognize as one of the two known-safe multi-solution
+    sub-cases — refused for the same conservative reason PR #240 refused every
+    duplicate).
+
+    Called before a single HDF5 byte is written. Without it a refused collision would
+    otherwise only surface deep inside the per-source covariance-matrix write, as an
+    opaque h5py "name already exists" naming neither the stage nor the ``source_id``
+    (issue #221).
 
     Parameters
     ----------
@@ -197,32 +354,60 @@ def assert_unique_source_ids(
     stage:
         Registered stage name, reported in the error message.
 
+    Returns
+    -------
+    MultiSolutionCounts
+        Per-sub-case counts of the genuine multi-solution ``source_id``\\ s kept (for
+        the funnel report). All-zero when there are no duplicates.
+
     Raises
     ------
     DuplicateSourceIdError
-        Naming the stage, the duplicate count and one example ``source_id``. The
-        example is the smallest duplicated ``source_id``, so the message is
-        deterministic across runs.
+        Naming the stage, the count of *refused* (fan-out or unresolved) duplicate
+        ``source_id``\\ s, and one example. The example is the smallest refused
+        ``source_id``, so the message is deterministic across runs. Genuine
+        multi-solution duplicates are excluded from this count entirely.
 
     Limitations
     -----------
-    Validation only — it never repairs, merges or drops records. Choosing among
-    several NSS orbital solutions for one source is deliberately out of scope
-    (#231, #237).
+    Classification and validation only — never repairs, merges, or drops records.
+    Real fan-out resolution logic does not exist yet; those duplicates keep raising
+    until issue #221 (narrowed to this 6-group case) designs it.
     """
-    seen: dict[int, int] = {}
+    groups: dict[int, list[CandidateRecord]] = {}
     for candidate in candidates:
-        seen[candidate.source_id] = seen.get(candidate.source_id, 0) + 1
-    duplicates = {sid: n for sid, n in seen.items() if n > 1}
-    if not duplicates:
-        return
-    example_source_id = min(duplicates)
-    raise DuplicateSourceIdError(
-        stage=stage,
-        duplicate_source_ids=len(duplicates),
-        duplicate_records=sum(duplicates.values()) - len(duplicates),
-        example_source_id=example_source_id,
-        example_multiplicity=duplicates[example_source_id],
+        groups.setdefault(candidate.source_id, []).append(candidate)
+
+    refused: dict[int, int] = {}
+    cross_type = 0
+    same_type_period_aliased = 0
+    both = 0
+    for source_id, records in groups.items():
+        if len(records) <= 1:
+            continue
+        classification = classify_duplicate_source_id_group(records)
+        if classification in ("fanout", "unresolved"):
+            refused[source_id] = len(records)
+        elif classification == "cross_type":
+            cross_type += 1
+        elif classification == "same_type_period_aliased":
+            same_type_period_aliased += 1
+        elif classification == "both":
+            both += 1
+
+    if refused:
+        example_source_id = min(refused)
+        raise DuplicateSourceIdError(
+            stage=stage,
+            duplicate_source_ids=len(refused),
+            duplicate_records=sum(refused.values()) - len(refused),
+            example_source_id=example_source_id,
+            example_multiplicity=refused[example_source_id],
+        )
+    return MultiSolutionCounts(
+        cross_type=cross_type,
+        same_type_period_aliased=same_type_period_aliased,
+        both=both,
     )
 
 
@@ -1346,16 +1531,20 @@ def write_stage_hdf5(
 ) -> None:
     """Write one stage HDF5 under ``paths.artifact_root``.
 
-    Validates ``source_id`` uniqueness **before** opening any file, and writes through
-    a ``.partial`` sibling that is renamed onto ``path`` only on success, so a
-    mid-write failure never leaves a truncated artifact where ``plan_stage`` could
-    read it as a cache hit (issue #221).
+    Classifies duplicated ``source_id``\\ s and refuses unsafe shapes **before**
+    opening any file (``assert_unique_source_ids``, #241/#242); genuine multi-solution
+    duplicates are not unsafe and are written through unmodified. Writes through a
+    ``.partial`` sibling that is renamed onto ``path`` only on success, so a mid-write
+    failure never leaves a truncated artifact where ``plan_stage`` could read it as a
+    cache hit (issue #221).
 
     Raises
     ------
     DuplicateSourceIdError
-        When ``candidates`` repeat a ``source_id``. Nothing is written — neither the
-        artifact nor a ``.partial`` sibling.
+        When ``candidates`` carry a duplicate ``source_id`` group that is not a
+        recognized genuine multi-solution shape (cross-match fan-out, or any other
+        unrecognized duplicate pattern). Nothing is written — neither the artifact nor
+        a ``.partial`` sibling.
 
     Limitations
     -----------
@@ -1461,16 +1650,31 @@ def _write_stage_hdf5_body(
             data=np.array([c.source_id for c in usable], dtype=np.int64),
         )
         matrices = cov_grp.create_group("matrices")
+        # A genuine multi-solution source_id (#241/#242) can carry more than one
+        # usable nss_solution (e.g. an Orbital row and an SB1 row both reconstruct).
+        # str(source_id) alone is no longer guaranteed unique, so the 2nd+ occurrence
+        # of one source_id gets a "__<occurrence index>" suffix; the first/only
+        # occurrence keeps the plain str(source_id) key unchanged, so single-solution
+        # sources (still the overwhelming majority) round-trip through the same key
+        # as before this change. The dataset's own "source_id" / "nss_solution_type"
+        # attrs disambiguate without relying on the key's shape.
+        occurrence: dict[int, int] = {}
         for candidate in usable:
             assert candidate.nss_solution is not None
+            sid = candidate.source_id
+            index = occurrence.get(sid, 0)
+            occurrence[sid] = index + 1
+            key = str(sid) if index == 0 else f"{sid}__{index}"
             ds = matrices.create_dataset(
-                str(candidate.source_id),
+                key,
                 data=candidate.nss_solution.covariance_array(),
             )
             ds.attrs["names"] = np.array(
                 candidate.nss_solution.names, dtype=h5py.string_dtype("utf-8")
             )
             ds.attrs["provenance"] = candidate.nss_solution.provenance
+            ds.attrs["source_id"] = sid
+            ds.attrs["nss_solution_type"] = candidate.nss_solution_type or ""
 
         spec_cfg = spectroscopic if spectroscopic is not None else SpectroscopicMassFunctionConfig()
         sb1 = [
@@ -1609,6 +1813,11 @@ def run_data_acquisition(
         filtered, dr, spectroscopic=config.spectroscopic_mass_function
     )
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
+    # Classifies duplicate source_ids (#241/#242) and refuses any unsafe shape here,
+    # before diagnostics are even built, so the funnel report carries the real kept
+    # counts; write_stage_hdf5 below re-runs the same (read-only, idempotent) check
+    # immediately before writing any byte, per its own fail-fast contract.
+    multi_solution = assert_unique_source_ids(candidates, stage="data_acquisition")
     cov_health = _health_from_candidates(candidates)
     funnel = FunnelCounts(
         queried=len(raw_table),
@@ -1616,6 +1825,7 @@ def run_data_acquisition(
         candidates_written=len(candidates),
         covariance_ok=cov_health.ok,
         covariance_failed=cov_health.failed,
+        multi_solution=multi_solution,
     )
     diagnostics = compute_stage_diagnostics(
         candidates,
