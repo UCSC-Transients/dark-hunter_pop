@@ -202,13 +202,13 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 |-------|--------|----------------------|------------------------|------|
 | Published union | 227 | inflated (astro-dominated) | **1085** | FAIL |
 | Astrometric branch union | 76 | 913 | **913** | FAIL |
-| Spectroscopic branch | 151 | 123 | **123** | FAIL — after the K1 bind; `mass_route` / MS / `m2_min` |
+| Spectroscopic branch | 151 | 123 | **123** | FAIL — no code bug found; binding matches spec exactly (§3.3.2). Same unfixed extinction mechanism as `primary_ns_bh` (#133/#258) — Combined19 diagnostic (non-landed) closes the gap: 123→154 |
 | `primary_ns_bh` | 47 | 42 | **42** | FAIL — **#133**, extinction / `a0` (nsstools vs Thiele–Innes) |
 | `elbadry2023_table_e1` | 5 | 5 | **5** | **OK** — exact match holds |
 | `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** (re-confirmed `63c6f53`, #198) | FAIL until Andrews and Q9 close |
 | `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
-| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL |
-| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4 |
+| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL — Combined19 diagnostic (non-landed, §3.3.2): 141 / 30 / 17 |
+| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4. Re-check attempted under #234 with `primary_ns_bh`-only membership (incomplete methodology — see §3.3.2); full-union re-measurement not completed this session |
 
 `primary_ns_bh` attrition:
 
@@ -281,6 +281,82 @@ real `+enrich+mc10000` cache and re-ran `SampleSelectionRegistry.evaluate_all`:
 worse), not a drop-in fix — #258 escalates the actual decision (acquire the real maps once disk
 space allows vs. accept a documented, schema-bumped approximation vs. treat `sub_chandrasekhar` as
 a separately-rooted problem) rather than guessing at it here.
+
+### 3.3.2 Spectroscopic-branch binding audit (#234) — no code bug found, same root cause as #133/#258
+
+**Traced the full `mass_route`/main-sequence/`m2_min` chain at `main` @ `31ad1f2`, against the same
+`+enrich+mc10000` cache, isolating just the spectroscopic branch's own cuts (bypassing the expensive
+astrometric `σ_M̃2` MC entirely — `_evaluate_and_chain` on `spectroscopic`'s two cuts only).
+Re-confirms the baseline exactly**: `181534 → 133642 (k1_significance) → 123 (mass_route, 84090 N/A)`,
+routes `98 / 30 / 5`.
+
+**Checked against `docs/CONTINUATION_PLAN.md` §8.4 line by line — implementation matches the documented
+spec exactly, no divergence found:**
+
+- `k1_significance`: cut expression `k1_significance > 10.0` where `k1_significance = K1 / σ_K1`
+  (`elbadry2026_selection.enrich_elbadry2026_row`, `nss.semi_amplitude_primary` /
+  `semi_amplitude_primary_error`) — this **is** the documented formula (`CONTINUATION_PLAN.md:1240`),
+  not a shortcut around Gaia's own `nss.significance` column; ruled that alias out as a bug candidate.
+- `mass_route`: `fm_msun > 3.0 or (main_sequence == True and m2_min_msun > 1.4 and m2_min_msun >
+  m1_tilde_msun)` — bit-for-bit the documented disjunction (`CONTINUATION_PLAN.md:1241`). The
+  `second_route_requires_main_sequence` cut parameter is unused dead config (the `main_sequence ==
+  True` term inside the expression already enforces it) — harmless, not a correctness bug.
+- The declarative AST evaluator's `or`/`and` short-circuiting (`sample_selection._eval_boolop`) was
+  checked directly: a route that evaluates `True` short-circuits before the other route's
+  `NotApplicable` (e.g. `m2_min_msun`) can propagate out, so an evolved source with `fm_msun > 3.0`
+  correctly passes without spuriously going N/A. Confirmed by direct read of `_eval_boolop` /
+  `_eval_node`, not just by the aggregate count matching.
+
+**Root cause of the 123-vs-151 gap: entirely the same extinction mechanism #232/#258 already
+diagnosed for `primary_ns_bh`, not an independent spectroscopic-branch bug.** `main_sequence` (and
+therefore `m1_tilde_msun`, and therefore the whole `main_sequence_min_companion_mass` route) is
+computed from `mg_0`/`bp_rp_0`, which `sample_selection.candidate_to_selection_row` aliases verbatim
+from raw `abs_g_mag`/`bp_rp` with **zero** dereddening applied — the identical dead `ExtinctionSpec`
+path #232 found for the astrometric branch. Per this issue's instructions, **the extinction mechanism
+itself was not touched** (blocked on #258, a pending human decision) — only measured.
+
+**Diagnostic-only measurement (not a claimed fix, not landed), `main` @ `31ad1f2`**, following #232's
+`mwdust.Combined19` methodology exactly (all-sky, declination-unaware substitute for the frozen
+Green2019/Lallement2019 split — **not paper-faithful**, same caveat as §3.3.1): dereddened
+`mg_0 = mg_0_raw − 2.66·E(B−V)`, `bp_rp_0 = bp_rp_0_raw − 1.33·E(B−V)` (the frozen `elbadry2026.yaml`
+coefficients) for all 181,342/181,534 SB1/SB1C rows with a positive parallax, using galactic
+`(l, b, d)` from the real cache's `ra_deg`/`dec_deg`/`parallax_mas`, then re-ran the spectroscopic
+branch's own two cuts (no other code path touched):
+
+| Check | Target | Baseline (`main`, unextincted) | Combined19-dereddened (diagnostic) |
+|---|---:|---:|---:|
+| Spectroscopic branch survivors | 151 | 42 → **123** | **154** |
+| Route: main-sequence min-companion-mass | 136 | 98 | **141** |
+| Route: `f_m > 3 M☉` | 30 | 30 | **30** (unaffected — no `main_sequence` dependence) |
+| Route: both | 15 | 5 | **17** |
+
+Arithmetic check holds both times: `98+30−5=123`, `141+30−17=154`. The `f_m > 3 M☉` route count is
+untouched by dereddening, exactly as expected since it has no `main_sequence`/`mg_0` dependence — a
+useful sanity check that the diagnostic isolated the right mechanism, mirroring §3.3.1's
+`elbadry2023_table_e1`/`andrews2022_import` null check for the astrometric branch.
+
+**Disposition, per this issue's decision rule: dereddening closes essentially the entire gap** (123→154
+against a target of 151 — it now *slightly overshoots*, consistent with Combined19 being an
+approximate all-sky stand-in for the frozen north/south split rather than the real thing). This is
+materially stronger evidence than `primary_ns_bh`'s ~80%-closure result in §3.3.1: for the
+spectroscopic branch, the diagnostic dereddening alone is sufficient to reach (and slightly exceed) the
+published count. **No spectroscopic-branch-specific code bug was found or fixed** — same disposition as
+§3.3.1: no source code changed, real fix stays blocked on #258's still-pending map-acquisition decision.
+
+**Simon 2026 exclusion breakdown re-check (§3.4) — attempted, informational only, incomplete.** A
+first pass fed `simon2026_exclusion_breakdown` only the dereddened `primary_ns_bh` subsample's
+survivors (reproducing `primary_ns_bh` = 46, consistent with §3.3.1) as `sample_ids`, which is **not**
+the right membership set — the previous 5/2/1/0 baseline (§3.4) was measured against the full
+`elbadry2026` sample union (astrometric ∪ spectroscopic, 1088 rows), not one subsample alone — and
+predictably came out worse (`astrometric_f2_above_max` 3 vs target 2, `unclassified` rose to 5) because
+several of the Simon table's 20 sources are only "in sample" via `sub_chandrasekhar` or the
+spectroscopic branch. A corrected re-run unioning dereddened `primary_ns_bh` ∪ `sub_chandrasekhar` ∪
+spectroscopic survivors (matching the original measurement's membership scope) was started but the
+`sub_chandrasekhar` leg's per-row NSS Monte Carlo (`σ_M̃2`, lazy full-covariance) did not finish within
+this session's time budget. **This diagnostic re-check is therefore left incomplete rather than
+reported speculatively** — whoever next has budget for a ~5–10 min `sub_chandrasekhar`-only MC run
+should redo the full-union version; the isolated-branch harness used here (bypassing `evaluate_all`'s
+25-minute full sweep) is fast enough to make that cheap once resumed.
 
 ### 3.4 Simon 2026 exclusion breakdown
 
@@ -360,7 +436,7 @@ different shape.
 | `sub_chandrasekhar` 740 | Andrews `σ` aliased into `sigma_m2_astrometric_msun` | Fixed; on `main` since `03a452a` |
 | `sub_chandrasekhar` 861 (current) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | **Not extinction** (#258: Combined19 diagnostic makes this worse, 861→1399) — look at `a0`/AMRF or #237's open multi-solution question instead |
 | `primary_ns_bh` 42 ≠ 47 | **Confirmed**: `ExtinctionSpec` parsed but never applied — `mg_0`/`bp_rp_0` are raw, un-dereddened `abs_g_mag`/`bp_rp` (dead code, not the `a0` method — Q7 already ruled that out). Combined19 diagnostic closes ~80% of the gap (42→46) | #133, #258; real fix needs Green2019/Lallement2019 map data, blocked on disk space — §3.3.1 |
-| Spectro 123 ≠ 151 | K1 is fine; downstream `mass_route` / MS / `m2_min` | Binding, not the Orbital MC |
+| Spectro 123 ≠ 151 | **Confirmed (#234)**: binding matches spec exactly (K1 sig + mass_route both bit-for-bit `CONTINUATION_PLAN.md` §8.4); the gap is the same undereddened `mg_0`/`bp_rp_0` → `main_sequence` chain as `primary_ns_bh`. Combined19 diagnostic closes it fully (123→154, target 151) | Same root cause as #133/#258; not a spectroscopic-branch-specific bug — §3.3.2 |
 | Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap via `mg_0`/`a0` chain — `1864406790238257536` wrongly `evolved` (unextincted `mg_0`), `3263804373319076480` wrongly clears `m2_over_m1` (AMRF `M̃2` ≈4x paper) | Same root cause as #133; fix there, not by editing `elbadry2026_selection.py` |
 
 **Column ownership** (strict — violating this is what produced the 740):
