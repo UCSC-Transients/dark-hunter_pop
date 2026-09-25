@@ -93,8 +93,10 @@ actually use the cluster before it's gone.
 Applies uniformly to `dark-hunter_pop`, `dark-hunter_rv`, `dark-hunter_sed`:
 
 1. Subagent works in its own worktree/branch.
-2. `[AI Checkpoint] <description>` micro-commits locally after each passing `pytest` run (local
-   use only, for `regression-hunter`; not pushed).
+2. `[AI Checkpoint] <description>` micro-commits after each passing `pytest` run, for
+   `regression-hunter`. **Superseded 2026-09-11:** these are now pushed and land on `main` inside the
+   PR's merge commit, so a later regression can be traced to a checkpoint rather than to a whole PR.
+   See `EXECUTION_PLAN.md` §5.6b, including the `git bisect --first-parent` convention.
 3. **Full local `pytest` pass required before opening a PR** (at least the required marker set).
 4. PR via `gh`: detailed description, links resolved issues ("Resolves #NN"), test checklist,
    requires GitHub CI green (`tests` = `unit or physics or api`).
@@ -117,6 +119,11 @@ covariance ingestion, SB1 reproduction/validation, shared spuriousness model, li
 integration) lives in `CONTINUATION_PLAN.md`, which extends both this document and
 `ARCHITECTURE.md`. Umbrella [#103](https://github.com/UCSC-Transients/dark-hunter_pop/issues/103);
 children #104–#113 (roster #17–#21, #23–#27). Roster #22 / accel_jerk remains blocked (§9).
+
+Phase 8 is landed; the planned rosters in this document are closed. Remaining work to a v1 science
+result and paper — roster #28+ — is planned in `EXECUTION_PLAN.md`, which is the only
+forward-looking plan. This document and `CONTINUATION_PLAN.md` remain the historical record and stay
+authoritative for the conventions they define.
 
 ## 8. Open items
 
