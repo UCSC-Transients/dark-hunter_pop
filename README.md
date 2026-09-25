@@ -10,7 +10,8 @@ layer). Entry point: `scripts/run_pipeline.py`. Design authority remains
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 [`docs/FOUNDATION_INTERFACE_FREEZE.md`](docs/FOUNDATION_INTERFACE_FREEZE.md), and
 [`docs/CONTINUATION_PLAN.md`](docs/CONTINUATION_PLAN.md) (Phase 8) — do not treat README
-prose as a substitute for those locked decisions.
+prose as a substitute for those locked decisions. Remaining work to a v1 result is planned in
+[`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md).
 
 ## Documentation index
 
@@ -22,6 +23,8 @@ prose as a substitute for those locked decisions.
 | [`docs/PLOTS.md`](docs/PLOTS.md) | Figure style guide + `plotting:` config defaults |
 | [`docs/GAIAMOCK_API.md`](docs/GAIAMOCK_API.md) | `gaiamock_mod` public API for science paths |
 | [`docs/CONTINUATION_PLAN.md`](docs/CONTINUATION_PLAN.md) | Phase 8+ selection-function / spuriousness spec + §14 prompts |
+| [`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md) | **Forward plan** — remaining work to a v1 result and paper |
+| [`docs/SELECTION_REPRODUCTION_STATUS.md`](docs/SELECTION_REPRODUCTION_STATUS.md) | Live status of the literature reproduction gates |
 | [`docs/PHASE1_KICKOFF.md`](docs/PHASE1_KICKOFF.md)–[`PHASE7_KICKOFF.md`](docs/PHASE7_KICKOFF.md) | Historical Agents Window paste prompts (per phase) |
 
 ## Related repositories
@@ -118,33 +121,8 @@ python scripts/purge_run.py runs/<run_id>.yaml
 ```
 
 Flags: `--config`, `--run-file`, `--force-rerun STAGE [STAGE ...]`, `--stages STAGE ...`,
-`--dry-run`, `--host-profile {laptop,ziggy,lux}`, `--list-stages`. Incomplete runs without
-`--run-file` print a table and exit nonzero
-([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §5).
-
-### Labeled dry run — plumbing check, not a science result
-
-`scripts/run_dry_run.py` runs all fourteen stages with every substitution **declared**, measures
-wall-clock and peak RSS per stage, and emits the `dN/dM`-by-class product figure:
-
-```bash
-python scripts/run_dry_run.py --host-profile laptop              # new dry run
-python scripts/run_dry_run.py --host-profile laptop --plan-only  # plan + stand-ins, no execution
-python scripts/run_dry_run.py --host-profile laptop --run-file runs/<run_id>.yaml  # resume
-```
-
-The run is tagged `dry_run: true` in its `runs/<run_id>.yaml` next to a `synthetic_stand_ins`
-block naming every substitution. That same list is printed in the run plan before any stage
-executes, and repeated in the report header and the figure caption.
-
-`data_acquisition` replays a local Gaia snapshot instead of querying the archive. **Which
-snapshot is never inferred when the choice is ambiguous**: two pristine snapshots are two
-different parent queries, and picking by recency silently changes every downstream count, so
-with more than one staged the harness lists them and exits. Pass `--snapshot <dir>/meta.yaml`
-explicitly; `--live-archive` opts out of replay entirely. Nothing such a run produces is a
-result — see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §5 and
-[`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md) §7.
+`--dry-run`, `--list-stages`. Incomplete runs without `--run-file` print a table and exit
+nonzero ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §5).
 
 ## Operator notes
 
