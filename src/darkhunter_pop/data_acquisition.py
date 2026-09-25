@@ -633,6 +633,38 @@ def build_nss_enrichment_adql(nss_table: str = "gaiadr3.nss_two_body_orbit") -> 
     )
 
 
+def build_flame_enrichment_adql(
+    nss_table: str = "gaiadr3.nss_two_body_orbit",
+    ap_table: str = "gaiadr3.astrophysical_parameters",
+) -> str:
+    """Gaia Apsis FLAME-mass-only ADQL supplement (#257, orthogonal to
+    :func:`build_nss_enrichment_adql`).
+
+    The Aug 2026 photometry snapshot and the existing NSS covariance
+    enrichment (``fetch_nss_enrichment.py``, a **completed, frozen** job —
+    see ``CLAUDE.md`` Gotchas) both predate Andrews et al. (2022)'s
+    ``flame_or_uniform_draw`` primary-mass method (#230), which needs
+    ``astrophysical_parameters.mass_flame``. Rather than re-running or
+    widening that frozen job, this is a second, independent lightweight
+    fetch merged in with the same :func:`merge_nss_enrichment_into_row` /
+    :func:`_enrichment_join_key` machinery. No photometry, no Thiele-Innes —
+    just the join key plus the three FLAME columns.
+    """
+    cols = [
+        "nss.source_id",
+        "nss.nss_solution_type",
+        "ap.mass_flame",
+        "ap.mass_flame_upper",
+        "ap.mass_flame_lower",
+    ]
+    return (
+        "SELECT\n  "
+        + ",\n  ".join(cols)
+        + f"\nFROM {nss_table} AS nss"
+        + f"\nLEFT JOIN {ap_table} AS ap ON nss.source_id = ap.source_id"
+    )
+
+
 def merge_nss_enrichment_into_row(
     base: Mapping[str, Any],
     enrichment: Mapping[str, Any],

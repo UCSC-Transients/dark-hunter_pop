@@ -116,12 +116,20 @@ def main(argv: list[str] | None = None) -> int:
 
     photo_id = "20260826T234425Z_3d3f740b080c"
     enrich_meta = repo_root() / "data/dr3/gaia_snapshots/nss_enrichment/meta.yaml"
-    enrich_cache = _selection_parent_cache_path(f"{photo_id}+enrich")
     if not enrich_meta.is_file():
         print("missing enrichment meta", file=sys.stderr)
         return 1
-    if not enrich_cache.is_file():
-        print(f"missing enrich cache {enrich_cache}", file=sys.stderr)
+    # Prefer the FLAME-merged cache (scripts/merge_flame_enrichment_into_cache.py,
+    # #257) when it exists; fall back to the plain +enrich cache otherwise (with
+    # the all-uniform-fallback warning below).
+    flame_cache = _selection_parent_cache_path(f"{photo_id}+enrich+flame")
+    plain_cache = _selection_parent_cache_path(f"{photo_id}+enrich")
+    if flame_cache.is_file():
+        enrich_cache = flame_cache
+    elif plain_cache.is_file():
+        enrich_cache = plain_cache
+    else:
+        print(f"missing enrich cache {plain_cache} (or {flame_cache})", file=sys.stderr)
         return 1
 
     print(f"loading {enrich_cache} …", flush=True)
