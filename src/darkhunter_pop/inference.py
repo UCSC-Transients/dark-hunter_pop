@@ -26,6 +26,35 @@ is true — SA never silently rewrites this module's defaults.
 Reproducibility: multi-run robustness protocol (independent seeds / live-point counts),
 **not** bitwise seed identity. Cluster recipe lives in ``config/fragments/inference.yaml``
 comments; CI keeps tiny ``nlive`` / ``maxcall``.
+
+Multi-row counting convention (issue #244, ARCHITECTURE.md §4 "Multi-solution sources"):
+a genuine multi-solution ``source_id`` (#242) can hand this stage more than one row from
+``population_model``'s ``system_weight_rows``. The convention chosen here is **each row is
+its own independent observation in the unbinned Poisson point-process likelihood** —
+:func:`collect_observed_events` builds one :class:`ObservedEvent` per row (never grouped or
+deduplicated by ``source_id``), and :func:`unbinned_log_likelihood` / ``physics_utils``'s
+``poisson_log_likelihood_inhomogeneous`` sum ``Σ_i log λ(x_i)`` with one term per event — so
+a 2-row system contributes 2 terms, matching the real catalog's row count and #243's mock
+emission model (which now draws a matching, variable number of rows per mock system). This
+was the pre-existing structure of ``collect_observed_events`` / the likelihood sum; #244
+audited it, confirmed it already implements this convention correctly end to end, and made
+the choice explicit rather than leaving it implicit. An alternative ("group by ``source_id``
+with an explicit multiplicity term") was considered and rejected: the likelihood is already
+expressed as a sum over discrete points in mass space, and Gaia's own NSS rows are the
+discrete observations of that process, so grouping would require inventing a new per-source
+aggregate weight with no natural mass value (rows for one source can carry different
+``m2_msun`` point estimates from different ``nss_solution_type`` fits) — grouping would
+either double-count mass information or throw it away, whereas per-row independence uses
+exactly the mass/weight information each row already carries.
+
+**Known gap, not fixed here (escalated to issue #252):** the astrometric/follow-up
+selection-function scalars (:func:`read_astrometric_sf_scalar`, :func:`read_followup_sf_scalar`)
+that set the Poisson intensity's normalization currently estimate ``P(>=1 row accepted)`` per
+mock system, not ``E[rows accepted]`` — so at today's small nonzero #241 multi-solution rate,
+``Λ`` is not yet symmetric with the real side's row count for classes where the mock emits
+>1 row. :func:`row_multiplicity_consistency_diagnostic` surfaces this gap (diagnostic-only,
+not folded into the likelihood); #252 tracks the statistical-modeling decision needed to fix
+it.
 """
 
 from __future__ import annotations
@@ -224,6 +253,16 @@ def collect_observed_events(
     The event weight is the compact-object responsibility sum (BH+NS+WD), optionally
     reweighted by the eccentricity hypothesis PDF and the circular⇒WD switch.
     Missing masses fall back to geometric-mean midpoints of the MF bins.
+
+    One :class:`ObservedEvent` is built per input row (issue #244 convention — see the
+    module docstring), so a multi-solution ``source_id`` with N kept rows yields N events,
+    each keeping that row's own mass/weight. ``eccentricities`` is keyed by ``source_id``
+    and is therefore only a **source-level fallback**: it cannot distinguish rows of the
+    same source. A row's own ``eccentricity`` field (set on ``system_weight_rows`` when
+    available) always takes precedence over this mapping, precisely so a per-row eccentricity
+    is not silently collapsed to one value per source when rows disagree; ``eccentricities``
+    should only be relied on for single-row systems or when every row of a multi-row system
+    genuinely shares one orbital solution's eccentricity.
     """
     edges = np.asarray(population_payload["bin_edges_msun"], dtype=np.float64)
     mids = np.sqrt(edges[:-1] * edges[1:])
@@ -289,6 +328,119 @@ def events_from_population_result(
     payload = dict(result.recommendation_payload())
     payload["system_weight_rows"] = rows
     return collect_observed_events(payload, cfg=cfg, eccentricities=eccentricities)
+
+
+# ---------------------------------------------------------------------------
+# Row-multiplicity counting-consistency diagnostic (issue #244)
+# ---------------------------------------------------------------------------
+
+
+def real_row_multiplicity_stats(
+    population_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Real-side rows-per-``source_id`` summary from ``population_model``'s rows.
+
+    Counts every row in ``system_weight_rows`` (one per kept ``CandidateRecord``, including
+    tagged multi-solution duplicates from #242) grouped by ``source_id``. Prefers the
+    payload's own ``n_distinct_source_ids`` / ``row_multiplicity_histogram`` (added by #244's
+    ``population_model`` changes) when present, and falls back to recomputing from
+    ``system_weight_rows`` for payloads written before this change.
+    """
+    rows = population_payload.get("system_weight_rows") or []
+    n_rows = len(rows)
+    if "n_distinct_source_ids" in population_payload and "row_multiplicity_histogram" in population_payload:
+        n_distinct = int(population_payload["n_distinct_source_ids"])
+        histogram = {
+            int(k): int(v)
+            for k, v in dict(population_payload["row_multiplicity_histogram"]).items()
+        }
+    else:
+        counts: dict[int, int] = {}
+        for row in rows:
+            sid = int(row["source_id"])
+            counts[sid] = counts.get(sid, 0) + 1
+        n_distinct = len(counts)
+        histogram = {}
+        for c in counts.values():
+            histogram[c] = histogram.get(c, 0) + 1
+    mean_rows_per_source = float(n_rows) / n_distinct if n_distinct else 0.0
+    return {
+        "n_rows": n_rows,
+        "n_distinct_source_ids": n_distinct,
+        "row_multiplicity_histogram": histogram,
+        "mean_rows_per_source": mean_rows_per_source,
+    }
+
+
+def estimate_mock_expected_row_multiplicity(
+    config: PipelineConfig,
+    *,
+    primary_type: str = "Orbital",
+) -> dict[str, float]:
+    """Mock-side expected NSS rows per accepted system, from the #241 rate table.
+
+    Diagnostic-only estimate — **not** what :func:`read_astrometric_sf_scalar` /
+    :func:`read_followup_sf_scalar` currently feed into the Poisson intensity ``Λ`` (see the
+    module docstring's "Known gap" note / issue #252). ``cross_type_rate`` and
+    ``same_type_period_aliased_rate`` are marginal per-source rates from
+    ``forward_model.MultiSolutionRateTable`` (issue #241's measurement); each triggering
+    source is approximated as contributing exactly one extra row, which is exact for
+    cross-type combos with a single companion type (99.93% of measured cross-type groups per
+    that table's own docstring) and is the only grounded approximation available for the
+    same-type/period-alias case, which #241 measured at zero occurrences to date.
+    """
+    from darkhunter_pop.forward_model import load_multi_solution_rate_table
+
+    table = load_multi_solution_rate_table(config)
+    cross = table.combo_rate_for_primary(primary_type)
+    same = table.same_type_period_aliased_rate
+    return {
+        "cross_type_rate": cross,
+        "same_type_period_aliased_rate": same,
+        "expected_extra_rows_per_accepted_system": cross + same,
+        "expected_total_rows_per_accepted_system": 1.0 + cross + same,
+    }
+
+
+def row_multiplicity_consistency_diagnostic(
+    population_payload: Mapping[str, Any],
+    *,
+    config: PipelineConfig,
+    max_abs_delta: float,
+    primary_type: str = "Orbital",
+) -> dict[str, Any]:
+    """Compare real mean rows/source_id to the mock's expected rows/accepted system.
+
+    Acceptance-checklist diagnostic for issue #244: proves the real-vs-mock row count is
+    being *compared* consistently (rather than one side silently collapsing to N=1) without
+    itself changing the Poisson rate ``Λ`` — this stays informational, exactly like
+    ``posterior_prior_overlap`` / ``zero_count_upper_limits`` elsewhere in this module.
+    A nonzero ``abs_delta`` at today's small #241 multi-solution rate is expected and
+    tracked by #252 (the SF-scalar wiring gap), not a failure of this diagnostic.
+    """
+    real = real_row_multiplicity_stats(population_payload)
+    mock = estimate_mock_expected_row_multiplicity(config, primary_type=primary_type)
+    delta = abs(
+        real["mean_rows_per_source"] - mock["expected_total_rows_per_accepted_system"]
+    )
+    return {
+        "convention": "each_row_independent_poisson_observation",
+        "real": real,
+        "mock_expected": mock,
+        "abs_delta": delta,
+        "max_abs_delta": max_abs_delta,
+        "consistent": bool(delta <= max_abs_delta) if real["n_distinct_source_ids"] else None,
+        "notes": (
+            "Diagnostic-only (issue #244): compares the real sample's mean NSS rows per "
+            "source_id to the mock's expected rows per accepted system implied by the #241 "
+            "rate table. NOT folded into the Poisson rate Λ — read_astrometric_sf_scalar / "
+            "read_followup_sf_scalar currently measure only P(>=1 row accepted), not "
+            "E[rows accepted], so a nonzero delta here can persist even though the "
+            "row-independent likelihood convention itself (Σ_i log λ(x_i), one term per row) "
+            "is correctly implemented. Wiring row-multiplicity into the SF scalars is tracked "
+            "separately as issue #252."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +721,7 @@ class InferenceResult:
     n_events: int
     zero_count_upper_limits: list[dict[str, float | int]]
     posterior_prior_overlap: dict[str, Any]
+    row_multiplicity_diagnostic: dict[str, Any] = field(default_factory=dict)
     sampler_runs: list[dict[str, Any]] = field(default_factory=list)
     posterior_median_heights: list[float] = field(default_factory=list)
     logz: float | None = None
@@ -598,6 +751,7 @@ class InferenceResult:
             "n_events": self.n_events,
             "zero_count_upper_limits": self.zero_count_upper_limits,
             "posterior_prior_overlap": self.posterior_prior_overlap,
+            "row_multiplicity_diagnostic": self.row_multiplicity_diagnostic,
             "posterior_median_heights": self.posterior_median_heights,
             "logz": self.logz,
             "logz_err": self.logz_err,
@@ -777,6 +931,14 @@ def run_inference(
         counts, confidence=icfg.zero_count_ul_confidence
     )
 
+    row_multiplicity = row_multiplicity_consistency_diagnostic(
+        pop_payload,
+        config=config,
+        max_abs_delta=(
+            config.selection_function_astrometric.validation_gate.multi_solution_rate_max_abs_delta
+        ),
+    )
+
     sampler_runs: list[dict[str, Any]] = []
     post_overlap: dict[str, Any] = {
         "per_param_width_ratio": [],
@@ -833,6 +995,7 @@ def run_inference(
         fiducial_log_likelihood=fiducial_ll,
         n_events=len(obs),
         zero_count_upper_limits=zero_uls,
+        row_multiplicity_diagnostic=row_multiplicity,
         posterior_prior_overlap=post_overlap,
         sampler_runs=sampler_runs,
         posterior_median_heights=post_median,
@@ -938,6 +1101,10 @@ def format_inference_report(result: InferenceResult) -> str:
         f"n_sampler_runs: {len(result.sampler_runs)}",
         f"posterior_prior_overlap: {result.posterior_prior_overlap}",
         f"n_zero_count_bins: {len(result.zero_count_upper_limits)}",
+        (
+            "row_multiplicity_diagnostic (issue #244, diagnostic-only): "
+            f"{result.row_multiplicity_diagnostic}"
+        ),
         "v1 staged-but-connected (fixed plug-in weights); v2 fully-joint not built.",
         "Q1: unified inclusion-indicator (no separate-Poisson double-count).",
         "Reproducibility: multi-run robustness protocol — not bitwise seeds.",

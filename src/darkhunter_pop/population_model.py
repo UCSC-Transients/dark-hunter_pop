@@ -12,6 +12,19 @@ never used as priors.
 
 Weight contract with ``companion_nature_likelihood`` (#56): see
 :data:`darkhunter_pop.schemas.COMPANION_NATURE_WEIGHT_KEYS`.
+
+Multi-row counting convention (issue #244, ARCHITECTURE.md §4 "Multi-solution sources"):
+``companion_nature_likelihood`` (#242's downstream consumer) can now hand this stage more
+than one ``CandidateRecord`` for the same ``source_id`` — a genuine tagged-and-kept
+multi-solution duplicate, never a merge target. :func:`collect_system_weights` builds one
+:class:`SystemPopulationWeight` **per row**, not per distinct ``source_id`` — this is the
+chosen convention (each NSS row is its own independent observation feeding ``inference``'s
+Poisson point-process likelihood; see ``inference.py``'s module docstring for the symmetric
+statement on the consumer side). ``PopulationModelResult.system_weights`` — and therefore the
+payload's historical ``n_systems`` key — count **rows**, so a source with 2 kept rows
+contributes 2 entries; :func:`compute_row_multiplicity` reports the distinct-``source_id``
+count and the rows-per-source histogram alongside it so the two quantities are never
+conflated silently.
 """
 
 from __future__ import annotations
@@ -579,7 +592,13 @@ def evaluate_two_tier_dndm(
 
 @dataclass(frozen=True)
 class SystemPopulationWeight:
-    """Empirical-Bayes plug-in row for one system (never a discard flag)."""
+    """Empirical-Bayes plug-in weight for one kept ``CandidateRecord`` row.
+
+    One instance per row, not per distinct ``source_id`` (issue #244): a genuine
+    multi-solution ``source_id`` (#242) produces multiple ``SystemPopulationWeight``
+    entries, each carrying that row's own companion-nature responsibilities — never
+    a discard flag, and never collapsed across rows of the same source.
+    """
 
     source_id: int
     m2_msun: float | None
@@ -607,7 +626,11 @@ def _m2_point(candidate: CandidateRecord) -> float | None:
 def collect_system_weights(
     candidates: Sequence[CandidateRecord],
 ) -> list[SystemPopulationWeight]:
-    """Extract / normalize companion_nature weights; retain every system."""
+    """Extract / normalize companion_nature weights; retain every row.
+
+    One :class:`SystemPopulationWeight` per input ``CandidateRecord`` — a source with N
+    kept multi-solution rows (#242) yields N entries here (issue #244 convention).
+    """
     rows: list[SystemPopulationWeight] = []
     for cand in candidates:
         if cand.companion_nature_weights is None:
@@ -628,6 +651,30 @@ def collect_system_weights(
             )
         )
     return rows
+
+
+def compute_row_multiplicity(
+    systems: Sequence[SystemPopulationWeight],
+) -> tuple[int, dict[int, int]]:
+    """Distinct-``source_id`` count and a rows-per-source histogram (issue #244).
+
+    ``systems`` is one entry per kept ``CandidateRecord`` row (see the module docstring's
+    "Multi-row counting convention"), so ``len(systems)`` already counts rows. This helper
+    additionally reports how many *distinct* systems those rows came from, and a histogram
+    keyed by "rows for this source_id" -> "how many source_ids had that many rows" (e.g.
+    ``{1: 40, 2: 3}`` means 40 sources contributed exactly one row and 3 contributed exactly
+    two). Both numbers are purely diagnostic here — they do not change which rows enter
+    ``evaluate_two_tier_dndm`` or any downstream Poisson rate; they exist so a consumer can
+    tell "40 rows, 40 systems" apart from "40 rows, 37 systems" without recomputing it.
+    """
+    counts: dict[int, int] = {}
+    for sw in systems:
+        counts[sw.source_id] = counts.get(sw.source_id, 0) + 1
+    n_distinct = len(counts)
+    histogram: dict[int, int] = {}
+    for n_rows in counts.values():
+        histogram[n_rows] = histogram.get(n_rows, 0) + 1
+    return n_distinct, histogram
 
 
 def assert_no_external_co_mf_priors(cfg: PopulationModelConfig) -> None:
@@ -653,6 +700,8 @@ class PopulationModelResult:
     m_tov_msun: float
     two_tier: TwoTierDnDm
     system_weights: list[SystemPopulationWeight] = field(default_factory=list)
+    n_distinct_source_ids: int = 0
+    row_multiplicity_histogram: dict[int, int] = field(default_factory=dict)
     covariates_applied: dict[str, tuple[str, ...]] = field(default_factory=dict)
     sensitivity_artifact_used: bool = False
     aux_families: dict[str, str] = field(default_factory=dict)
@@ -678,11 +727,24 @@ class PopulationModelResult:
             },
             "sensitivity_artifact_used": self.sensitivity_artifact_used,
             "aux_families": dict(self.aux_families),
+            # NOTE (issue #244): "n_systems" is a legacy key name kept for backward
+            # compatibility with existing consumers (inference.py, diagnostics.py,
+            # mc_mass_function.py); it counts *rows* (one per kept CandidateRecord,
+            # including tagged multi-solution duplicates from #242), not distinct
+            # source_ids. Use "n_distinct_source_ids" / "row_multiplicity_histogram"
+            # below when the source-level count is what's needed.
             "n_systems": len(self.system_weights),
+            "n_distinct_source_ids": self.n_distinct_source_ids,
+            "row_multiplicity_histogram": {
+                str(k): v for k, v in sorted(self.row_multiplicity_histogram.items())
+            },
             "external_co_mf_priors": False,
             "notes": (
                 "Staged-but-connected: companion_nature weights are fixed plug-ins. "
-                "External CO mass functions are comparison-only, never priors."
+                "External CO mass functions are comparison-only, never priors. "
+                "n_systems counts NSS rows (issue #244 multi-row convention: each row is "
+                "its own independent Poisson-process observation), not distinct source_ids "
+                "— see n_distinct_source_ids / row_multiplicity_histogram."
             ),
         }
 
@@ -728,6 +790,7 @@ def run_population_model(
         grid = np.asarray(mass_grid, dtype=np.float64)
 
     systems = collect_system_weights(candidates or ())
+    n_distinct_source_ids, row_multiplicity_histogram = compute_row_multiplicity(systems)
     if systems:
         mean_frac = {
             k: float(np.mean([s.responsibilities[k] for s in systems]))
@@ -758,6 +821,8 @@ def run_population_model(
         m_tov_msun=m_tov,
         two_tier=two_tier,
         system_weights=systems,
+        n_distinct_source_ids=n_distinct_source_ids,
+        row_multiplicity_histogram=row_multiplicity_histogram,
         covariates_applied=covariates,
         sensitivity_artifact_used=used_sa and cfg.apply_sensitivity_covariates,
         aux_families={
@@ -781,6 +846,8 @@ def write_population_model_artifact(path: Path, result: PopulationModelResult) -
         handle.attrs["m_tov_msun"] = result.m_tov_msun
         handle.attrs["sensitivity_artifact_used"] = result.sensitivity_artifact_used
         handle.attrs["external_co_mf_priors"] = False
+        handle.attrs["n_rows"] = len(result.system_weights)
+        handle.attrs["n_distinct_source_ids"] = result.n_distinct_source_ids
         handle.attrs["p_single"] = result.multiplicity.p_single
         handle.attrs["p_binary"] = result.multiplicity.p_binary
         handle.attrs["p_triple"] = result.multiplicity.p_triple
@@ -900,7 +967,11 @@ def format_population_model_report(result: PopulationModelResult) -> str:
         f"n_bins: {result.bin_edges_msun.size - 1}",
         f"M_Ch_msun: {result.m_ch_msun}",
         f"M_TOV_msun: {result.m_tov_msun}",
-        f"n_systems: {len(result.system_weights)}",
+        (
+            f"n_rows: {len(result.system_weights)} "
+            f"(n_distinct_source_ids: {result.n_distinct_source_ids}, "
+            f"row_multiplicity_histogram: {dict(sorted(result.row_multiplicity_histogram.items()))})"
+        ),
         f"sensitivity_artifact_used: {result.sensitivity_artifact_used}",
         f"aux_families: {result.aux_families}",
         "class rates (mass always included):",

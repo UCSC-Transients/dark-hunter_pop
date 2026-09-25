@@ -14,6 +14,8 @@ from darkhunter_pop.inference import (
     ROBUSTNESS_PROTOCOL,
     ObservedEvent,
     binned_log_likelihood,
+    collect_observed_events,
+    estimate_mock_expected_row_multiplicity,
     events_from_population_result,
     format_inference_report,
     mass_function_intensity,
@@ -21,7 +23,9 @@ from darkhunter_pop.inference import (
     read_astrometric_sf_scalar,
     read_followup_sf_scalar,
     read_inference_artifact,
+    real_row_multiplicity_stats,
     resolve_likelihood_form,
+    row_multiplicity_consistency_diagnostic,
     run_inference,
     run_inference_stage,
     unbinned_log_likelihood,
@@ -302,3 +306,165 @@ def test_dynesty_smoke_short() -> None:
     assert len(result.posterior_median_heights) == 3
     assert "prior_dominated" in result.posterior_prior_overlap
     assert result.sampler_runs[0]["nlive"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Multi-row counting consistency (issue #244)
+# ---------------------------------------------------------------------------
+
+
+def _one_row_kwargs() -> dict:
+    return dict(
+        m2=ParameterSet(
+            names=["M2"], values=[1.3], covariance=[[0.01]], provenance="test"
+        ),
+        companion_nature_weights=_uniform_weights(NS=1.0),
+    )
+
+
+def test_multi_row_source_yields_independent_events_not_collapsed() -> None:
+    """A 2-row source_id (#242 tag-and-keep) must produce 2 ObservedEvents, not 1."""
+    cfg = _smoke_config()
+    row = _one_row_kwargs()
+    two_row_source = [
+        CandidateRecord(source_id=50, nss_solution_type="Orbital", **row),
+        CandidateRecord(source_id=50, nss_solution_type="SB1", **row),
+    ]
+    one_row_control = [CandidateRecord(source_id=51, nss_solution_type="Orbital", **row)]
+
+    pop_two = run_population_model(cfg, candidates=two_row_source)
+    pop_one = run_population_model(cfg, candidates=one_row_control)
+
+    ev_two = events_from_population_result(pop_two, cfg=cfg.inference)
+    ev_one = events_from_population_result(pop_one, cfg=cfg.inference)
+
+    assert len(ev_two) == 2  # not under-counted to 1 (would be the "collapse" bug)
+    assert len(ev_one) == 1
+    assert [e.source_id for e in ev_two] == [50, 50]
+    # Same mass/weight per row (both rows built from identical row kwargs).
+    assert ev_two[0].weight == pytest.approx(ev_two[1].weight)
+    assert ev_two[0].weight == pytest.approx(ev_one[0].weight)
+
+
+def test_two_row_source_matches_two_independent_one_row_controls() -> None:
+    """A 2-row source's likelihood contribution equals 2 separate 1-row systems'.
+
+    Regression test for issue #244's acceptance checklist item 4: proves the unbinned
+    Poisson likelihood neither double-counts nor under-counts a multi-row system relative
+    to the 1-row control case — Σ_i w_i log λ(x_i) must scale additively with the row
+    count, exactly as it would for two distinct systems at the same mass.
+    """
+    cfg = _smoke_config()
+    row = _one_row_kwargs()
+    two_row_source = [
+        CandidateRecord(source_id=60, nss_solution_type="Orbital", **row),
+        CandidateRecord(source_id=60, nss_solution_type="SB1", **row),
+    ]
+    two_separate_one_row_controls = [
+        CandidateRecord(source_id=61, nss_solution_type="Orbital", **row),
+        CandidateRecord(source_id=62, nss_solution_type="Orbital", **row),
+    ]
+    one_row_control = [CandidateRecord(source_id=63, nss_solution_type="Orbital", **row)]
+
+    pop_two_row = run_population_model(cfg, candidates=two_row_source)
+    pop_two_controls = run_population_model(cfg, candidates=two_separate_one_row_controls)
+    pop_one_control = run_population_model(cfg, candidates=one_row_control)
+
+    ev_two_row = events_from_population_result(pop_two_row, cfg=cfg.inference)
+    ev_two_controls = events_from_population_result(pop_two_controls, cfg=cfg.inference)
+    ev_one_control = events_from_population_result(pop_one_control, cfg=cfg.inference)
+
+    bin_edges = pop_one_control.bin_edges_msun
+    heights = pop_one_control.bin_heights
+    mass_grid = np.geomspace(bin_edges[0], bin_edges[-1], cfg.inference.n_mass_grid)
+
+    def _loglike(events: list[ObservedEvent]) -> float:
+        return unbinned_log_likelihood(
+            heights,
+            event_masses=np.array([e.mass_msun for e in events]),
+            event_weights=np.array([e.weight for e in events]),
+            mass_grid=mass_grid,
+            bin_edges=bin_edges,
+            population_cfg=cfg.population_model,
+            astrometric_sf=1.0,
+            followup_sf=1.0,
+        )
+
+    ll_two_row_source = _loglike(ev_two_row)
+    ll_two_separate_controls = _loglike(ev_two_controls)
+    ll_one_row_control = _loglike(ev_one_control)
+
+    # The 2-row source's logL matches two independent 1-row systems at the same mass —
+    # neither collapsed to a single N=1 observation nor inflated beyond 2 independent terms.
+    assert ll_two_row_source == pytest.approx(ll_two_separate_controls)
+    # And it differs from the 1-row control by exactly one extra Σ_i w_i log λ(x_i) term
+    # (same Λ on both sides since astrometric_sf/followup_sf/heights are held fixed).
+    lam_at_mass = mass_function_intensity(
+        np.array([ev_one_control[0].mass_msun]),
+        heights,
+        bin_edges=bin_edges,
+        population_cfg=cfg.population_model,
+        astrometric_sf=1.0,
+        followup_sf=1.0,
+    )[0]
+    extra_term = float(ev_one_control[0].weight * np.log(max(lam_at_mass, 1e-300)))
+    assert ll_two_row_source - ll_one_row_control == pytest.approx(extra_term)
+
+
+def test_real_row_multiplicity_stats_from_payload() -> None:
+    cfg = _smoke_config()
+    row = _one_row_kwargs()
+    cands = [
+        CandidateRecord(source_id=70, nss_solution_type="Orbital", **row),
+        CandidateRecord(source_id=70, nss_solution_type="SB1", **row),
+        CandidateRecord(source_id=71, nss_solution_type="Orbital", **row),
+    ]
+    pop = run_population_model(cfg, candidates=cands)
+    payload = pop.recommendation_payload()
+    payload["system_weight_rows"] = [
+        {"source_id": sw.source_id, "m2_msun": sw.m2_msun, "responsibilities": sw.responsibilities}
+        for sw in pop.system_weights
+    ]
+    stats = real_row_multiplicity_stats(payload)
+    assert stats["n_rows"] == 3
+    assert stats["n_distinct_source_ids"] == 2
+    assert stats["row_multiplicity_histogram"] == {1: 1, 2: 1}
+    assert stats["mean_rows_per_source"] == pytest.approx(1.5)
+
+
+def test_estimate_mock_expected_row_multiplicity_disabled_table_is_zero() -> None:
+    cfg = load_config().model_copy(deep=True)
+    cfg.multi_solution_rates.enabled = False
+    est = estimate_mock_expected_row_multiplicity(cfg)
+    assert est["cross_type_rate"] == pytest.approx(0.0)
+    assert est["same_type_period_aliased_rate"] == pytest.approx(0.0)
+    assert est["expected_total_rows_per_accepted_system"] == pytest.approx(1.0)
+
+
+def test_row_multiplicity_consistency_diagnostic_is_informational_only() -> None:
+    """The diagnostic must report, not gate — and must not silently collapse N to 1."""
+    cfg = _smoke_config()
+    row = _one_row_kwargs()
+    cands = [
+        CandidateRecord(source_id=80, nss_solution_type="Orbital", **row),
+        CandidateRecord(source_id=80, nss_solution_type="SB1", **row),
+    ]
+    pop = run_population_model(cfg, candidates=cands)
+    payload = pop.recommendation_payload()
+    payload["system_weight_rows"] = [
+        {"source_id": sw.source_id, "m2_msun": sw.m2_msun, "responsibilities": sw.responsibilities}
+        for sw in pop.system_weights
+    ]
+    diag = row_multiplicity_consistency_diagnostic(
+        payload, config=cfg, max_abs_delta=0.05
+    )
+    assert diag["real"]["n_distinct_source_ids"] == 1
+    assert diag["real"]["mean_rows_per_source"] == pytest.approx(2.0)
+    assert diag["convention"] == "each_row_independent_poisson_observation"
+    assert "consistent" in diag
+    assert isinstance(diag["abs_delta"], float)
+
+    # Wired into run_inference's payload, diagnostic-only (does not alter n_events/logL).
+    result = run_inference(cfg, population_payload=payload)
+    assert "row_multiplicity_diagnostic" in result.recommendation_payload()
+    assert result.n_events == 2

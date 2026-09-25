@@ -13,7 +13,9 @@ from darkhunter_pop.config_loader import config_checksum, load_config
 from darkhunter_pop.config_schema import SHARED_CHECKSUM_SECTIONS, PipelineConfig
 from darkhunter_pop.population_model import (
     build_mass_bin_edges,
+    collect_system_weights,
     companion_nature_weight_schema,
+    compute_row_multiplicity,
     evaluate_mass_function,
     format_population_model_report,
     normalize_companion_nature_weights,
@@ -308,3 +310,93 @@ def test_forbid_external_co_mf_priors_in_schema() -> None:
     cfg["population_model"]["allow_external_co_mf_priors"] = True
     with pytest.raises(ValidationError):
         PipelineConfig.model_validate(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Multi-row counting consistency (issue #244)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_system_weights_keeps_one_entry_per_row_not_per_source() -> None:
+    """A tagged multi-solution source_id (#242) yields one SystemPopulationWeight per row."""
+    cands = [
+        CandidateRecord(
+            source_id=99,
+            nss_solution_type="Orbital",
+            companion_nature_weights=_uniform_weights(NS=1.0),
+        ),
+        CandidateRecord(
+            source_id=99,
+            nss_solution_type="SB1",
+            companion_nature_weights=_uniform_weights(NS=1.0),
+        ),
+        CandidateRecord(
+            source_id=100,
+            nss_solution_type="Orbital",
+            companion_nature_weights=_uniform_weights(WD=1.0),
+        ),
+    ]
+    systems = collect_system_weights(cands)
+    assert len(systems) == 3  # rows, not distinct source_ids
+    assert [s.source_id for s in systems] == [99, 99, 100]
+
+
+def test_compute_row_multiplicity_histogram() -> None:
+    cands = [
+        CandidateRecord(source_id=1, companion_nature_weights=_uniform_weights(NS=1.0)),
+        CandidateRecord(source_id=1, companion_nature_weights=_uniform_weights(NS=1.0)),
+        CandidateRecord(source_id=2, companion_nature_weights=_uniform_weights(WD=1.0)),
+        CandidateRecord(source_id=3, companion_nature_weights=_uniform_weights(BH=1.0)),
+        CandidateRecord(source_id=3, companion_nature_weights=_uniform_weights(BH=1.0)),
+    ]
+    systems = collect_system_weights(cands)
+    n_distinct, histogram = compute_row_multiplicity(systems)
+    assert len(systems) == 5
+    assert n_distinct == 3
+    # source 2 has 1 row; sources 1 and 3 each have 2 rows.
+    assert histogram == {1: 1, 2: 2}
+
+
+def test_compute_row_multiplicity_empty() -> None:
+    n_distinct, histogram = compute_row_multiplicity([])
+    assert n_distinct == 0
+    assert histogram == {}
+
+
+def test_run_population_model_reports_row_vs_source_counts() -> None:
+    cfg = load_config()
+    cands = [
+        CandidateRecord(source_id=7, companion_nature_weights=_uniform_weights(NS=1.0)),
+        CandidateRecord(source_id=7, companion_nature_weights=_uniform_weights(NS=1.0)),
+        CandidateRecord(source_id=8, companion_nature_weights=_uniform_weights(WD=1.0)),
+    ]
+    result = run_population_model(cfg, candidates=cands)
+    assert len(result.system_weights) == 3  # rows
+    assert result.n_distinct_source_ids == 2
+    assert result.row_multiplicity_histogram == {1: 1, 2: 1}
+
+    payload = result.recommendation_payload()
+    assert payload["n_systems"] == 3  # legacy key: still row-counted (#244 documents this)
+    assert payload["n_distinct_source_ids"] == 2
+    assert payload["row_multiplicity_histogram"] == {"1": 1, "2": 1}
+
+
+def test_population_model_hdf5_round_trip_carries_row_multiplicity(
+    tmp_path: Path,
+) -> None:
+    cfg = load_config()
+    cands = [
+        CandidateRecord(source_id=7, companion_nature_weights=_uniform_weights(NS=1.0)),
+        CandidateRecord(source_id=7, companion_nature_weights=_uniform_weights(NS=1.0)),
+    ]
+    result = run_population_model(cfg, candidates=cands)
+    path = tmp_path / "pop_multi_row.h5"
+    write_population_model_artifact(path, result)
+    with h5py.File(path, "r") as handle:
+        assert handle.attrs["n_rows"] == 2
+        assert handle.attrs["n_distinct_source_ids"] == 1
+    payload = read_population_model_artifact(path)
+    assert payload["n_distinct_source_ids"] == 1
+    assert len(payload["system_weight_rows"]) == 2
+    report = format_population_model_report(result)
+    assert "n_rows: 2 (n_distinct_source_ids: 1" in report
