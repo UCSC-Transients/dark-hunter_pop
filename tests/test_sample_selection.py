@@ -20,6 +20,7 @@ from darkhunter_pop.config_loader import (
 from darkhunter_pop.config_schema import (
     SHARED_CHECKSUM_SECTIONS,
     CutKind,
+    PrimaryMassSpec,
     SampleCut,
     SampleSelectionConfig,
     SampleSelectionEntry,
@@ -56,6 +57,7 @@ from darkhunter_pop.sample_selection import (
     SampleSelectionRegistry,
     UnhandledSampleSelectionModeError,
     _pipeline_mass_fields,
+    _resolve_primary_mass_draws,
     assert_nonzero_parent_when_da_nonempty,
     candidate_to_selection_row,
     evaluate_cut,
@@ -740,6 +742,115 @@ def test_bind_row_aliases_mc_sigma_and_missing_logg() -> None:
     assert bound["m2_msun_error"] == pytest.approx(0.25)
     assert "sigma_m2_astrometric_msun" not in bound
     assert bound["logg_apsis"] is None
+
+
+# --- Issue #257: Andrews et al. (2022) FLAME-mass / uniform-draw primary mass ---
+
+
+def test_bind_row_uses_flame_mass_when_present() -> None:
+    """``andrews2022``'s ``flame_or_uniform_draw`` method binds this source's
+    own Gaia Apsis FLAME mass as the row's point-estimate ``m1_msun`` (#257).
+    """
+    config = load_config()
+    selection = SampleSelectionRegistry(config).selection("andrews2022")
+    assert selection.spec.primary_mass is not None
+    assert selection.spec.primary_mass.method == "flame_or_uniform_draw"
+    bound = selection.bind_row(
+        {
+            "source_id": 1,
+            "nss_solution_type": "Orbital",
+            "mass_flame": 0.87,
+        }
+    )
+    assert bound["m1_msun"] == pytest.approx(0.87)
+
+
+def test_bind_row_flame_mass_absent_falls_back() -> None:
+    config = load_config()
+    selection = SampleSelectionRegistry(config).selection("andrews2022")
+    bound = selection.bind_row(
+        {
+            "source_id": 2,
+            "nss_solution_type": "Orbital",
+        }
+    )
+    # No FLAME mass, no paper_m1_msun/m1_msun already bound — stays None; the
+    # real per-draw sample (uniform fallback) lives only in the MC ensemble.
+    assert bound["m1_msun"] is None
+
+
+def test_resolve_primary_mass_draws_flame_or_uniform_draw_uses_flame_column() -> None:
+    primary = PrimaryMassSpec(
+        method="flame_or_uniform_draw",
+        flame_column="mass_flame",
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    result = _resolve_primary_mass_draws(
+        primary, {"mass_flame": 0.9}, n_draws=5000, random_seed=99
+    )
+    assert result.shape == (5000,)
+    assert float(result.mean()) == pytest.approx(0.9, abs=0.01)
+
+
+def test_resolve_primary_mass_draws_falls_back_to_uniform_without_flame() -> None:
+    primary = PrimaryMassSpec(
+        method="flame_or_uniform_draw",
+        flame_column="mass_flame",
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    result = _resolve_primary_mass_draws(primary, {}, n_draws=5000, random_seed=1)
+    assert result.min() >= 0.63
+    assert result.max() <= 1.0
+
+
+def test_resolve_primary_mass_draws_two_seeds_decorrelated_from_each_other() -> None:
+    primary = PrimaryMassSpec(
+        method="flame_or_uniform_draw",
+        flame_column="mass_flame",
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    a = _resolve_primary_mass_draws(
+        primary, {"mass_flame": 0.8}, n_draws=100, random_seed=5
+    )
+    b = _resolve_primary_mass_draws(
+        primary, {"mass_flame": 0.8}, n_draws=100, random_seed=5
+    )
+    # Same seed => reproducible.
+    import numpy as np
+
+    np.testing.assert_allclose(a, b)
+
+
+def test_resolve_primary_mass_draws_fixed_method_returns_scalar() -> None:
+    primary = PrimaryMassSpec(method="fixed", value_msun=1.0)
+    result = _resolve_primary_mass_draws(primary, {}, n_draws=100, random_seed=1)
+    assert result == pytest.approx(1.0)
+
+
+def test_resolve_primary_mass_draws_no_spec_defaults_to_one_solar_mass() -> None:
+    result = _resolve_primary_mass_draws(None, {}, n_draws=100, random_seed=1)
+    assert result == pytest.approx(1.0)
+
+
+def test_primary_mass_spec_flame_or_uniform_draw_requires_fields() -> None:
+    with pytest.raises(ValidationError, match="flame_fixed_error_msun"):
+        PrimaryMassSpec(method="flame_or_uniform_draw")
+
+
+def test_primary_mass_spec_flame_or_uniform_draw_rejects_inverted_bounds() -> None:
+    with pytest.raises(ValidationError, match="uniform_high_msun"):
+        PrimaryMassSpec(
+            method="flame_or_uniform_draw",
+            flame_fixed_error_msun=0.1,
+            uniform_low_msun=1.0,
+            uniform_high_msun=0.63,
+        )
 
 
 def test_elbadry_enrich_strips_andrews_aliased_sigma() -> None:

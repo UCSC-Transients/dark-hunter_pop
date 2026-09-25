@@ -31,9 +31,11 @@ from darkhunter_pop.config_loader import (
     repo_root,
 )
 from darkhunter_pop.config_schema import (
+    FLAME_OR_UNIFORM_DRAW_METHOD,
     CutKind,
     ParentQueryDRSpec,
     PipelineConfig,
+    PrimaryMassSpec,
     SampleBranch,
     SampleCut,
     SampleSelectionConfig,
@@ -338,6 +340,22 @@ class SampleSelection:
                 and primary.value_msun is not None
             ):
                 paper = primary.value_msun
+            elif primary is not None and primary.method == FLAME_OR_UNIFORM_DRAW_METHOD:
+                # Point-estimate binding only (single row, not an MC ensemble):
+                # this source's own FLAME mass when available, else leave the
+                # existing fallback — the real per-draw M1 sample (Gaussian
+                # around FLAME, or uniform fallback) only exists in the MC
+                # ensemble built by `_resolve_primary_mass_draws` and is
+                # summarized on each row as `m1_msun_mc_mean`/`m1_msun_mc_sigma`
+                # (#257) once `attach_mc_mass_function_columns` has run.
+                flame_column = primary.flame_column or "mass_flame"
+                flame_value = bound.get(flame_column)
+                if (
+                    isinstance(flame_value, (int, float))
+                    and math.isfinite(flame_value)
+                    and flame_value > 0.0
+                ):
+                    paper = float(flame_value)
             bound["m1_msun"] = paper
         elif self.mass_source == PIPELINE_MASS_SOURCE:
             bound["m1_msun"] = bound.get("pipeline_m1_msun", bound.get("m1_msun"))
@@ -1701,7 +1719,7 @@ def attach_mc_mass_function_columns(
     candidate: CandidateRecord,
     row: dict[str, Any],
     *,
-    m1_msun: float,
+    m1_msun: float | np.ndarray,
     m2_threshold_msun: float,
     n_draws: int,
     random_seed: int,
@@ -1709,6 +1727,11 @@ def attach_mc_mass_function_columns(
     eig_abs_floor: float,
 ) -> dict[str, Any]:
     """Fill ``p_m2_above`` / ``sigma_m2_*`` from full-covariance MC when available.
+
+    ``m1_msun`` accepts a scalar (fixed M1 shared by every draw) or a
+    length-``n_draws`` per-draw array — e.g. Andrews et al. (2022)'s
+    ``flame_or_uniform_draw`` primary-mass method (#257), whose per-draw M1
+    ensemble is built by ``_resolve_primary_mass_draws`` before this call.
 
     No-op when ``nss_solution`` is missing (N/A stays for probability cuts).
     """
@@ -1724,7 +1747,7 @@ def attach_mc_mass_function_columns(
     try:
         draws = propagate_nss_solution(
             candidate.nss_solution,
-            m1_msun=float(m1_msun),
+            m1_msun=m1_msun,
             n_draws=int(n_draws),
             random_seed=int(random_seed),
             eig_rel_floor=float(eig_rel_floor),
@@ -1740,6 +1763,54 @@ def attach_mc_mass_function_columns(
     if "sigma_m2_msun" in quantities:
         row.setdefault("m2_msun_error", quantities["sigma_m2_msun"])
     return row
+
+
+def _resolve_primary_mass_draws(
+    primary_mass: PrimaryMassSpec | None,
+    extras: Mapping[str, Any],
+    *,
+    n_draws: int,
+    random_seed: int,
+) -> float | np.ndarray:
+    """Resolve the ``m1_msun`` input for ``attach_mc_mass_function_columns`` (#230/#257).
+
+    ``flame_or_uniform_draw``: builds a length-``n_draws`` per-draw M1 array
+    (Gaussian around this source's Gaia Apsis FLAME mass with the frozen
+    fixed error, or a uniform fallback when FLAME mass is absent) so the
+    per-draw M1 sample genuinely propagates through the MC ensemble rather
+    than collapsing to one shared value. Uses a seed XORed with
+    ``M1_DRAW_SEED_SALT`` so the M1 stream is decorrelated from the
+    covariance-draw stream inside ``propagate_nss_solution``, which reuses
+    the same per-system ``random_seed``.
+
+    Any other (or absent) ``primary_mass``: returns the historical scalar
+    ``value_msun`` (default ``1.0``), which ``propagate_nss_solution``
+    broadcasts to every draw unchanged.
+    """
+    if primary_mass is not None and primary_mass.method == FLAME_OR_UNIFORM_DRAW_METHOD:
+        from darkhunter_pop.mc_mass_function import (
+            M1_DRAW_SEED_SALT,
+            sample_primary_mass_draws,
+        )
+
+        assert primary_mass.flame_fixed_error_msun is not None
+        assert primary_mass.uniform_low_msun is not None
+        assert primary_mass.uniform_high_msun is not None
+        flame_column = primary_mass.flame_column or "mass_flame"
+        raw_flame = extras.get(flame_column)
+        flame_value = float(raw_flame) if isinstance(raw_flame, (int, float)) else None
+        rng = np.random.default_rng(int(random_seed) ^ M1_DRAW_SEED_SALT)
+        return sample_primary_mass_draws(
+            flame_value_msun=flame_value,
+            n_draws=int(n_draws),
+            rng=rng,
+            flame_fixed_error_msun=float(primary_mass.flame_fixed_error_msun),
+            uniform_low_msun=float(primary_mass.uniform_low_msun),
+            uniform_high_msun=float(primary_mass.uniform_high_msun),
+        )
+    if primary_mass is not None and primary_mass.value_msun is not None:
+        return float(primary_mass.value_msun)
+    return 1.0
 
 
 def load_selection_rows_from_uncut_snapshot(
@@ -1811,12 +1882,7 @@ def load_selection_rows_from_uncut_snapshot(
     andrews_spec = load_sample_selection_file(
         repo_root() / "config" / "selections" / "andrews2022.yaml"
     )
-    andrews_m1 = 1.0
-    if (
-        andrews_spec.primary_mass is not None
-        and andrews_spec.primary_mass.value_msun is not None
-    ):
-        andrews_m1 = float(andrews_spec.primary_mass.value_msun)
+    andrews_primary_mass = andrews_spec.primary_mass
     andrews_m2_threshold = 1.4
     for cut in andrews_spec.cuts or []:
         if cut.id == "m2_probability":
@@ -1836,10 +1902,16 @@ def load_selection_rows_from_uncut_snapshot(
         if attach_mc and candidate.nss_solution is not None:
             # Per-system seed derived from global MC seed + source_id.
             seed = int(mc_cfg.random_seed) ^ (int(candidate.source_id) & 0x7FFFFFFF)
+            m1_for_mc = _resolve_primary_mass_draws(
+                andrews_primary_mass,
+                candidate.extras,
+                n_draws=int(mc_cfg.n_draws),
+                random_seed=seed,
+            )
             out = attach_mc_mass_function_columns(
                 candidate,
                 out,
-                m1_msun=andrews_m1,
+                m1_msun=m1_for_mc,
                 m2_threshold_msun=andrews_m2_threshold,
                 n_draws=int(mc_cfg.n_draws),
                 random_seed=seed,

@@ -23,8 +23,27 @@
 #   Orbital only returns 134598 and is frozen below.
 # Verification lives under parent_query.dr3.verification (SampleProvenance
 # forbids extra keys; #104 schema).
+#
+# schema_version 2 (2026-09-25, provenance note, issue #257):
+#   Ryan Foley's ruling on #254 (escalation from #233's reconciliation of
+#   #230's confirmed Andrews et al. (2022) M1 methodology): "Yes, update the
+#   selection to the Apsis / uniform M1 mass. Adjust the query, etc." This
+#   replaces the earlier fixed M1 = 1.0 Msun convention (kept below only in
+#   this comment for history) used by the m2_probability cut with Gaia Apsis
+#   FLAME mass (astrophysical_parameters.mass_flame) plus a **fixed**
+#   +/-0.1 Msun Gaussian error when FLAME mass is available for a source,
+#   else a uniform draw between 0.63 and 1.0 Msun per Monte Carlo
+#   realization. The fixed error is our own modeling choice, not Gaia's
+#   reported uncertainty: gaiadr3.astrophysical_parameters has no symmetric
+#   mass_flame_error column, only mass_flame_lower/mass_flame_upper
+#   (16%/84% confidence interval) — confirmed against the live Gaia TAP_SCHEMA
+#   at dispatch of #257. This is the one frozen-file edit this wave
+#   explicitly authorizes; Ryan's sign-off on #254/#257 is the required
+#   human escalation. Re-measurement of the m2_probability attrition against
+#   the published 106 is tracked separately (#257 acceptance checklist item,
+#   docs/SELECTION_REPRODUCTION_STATUS.md §3.1).
 
-schema_version: 1
+schema_version: 2
 name: andrews2022
 provenance:
   reference: "Andrews et al. (2022)"
@@ -35,9 +54,14 @@ provenance:
   arxiv: "2207.00680"
 mode: reproduction
 primary_mass:
-  method: fixed
-  value_msun: 1.0
-  # Andrews et al. (2022) first-cut assumption; refined later in their analysis.
+  method: flame_or_uniform_draw
+  flame_column: mass_flame
+  flame_fixed_error_msun: 0.1
+  uniform_low_msun: 0.63
+  uniform_high_msun: 1.0
+  # #230/#257: Gaia Apsis FLAME mass with a fixed +/-0.1 Msun Gaussian error
+  # when available, else Uniform(0.63, 1.0) Msun. Replaces the earlier fixed
+  # M1 = 1.0 Msun first-cut assumption for the m2_probability cut.
 parent_query:
   dr3:
     adql: |
