@@ -27,7 +27,9 @@ produce a number that matches and means nothing.
 **Who fixes these.** Wave −1 measured them; **Wave A owns closing them** (`EXECUTION_PLAN.md` §7).
 
 Related issues: **#132** (NSS enrichment / K1 — largely unblocked), **#133** (`primary_ns_bh` 42 ≠ 47;
-extinction / `a0` / nsstools, Q7).
+extinction / `a0` / nsstools, Q7), **#258** (extinction root cause confirmed — dead `ExtinctionSpec`,
+never wired up — real fix blocked on missing Green2019/Lallement2019 map data and laptop disk space;
+see §3.3.1).
 
 ---
 
@@ -230,6 +232,56 @@ the σ binding removed the Andrews pollution but did **not** recover N = 22. The
 **1908** wide before the σ cut is applied at all, so the σ cut is second-order. Escalate the
 point-estimate `M̃2` / `a0` / extinction / main-sequence-CMD chain — **not** the 0.105 threshold.
 
+### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix blocked
+
+**Root cause, confirmed by direct code inspection, not just symptom:** `config/selections/
+elbadry2026.yaml`'s `extinction:` block (Green2019 north / Lallement2019 south, split at
+`dec_deg > -28.0`, `a_g_over_e_bv=2.66`, `e_bp_rp_over_e_bv=1.33`) is parsed into
+`config_schema.ExtinctionSpec` but has **zero consumers anywhere in `src/darkhunter_pop/`**
+(`grep -rn "ExtinctionSpec" src/darkhunter_pop/*.py tests/` finds only the schema definition).
+`sample_selection.candidate_to_selection_row` (~line 1578) sets `mg_0 = abs_g_mag` and
+`bp_rp_0 = bp_rp` verbatim — the "if not already present" alias always fires for real candidates,
+because nothing upstream ever computes a dereddened value. This is the exact mechanism §3.4 already
+named for the Simon 2026 two-source swap: dead code, not a subtle numerical bug, confirmed at
+`main` @ `f9603a3`.
+
+**A real, paper-faithful fix is currently blocked, not just unimplemented.** The two maps the config
+names are both unavailable in this environment: `mwdust` (this repo's only dust-map dependency) has
+no Lallement 2019/2022 implementation at all (only Green15/17/19, Marshall06, Sale14, Combined15/19),
+and Green2019's own data file (`bayestar2019.h5`, multi-GB) has never been downloaded here. **This
+laptop's disk is at 100% capacity with only ~4.6 GiB free** (measured 2026-09-25; `~/.mwdust/
+combined19` alone is 3.7 GiB) — the Green19 leg cannot even be attempted right now, separate from any
+permission question, and is being addressed in a separate disk-cleanup effort. Escalated as #258
+rather than guessed at.
+
+**Diagnostic-only measurement (not a claimed fix), `main` @ `f9603a3`.** Using the already-downloaded
+`mwdust.Combined19` (an all-sky, declination-unaware blend — not the frozen north/south split) purely
+to bound the size of the extinction effect: recomputed `mg_0`/`bp_rp_0` for all 443,211 rows of the
+real `+enrich+mc10000` cache and re-ran `SampleSelectionRegistry.evaluate_all`:
+
+| Target | Published | Baseline (main, unextincted) | Combined19-dereddened (diagnostic) |
+|---|---:|---:|---:|
+| `primary_ns_bh` | 47 | 42 | **46** |
+| `sub_chandrasekhar` | 22 | 861 | **1399** |
+
+- `primary_ns_bh` closes ~80% of the gap (5-off → 1-off) — strong evidence the extinction chain is a
+  major contributor to that target's mismatch.
+- `sub_chandrasekhar` gets **worse**, not better (861 → 1399, further from 22) — a genuine, useful
+  null-ish result. Dereddening the point estimate does not close this gap and is not the dominant
+  lever for it; something else in the `M̃2` ∈ [1.05, 1.40] window (possibly still `a0`/AMRF,
+  possibly the open multi-solution duplicate-row question in #237, since the cache used here predates
+  #237's tag-and-keep resolution and was not rebuilt for this measurement) needs its own
+  investigation. **Do not assume fixing extinction alone will fix `sub_chandrasekhar`.**
+- `elbadry2023_table_e1` (5) and `andrews2022_import` (19) are unchanged in both runs, as expected —
+  a sanity check that the diagnostic isolated the right mechanism and did not leak into unrelated
+  subsamples.
+
+**Disposition:** no code changed by #232. Substituting `Combined19` for the frozen `green2019`/
+`lallement2019` split would be a real methodology deviation (and would make `sub_chandrasekhar`
+worse), not a drop-in fix — #258 escalates the actual decision (acquire the real maps once disk
+space allows vs. accept a documented, schema-bumped approximation vs. treat `sub_chandrasekhar` as
+a separately-rooted problem) rather than guessing at it here.
+
 ### 3.4 Simon 2026 exclusion breakdown
 
 Re-measured at `eb009d8` (post Wave −1, ahead of Wave A) via
@@ -306,8 +358,8 @@ different shape.
 | Andrews 352 after `P(M2)` vs 106 | Our full-cov MC ≠ the paper's attrition (packing / floors / prefilters) | Escalate; don't edit 0.95 |
 | `sub_chandrasekhar` 0 | Pre-reconciliation branch state, before `σ_M̃2` bound | Historical; resolved |
 | `sub_chandrasekhar` 740 | Andrews `σ` aliased into `sigma_m2_astrometric_msun` | Fixed; on `main` since `03a452a` |
-| `sub_chandrasekhar` 861 (current) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | Fix the `a0` / extinction / AMRF chain |
-| `primary_ns_bh` 42 ≠ 47 | Extinction maps / `mg_0` / `a0` method (Q7 nsstools) | #133; **measure** the nsstools delta before choosing |
+| `sub_chandrasekhar` 861 (current) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | **Not extinction** (#258: Combined19 diagnostic makes this worse, 861→1399) — look at `a0`/AMRF or #237's open multi-solution question instead |
+| `primary_ns_bh` 42 ≠ 47 | **Confirmed**: `ExtinctionSpec` parsed but never applied — `mg_0`/`bp_rp_0` are raw, un-dereddened `abs_g_mag`/`bp_rp` (dead code, not the `a0` method — Q7 already ruled that out). Combined19 diagnostic closes ~80% of the gap (42→46) | #133, #258; real fix needs Green2019/Lallement2019 map data, blocked on disk space — §3.3.1 |
 | Spectro 123 ≠ 151 | K1 is fine; downstream `mass_route` / MS / `m2_min` | Binding, not the Orbital MC |
 | Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap via `mg_0`/`a0` chain — `1864406790238257536` wrongly `evolved` (unextincted `mg_0`), `3263804373319076480` wrongly clears `m2_over_m1` (AMRF `M̃2` ≈4x paper) | Same root cause as #133; fix there, not by editing `elbadry2026_selection.py` |
 
