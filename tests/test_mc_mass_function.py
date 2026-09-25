@@ -21,6 +21,7 @@ from darkhunter_pop.mc_mass_function import (
     record_seeds_on_manifest,
     run_m2_posterior_convergence,
     sample_multivariate_normal,
+    sample_primary_mass_draws,
     synthetic_orbital_solution,
 )
 from darkhunter_pop.physics_utils import invert_astrometric_companion_mass
@@ -242,3 +243,152 @@ def test_1e4_draws_mc_noise_subdominant() -> None:
     # Binomial SE at p=0.95, N=1e4 is ~0.0022, well below the 0.05 remaining mass.
     assert diagnostic.max_probability_sigma < 0.01
     assert diagnostic.n_within_mc_of_boundary >= 0
+
+
+# --- Issue #257: Andrews et al. (2022) per-draw M1 (Gaia Apsis FLAME mass /
+# uniform fallback) --------------------------------------------------------
+
+
+def test_sample_primary_mass_draws_gaussian_around_flame_value() -> None:
+    rng = np.random.default_rng(42)
+    draws = sample_primary_mass_draws(
+        flame_value_msun=0.85,
+        n_draws=20000,
+        rng=rng,
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    assert draws.shape == (20000,)
+    assert np.all(draws > 0.0)
+    assert float(np.mean(draws)) == pytest.approx(0.85, abs=0.01)
+    assert float(np.std(draws)) == pytest.approx(0.1, rel=0.05)
+
+
+def test_sample_primary_mass_draws_uniform_fallback_when_flame_missing() -> None:
+    rng = np.random.default_rng(7)
+    draws = sample_primary_mass_draws(
+        flame_value_msun=None,
+        n_draws=20000,
+        rng=rng,
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    assert draws.shape == (20000,)
+    assert float(np.min(draws)) >= 0.63
+    assert float(np.max(draws)) <= 1.0
+    assert float(np.mean(draws)) == pytest.approx(0.815, abs=0.02)
+
+
+def test_sample_primary_mass_draws_uniform_fallback_on_nonfinite_or_nonpositive() -> None:
+    rng = np.random.default_rng(9)
+    for bad_value in (float("nan"), -1.0, 0.0):
+        draws = sample_primary_mass_draws(
+            flame_value_msun=bad_value,
+            n_draws=64,
+            rng=rng,
+            flame_fixed_error_msun=0.1,
+            uniform_low_msun=0.63,
+            uniform_high_msun=1.0,
+        )
+        assert np.all(draws >= 0.63) and np.all(draws <= 1.0)
+
+
+def test_sample_primary_mass_draws_rejects_bad_config() -> None:
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="flame_fixed_error_msun"):
+        sample_primary_mass_draws(
+            flame_value_msun=1.0,
+            n_draws=10,
+            rng=rng,
+            flame_fixed_error_msun=0.0,
+            uniform_low_msun=0.63,
+            uniform_high_msun=1.0,
+        )
+    with pytest.raises(ValueError, match="uniform_high_msun"):
+        sample_primary_mass_draws(
+            flame_value_msun=None,
+            n_draws=10,
+            rng=rng,
+            flame_fixed_error_msun=0.1,
+            uniform_low_msun=1.0,
+            uniform_high_msun=0.63,
+        )
+
+
+def test_mass_function_draws_broadcasts_scalar_m1_to_per_draw_array() -> None:
+    solution = synthetic_orbital_solution(relative_error=0.03, seed=4)
+    draws = propagate_nss_solution(
+        solution, m1_msun=1.0, n_draws=50, random_seed=11, source_id=5
+    )
+    assert isinstance(draws.m1_msun, np.ndarray)
+    assert draws.m1_msun.shape == (50,)
+    assert np.all(draws.m1_msun == 1.0)
+    assert draws.m1_mean() == pytest.approx(1.0)
+    assert draws.m1_std() == pytest.approx(0.0)
+
+
+def test_mass_function_draws_propagates_per_draw_m1_array() -> None:
+    """A genuinely per-draw M1 ensemble (#257) must flow through to M2, not
+    collapse to a single shared value — the core interface change this issue
+    requires.
+    """
+    solution = synthetic_orbital_solution(relative_error=1e-8, seed=6)
+    n_draws = 5000
+    rng = np.random.default_rng(123)
+    m1_draws = sample_primary_mass_draws(
+        flame_value_msun=0.9,
+        n_draws=n_draws,
+        rng=rng,
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    draws = propagate_nss_solution(
+        solution, m1_msun=m1_draws, n_draws=n_draws, random_seed=17, source_id=8
+    )
+    assert draws.m1_msun.shape == (n_draws,)
+    np.testing.assert_allclose(draws.m1_msun, m1_draws)
+    assert draws.m1_std() > 0.0
+    # M2 = f(m_f, M1, F); a genuinely varying M1 ensemble must show up as
+    # nonzero M2 spread beyond what a fixed M1 alone would give.
+    fixed_draws = propagate_nss_solution(
+        solution, m1_msun=0.9, n_draws=n_draws, random_seed=17, source_id=8
+    )
+    assert draws.m2_std() > fixed_draws.m2_std()
+
+
+def test_ensemble_row_quantities_reports_m1_mc_stats() -> None:
+    solution = synthetic_orbital_solution(relative_error=0.03, seed=10)
+    rng = np.random.default_rng(3)
+    m1_draws = sample_primary_mass_draws(
+        flame_value_msun=None,
+        n_draws=200,
+        rng=rng,
+        flame_fixed_error_msun=0.1,
+        uniform_low_msun=0.63,
+        uniform_high_msun=1.0,
+    )
+    draws = propagate_nss_solution(
+        solution, m1_msun=m1_draws, n_draws=200, random_seed=21, source_id=2
+    )
+    quantities = ensemble_row_quantities(draws, m2_threshold_msun=1.4)
+    assert quantities["m1_msun_mc_mean"] == pytest.approx(draws.m1_mean())
+    assert quantities["m1_msun_mc_sigma"] == pytest.approx(draws.m1_std())
+    assert quantities["m1_msun_mc_sigma"] > 0.0
+
+
+def test_mass_function_draws_rejects_mismatched_m1_shape() -> None:
+    with pytest.raises(ValueError, match="m1_msun"):
+        MassFunctionDraws(
+            source_id=1,
+            n_draws=10,
+            random_seed=0,
+            factorization=CovarianceFactorization.CHOLESKY,
+            a0_mas=np.ones(10),
+            m_f_msun=np.ones(10),
+            m2_msun=np.ones(10),
+            m1_msun=np.ones(5),
+            flux_ratio=0.0,
+        )

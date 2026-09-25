@@ -165,6 +165,14 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "phot_g_mean_mag_error" not in adql
     assert "LEFT JOIN" in adql
     assert "galex_ais_best_neighbour" not in adql  # disabled
+    # Gaia Apsis FLAME mass for Andrews et al. (2022)'s flame_or_uniform_draw
+    # primary-mass method (#230/#257); joined via the existing
+    # astrophysical_parameters LEFT JOIN, not a new one.
+    assert "ap.mass_flame" in adql
+    assert "ap.mass_flame_upper" in adql
+    assert "ap.mass_flame_lower" in adql
+    # Extends the existing astrophysical_parameters join; does not add a second one.
+    assert adql.count("AS ap ON nss.source_id = ap.source_id") == 1
 
 
 def test_build_nss_type_smoke_adql_one_solution_type() -> None:

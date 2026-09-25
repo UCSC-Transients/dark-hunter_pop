@@ -33,8 +33,15 @@ def test_andrews2022_parent_is_orbital_only_and_verified() -> None:
     assert spec.mode is SampleSelectionMode.REPRODUCTION
     assert spec.provenance.published_n == 24
     assert spec.primary_mass is not None
-    assert spec.primary_mass.method == "fixed"
-    assert spec.primary_mass.value_msun == 1.0
+    # #230/#257: Gaia Apsis FLAME mass with a fixed Gaussian error, else a
+    # uniform fallback draw — replaces the earlier fixed M1 = 1.0 Msun
+    # convention (Ryan Foley's ruling on #254, schema_version 2).
+    assert spec.primary_mass.method == "flame_or_uniform_draw"
+    assert spec.primary_mass.value_msun is None
+    assert spec.primary_mass.flame_column == "mass_flame"
+    assert spec.primary_mass.flame_fixed_error_msun == pytest.approx(0.1)
+    assert spec.primary_mass.uniform_low_msun == pytest.approx(0.63)
+    assert spec.primary_mass.uniform_high_msun == pytest.approx(1.0)
     assert spec.monte_carlo is not None
     assert spec.monte_carlo.n_draws == 10000
     assert spec.monte_carlo.covariance == "full_12x12"
@@ -113,7 +120,8 @@ def test_andrews2022_modified_inherits_and_restores_gaia_bh1() -> None:
     assert resolved.parent_query is not None
     assert resolved.parent_query.dr3.expected_parent_n == _PARENT_N
     assert resolved.primary_mass is not None
-    assert resolved.primary_mass.value_msun == 1.0
+    assert resolved.primary_mass.method == "flame_or_uniform_draw"
+    assert resolved.primary_mass.flame_fixed_error_msun == pytest.approx(0.1)
     assert resolved.monte_carlo is not None
     assert resolved.monte_carlo.n_draws == 10000
 
