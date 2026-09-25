@@ -214,6 +214,42 @@ also be reproduced." Binding consequences for downstream design:
 
 This domain decision is authoritative and not to be second-guessed in a coding session; see
 `docs/CONTINUATION_PLAN.md` §15 Q17 for the full record.
+
+**Implementation, `population_model.py` / `inference.py` (issue #244).** The chosen convention is
+**each kept NSS row is its own independent observation in the unbinned Poisson point-process
+likelihood** — not "group by `source_id` with an explicit multiplicity term." This was found to
+already be the codebase's structure end to end, not a new design: `population_model.py`'s
+`collect_system_weights` builds one `SystemPopulationWeight` per input `CandidateRecord` row (never
+per distinct `source_id`), `inference.py`'s `collect_observed_events` correspondingly builds one
+`ObservedEvent` per row, and the unbinned likelihood sums `Σ_i log λ(x_i)` with one term per event
+(`physics_utils.poisson_log_likelihood_inhomogeneous`) — so a source with 2 kept rows contributes 2
+terms, symmetric with a mock system that emits 2 rows under `forward_model.py`'s multi-solution
+emission model (#243). The rejected alternative (group-by-`source_id` with a multiplicity term) was
+ruled out because rows of one source can carry different `m2_msun` point estimates from different
+`nss_solution_type` fits, so grouping would have to either discard mass information or invent a new
+aggregate with none — per-row independence uses exactly what each row already carries.
+
+Issue #244 audited both modules for implicit one-row-per-system assumptions and found the core
+likelihood sum was already correct; the audit's actual findings were in the *reporting* layer:
+`population_model`'s legacy `n_systems` payload key literally counts rows, not distinct sources
+(kept, for backward compatibility, but now documented and paired with new `n_distinct_source_ids` /
+`row_multiplicity_histogram` fields — `population_model.compute_row_multiplicity`), and
+`inference.collect_observed_events`'s optional `eccentricities: Mapping[int, float]` parameter is a
+source_id-keyed fallback that cannot distinguish rows of the same source (a per-row `eccentricity`
+field on `system_weight_rows`, when present, already takes precedence — documented, not changed).
+
+A genuine gap the audit *did* find, and deliberately did **not** fix in #244 (escalated to #252
+rather than silently landed, per #244's own escalation instructions — folding row-multiplicity into
+the Poisson normalization is a statistical-modeling decision, not mechanical bookkeeping):
+`inference.read_astrometric_sf_scalar` / `read_followup_sf_scalar` — which set the SF factors in
+`Λ = MF(M) × astro_sf × followup_sf × sample_sf` — currently estimate `P(≥1 row accepted)` per mock
+system, not `E[rows accepted]`, so `Λ` does not yet reflect the mock's own multi-solution row
+emission rate (#243). `inference.row_multiplicity_consistency_diagnostic` (backed by
+`real_row_multiplicity_stats` and `estimate_mock_expected_row_multiplicity`, which reads
+`forward_model.load_multi_solution_rate_table`) reports the real-vs-mock mean-rows-per-source
+comparison as a new **diagnostic-only** field on the `inference` payload (`row_multiplicity_diagnostic`,
+alongside `posterior_prior_overlap` / `zero_count_upper_limits`) so this asymmetry is visible without
+being silently baked into the likelihood. See issue #252 for the follow-up.
 - Quality cut: goodness-of-fit vs. magnitude, configurable as **N separate (magnitude, threshold)
   bins** (El-Badry et al. 2023's <5/G>13, <10/G≤13 as the v1 default values; the mechanism
   supports arbitrary bin counts, since DR4 may need a different scheme).
