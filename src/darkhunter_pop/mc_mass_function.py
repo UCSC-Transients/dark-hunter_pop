@@ -59,6 +59,13 @@ _REQUIRED_CANONICAL: tuple[str, ...] = (
 MANIFEST_SEED_KEY: str = "mc_mass_function"
 FULL_COVARIANCE_MODE: str = "full_12x12"
 
+# XOR salt decorrelating the per-draw M1 stream (#257) from the covariance-draw
+# stream, both seeded from the same per-system seed. Not a physics/statistics
+# threshold — an arbitrary decorrelation constant, so it stays a code constant
+# rather than a config key (dark-hunter-pop-workflow §1 governs thresholds/
+# priors/paths, not RNG-stream bookkeeping).
+M1_DRAW_SEED_SALT: int = 0x4D31_5F44  # "M1_D" ascii-derived, no physics meaning
+
 
 class CovarianceFactorization(str, Enum):
     """How a draw factor ``L`` with ``x = μ + L z`` was obtained."""
@@ -84,7 +91,15 @@ class CovarianceFactor:
 
 @dataclass
 class MassFunctionDraws:
-    """One system's Monte Carlo ensemble over ``(m_f, M2)``."""
+    """One system's Monte Carlo ensemble over ``(m_f, M2)``.
+
+    ``m1_msun`` is a **per-draw** array (#257): most samples still use one
+    fixed M1 shared by every draw (a scalar ``float``/0-d array broadcast to
+    shape ``(n_draws,)`` in ``__post_init__``), but Andrews et al. (2022)'s
+    ``flame_or_uniform_draw`` primary-mass method genuinely varies M1 draw to
+    draw (Gaussian around the Gaia Apsis FLAME mass, or a uniform fallback),
+    so the field must carry the whole ensemble rather than one shared value.
+    """
 
     source_id: int | None
     n_draws: int
@@ -93,13 +108,38 @@ class MassFunctionDraws:
     a0_mas: NDArray[np.floating]
     m_f_msun: NDArray[np.floating]
     m2_msun: NDArray[np.floating]
-    m1_msun: float
+    m1_msun: NDArray[np.floating]
     flux_ratio: float
     n_clipped_eigenvalues: int = 0
+
+    def __post_init__(self) -> None:
+        m1 = np.asarray(self.m1_msun, dtype=np.float64)
+        if m1.ndim == 0:
+            m1 = np.full(int(self.n_draws), float(m1), dtype=np.float64)
+        elif m1.shape != (self.n_draws,):
+            raise ValueError(
+                "m1_msun must be a scalar or a per-draw array of shape "
+                f"({self.n_draws},); got shape {m1.shape}"
+            )
+        self.m1_msun = m1
 
     @property
     def n_valid(self) -> int:
         return int(np.count_nonzero(np.isfinite(self.m2_msun)))
+
+    def m1_mean(self) -> float:
+        """Ensemble mean M1 — equals the scalar value when M1 was not per-draw."""
+        finite = self.m1_msun[np.isfinite(self.m1_msun)]
+        if finite.size == 0:
+            return float("nan")
+        return float(np.mean(finite))
+
+    def m1_std(self) -> float:
+        """Ensemble M1 spread — 0 for a fixed (non-per-draw) M1 assumption."""
+        finite = self.m1_msun[np.isfinite(self.m1_msun)]
+        if finite.size < 2:
+            return float("nan")
+        return float(np.std(finite, ddof=1))
 
     def probability_m2_above(self, threshold_msun: float) -> float:
         """``P(M2 > threshold)`` as an ensemble fraction of all draws.
@@ -260,6 +300,51 @@ def sample_multivariate_normal(
     return mean + z @ factor.factor.T
 
 
+def sample_primary_mass_draws(
+    *,
+    flame_value_msun: float | None,
+    n_draws: int,
+    rng: Generator,
+    flame_fixed_error_msun: float,
+    uniform_low_msun: float,
+    uniform_high_msun: float,
+) -> NDArray[np.floating]:
+    """Per-draw M1 ensemble for Andrews et al. (2022)'s ``flame_or_uniform_draw``
+    primary-mass method (#230/#257).
+
+    When ``flame_value_msun`` is a finite, positive Gaia Apsis FLAME mass, draws
+    ``n_draws`` samples from ``N(flame_value_msun, flame_fixed_error_msun)``,
+    clipped to stay strictly positive (a non-positive M1 draw is unphysical and
+    would poison ``invert_astrometric_companion_mass``'s Newton solve). When
+    FLAME mass is unavailable (``None``, non-finite, or non-positive — FLAME
+    does not run for every source), falls back to
+    ``Uniform(uniform_low_msun, uniform_high_msun)``, matching #230's stated
+    fallback. All three parameters are config-driven (``PrimaryMassSpec``),
+    never hardcoded here.
+    """
+    if n_draws < 1:
+        raise ValueError("n_draws must be >= 1")
+    if flame_fixed_error_msun <= 0.0:
+        raise ValueError("flame_fixed_error_msun must be > 0")
+    if uniform_high_msun <= uniform_low_msun:
+        raise ValueError("uniform_high_msun must exceed uniform_low_msun")
+    if (
+        flame_value_msun is not None
+        and np.isfinite(flame_value_msun)
+        and flame_value_msun > 0.0
+    ):
+        draws = rng.normal(
+            loc=float(flame_value_msun),
+            scale=float(flame_fixed_error_msun),
+            size=int(n_draws),
+        )
+        tiny_positive = np.finfo(np.float64).tiny
+        return np.clip(draws, a_min=tiny_positive, a_max=None)
+    return rng.uniform(
+        float(uniform_low_msun), float(uniform_high_msun), size=int(n_draws)
+    )
+
+
 def propagate_thiele_innes_draws(
     a_mas: ArrayLike,
     b_mas: ArrayLike,
@@ -281,7 +366,7 @@ def propagate_thiele_innes_draws(
 def propagate_nss_solution(
     solution: ParameterSet,
     *,
-    m1_msun: float,
+    m1_msun: ArrayLike,
     n_draws: int,
     random_seed: int,
     flux_ratio: float = 0.0,
@@ -290,7 +375,13 @@ def propagate_nss_solution(
     source_id: int | None = None,
     covariance_mode: str = FULL_COVARIANCE_MODE,
 ) -> MassFunctionDraws:
-    """Draw the NSS covariance and propagate to ``(m_f, M2)``."""
+    """Draw the NSS covariance and propagate to ``(m_f, M2)``.
+
+    ``m1_msun`` accepts either a scalar (the historical fixed-M1 convention,
+    shared by every draw) or a length-``n_draws`` per-draw array (#257,
+    Andrews et al. 2022's ``flame_or_uniform_draw`` method) — either way the
+    returned :class:`MassFunctionDraws` stores the full per-draw ensemble.
+    """
     if covariance_mode != FULL_COVARIANCE_MODE:
         raise UnhandledCovarianceModeError(
             f"unhandled covariance mode {covariance_mode!r}; only "
@@ -327,7 +418,7 @@ def propagate_nss_solution(
         a0_mas=a0,
         m_f_msun=m_f,
         m2_msun=m2,
-        m1_msun=float(m1_msun),
+        m1_msun=np.asarray(m1_msun, dtype=np.float64),
         flux_ratio=float(flux_ratio),
         n_clipped_eigenvalues=factor.n_clipped,
     )
@@ -338,7 +429,13 @@ def ensemble_row_quantities(
     *,
     m2_threshold_msun: float,
 ) -> dict[str, Any]:
-    """Columns consumed by sample-selection probability / SNR cuts (§6.4, §11)."""
+    """Columns consumed by sample-selection probability / SNR cuts (§6.4, §11).
+
+    ``m1_msun_mc_mean`` / ``m1_msun_mc_sigma`` report the ensemble M1 that was
+    actually propagated (#257) — named distinctly from the cut-evaluator's own
+    ``m1_msun`` row key (set by ``SampleSelection.bind_row``) so this never
+    silently overwrites it.
+    """
     return {
         "p_m2_above": draws.probability_m2_above(m2_threshold_msun),
         "p_m2_gt_threshold": draws.probability_m2_above(m2_threshold_msun),
@@ -346,6 +443,8 @@ def ensemble_row_quantities(
         "sigma_m2_msun": draws.m2_std(),
         "m2_snr": draws.m2_snr(),
         "m_f_msun": float(np.nanmean(draws.m_f_msun)),
+        "m1_msun_mc_mean": draws.m1_mean(),
+        "m1_msun_mc_sigma": draws.m1_std(),
         "n_mc_draws": draws.n_draws,
         "n_mc_valid": draws.n_valid,
         "mc_factorization": draws.factorization.value,

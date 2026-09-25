@@ -466,8 +466,21 @@ class SampleExclusion(BaseModel):
     expected_n_after: int | None = Field(default=None, ge=0)
 
 
+FLAME_OR_UNIFORM_DRAW_METHOD: str = "flame_or_uniform_draw"
+
+
 class PrimaryMassSpec(BaseModel):
-    """Per-sample primary-mass assumption; ignored under ``forward_model`` (§4.3)."""
+    """Per-sample primary-mass assumption; ignored under ``forward_model`` (§4.3).
+
+    ``method: "flame_or_uniform_draw"`` (#230/#257, Andrews et al. 2022 only):
+    Gaia Apsis FLAME mass (``astrophysical_parameters.mass_flame``) with a
+    **fixed** Gaussian error ``flame_fixed_error_msun`` when FLAME mass is
+    available, else a uniform draw between ``uniform_low_msun`` and
+    ``uniform_high_msun`` per Monte Carlo realization. The fixed error is a
+    modeling choice, not Gaia's own reported uncertainty — DR3
+    ``astrophysical_parameters`` publishes no symmetric ``mass_flame_error``
+    column, only ``mass_flame_lower``/``mass_flame_upper`` (16%/84% CI).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -478,6 +491,37 @@ class PrimaryMassSpec(BaseModel):
     ab_correlation: float | None = None
     applies_only_when: str | None = None
     parameters: dict[str, CutParameterValue] = Field(default_factory=dict)
+    # flame_or_uniform_draw fields (#257) — config-driven, no hardcoded
+    # 0.1 / 0.63 / 1.0 in Python per dark-hunter-pop-workflow §1.
+    flame_column: str | None = None
+    flame_fixed_error_msun: float | None = Field(default=None, gt=0)
+    uniform_low_msun: float | None = Field(default=None, gt=0)
+    uniform_high_msun: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _flame_or_uniform_draw_requires_params(self) -> "PrimaryMassSpec":
+        if self.method != FLAME_OR_UNIFORM_DRAW_METHOD:
+            return self
+        missing = [
+            name
+            for name, val in (
+                ("flame_fixed_error_msun", self.flame_fixed_error_msun),
+                ("uniform_low_msun", self.uniform_low_msun),
+                ("uniform_high_msun", self.uniform_high_msun),
+            )
+            if val is None
+        ]
+        if missing:
+            raise ValueError(
+                f"primary_mass.method {FLAME_OR_UNIFORM_DRAW_METHOD!r} requires "
+                f"{missing} to be set"
+            )
+        assert self.uniform_low_msun is not None and self.uniform_high_msun is not None
+        if self.uniform_high_msun <= self.uniform_low_msun:
+            raise ValueError(
+                "primary_mass.uniform_high_msun must exceed uniform_low_msun"
+            )
+        return self
 
 
 class MonteCarloSpec(BaseModel):

@@ -82,7 +82,12 @@ _THIELE_INNES_ADQL: dict[str, str] = {
 _THIELE_INNES_FIELDS: tuple[str, ...] = tuple(_THIELE_INNES_ADQL.keys())
 _THIELE_INNES_ERR_SUFFIX = "_error"
 
-# Astrophysical-parameters columns for mass_derivation (MSC preferred, gspphot fallback).
+# Astrophysical-parameters columns for mass_derivation (MSC preferred, gspphot fallback),
+# plus Gaia Apsis FLAME mass for Andrews et al. (2022)'s primary-mass method (#230/#257).
+# gaiadr3.astrophysical_parameters publishes mass_flame/_upper/_lower (16%/84% CI) but no
+# symmetric mass_flame_error column — confirmed against the live TAP_SCHEMA (issue #257);
+# do not assume one exists. _build_atmosphere_extras's ("", "_upper", "_lower", "_error")
+# suffix loop already tolerates the missing "_error" column via _optional_float.
 _AP_PARAM_STEMS: tuple[str, ...] = (
     "teff_msc1",
     "logg_msc1",
@@ -90,6 +95,7 @@ _AP_PARAM_STEMS: tuple[str, ...] = (
     "teff_gspphot",
     "logg_gspphot",
     "mh_gspphot",
+    "mass_flame",
 )
 
 # Multi-solution classification (#241/#242; docs/ARCHITECTURE.md §4 "Multi-solution

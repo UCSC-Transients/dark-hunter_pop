@@ -29,12 +29,14 @@ from darkhunter_pop.data_acquisition import (
     merge_nss_enrichment_into_row,
     table_row_to_candidate,
 )
+from darkhunter_pop.config_schema import PrimaryMassSpec
 from darkhunter_pop.mc_mass_function import (
     ensemble_row_quantities,
     propagate_nss_solution,
 )
 from darkhunter_pop.sample_selection import (
     _read_selection_parent_cache,
+    _resolve_primary_mass_draws,
     _selection_parent_cache_path,
     _write_selection_parent_cache,
     load_sample_selection_file,
@@ -47,7 +49,7 @@ def _mc_one(payload: tuple[Any, ...]) -> tuple[int, dict[str, Any] | None]:
         sol_type,
         enrich_cols,
         enrich_vals,
-        m1,
+        primary_mass_dump,
         m2_thr,
         n_draws,
         seed_base,
@@ -58,6 +60,11 @@ def _mc_one(payload: tuple[Any, ...]) -> tuple[int, dict[str, Any] | None]:
     ) = payload
     dr = DRPathConfig.model_validate(dr_dump)
     smf = SpectroscopicMassFunctionConfig.model_validate(smf_dump)
+    primary_mass = (
+        PrimaryMassSpec.model_validate(primary_mass_dump)
+        if primary_mass_dump is not None
+        else None
+    )
     enrich = dict(zip(enrich_cols, enrich_vals, strict=True))
     mapping = merge_nss_enrichment_into_row(
         {"source_id": int(source_id), "nss_solution_type": str(sol_type)},
@@ -67,10 +74,15 @@ def _mc_one(payload: tuple[Any, ...]) -> tuple[int, dict[str, Any] | None]:
     if cand.nss_solution is None:
         return int(source_id), None
     seed = int(seed_base) ^ (int(source_id) & 0x7FFFFFFF)
+    # #230/#257: per-source M1 input — a per-draw FLAME/uniform-draw ensemble
+    # under `flame_or_uniform_draw`, else the historical scalar (broadcast).
+    m1 = _resolve_primary_mass_draws(
+        primary_mass, cand.extras, n_draws=int(n_draws), random_seed=seed
+    )
     try:
         draws = propagate_nss_solution(
             cand.nss_solution,
-            m1_msun=float(m1),
+            m1_msun=m1,
             n_draws=int(n_draws),
             random_seed=seed,
             eig_rel_floor=float(eig_rel),
@@ -119,12 +131,36 @@ def main(argv: list[str] | None = None) -> int:
     andrews = load_sample_selection_file(
         repo_root() / "config/selections/andrews2022.yaml"
     )
-    m1 = 1.0
-    if (
-        andrews.primary_mass is not None
-        and andrews.primary_mass.value_msun is not None
-    ):
-        m1 = float(andrews.primary_mass.value_msun)
+    primary_mass = andrews.primary_mass
+    primary_mass_dump = (
+        primary_mass.model_dump(mode="json") if primary_mass is not None else None
+    )
+    if primary_mass is not None and primary_mass.method == "flame_or_uniform_draw":
+        flame_column = primary_mass.flame_column or "mass_flame"
+        n_with_flame = sum(
+            1 for row in rows if isinstance(row.get(flame_column), (int, float))
+        )
+        print(
+            f"primary_mass.method=flame_or_uniform_draw flame_column={flame_column!r} "
+            f"rows_with_flame={n_with_flame}/{len(rows)} (#230/#257)",
+            flush=True,
+        )
+        if n_with_flame == 0:
+            print(
+                "WARNING: 0 rows carry a FLAME mass column — the "
+                f"+enrich cache at {enrich_cache} predates issue #257's "
+                "astrophysical_parameters.mass_flame join, so every source "
+                "will fall back to Uniform(uniform_low_msun, uniform_high_msun) "
+                "rather than using real Gaia Apsis FLAME masses. A supplemental "
+                "Gaia archive fetch that joins astrophysical_parameters for "
+                "mass_flame/_upper/_lower (analogous to fetch_nss_enrichment.py, "
+                "but against astrophysical_parameters) must land and be merged "
+                "into the cache before this rebuild reflects #230's intended "
+                "method. Re-run after that fetch — do not treat an "
+                "all-uniform-fallback rebuild as the #257 deliverable.",
+                file=sys.stderr,
+                flush=True,
+            )
     m2_thr = 1.4
     for cut in andrews.cuts or []:
         if cut.id == "m2_probability":
@@ -165,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
                 sol,
                 enrich_cols,
                 vals,
-                m1,
+                primary_mass_dump,
                 m2_thr,
                 int(mc.n_draws),
                 int(mc.random_seed),
