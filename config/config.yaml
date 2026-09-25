@@ -136,6 +136,13 @@ selection_function_astrometric:
     ks_pvalue_min: 0.01
     solution_type_fraction_max_abs_delta: 0.05
     reference_path: null
+    multi_solution_rate_max_abs_delta: 0.05
+  multi_solution:
+    enabled: true
+    primary_type: Orbital
+    same_type_period_alias_ratio_min: 0.5
+    same_type_period_alias_ratio_max: 2.0
+    random_seed: 4241
   mock_population:
     sampling: elbadry_prior
     random_seed: 42
@@ -226,6 +233,12 @@ selection_function_followup:
     revision_history_incompleteness_caveat: true
     weekly_snapshot_relative_dir: target_lists/snapshots
     derived_adoption_dates_relative_dir: config/target_lists/derived
+  multi_solution:
+    enabled: true
+    primary_type: SB1
+    same_type_period_alias_ratio_min: 0.5
+    same_type_period_alias_ratio_max: 2.0
+    random_seed: 4242
 sample_selection:
   enabled: true
   samples:
@@ -252,6 +265,9 @@ sample_selection:
 spuriousness_model:
   enabled: true
   path: config/spuriousness_model.yaml
+multi_solution_rates:
+  enabled: true
+  path: config/multi_solution_rates.yaml
 sensitivity_analysis:
   population_classes:
   - BH

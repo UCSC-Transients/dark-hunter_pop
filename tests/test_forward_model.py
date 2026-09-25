@@ -584,3 +584,381 @@ def test_followup_dr4_refused(tmp_path: Path) -> None:
     bad = cfg.model_copy(update={"active_dr_mode": ActiveDRMode.DR4})
     with pytest.raises(ValueError, match="not runnable"):
         run_selection_function_followup(bad, tmp_path / "x.h5")
+
+
+# ---------------------------------------------------------------------------
+# Multi-solution emission model (issue #243, depends on #241's rate measurement)
+# ---------------------------------------------------------------------------
+
+
+def _fixture_rate_table(
+    *,
+    n_sources: int = 100,
+    n_cross_type_sources: int = 0,
+    n_same_type_period_aliased_sources: int = 0,
+    cross_type_combo_counts: dict[str, int] | None = None,
+):
+    from darkhunter_pop.forward_model import MultiSolutionRateTable
+
+    return MultiSolutionRateTable(
+        schema_version=1,
+        source_snapshot_id="test-fixture",
+        n_sources=n_sources,
+        n_cross_type_sources=n_cross_type_sources,
+        n_same_type_period_aliased_sources=n_same_type_period_aliased_sources,
+        cross_type_combo_counts=cross_type_combo_counts or {},
+    )
+
+
+@pytest.mark.unit
+def test_config_loads_multi_solution_rates_pointer() -> None:
+    cfg = load_config()
+    assert cfg.multi_solution_rates.enabled is True
+    assert cfg.multi_solution_rates.path == "config/multi_solution_rates.yaml"
+    assert cfg.selection_function_astrometric.multi_solution.primary_type == "Orbital"
+    assert cfg.selection_function_followup.multi_solution.primary_type == "SB1"
+
+
+@pytest.mark.unit
+def test_load_multi_solution_rate_table_matches_report() -> None:
+    """Loaded table reproduces #241's measured headline numbers exactly (no re-derivation)."""
+    from darkhunter_pop.forward_model import load_multi_solution_rate_table
+
+    cfg = load_config()
+    table = load_multi_solution_rate_table(cfg)
+    assert table.n_sources == 437275
+    assert table.n_cross_type_sources == 5926
+    assert table.n_same_type_period_aliased_sources == 0
+    assert table.cross_type_combo_counts["Orbital+SB1"] == 5290
+    assert table.same_type_period_aliased_rate == pytest.approx(0.0)
+    assert table.cross_type_rate == pytest.approx(5926 / 437275)
+
+
+@pytest.mark.unit
+def test_multi_solution_rates_disabled_gives_empty_table() -> None:
+    from darkhunter_pop.forward_model import load_multi_solution_rate_table
+
+    cfg = load_config()
+    disabled = cfg.model_copy(deep=True)
+    disabled.multi_solution_rates.enabled = False
+    table = load_multi_solution_rate_table(disabled)
+    assert table.n_sources == 0
+    assert table.cross_type_rate == 0.0
+    assert table.same_type_period_aliased_rate == 0.0
+
+
+@pytest.mark.unit
+def test_companion_type_distribution_normalizes_and_anchors_on_primary() -> None:
+    table = _fixture_rate_table(
+        n_sources=1000,
+        n_cross_type_sources=50,
+        cross_type_combo_counts={"Orbital+SB1": 40, "Orbital+SB2": 10, "EclipsingBinary+SB1": 5},
+    )
+    dist = table.companion_type_distribution("Orbital")
+    assert set(dist) == {"SB1", "SB2"}
+    assert dist["SB1"] == pytest.approx(0.8)
+    assert dist["SB2"] == pytest.approx(0.2)
+    assert table.combo_rate_for_primary("Orbital") == pytest.approx(50 / 1000)
+    # EclipsingBinary+SB1 does not involve "Orbital"; only SB1-anchored queries see it.
+    assert table.companion_type_distribution("SB1") == {
+        "Orbital": pytest.approx(40 / 45),
+        "EclipsingBinary": pytest.approx(5 / 45),
+    }
+
+
+@pytest.mark.unit
+def test_draw_cross_type_companion_zero_rate_never_fires() -> None:
+    from darkhunter_pop.forward_model import draw_cross_type_companion
+
+    table = _fixture_rate_table(n_sources=100, n_cross_type_sources=0)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        assert draw_cross_type_companion(rng, table, primary_type="Orbital") is None
+
+
+@pytest.mark.unit
+def test_draw_cross_type_companion_full_rate_always_fires() -> None:
+    from darkhunter_pop.forward_model import draw_cross_type_companion
+
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=100,
+        cross_type_combo_counts={"Orbital+SB1": 100},
+    )
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        assert draw_cross_type_companion(rng, table, primary_type="Orbital") == "SB1"
+
+
+@pytest.mark.unit
+def test_draw_orbital_period_aliases_zero_rate_never_fires() -> None:
+    from darkhunter_pop.forward_model import draw_orbital_period_aliases
+
+    table = _fixture_rate_table(n_sources=100, n_same_type_period_aliased_sources=0)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        aliases = draw_orbital_period_aliases(
+            rng, table, base_period_days=500.0, ratio_min=0.5, ratio_max=0.9
+        )
+        assert aliases == ()
+
+
+@pytest.mark.unit
+def test_draw_orbital_period_aliases_full_rate_emits_distinct_period() -> None:
+    from darkhunter_pop.forward_model import draw_orbital_period_aliases
+
+    table = _fixture_rate_table(n_sources=100, n_same_type_period_aliased_sources=100)
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        aliases = draw_orbital_period_aliases(
+            rng, table, base_period_days=500.0, ratio_min=0.5, ratio_max=0.9
+        )
+        assert len(aliases) == 1
+        assert aliases[0] != pytest.approx(500.0)
+        assert 0.0 < aliases[0] < 500.0
+
+
+@pytest.mark.unit
+def test_draw_multi_solution_emission_zero_rate_emits_zero_rows() -> None:
+    from darkhunter_pop.config_schema import MultiSolutionEmissionConfig
+    from darkhunter_pop.forward_model import draw_multi_solution_emission
+
+    table = _fixture_rate_table(n_sources=100)
+    ms_cfg = MultiSolutionEmissionConfig(primary_type="Orbital", random_seed=1)
+    rng = np.random.default_rng(0)
+    for _ in range(30):
+        em = draw_multi_solution_emission(
+            rng, table, ms_cfg, base_period_days=500.0
+        )
+        assert em.n_extra_rows == 0
+        assert em.cross_type_companion is None
+        assert em.orbital_period_aliases_days == ()
+
+
+@pytest.mark.unit
+def test_draw_multi_solution_emission_disabled_config_is_noop() -> None:
+    from darkhunter_pop.config_schema import MultiSolutionEmissionConfig
+    from darkhunter_pop.forward_model import draw_multi_solution_emission
+
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=100,
+        n_same_type_period_aliased_sources=100,
+        cross_type_combo_counts={"Orbital+SB1": 100},
+    )
+    ms_cfg = MultiSolutionEmissionConfig(
+        enabled=False, primary_type="Orbital", random_seed=1
+    )
+    rng = np.random.default_rng(0)
+    em = draw_multi_solution_emission(rng, table, ms_cfg, base_period_days=500.0)
+    assert em.n_extra_rows == 0
+
+
+@pytest.mark.unit
+def test_draw_multi_solution_emission_one_extra_row() -> None:
+    """Cross-type fires deterministically, same-type never does: exactly 1 extra row."""
+    from darkhunter_pop.config_schema import MultiSolutionEmissionConfig
+    from darkhunter_pop.forward_model import draw_multi_solution_emission
+
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=100,
+        n_same_type_period_aliased_sources=0,
+        cross_type_combo_counts={"Orbital+SB1": 100},
+    )
+    ms_cfg = MultiSolutionEmissionConfig(primary_type="Orbital", random_seed=1)
+    rng = np.random.default_rng(0)
+    em = draw_multi_solution_emission(rng, table, ms_cfg, base_period_days=500.0)
+    assert em.n_extra_rows == 1
+    assert em.cross_type_companion == "SB1"
+    assert em.orbital_period_aliases_days == ()
+
+
+@pytest.mark.unit
+def test_draw_multi_solution_emission_more_than_one_extra_row() -> None:
+    """Both sub-cases fire deterministically at once: >1 extra row (issue #243 item 5)."""
+    from darkhunter_pop.config_schema import MultiSolutionEmissionConfig
+    from darkhunter_pop.forward_model import draw_multi_solution_emission
+
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=100,
+        n_same_type_period_aliased_sources=100,
+        cross_type_combo_counts={"Orbital+SB1": 100},
+    )
+    ms_cfg = MultiSolutionEmissionConfig(
+        primary_type="Orbital",
+        random_seed=1,
+        same_type_period_alias_ratio_min=0.5,
+        same_type_period_alias_ratio_max=0.9,
+    )
+    rng = np.random.default_rng(0)
+    em = draw_multi_solution_emission(rng, table, ms_cfg, base_period_days=500.0)
+    assert em.n_extra_rows > 1
+    assert em.cross_type_companion == "SB1"
+    assert len(em.orbital_period_aliases_days) == 1
+    assert em.orbital_period_aliases_days[0] != pytest.approx(500.0)
+
+
+@pytest.mark.unit
+def test_multi_solution_emission_attached_to_accepted_orbital_realization() -> None:
+    """``_run_single_mock_realization`` attaches an emission for every accepted realization."""
+    from darkhunter_pop.forward_model import _run_single_mock_realization
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_astrometric.multi_solution.primary_type = "Orbital"
+    pop = tweaked.selection_function_astrometric.mock_population
+    draw = draw_mock_binary_params(pop, np.random.default_rng(1))
+
+    table = _fixture_rate_table(
+        n_sources=10,
+        n_cross_type_sources=10,
+        cross_type_combo_counts={"Orbital+SB1": 10},
+    )
+    ms_rng = np.random.default_rng(2)
+
+    # gaiamock is mocked out entirely: force the faint-draw short circuit so
+    # accepted_orbital stays False and we exercise the "not attached" branch cheaply,
+    # then flip to accepted_orbital=True via classify_cascade_result directly below.
+    rec = _run_single_mock_realization(
+        gaiamock=None,  # type: ignore[arg-type]
+        ra=0.0,
+        dec=0.0,
+        d_pc=200.0,
+        phot_g_mean_mag=18.0,
+        config=tweaked,
+        c_funcs=None,
+        draw=draw.__class__(**{**draw.__dict__, "faint_draw": True}),
+        multi_solution_table=table,
+        multi_solution_rng=ms_rng,
+    )
+    assert rec.multi_solution is None  # insufficient_visibility short circuit: no draw
+
+    accepted = classify_cascade_result(
+        _orbital_cascade(period=500.0),
+        m1_msun=1.0,
+        m2_msun=0.5,
+        flux_ratio=0.1,
+    )
+    assert accepted.accepted_orbital
+    from darkhunter_pop.forward_model import draw_multi_solution_emission
+
+    emission = draw_multi_solution_emission(
+        ms_rng,
+        table,
+        tweaked.selection_function_astrometric.multi_solution,
+        base_period_days=accepted.P_orb_days,
+    )
+    assert emission.cross_type_companion == "SB1"
+
+
+@pytest.mark.unit
+def test_run_multi_solution_diagnostic_perfect_match() -> None:
+    from darkhunter_pop.forward_model import (
+        MockRealizationRecord,
+        MultiSolutionEmission,
+        run_multi_solution_diagnostic,
+    )
+
+    cfg = load_config()
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=20,
+        cross_type_combo_counts={"Orbital+SB1": 20},
+    )
+    # 100 accepted realizations, exactly 20 carrying an SB1 companion: matches table exactly.
+    records = [
+        MockRealizationRecord(
+            solution_type=SolutionType.TWELVE_PARAMETER_ORBITAL,
+            accepted_orbital=True,
+            multi_solution=MultiSolutionEmission(
+                cross_type_companion="SB1" if i < 20 else None
+            ),
+        )
+        for i in range(100)
+    ]
+    result = run_multi_solution_diagnostic(
+        records, table, cfg.selection_function_astrometric
+    )
+    assert result.mock_cross_type_rate == pytest.approx(0.20)
+    assert result.real_cross_type_rate == pytest.approx(0.20)
+    assert result.max_abs_delta_cross_type == pytest.approx(0.0)
+    assert result.passed
+
+
+@pytest.mark.unit
+def test_run_multi_solution_diagnostic_flags_mismatch() -> None:
+    from darkhunter_pop.forward_model import (
+        MockRealizationRecord,
+        MultiSolutionEmission,
+        run_multi_solution_diagnostic,
+    )
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_astrometric.validation_gate.multi_solution_rate_max_abs_delta = 0.01
+    table = _fixture_rate_table(
+        n_sources=100,
+        n_cross_type_sources=50,
+        cross_type_combo_counts={"Orbital+SB1": 50},
+    )
+    # No mock realization carries a companion at all: large delta from the 50% real rate.
+    records = [
+        MockRealizationRecord(
+            solution_type=SolutionType.TWELVE_PARAMETER_ORBITAL,
+            accepted_orbital=True,
+            multi_solution=MultiSolutionEmission(),
+        )
+        for _ in range(100)
+    ]
+    result = run_multi_solution_diagnostic(
+        records, table, tweaked.selection_function_astrometric
+    )
+    assert not result.passed
+    assert result.max_abs_delta_cross_type == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+def test_followup_multi_solution_independent_draw(tmp_path: Path) -> None:
+    """Follow-up draws its own multi-solution emission, independent of the astrometric side."""
+    from darkhunter_pop.forward_model import run_selection_function_followup
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_followup.calibration.ks_pvalue_min = 0.0
+    # Force the shared table to a deterministic near-certain companion rate so the
+    # follow-up-side mechanism is exercised without depending on the real measured rate.
+    rates_path = tmp_path / "rates.yaml"
+    import yaml
+
+    rates_path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "source_snapshot_id": "test-fixture",
+                "n_sources": 10,
+                "n_cross_type_sources": 10,
+                "n_same_type_period_aliased_sources": 0,
+                "cross_type_combo_counts": {"Orbital+SB1": 10},
+            }
+        ),
+        encoding="utf-8",
+    )
+    tweaked.multi_solution_rates.path = str(rates_path)
+    tweaked.selection_function_followup.multi_solution.primary_type = "SB1"
+
+    artifact = tmp_path / "followup.h5"
+    result = run_selection_function_followup(tweaked, artifact, rng_seed=7)
+    assert len(result.multi_solution) == len(result.records)
+    n_selected = sum(1 for r in result.records if r.n_observations > 0)
+    n_companion = sum(
+        1 for ms in result.multi_solution if ms.cross_type_companion == "Orbital"
+    )
+    assert n_selected > 0
+    # Every selected (n_observations > 0) record independently rolled the companion draw;
+    # at rate=1.0 for primary_type="SB1" every selected record gets an "Orbital" companion.
+    assert n_companion == n_selected
+    with h5py.File(artifact, "r") as handle:
+        grp = handle["followup_catalog"]
+        assert "multi_solution_cross_type_companion" in grp
