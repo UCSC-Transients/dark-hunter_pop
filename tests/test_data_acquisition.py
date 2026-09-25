@@ -15,11 +15,13 @@ from darkhunter_pop.config_schema import QualityCutBin
 from darkhunter_pop.data_acquisition import (
     SnapshotMeta,
     apply_quality_cuts,
+    build_flame_enrichment_adql,
     build_nss_adql,
     build_nss_type_smoke_adql,
     format_funnel_table,
     gaia_snapshots_dir,
     load_gaia_snapshot,
+    merge_nss_enrichment_into_row,
     passes_quality_cut,
     quality_bin_for_star,
     read_stage_hdf5,
@@ -173,6 +175,52 @@ def test_build_nss_adql_contains_configured_tables() -> None:
     assert "ap.mass_flame_lower" in adql
     # Extends the existing astrophysical_parameters join; does not add a second one.
     assert adql.count("AS ap ON nss.source_id = ap.source_id") == 1
+
+
+def test_build_flame_enrichment_adql_is_lightweight_flame_only_fetch() -> None:
+    """Supplemental fetch (#257): join key + FLAME columns only, no photometry,
+    no Thiele-Innes — orthogonal to the frozen ``build_nss_enrichment_adql``.
+    """
+    adql = build_flame_enrichment_adql()
+    assert "gaiadr3.nss_two_body_orbit" in adql
+    assert "LEFT JOIN gaiadr3.astrophysical_parameters AS ap" in adql
+    assert "ap.mass_flame" in adql
+    assert "ap.mass_flame_upper" in adql
+    assert "ap.mass_flame_lower" in adql
+    assert "nss.source_id" in adql
+    assert "nss.nss_solution_type" in adql
+    assert "corr_vec" not in adql
+    assert "thiele_innes" not in adql
+    assert "phot_g_mean_mag" not in adql
+
+
+def test_build_flame_enrichment_adql_custom_tables() -> None:
+    adql = build_flame_enrichment_adql(
+        nss_table="gaiadr4.nss_two_body_orbit",
+        ap_table="gaiadr4.astrophysical_parameters",
+    )
+    assert "gaiadr4.nss_two_body_orbit" in adql
+    assert "gaiadr4.astrophysical_parameters" in adql
+
+
+def test_merge_flame_enrichment_reuses_nss_enrichment_merge_machinery() -> None:
+    """The FLAME-only enrichment reuses merge_nss_enrichment_into_row /
+    (data_acquisition's) join-key helper unchanged — no separate merge path
+    to maintain.
+    """
+    base = {"source_id": 42, "nss_solution_type": "Orbital"}
+    flame_row = {
+        "source_id": 42,
+        "nss_solution_type": "Orbital",
+        "mass_flame": 0.91,
+        "mass_flame_upper": 0.95,
+        "mass_flame_lower": 0.87,
+    }
+    merged = merge_nss_enrichment_into_row(base, flame_row)
+    assert merged["mass_flame"] == pytest.approx(0.91)
+    assert merged["mass_flame_upper"] == pytest.approx(0.95)
+    assert merged["mass_flame_lower"] == pytest.approx(0.87)
+    assert merged["source_id"] == 42
 
 
 def test_build_nss_type_smoke_adql_one_solution_type() -> None:
