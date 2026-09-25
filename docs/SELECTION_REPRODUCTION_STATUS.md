@@ -121,6 +121,64 @@ Attrition, reproducing the documented shape exactly:
        → 50 (giant_reject_logg) → 34 (giant_reject_cmd) → 33 (explicit_exclusions)
 ```
 
+**Re-confirmed unchanged at `main` @ `f9603a3`** (issue #233, 2026-09-25): parent `Orbital` N =
+**134598**, `andrews2022` survivors = **33**, against the same
+`20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` cache. No landed change
+between `c905575` and `f9603a3` touches the Andrews cut chain, so the rest of the waterfall above is
+carried forward unmeasured-but-unchanged.
+
+#### 3.1.1 #230/#233 methodology reconciliation — findings (no code change landed)
+
+Issue #230 records a colleague's confirmed Andrews et al. (2022) methodology ("ATF", independently
+reproduces N=24). Compared field-by-field against `config/selections/andrews2022.yaml` and the code
+that evaluates it (`sample_selection.py`, `mc_mass_function.py`,
+`scripts/attach_mc_to_selection_cache.py` — `elbadry2026_m2_sigma.py` is not on the Andrews path):
+
+| #230 field | Confirmed methodology | Current implementation | Divergence |
+|---|---|---|---|
+| M1 | Gaia Apsis **Flame** value with **fixed ±0.1 M☉ error**; else **draw uniform(0.63, 1.0) M☉** | `primary_mass.method: fixed`, `value_msun: 1.0` for **every** row, **zero** M1 uncertainty propagated in the MC (`mc_mass_function.MassFunctionDraws.m1_msun` is a bare `float`, not a per-draw array) | **Major** — see below |
+| Giant exclusion | Apsis `log g > 3.6` | `giant_reject_logg`: `logg_apsis is None or logg_apsis >= 3.6`, `logg_apsis` sourced from `candidate.extras["logg_gspphot"]` only (`sample_selection.py:1554-1555`) — never falls back to `logg_msc1`, unlike `mass_derivation.py`'s stated MSC-preferred/gspphot-fallback order | Minor — cut logic and threshold match; source table choice (gspphot only, no MSC) is a narrower reading of "Apsis" than the rest of the pipeline uses elsewhere. Not obviously wrong, not obviously right — flagging, not fixing |
+| CMD cut | slope = `11/3.5` = 3.142857…, intercept = `9 − 3×slope` = −0.428571… | `cmd_slope: 3.14`, `cmd_intercept: -0.43` (3-decimal rounding) | **Minor but real** — frozen-file value, not bit-exact to #230's formula |
+| M2 within 3σ | Required as its own filter | `m2_snr` cut: `m2_msun / m2_msun_error > 3.0`, `applies_to` includes `reproduction` | **Matches** — already correctly implemented, no divergence found |
+
+**Root-cause assessment for the 352-vs-106 gap at the `m2_probability` step:** the M1 divergence is
+upstream of every other cut and is the only one large enough to plausibly explain a 3.3x overcount at
+the very first filter. `scripts/attach_mc_to_selection_cache.py` reads
+`andrews2022.yaml`'s `primary_mass.value_msun` (1.0) and MCs every one of the 134598 parent rows at
+that single fixed mass with no M1 uncertainty term at all — so `p_m2_above` (`P(M2 > 1.4 M☉)`) for
+every system reflects only astrometric/orbital covariance, never M1 spread or a physically appropriate
+M1 per star. Using the actual Flame M1 (which is `<1.0 M☉` for most FGK dwarfs in this sample) plus a
+real M1 uncertainty term would shift both the M2 mean and its spread for every system, plausibly
+tightening `P(M2 > 1.4) ≥ 0.95` substantially.
+
+**This is escalated, not fixed, for three independent reasons:**
+
+1. **It contradicts a standing, tested, documented invariant.** `CLAUDE.md`'s "Column ownership is
+   strict" gotcha and this document's §4 both state "Andrews owns `p_m2_above` / `m2_msun` /
+   `m2_msun_error` at fixed `M1 = 1.0`" as an intentional design, not a placeholder — and
+   `tests/test_andrews2022_selection.py:35-37,115-116` asserts `primary_mass.method == "fixed"` /
+   `value_msun == 1.0` as the expected, tested behavior. Whether #230's Flame/uniform-draw rule
+   **replaces** this fixed-M1=1.0 convention, or describes a *different* stage of Andrews' actual
+   analysis (the frozen YAML's own comment reads "Andrews et al. (2022) first-cut assumption; refined
+   later in their analysis" — implying the authors who wrote it believed M1=1.0 was deliberately a
+   first pass, with refinement happening only via the giant/CMD cuts, not an M1 re-draw) is an
+   ambiguous reading of the paper's actual method, exactly the kind of judgment call #233 says to flag
+   rather than guess.
+2. **The M1 data does not exist in the pipeline yet.** No Gaia Apsis Flame mass column
+   (`mass_flame` et al.) is queried anywhere — `data_acquisition._AP_PARAM_STEMS` pulls
+   `teff_msc1/logg_msc1/mh_msc` and `teff_gspphot/logg_gspphot/mh_gspphot` only. Implementing #230's
+   M1 rule needs a new ADQL column, likely a re-run of the NSS enrichment job or a fresh Gaia archive
+   query (network, out of this session's scope), a new `PrimaryMassSpec` method (fixed-Flame-with-
+   fallback-draw), and restructuring `mc_mass_function.MassFunctionDraws` from a scalar `m1_msun` to a
+   per-draw array so a per-draw M1 sample (Gaussian or uniform) actually propagates through the
+   ensemble — not a same-file code-bug fix.
+3. **`andrews2022.yaml` is frozen.** Per `CLAUDE.md`'s hard rule, any threshold edit — including
+   adding the exact CMD-line fraction or a Flame-mass primary_mass method — needs a `schema_version`
+   bump, a provenance note, and human escalation before landing, never a same-PR retune.
+
+**Escalation issues filed:** #254 (M1 methodology), #255 (CMD line precision) — see issue #233 for
+the full write-up; both block closing this gate.
+
 ### 3.2 El-Badry et al. (2024)
 
 | Check | Target | Previous (`5725e54`) | **`main` @ `c905575`** | Gate |
