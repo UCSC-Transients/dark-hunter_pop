@@ -203,6 +203,18 @@ def test_build_flame_enrichment_adql_custom_tables() -> None:
     assert "gaiadr4.astrophysical_parameters" in adql
 
 
+def test_build_flame_enrichment_adql_top_n_prepends_explicit_top() -> None:
+    """#257 follow-up: an explicit TOP n (sync-mode fallback) is a distinct
+    SELECT shape from the bare unbounded SELECT the async path uses.
+    """
+    adql = build_flame_enrichment_adql(top_n=500_000)
+    assert adql.startswith("SELECT TOP 500000")
+    assert "ap.mass_flame" in adql
+    without_top = build_flame_enrichment_adql()
+    assert without_top.startswith("SELECT\n")
+    assert "TOP" not in without_top
+
+
 def test_merge_flame_enrichment_reuses_nss_enrichment_merge_machinery() -> None:
     """The FLAME-only enrichment reuses merge_nss_enrichment_into_row /
     (data_acquisition's) join-key helper unchanged — no separate merge path

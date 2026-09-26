@@ -28,8 +28,24 @@ process-wide default for the duration of one archive call and restores it
 after — the only lever astroquery's own code actually reads — rather than
 guessing at a nonexistent keyword argument.
 
+**Sync-mode fallback (#257 follow-up, option 3).** Even with the timeout in
+place, the async submit/poll/retrieve sequence
+(``launch_job_async``/``load_async_job``/``get_results``) stalled twice more
+against the live archive on 2026-09-26 — the initial HTTP response came back
+fine each time (job accepted, HTTP 200/303) but the chunked response body
+read then hung. A **sync** query (``Gaia.launch_job``, no ``_async``)
+sidesteps that whole job-lifecycle path. Gaia's TAP sync endpoint silently
+caps a bare ``SELECT`` at 2000 rows for anonymous access, but an explicit
+``SELECT TOP <n>`` larger than the true row count returns the **entire**
+result in one bounded sync call — empirically confirmed live: all 443205 NSS
+rows in ~37s via ``TOP 500000``. ``--sync`` (with ``--top-n``) uses this path;
+it is the recommended default given the archive's current async instability
+(tracked at issue #184).
+
 Example::
 
+    .venv/bin/python scripts/fetch_flame_enrichment.py --sync
+    .venv/bin/python scripts/fetch_flame_enrichment.py --sync --top-n 1000000
     .venv/bin/python scripts/fetch_flame_enrichment.py
     .venv/bin/python scripts/fetch_flame_enrichment.py --poll-job JOBID
     .venv/bin/python scripts/fetch_flame_enrichment.py --timeout 60
@@ -141,10 +157,47 @@ def launch(*, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S) -> int:
     return 0
 
 
+def _write_result_table(
+    table: Table,
+    *,
+    adql: str,
+    jobid: str | None,
+    snapshot_id: str,
+) -> None:
+    """Shared ``query.ecsv`` + ``meta.yaml`` writer for both the async
+    (``poll_and_save``) and sync (``sync_fetch``) fetch paths.
+    """
+    if not isinstance(table, Table):
+        raise TypeError(f"expected Table, got {type(table)!r}")
+    out = _out_dir()
+    result_path = out / "query.ecsv"
+    print(f"fetch_flame_enrichment: writing {result_path} ({len(table)} rows)...", flush=True)
+    table.write(result_path, format="ascii.ecsv", overwrite=True)
+    checksum = _file_checksum(result_path)
+    n_with_flame = int(sum(1 for v in table["mass_flame"] if v is not None and v == v))
+    meta: dict[str, object] = {
+        "snapshot_id": snapshot_id,
+        "query_date": datetime.now(timezone.utc).isoformat(),
+        "adql": adql,
+        "checksum": checksum,
+        "row_count": len(table),
+        "n_with_mass_flame": n_with_flame,
+        "result_path": str(result_path.relative_to(repo_root())),
+        "jobid": jobid,
+    }
+    (out / "meta.yaml").write_text(
+        yaml.safe_dump(meta, sort_keys=False), encoding="utf-8"
+    )
+    print(
+        f"fetch_flame_enrichment: wrote {result_path} n={len(table)} "
+        f"n_with_mass_flame={n_with_flame} checksum={checksum[:12]}",
+        flush=True,
+    )
+
+
 def poll_and_save(jobid: str, *, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S) -> int:
     from astroquery.gaia import Gaia
 
-    out = _out_dir()
     print(f"fetch_flame_enrichment: polling job {jobid}", flush=True)
     try:
         with _bounded_socket_timeout(timeout_s):
@@ -166,30 +219,58 @@ def poll_and_save(jobid: str, *, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S) -
     except GaiaArchiveTimeoutError as exc:
         print(f"fetch_flame_enrichment: {exc}", file=sys.stderr, flush=True)
         return 1
-    if not isinstance(table, Table):
-        raise TypeError(f"expected Table, got {type(table)!r}")
-    result_path = out / "query.ecsv"
-    print(f"fetch_flame_enrichment: writing {result_path} ({len(table)} rows)...", flush=True)
-    table.write(result_path, format="ascii.ecsv", overwrite=True)
-    checksum = _file_checksum(result_path)
-    n_with_flame = int(sum(1 for v in table["mass_flame"] if v is not None and v == v))
-    meta = {
-        "snapshot_id": f"flame_enrichment_{jobid}",
-        "query_date": datetime.now(timezone.utc).isoformat(),
-        "adql": build_flame_enrichment_adql(),
-        "checksum": checksum,
-        "row_count": len(table),
-        "n_with_mass_flame": n_with_flame,
-        "result_path": str(result_path.relative_to(repo_root())),
-        "jobid": jobid,
-    }
-    (out / "meta.yaml").write_text(
-        yaml.safe_dump(meta, sort_keys=False), encoding="utf-8"
+    _write_result_table(
+        table,
+        adql=build_flame_enrichment_adql(),
+        jobid=jobid,
+        snapshot_id=f"flame_enrichment_{jobid}",
     )
+    return 0
+
+
+# Default TOP N for --sync: comfortably above the current NSS Orbital+SB1+...
+# parent (~443205 rows measured live 2026-09-26); a TOP larger than the true
+# row count returns the full result in one sync call rather than truncating
+# at the anonymous-sync 2000-row default.
+DEFAULT_SYNC_TOP_N = 2_000_000
+
+
+def sync_fetch(
+    *, top_n: int = DEFAULT_SYNC_TOP_N, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S
+) -> int:
+    """Fetch via the Gaia TAP **sync** endpoint with an explicit large
+    ``TOP n`` (see the module docstring's "Sync-mode fallback" section) —
+    sidesteps the async job submit/poll/retrieve sequence entirely.
+    """
+    from astroquery.gaia import Gaia
+
+    adql = build_flame_enrichment_adql(top_n=top_n)
     print(
-        f"fetch_flame_enrichment: wrote {result_path} n={len(table)} "
-        f"n_with_mass_flame={n_with_flame} checksum={checksum[:12]}",
+        f"fetch_flame_enrichment: sync fetch (top_n={top_n}, "
+        f"network timeout={timeout_s:.0f}s)",
         flush=True,
+    )
+    Gaia.ROW_LIMIT = -1
+    try:
+        with _bounded_socket_timeout(timeout_s):
+            job = Gaia.launch_job(adql)
+            table = job.get_results()
+    except GaiaArchiveTimeoutError as exc:
+        print(f"fetch_flame_enrichment: {exc}", file=sys.stderr, flush=True)
+        return 1
+    if len(table) >= top_n:
+        print(
+            f"fetch_flame_enrichment: WARNING result has {len(table)} rows >= "
+            f"top_n={top_n} — the true row count may exceed top_n and this "
+            "result may be truncated; re-run with a larger --top-n",
+            file=sys.stderr,
+            flush=True,
+        )
+    _write_result_table(
+        table,
+        adql=adql,
+        jobid=None,
+        snapshot_id="flame_enrichment_sync",
     )
     return 0
 
@@ -212,7 +293,30 @@ def main(argv: list[str] | None = None) -> int:
             "fails fast with a clear error instead of hanging indefinitely."
         ),
     )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help=(
+            "Fetch via the TAP sync endpoint with an explicit large TOP n "
+            "instead of the async submit/poll/retrieve sequence — recommended "
+            "given the archive's current async instability (see the module "
+            "docstring's 'Sync-mode fallback' section, issue #184)."
+        ),
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=DEFAULT_SYNC_TOP_N,
+        help=(
+            "--sync only: explicit SELECT TOP n (default "
+            f"{DEFAULT_SYNC_TOP_N}); must exceed the true row count or the "
+            "result is truncated (a warning is printed if the result size "
+            "reaches this value)."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.sync:
+        return sync_fetch(top_n=args.top_n, timeout_s=args.timeout)
     if args.poll_job:
         return poll_and_save(args.poll_job, timeout_s=args.timeout)
     return launch(timeout_s=args.timeout)

@@ -152,3 +152,114 @@ def test_default_network_timeout_is_a_positive_finite_seconds_value(
     fetch_flame_mod: ModuleType,
 ) -> None:
     assert fetch_flame_mod.DEFAULT_NETWORK_TIMEOUT_S > 0.0
+
+
+# --- #257 follow-up: sync-mode fallback (option 3) -------------------------
+#
+# The async submit/poll/retrieve sequence stalled twice more against the live
+# archive even with the timeout in place (initial HTTP response fine, chunked
+# body read hung). Gaia.launch_job (sync) with an explicit large TOP n
+# sidesteps that path entirely -- confirmed live: 443205 real NSS rows in
+# ~37s via TOP 500000, vs. a bare SELECT silently capped at 2000 rows.
+
+
+class _FakeSyncJob:
+    def __init__(self, table: "Table") -> None:
+        self._table = table
+
+    def get_results(self) -> "Table":
+        return self._table
+
+
+def _make_table(n_rows: int, *, with_flame: bool = True) -> "Table":
+    from astropy.table import Table
+
+    return Table(
+        {
+            "source_id": list(range(n_rows)),
+            "nss_solution_type": ["Orbital"] * n_rows,
+            "mass_flame": [0.9 if with_flame else None] * n_rows,
+            "mass_flame_upper": [0.95 if with_flame else None] * n_rows,
+            "mass_flame_lower": [0.85 if with_flame else None] * n_rows,
+        }
+    )
+
+
+def test_sync_fetch_writes_query_and_meta(
+    fetch_flame_mod: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import astroquery.gaia as gaia_module
+
+    table = _make_table(50)
+    monkeypatch.setattr(fetch_flame_mod, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        gaia_module.Gaia, "launch_job", lambda adql, **kw: _FakeSyncJob(table)
+    )
+
+    result = fetch_flame_mod.sync_fetch(top_n=1000, timeout_s=5.0)
+
+    assert result == 0
+    out_dir = tmp_path / "data" / "dr3" / "gaia_snapshots" / "flame_enrichment"
+    assert (out_dir / "query.ecsv").is_file()
+    meta = (out_dir / "meta.yaml").read_text(encoding="utf-8")
+    assert "row_count: 50" in meta
+    assert "n_with_mass_flame: 50" in meta
+    assert "TOP 1000" in meta
+
+
+def test_sync_fetch_warns_when_result_size_reaches_top_n(
+    fetch_flame_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """If the result size reaches top_n, the true count may be larger and
+    truncated -- must warn rather than silently write a partial cache.
+    """
+    import astroquery.gaia as gaia_module
+
+    table = _make_table(1000)
+    monkeypatch.setattr(fetch_flame_mod, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        gaia_module.Gaia, "launch_job", lambda adql, **kw: _FakeSyncJob(table)
+    )
+
+    result = fetch_flame_mod.sync_fetch(top_n=1000, timeout_s=5.0)
+
+    assert result == 0
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.err
+    assert "may be truncated" in captured.err
+
+
+def test_sync_fetch_returns_error_code_without_hanging_on_stalled_connection(
+    fetch_flame_mod: ModuleType,
+    stalled_server: _StalledServer,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import astroquery.gaia as gaia_module
+
+    def _stalled_launch_job(adql: str, **kwargs: object) -> None:
+        conn = http.client.HTTPConnection(stalled_server.host, stalled_server.port)
+        conn.request("GET", "/")
+        conn.getresponse()  # never returns
+        raise AssertionError("unreachable — the stalled read must raise first")
+
+    monkeypatch.setattr(fetch_flame_mod, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(gaia_module.Gaia, "launch_job", _stalled_launch_job)
+
+    start = time.monotonic()
+    result = fetch_flame_mod.sync_fetch(top_n=1000, timeout_s=0.3)
+    elapsed = time.monotonic() - start
+
+    assert result == 1
+    assert elapsed < 10.0
+
+
+def test_default_sync_top_n_comfortably_exceeds_known_nss_row_count(
+    fetch_flame_mod: ModuleType,
+) -> None:
+    # Live measurement 2026-09-26: 443205 rows. Default must clear that with
+    # ample headroom for catalog growth.
+    assert fetch_flame_mod.DEFAULT_SYNC_TOP_N > 443_205 * 2
