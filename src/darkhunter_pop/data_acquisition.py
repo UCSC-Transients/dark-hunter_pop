@@ -636,6 +636,8 @@ def build_nss_enrichment_adql(nss_table: str = "gaiadr3.nss_two_body_orbit") -> 
 def build_flame_enrichment_adql(
     nss_table: str = "gaiadr3.nss_two_body_orbit",
     ap_table: str = "gaiadr3.astrophysical_parameters",
+    *,
+    top_n: int | None = None,
 ) -> str:
     """Gaia Apsis FLAME-mass-only ADQL supplement (#257, orthogonal to
     :func:`build_nss_enrichment_adql`).
@@ -649,6 +651,15 @@ def build_flame_enrichment_adql(
     fetch merged in with the same :func:`merge_nss_enrichment_into_row` /
     :func:`_enrichment_join_key` machinery. No photometry, no Thiele-Innes —
     just the join key plus the three FLAME columns.
+
+    ``top_n``: an explicit ``SELECT TOP <n>`` (#257 follow-up). The Gaia TAP
+    **sync** endpoint silently caps a bare ``SELECT`` at 2000 rows for
+    anonymous access, but an explicit ``TOP n`` larger than the true row
+    count returns the full result in one bounded sync call — empirically
+    confirmed against the live archive (443205 NSS rows in ~37s via sync
+    with ``TOP 500000``) as a more reliable path than the async job
+    submit/poll/retrieve sequence, which stalled repeatedly on this archive
+    (issue #184). Omit for the historical unbounded-async query shape.
     """
     cols = [
         "nss.source_id",
@@ -657,8 +668,9 @@ def build_flame_enrichment_adql(
         "ap.mass_flame_upper",
         "ap.mass_flame_lower",
     ]
+    select = f"SELECT TOP {int(top_n)}\n  " if top_n is not None else "SELECT\n  "
     return (
-        "SELECT\n  "
+        select
         + ",\n  ".join(cols)
         + f"\nFROM {nss_table} AS nss"
         + f"\nLEFT JOIN {ap_table} AS ap ON nss.source_id = ap.source_id"
