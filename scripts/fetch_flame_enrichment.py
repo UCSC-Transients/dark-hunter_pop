@@ -12,10 +12,27 @@ script is a second, independent, lightweight async fetch — join key plus
 (``data_acquisition.merge_nss_enrichment_into_row`` /
 ``_enrichment_join_key``), via ``scripts/merge_flame_enrichment_into_cache.py``.
 
+**Network timeout (#257 follow-up).** The installed astroquery (0.4.11)'s TAP+
+client builds its HTTP(S) connection with plain ``http.client.HTTPConnection``/
+``HTTPSConnection`` and never passes a ``timeout`` — confirmed by reading
+``astroquery.utils.tap.conn.tapconn.ConnectionHandler.get_connection[_secure]``
+— and neither ``Gaia``/``TapPlus``/``Tap`` nor
+``GaiaClass.launch_job_async``/``TapPlus.launch_job_async`` expose any
+``timeout`` parameter or class attribute (checked via
+``inspect.signature``/``dir`` against the installed version). Per Python's
+``http.client`` / ``socket`` docs, a connection built with no explicit
+``timeout`` falls back to ``socket.getdefaulttimeout()`` (``None`` = block
+forever), which is exactly the hang observed against the live archive: no
+exception, no job id, indefinite. ``_bounded_socket_timeout`` below sets that
+process-wide default for the duration of one archive call and restores it
+after — the only lever astroquery's own code actually reads — rather than
+guessing at a nonexistent keyword argument.
+
 Example::
 
     .venv/bin/python scripts/fetch_flame_enrichment.py
     .venv/bin/python scripts/fetch_flame_enrichment.py --poll-job JOBID
+    .venv/bin/python scripts/fetch_flame_enrichment.py --timeout 60
 """
 
 from __future__ import annotations
@@ -23,15 +40,58 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import socket
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 from astropy.table import Table
 
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.data_acquisition import build_flame_enrichment_adql
+
+# Default per-call network timeout (seconds). A single TAP GET/POST against a
+# healthy archive completes in well under a minute; this only needs to be
+# long enough to not false-positive on ordinary latency, not to accommodate
+# the *job's* own compute time (that is polled separately, in its own calls).
+DEFAULT_NETWORK_TIMEOUT_S = 120.0
+
+
+class GaiaArchiveTimeoutError(TimeoutError):
+    """Raised when a single Gaia TAP+ network call exceeds the configured
+    timeout — distinguishes a genuinely stalled connection (this) from a
+    legitimately slow-to-compute async job (tracked via job phase polling,
+    not this exception).
+    """
+
+
+@contextmanager
+def _bounded_socket_timeout(seconds: float) -> Iterator[None]:
+    """Bound every socket astroquery's TAP+ client opens for the duration of
+    the ``with`` block to ``seconds``, restoring the prior process-wide
+    default on exit. See the module docstring for why this is the mechanism
+    astroquery's own connection code actually honors.
+
+    Raises :class:`GaiaArchiveTimeoutError` (chained from the underlying
+    ``socket.timeout``/``TimeoutError``/``OSError``) rather than letting a
+    stalled connection hang the process indefinitely or bubble up an opaque
+    low-level socket exception.
+    """
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(seconds)
+    try:
+        yield
+    except (socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
+        raise GaiaArchiveTimeoutError(
+            f"Gaia archive network call exceeded {seconds:.0f}s (or the "
+            "connection dropped) — treat as a stalled/unavailable archive "
+            "connection, not a legitimately slow async job (issue #184)."
+        ) from exc
+    finally:
+        socket.setdefaulttimeout(previous)
 
 
 def _out_dir() -> Path:
@@ -52,32 +112,47 @@ def _file_checksum(path: Path) -> str:
     return digest.hexdigest()
 
 
-def launch() -> int:
+def launch(*, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S) -> int:
     from astroquery.gaia import Gaia
 
     adql = build_flame_enrichment_adql()
     out = _out_dir()
-    print(f"fetch_flame_enrichment: launching async job → {out}", flush=True)
+    print(
+        f"fetch_flame_enrichment: launching async job → {out} "
+        f"(network timeout={timeout_s:.0f}s)",
+        flush=True,
+    )
     Gaia.ROW_LIMIT = -1
-    job = Gaia.launch_job_async(adql, dump_to_file=False, verbose=True)
+    try:
+        with _bounded_socket_timeout(timeout_s):
+            job = Gaia.launch_job_async(adql, dump_to_file=False, verbose=True)
+            phase = job.get_phase()
+    except GaiaArchiveTimeoutError as exc:
+        print(f"fetch_flame_enrichment: {exc}", file=sys.stderr, flush=True)
+        return 1
     meta = {
         "jobid": job.jobid,
         "adql": adql,
         "launched_at": datetime.now(timezone.utc).isoformat(),
-        "phase": job.get_phase(),
+        "phase": phase,
     }
     (out / "job.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"fetch_flame_enrichment: jobid={job.jobid} phase={meta['phase']}", flush=True)
     return 0
 
 
-def poll_and_save(jobid: str) -> int:
+def poll_and_save(jobid: str, *, timeout_s: float = DEFAULT_NETWORK_TIMEOUT_S) -> int:
     from astroquery.gaia import Gaia
 
     out = _out_dir()
     print(f"fetch_flame_enrichment: polling job {jobid}", flush=True)
-    job = Gaia.load_async_job(jobid=jobid, verbose=True)
-    phase = job.get_phase(update=True)
+    try:
+        with _bounded_socket_timeout(timeout_s):
+            job = Gaia.load_async_job(jobid=jobid, verbose=True)
+            phase = job.get_phase(update=True)
+    except GaiaArchiveTimeoutError as exc:
+        print(f"fetch_flame_enrichment: {exc}", file=sys.stderr, flush=True)
+        return 1
     print(f"fetch_flame_enrichment: phase={phase}", flush=True)
     if phase not in ("COMPLETED", "ERROR", "ABORTED"):
         print("fetch_flame_enrichment: still running; re-poll later", flush=True)
@@ -85,7 +160,12 @@ def poll_and_save(jobid: str) -> int:
     if phase != "COMPLETED":
         print(f"fetch_flame_enrichment: job failed phase={phase}", file=sys.stderr)
         return 1
-    table = job.get_results()
+    try:
+        with _bounded_socket_timeout(timeout_s):
+            table = job.get_results()
+    except GaiaArchiveTimeoutError as exc:
+        print(f"fetch_flame_enrichment: {exc}", file=sys.stderr, flush=True)
+        return 1
     if not isinstance(table, Table):
         raise TypeError(f"expected Table, got {type(table)!r}")
     result_path = out / "query.ecsv"
@@ -122,10 +202,20 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Poll an existing async job id and write query.ecsv",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_NETWORK_TIMEOUT_S,
+        help=(
+            "Per-network-call timeout in seconds (default "
+            f"{DEFAULT_NETWORK_TIMEOUT_S:.0f}); a stalled/dead connection "
+            "fails fast with a clear error instead of hanging indefinitely."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.poll_job:
-        return poll_and_save(args.poll_job)
-    return launch()
+        return poll_and_save(args.poll_job, timeout_s=args.timeout)
+    return launch(timeout_s=args.timeout)
 
 
 if __name__ == "__main__":
