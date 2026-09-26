@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 from astropy.table import Table
 
 from darkhunter_pop.config_loader import repo_root
@@ -36,6 +38,33 @@ from darkhunter_pop.sample_selection import (
 
 _PHOTO_ID = "20260826T234425Z_3d3f740b080c"
 _FLAME_COLUMNS = ("mass_flame", "mass_flame_upper", "mass_flame_lower")
+
+
+def _native_float_or_none(value: Any) -> float | None:
+    """Cast an astropy/numpy table cell to a plain Python ``float``, or
+    ``None`` for a masked/non-finite entry.
+
+    ``_write_selection_parent_cache`` JSON-serializes each row with
+    ``json.dumps(..., default=str)``: a raw ``numpy.float32``/``float64``
+    scalar (astropy ``Table`` columns' native dtype) is **not** JSON-native,
+    so it silently falls through to ``str(value)`` -- e.g. ``"2.802136"`` --
+    and round-trips back as a Python ``str``, not a ``float``. Every
+    downstream ``isinstance(x, (int, float))`` check (this script's own
+    ``n_with_flame`` count, and more importantly
+    ``sample_selection._resolve_primary_mass_draws``'s FLAME-value check)
+    then silently sees "no FLAME mass" for every row -- caught before the
+    production MC rebuild consumed it (#257).
+    """
+    try:
+        if np.ma.is_masked(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,7 +91,12 @@ def main(argv: list[str] | None = None) -> int:
     flame_cols = list(flame_table.colnames)
     by_key: dict[tuple[int, str], dict[str, object]] = {}
     for frow in flame_table:
-        mapping = {name: frow[name] for name in flame_cols}
+        mapping: dict[str, object] = {}
+        for name in flame_cols:
+            if name in _FLAME_COLUMNS:
+                mapping[name] = _native_float_or_none(frow[name])
+            else:
+                mapping[name] = frow[name]
         by_key[_enrichment_join_key(mapping)] = mapping
 
     n_matched = 0
