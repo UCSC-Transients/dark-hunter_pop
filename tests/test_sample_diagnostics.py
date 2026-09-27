@@ -50,6 +50,8 @@ from darkhunter_pop.sample_selection import (
 pytestmark = pytest.mark.unit
 
 _GAIA_BH1 = 4373465352415301632
+# Simon et al. (2026) sources El-Badry 2026 published as selected (Table 7 ∪ Table 8;
+# #281): 3263804373319076480 is a Table 7 member, 1864406790238257536 is not.
 _SIMON_IN_SAMPLE = (
     5593444799901901696,
     3509370326763016704,
@@ -57,12 +59,15 @@ _SIMON_IN_SAMPLE = (
     6281177228434199296,
     6588211521163024640,
     6593763230249162112,
-    1864406790238257536,
+    3263804373319076480,
     2086448353089047808,
     4060365702574410752,
     6102598776102841344,
     5352109964757046528,
 )
+# El-Badry 2026 M̃2/M̃1 for 1864406790238257536 from its real DR3 inputs after #258
+# dereddening (M̃1 = 3.88, M̃2 = 2.13); the paper's one fails_m2_over_m1 exclusion.
+_SIMON_ELBADRY_RATIOS = {1864406790238257536: 0.55}
 _E1_G_LT_15 = (
     3640889032890567040,
     4373465352415301632,
@@ -304,12 +309,14 @@ def test_simon2026_hook_reproduces_5_2_1_1(tmp_path: Path) -> None:
         spec=load_sample_selection_file(
             repo_root() / "config/selections/elbadry2026.yaml"
         ),
+        elbadry_m2_over_m1_by_source=_SIMON_ELBADRY_RATIOS,
     )
     assert emission.payload["sb1_fails_significance"] == 5
     assert emission.payload["astrometric_f2_above_max"] == 2
     assert emission.payload["fainter_than_g_limit"] == 1
     assert emission.payload["fails_m2_over_m1"] == 1
     assert emission.payload["in_sample"] == 11
+    assert emission.payload["unclassified"] == 0
 
 
 def test_covariance_health_hook(tmp_path: Path) -> None:
@@ -522,6 +529,7 @@ def test_suite_runs_sample_hooks_with_bundle(tmp_path: Path) -> None:
         mg_0_values=[4.73, 2.6, -9.0],
         simon_in_sample_ids=_SIMON_IN_SAMPLE,
         simon_rows=load_simon2026_orbital(),
+        simon_elbadry_m2_over_m1=_SIMON_ELBADRY_RATIOS,
         selection_function_samples=["andrews2022"],
     )
     # Add fake modified set for mode_divergence.

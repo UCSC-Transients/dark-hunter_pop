@@ -1648,8 +1648,14 @@ def emit_simon2026_exclusion_breakdown(
     sample_ids: Sequence[int] | None = None,
     simon_rows: Sequence[Mapping[str, Any]] | None = None,
     spec: Any | None = None,
+    elbadry_m2_over_m1_by_source: Mapping[int, float] | None = None,
 ) -> HookEmissionResult:
-    """Hook: Simon et al. (2026) 5/2/1/1 exclusion breakdown (§8.9)."""
+    """Hook: Simon et al. (2026) 5/2/1/1 exclusion breakdown (§8.9).
+
+    ``elbadry_m2_over_m1_by_source`` is El-Badry 2026's own ``M̃2/M̃1`` per
+    source, used for ``fails_m2_over_m1`` (#281); see
+    :func:`~darkhunter_pop.sample_diagnostics.run_simon2026_diagnostic`.
+    """
     diag = config.diagnostics
     if not diag.hooks.simon2026_exclusion_breakdown:
         return HookEmissionResult(
@@ -1657,7 +1663,11 @@ def emit_simon2026_exclusion_breakdown(
             skipped_reason="diagnostics.hooks.simon2026_exclusion_breakdown=false",
         )
     counts, report = run_simon2026_diagnostic(
-        config, spec=spec, sample_ids=sample_ids, rows=simon_rows
+        config,
+        spec=spec,
+        sample_ids=sample_ids,
+        rows=simon_rows,
+        elbadry_m2_over_m1_by_source=elbadry_m2_over_m1_by_source,
     )
     emission = HookEmissionResult(
         hook_name="simon2026_exclusion_breakdown",
@@ -2213,6 +2223,7 @@ def run_diagnostic_suite(
             sample_ids=bundle.simon_in_sample_ids,
             simon_rows=bundle.simon_rows,
             spec=sample_specs.get("elbadry2026"),
+            elbadry_m2_over_m1_by_source=bundle.simon_elbadry_m2_over_m1,
         )
     )
     cov_health = bundle.covariance_health

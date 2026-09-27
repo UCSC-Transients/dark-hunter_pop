@@ -10,7 +10,10 @@ import yaml
 from darkhunter_pop.config_loader import load_config, repo_root
 from darkhunter_pop.config_schema import SampleSelectionEntry, SampleSelectionMode
 from darkhunter_pop.elbadry2026_selection import (
+    EBV_COLUMN,
     classify_simon2026_row,
+    deredden_elbadry2026_rows,
+    enrich_elbadry2026_row,
     is_main_sequence,
     load_simon2026_orbital,
     simon2026_exclusion_breakdown,
@@ -39,19 +42,49 @@ _E1_G_LT_15 = (
     5870569352746779008,
     3664684869697065984,
 )
-_SIMON_IN_SAMPLE = (
-    5593444799901901696,
-    3509370326763016704,
-    3640889032890567040,
-    6281177228434199296,
-    6588211521163024640,
-    6593763230249162112,
-    1864406790238257536,
-    2086448353089047808,
-    4060365702574410752,
-    6102598776102841344,
-    5352109964757046528,
+_TABLE7_INPUTS = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "selections"
+    / "elbadry2026_table7_dr3_inputs.yaml"
 )
+_SIMON_M2_RATIO_SOURCE = 1864406790238257536
+
+
+def _external_ids(name: str) -> set[int]:
+    path = repo_root() / "config/selections/external" / name
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return {int(row["source_id"]) for row in raw["data"]}
+
+
+def _simon_in_sample() -> tuple[int, ...]:
+    """Simon sources El-Badry 2026 published as selected (Table 7 ∪ Table 8, #281)."""
+    published = _external_ids("elbadry2026_table7.yaml") | _external_ids(
+        "elbadry2026_table8.yaml"
+    )
+    simon = [int(row["source_id"]) for row in load_simon2026_orbital()]
+    return tuple(sid for sid in simon if sid in published)
+
+
+def _table7_inputs() -> dict[int, dict]:
+    raw = yaml.safe_load(_TABLE7_INPUTS.read_text(encoding="utf-8"))
+    return {int(row["source_id"]): dict(row) for row in raw["sources"]}
+
+
+def _enrich_with_ebv(inputs: dict, ebv: float) -> dict:
+    """Run the El-Badry 2026 point-estimate chain on real DR3 inputs at fixed E(B-V)."""
+    spec = _elbadry_spec()
+    row = {**inputs, EBV_COLUMN: float(ebv)}
+    return enrich_elbadry2026_row(deredden_elbadry2026_rows([row], spec, None)[0], spec)
+
+
+def _elbadry_ratio_for_1864() -> dict[int, float]:
+    inputs = _table7_inputs()[_SIMON_M2_RATIO_SOURCE]
+    enriched = _enrich_with_ebv(inputs, inputs["ebv_map_elbadry2026"])
+    return {
+        _SIMON_M2_RATIO_SOURCE: float(enriched["m2_tilde_msun"])
+        / float(enriched["m1_tilde_msun"])
+    }
 
 
 def _elbadry_spec():
@@ -353,11 +386,23 @@ def test_parent_adql_default_is_inference_branch() -> None:
     assert sb1_dr4.nss_table.startswith("gaiadr4")
 
 
+def test_simon2026_in_sample_matches_published_tables() -> None:
+    """Table 7 lists 3263804373319076480 and omits 1864406790238257536 (#281)."""
+    in_sample = _simon_in_sample()
+    assert len(in_sample) == 11
+    assert 3263804373319076480 in in_sample
+    assert _SIMON_M2_RATIO_SOURCE not in in_sample
+
+
 def test_simon2026_exclusion_breakdown_5_2_1_1() -> None:
     spec = _elbadry_spec()
     rows = load_simon2026_orbital()
     assert len(rows) == 20
-    counts = simon2026_exclusion_breakdown(rows, _SIMON_IN_SAMPLE, spec)
+    in_sample = _simon_in_sample()
+    ratios = _elbadry_ratio_for_1864()
+    counts = simon2026_exclusion_breakdown(
+        rows, in_sample, spec, elbadry_m2_over_m1_by_source=ratios
+    )
     expected = spec.acceptance_tests.simon2026_exclusion_breakdown
     assert expected is not None
     assert counts["sb1_fails_significance"] == expected.sb1_fails_significance
@@ -368,17 +413,73 @@ def test_simon2026_exclusion_breakdown_5_2_1_1() -> None:
     assert counts["unclassified"] == 0
     astro = next(b for b in spec.branches or [] if b.id == "astrometric")
     specb = next(b for b in spec.branches or [] if b.id == "spectroscopic")
-    reasons = [
-        classify_simon2026_row(
+    reasons = {
+        int(row["source_id"]): classify_simon2026_row(
             row,
-            in_sample=int(row["source_id"]) in _SIMON_IN_SAMPLE,
+            in_sample=int(row["source_id"]) in in_sample,
             g_mag_faint_limit=15.0,
             goodness_of_fit_max=10.0,
             k1_significance_min=10.0,
             m2_over_m1_min=1.2,
             astrometric_types=astro.parent_query.dr3.solution_types,
             spectroscopic_types=specb.parent_query.dr3.solution_types,
+            elbadry_m2_over_m1=ratios.get(int(row["source_id"])),
         )
         for row in rows
-    ]
-    assert reasons.count("sb1_fails_significance") == 5
+    }
+    assert list(reasons.values()).count("sb1_fails_significance") == 5
+    assert reasons[_SIMON_M2_RATIO_SOURCE] == "fails_m2_over_m1"
+
+
+def test_simon2026_breakdown_falls_back_to_catalog_ratio() -> None:
+    """Without El-Badry's M̃2/M̃1, Simon's catalog ratio (5.08) cannot bucket 1864… (#281)."""
+    spec = _elbadry_spec()
+    counts = simon2026_exclusion_breakdown(
+        load_simon2026_orbital(), _simon_in_sample(), spec
+    )
+    assert counts["fails_m2_over_m1"] == 0
+    assert counts["unclassified"] == 1
+
+
+@pytest.mark.physics
+def test_point_chain_reproduces_elbadry2026_table7() -> None:
+    """Real DR3 inputs + the paper's E(B-V) reproduce Table 7's M̃1 / M̃2 / AMRF (#275).
+
+    Covers every Table 7 row that is main-sequence on our CMD cut (73 of 76). Measured
+    residuals at 2470fe5: median |Δ| 0.06 % (M̃1), 0.03 % (M̃2), 0.03 % (AMRF); max 1.7 %,
+    0.8 %, 0.5 %, all on 2032579979951732736, consistent with E(B-V) rounding in the table.
+    """
+    inputs = _table7_inputs()
+    table = yaml.safe_load(
+        (repo_root() / "config/selections/external/elbadry2026_table7.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["data"]
+    n_checked = 0
+    for pub in table:
+        sid = int(pub["source_id"])
+        enriched = _enrich_with_ebv(inputs[sid], pub["ebv_mag"])
+        m1 = enriched["m1_tilde_msun"]
+        if isinstance(m1, NotApplicable):
+            # Subsample 2/3 members need no main-sequence cut; Table 7 still quotes a
+            # photometric M̃1 for them. They never enter the M̃2 subsample chains.
+            assert enriched["main_sequence"] is False
+            continue
+        n_checked += 1
+        assert m1 == pytest.approx(pub["m1_msun"], rel=0.02), sid
+        assert enriched["m2_tilde_msun"] == pytest.approx(pub["m2_msun"], rel=0.01), sid
+        assert enriched["amrf"] == pytest.approx(pub["amrf"], rel=0.01), sid
+    assert n_checked == 73
+
+
+@pytest.mark.physics
+def test_simon_3263804373319076480_is_a_table7_member_on_our_chain() -> None:
+    """The source #200 attributed to the a0/AMRF chain matches El-Badry's own values (#281)."""
+    inputs = _table7_inputs()[3263804373319076480]
+    enriched = _enrich_with_ebv(inputs, 0.08)
+    assert enriched["amrf"] == pytest.approx(1.09, abs=0.005)
+    assert enriched["m1_tilde_msun"] == pytest.approx(1.16, abs=0.01)
+    assert enriched["m2_tilde_msun"] == pytest.approx(2.925, abs=0.01)
+    assert enriched["m2_tilde_msun"] / enriched["m1_tilde_msun"] > 1.2
+    ratio = _elbadry_ratio_for_1864()[_SIMON_M2_RATIO_SOURCE]
+    assert ratio < 1.2

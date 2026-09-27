@@ -1,0 +1,865 @@
+# Gaia DR3 inputs for El-Badry et al. (2026) Table 7 sources, plus Simon et al. (2026)
+# source 1864406790238257536 (not in Table 7). Regression fixture for issues #275 / #281.
+#
+# Extracted from the real uncut literature parent cache
+# data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5
+# (the #257 rebuild), repo commit 2470fe5, on 2026-09-27. Values are the raw DR3 NSS / gaia_source
+# columns the El-Badry 2026 point-estimate chain consumes: undereddened abs_g_mag and bp_rp,
+# NSS parallax (mas), period (d), and Thiele-Innes A/B/F/G (mas). Published M~1, M~2, AMRF and
+# E(B-V) are NOT copied here; tests read them from the frozen
+# config/selections/external/elbadry2026_table7.yaml.
+#
+# ebv_map_elbadry2026 is given only for 1864406790238257536: our frozen-policy Green2019 value
+# (Bayestar19 x 0.884, #258), because the paper publishes no E(B-V) for a source outside Table 7.
+
+schema_version: 1
+name: elbadry2026_table7_dr3_inputs
+sources:
+  - source_id: 3640889032890567040
+    nss_solution_type: Orbital
+    abs_g_mag: 4.119329035642348
+    bp_rp: 0.7852716445922852
+    phot_g_mean_mag: 9.194755554199219
+    parallax: 9.658611468239817
+    period_day: 1076.2228768889636
+    a_thiele_innes: 16.198410151962904
+    b_thiele_innes: 9.584554376937087
+    f_thiele_innes: -86.52770335442429
+    g_thiele_innes: 45.59139151479529
+  - source_id: 4373465352415301632
+    nss_solution_type: Orbital
+    abs_g_mag: 5.378386564463257
+    bp_rp: 1.174783706665039
+    phot_g_mean_mag: 13.771998405456543
+    parallax: 2.0954515888832432
+    period_day: 185.7656578920495
+    a_thiele_innes: -0.262289119199277
+    b_thiele_innes: 2.9291159041806485
+    f_thiele_innes: 1.5248071482113947
+    g_thiele_innes: 0.5343685858549198
+  - source_id: 6281177228434199296
+    nss_solution_type: Orbital
+    abs_g_mag: 4.417486345395929
+    bp_rp: 0.9119205474853516
+    phot_g_mean_mag: 11.258724212646484
+    parallax: 4.283042921029034
+    period_day: 153.94723620655344
+    a_thiele_innes: 1.7835721651071543
+    b_thiele_innes: -3.0846289018714095
+    f_thiele_innes: 3.6738342617816797
+    g_thiele_innes: -1.8561286376609982
+  - source_id: 5870569352746779008
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 1.9473586848501707
+    bp_rp: 1.493159294128418
+    phot_g_mean_mag: 12.276907920837402
+    parallax: 0.8591918579064037
+    period_day: 1352.2889370485916
+    a_thiele_innes: 2.4782304757441582
+    b_thiele_innes: 2.450441573436567
+    f_thiele_innes: -1.9827446468097314
+    g_thiele_innes: 3.007833547600995
+  - source_id: 3664684869697065984
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: -0.8884815508912549
+    bp_rp: 1.4179000854492188
+    phot_g_mean_mag: 11.561023712158203
+    parallax: 0.32366739122032845
+    period_day: 1220.4546540162823
+    a_thiele_innes: 0.9423494291012835
+    b_thiele_innes: -0.5074842251211379
+    f_thiele_innes: 0.30738383849178813
+    g_thiele_innes: 0.6175218297584024
+  - source_id: 2278534305772981504
+    nss_solution_type: Orbital
+    abs_g_mag: 4.078328335912161
+    bp_rp: 1.1848583221435547
+    phot_g_mean_mag: 14.59338092803955
+    parallax: 0.788841011997312
+    period_day: 788.8219762787629
+    a_thiele_innes: -1.2808514621584735
+    b_thiele_innes: 0.303139277949116
+    f_thiele_innes: 0.5464488920832398
+    g_thiele_innes: 1.579212418381148
+  - source_id: 3509370326763016704
+    nss_solution_type: Orbital
+    abs_g_mag: 6.980379053161826
+    bp_rp: 1.358475685119629
+    phot_g_mean_mag: 12.469695091247559
+    parallax: 7.98246076112326
+    period_day: 109.3921278129309
+    a_thiele_innes: -2.7674613119745284
+    b_thiele_innes: 1.6469398065437617
+    f_thiele_innes: 3.6318219510517977
+    g_thiele_innes: -1.0728148982217338
+  - source_id: 1925560664891372544
+    nss_solution_type: Orbital
+    abs_g_mag: 1.4474825202908974
+    bp_rp: 0.5454921722412109
+    phot_g_mean_mag: 13.010477066040039
+    parallax: 0.4868566325306613
+    period_day: 1022.903971303942
+    a_thiele_innes: -0.5452733102480206
+    b_thiele_innes: -0.05840885819131411
+    f_thiele_innes: -0.5571060326374627
+    g_thiele_innes: 0.67538861889393
+  - source_id: 3263804373319076480
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 4.339004631923265
+    bp_rp: 0.9365863800048828
+    phot_g_mean_mag: 12.666879653930664
+    parallax: 2.1598569865850075
+    period_day: 510.728110443052
+    a_thiele_innes: 1.9952797886725588
+    b_thiele_innes: -1.5570367963368732
+    f_thiele_innes: -1.9019735624150185
+    g_thiele_innes: 0.3187955734622878
+  - source_id: 6802634430521968000
+    nss_solution_type: Orbital
+    abs_g_mag: 3.793971042947815
+    bp_rp: 0.9205484390258789
+    phot_g_mean_mag: 13.351202011108398
+    parallax: 1.2261788091469041
+    period_day: 584.3054161572567
+    a_thiele_innes: 0.6449870405238762
+    b_thiele_innes: -1.7384010695673575
+    f_thiele_innes: -1.0981069040739582
+    g_thiele_innes: -0.34472662214600386
+  - source_id: 2010172929375186304
+    nss_solution_type: Orbital
+    abs_g_mag: 3.6444709012129817
+    bp_rp: 1.081538200378418
+    phot_g_mean_mag: 13.761631965637207
+    parallax: 0.9474750601773787
+    period_day: 736.1667309472982
+    a_thiele_innes: 0.5036395699464408
+    b_thiele_innes: -0.17790559614824147
+    f_thiele_innes: 0.16388528660805277
+    g_thiele_innes: 1.530784808721648
+  - source_id: 6328149636482597888
+    nss_solution_type: Orbital
+    abs_g_mag: 3.7882094180630492
+    bp_rp: 0.817138671875
+    phot_g_mean_mag: 13.33588981628418
+    parallax: 1.231583665886212
+    period_day: 736.0178501588972
+    a_thiele_innes: 0.7293285791102675
+    b_thiele_innes: 0.20425082549887463
+    f_thiele_innes: 0.14816662827132707
+    g_thiele_innes: 2.0505435629321997
+  - source_id: 5593444799901901696
+    nss_solution_type: Orbital
+    abs_g_mag: 3.3215561807153495
+    bp_rp: 0.6770009994506836
+    phot_g_mean_mag: 14.421465873718262
+    parallax: 0.6025846457887121
+    period_day: 1038.7902132799031
+    a_thiele_innes: 0.598062656733286
+    b_thiele_innes: 0.3716985251387251
+    f_thiele_innes: -1.0277885874786252
+    g_thiele_innes: 0.6037751853746735
+  - source_id: 6588211521163024640
+    nss_solution_type: Orbital
+    abs_g_mag: 4.182014210215176
+    bp_rp: 0.7452707290649414
+    phot_g_mean_mag: 14.190253257751465
+    parallax: 0.9962129673562496
+    period_day: 943.3326302158465
+    a_thiele_innes: 1.8949185456776951
+    b_thiele_innes: -0.46739194494448916
+    f_thiele_innes: 0.36433350552661314
+    g_thiele_innes: 0.9095104169778534
+  - source_id: 6001459821083925120
+    nss_solution_type: Orbital
+    abs_g_mag: 3.3452087240842587
+    bp_rp: 0.8894062042236328
+    phot_g_mean_mag: 13.598904609680176
+    parallax: 0.8897353029874661
+    period_day: 563.832789334631
+    a_thiele_innes: -0.7859338199238834
+    b_thiele_innes: 0.3131010926001374
+    f_thiele_innes: -0.8091062706667835
+    g_thiele_innes: -0.3426742803267583
+  - source_id: 5644387063402978304
+    nss_solution_type: Orbital
+    abs_g_mag: 2.357032799051254
+    bp_rp: 0.47794246673583984
+    phot_g_mean_mag: 13.96237564086914
+    parallax: 0.4774538851424834
+    period_day: 879.925901409072
+    a_thiele_innes: -0.19360333154219536
+    b_thiele_innes: -0.14287303629642778
+    f_thiele_innes: -0.7475847029446747
+    g_thiele_innes: -0.05589120770212366
+  - source_id: 1007185297091149824
+    nss_solution_type: Orbital
+    abs_g_mag: 3.6347244992519823
+    bp_rp: 0.8595991134643555
+    phot_g_mean_mag: 14.617752075195312
+    parallax: 0.6359082872521978
+    period_day: 1120.1364118955353
+    a_thiele_innes: -0.24042107055747433
+    b_thiele_innes: 0.756534043788961
+    f_thiele_innes: 0.1835326179940104
+    g_thiele_innes: -1.0048448695345267
+  - source_id: 1749013354127453696
+    nss_solution_type: Orbital
+    abs_g_mag: 3.4317003726055475
+    bp_rp: 0.8720331192016602
+    phot_g_mean_mag: 14.49372673034668
+    parallax: 0.6131895266605334
+    period_day: 932.0795371446142
+    a_thiele_innes: 0.739469046645253
+    b_thiele_innes: -0.7576839716180198
+    f_thiele_innes: -0.21384399960625605
+    g_thiele_innes: -0.15314899597219303
+  - source_id: 5954343888087990656
+    nss_solution_type: Orbital
+    abs_g_mag: 3.0414219476611617
+    bp_rp: 0.9899444580078125
+    phot_g_mean_mag: 12.869043350219727
+    parallax: 1.082619186422103
+    period_day: 702.452384053647
+    a_thiele_innes: -0.3917967943692419
+    b_thiele_innes: 0.2562176433458992
+    f_thiele_innes: -1.3833963470227313
+    g_thiele_innes: 0.380046759181634
+  - source_id: 4590978336125467776
+    nss_solution_type: Orbital
+    abs_g_mag: 3.1023852374982948
+    bp_rp: 0.7214679718017578
+    phot_g_mean_mag: 14.280363082885742
+    parallax: 0.5813054985087316
+    period_day: 682.322705222743
+    a_thiele_innes: 0.38627535960029263
+    b_thiele_innes: 0.08152854003588089
+    f_thiele_innes: 0.6935325813340595
+    g_thiele_innes: -0.02799411078678306
+  - source_id: 6152333294796189568
+    nss_solution_type: Orbital
+    abs_g_mag: 3.2928531014311755
+    bp_rp: 1.0405807495117188
+    phot_g_mean_mag: 14.691758155822754
+    parallax: 0.5250721564638016
+    period_day: 1093.3787042990523
+    a_thiele_innes: -0.7683220127952953
+    b_thiele_innes: -0.6010991323879614
+    f_thiele_innes: 0.3050112128992748
+    g_thiele_innes: -0.5415399714420177
+  - source_id: 4384513795007410048
+    nss_solution_type: Orbital
+    abs_g_mag: 3.5387509516762314
+    bp_rp: 0.8486080169677734
+    phot_g_mean_mag: 13.4993314743042
+    parallax: 1.0183191136689642
+    period_day: 745.2008349737059
+    a_thiele_innes: -0.2952920262666032
+    b_thiele_innes: 0.6505889517588784
+    f_thiele_innes: -0.531309430306206
+    g_thiele_innes: 1.1662411421801226
+  - source_id: 5580526947012630912
+    nss_solution_type: Orbital
+    abs_g_mag: 3.618160396359521
+    bp_rp: 0.7405328750610352
+    phot_g_mean_mag: 13.359832763671875
+    parallax: 1.1263296751921539
+    period_day: 654.3255682460206
+    a_thiele_innes: 1.2112384231200237
+    b_thiele_innes: 0.7115833891615001
+    f_thiele_innes: 0.7572621968847301
+    g_thiele_innes: -1.2454448441286359
+  - source_id: 6054379247042197504
+    nss_solution_type: Orbital
+    abs_g_mag: 4.450780910566435
+    bp_rp: 1.247797966003418
+    phot_g_mean_mag: 14.872496604919434
+    parallax: 0.8234872153479378
+    period_day: 807.5515579560968
+    a_thiele_innes: 0.010686460190969487
+    b_thiele_innes: 0.9922042144222929
+    f_thiele_innes: -1.1768603601309193
+    g_thiele_innes: -0.27863954329070884
+  - source_id: 6687541573416724608
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 4.316387230967928
+    bp_rp: 0.7318506240844727
+    phot_g_mean_mag: 12.074223518371582
+    parallax: 2.8082304394716804
+    period_day: 1125.0709267882726
+    a_thiele_innes: 2.9478420643282313
+    b_thiele_innes: 2.0149086795952527
+    f_thiele_innes: 0.778643208199213
+    g_thiele_innes: -4.960210312050187
+  - source_id: 4099356347737522432
+    nss_solution_type: Orbital
+    abs_g_mag: 4.204928423786884
+    bp_rp: 1.162466049194336
+    phot_g_mean_mag: 13.814685821533203
+    parallax: 1.1968742415803275
+    period_day: 718.3403067637188
+    a_thiele_innes: 0.4301875381540811
+    b_thiele_innes: -0.5963140709332726
+    f_thiele_innes: -1.0611915633657167
+    g_thiele_innes: 0.9392004711625577
+  - source_id: 3869650535947137920
+    nss_solution_type: Orbital
+    abs_g_mag: 4.043842303433502
+    bp_rp: 0.7075099945068359
+    phot_g_mean_mag: 12.93814754486084
+    parallax: 1.6639449413127771
+    period_day: 570.036402597465
+    a_thiele_innes: 0.9599187886950223
+    b_thiele_innes: 1.6711691962437405
+    f_thiele_innes: 1.246697827372162
+    g_thiele_innes: -0.9692502063249178
+  - source_id: 3649963989549165440
+    nss_solution_type: Orbital
+    abs_g_mag: 4.978279452084424
+    bp_rp: -0.32364845275878906
+    phot_g_mean_mag: 14.29959774017334
+    parallax: 1.3668987374912254
+    period_day: 892.5306233789424
+    a_thiele_innes: 1.7451663885489517
+    b_thiele_innes: 0.7458740892104474
+    f_thiele_innes: -1.4485344497634771
+    g_thiele_innes: 0.9956420923640567
+  - source_id: 6593763230249162112
+    nss_solution_type: Orbital
+    abs_g_mag: 4.083408123346066
+    bp_rp: 0.7967109680175781
+    phot_g_mean_mag: 13.537496566772461
+    parallax: 1.2858263202436686
+    period_day: 679.887939268342
+    a_thiele_innes: 0.2941667948724623
+    b_thiele_innes: -1.5979180866863958
+    f_thiele_innes: -0.2520751080407679
+    g_thiele_innes: 0.4279658005209748
+  - source_id: 1058875159778407808
+    nss_solution_type: Orbital
+    abs_g_mag: 4.29352375048715
+    bp_rp: 0.7493410110473633
+    phot_g_mean_mag: 14.520771026611328
+    parallax: 0.9006385762523137
+    period_day: 835.6823615515086
+    a_thiele_innes: -0.5243072350318602
+    b_thiele_innes: -0.21253728762892027
+    f_thiele_innes: -1.1962463093639395
+    g_thiele_innes: 0.5439956129146091
+  - source_id: 1350295047363872512
+    nss_solution_type: Orbital
+    abs_g_mag: 3.763766906489101
+    bp_rp: 0.7164516448974609
+    phot_g_mean_mag: 13.52313232421875
+    parallax: 1.1171896830519994
+    period_day: 657.2419539332093
+    a_thiele_innes: -0.05308564395893659
+    b_thiele_innes: 1.329383809971868
+    f_thiele_innes: 1.109958689700979
+    g_thiele_innes: 0.232430319436704
+  - source_id: 1732878914341314944
+    nss_solution_type: Orbital
+    abs_g_mag: 3.927494221702805
+    bp_rp: 0.9462032318115234
+    phot_g_mean_mag: 13.942667007446289
+    parallax: 0.9930370285507314
+    period_day: 648.0967397986716
+    a_thiele_innes: 0.4999690115862726
+    b_thiele_innes: 0.5358306740901164
+    f_thiele_innes: -1.0772096832088556
+    g_thiele_innes: 0.24806853524414502
+  - source_id: 809741149368202752
+    nss_solution_type: Orbital
+    abs_g_mag: 5.612950830624879
+    bp_rp: 0.9661350250244141
+    phot_g_mean_mag: 14.908418655395508
+    parallax: 1.3832683337826768
+    period_day: 922.3885089937434
+    a_thiele_innes: 2.022610778748972
+    b_thiele_innes: -1.0810941493558968
+    f_thiele_innes: -0.3842113426640617
+    g_thiele_innes: -1.490810536225682
+  - source_id: 6092954989675820416
+    nss_solution_type: Orbital
+    abs_g_mag: 3.8479850447311836
+    bp_rp: 0.8229656219482422
+    phot_g_mean_mag: 13.674644470214844
+    parallax: 1.0830989003496154
+    period_day: 883.0788557285832
+    a_thiele_innes: -0.6350682603854626
+    b_thiele_innes: -0.49489679423899424
+    f_thiele_innes: -1.1138324154190808
+    g_thiele_innes: 1.1034868891561551
+  - source_id: 3662912491312811008
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 4.692562590998859
+    bp_rp: 0.8244390487670898
+    phot_g_mean_mag: 12.605368614196777
+    parallax: 2.6148019210363462
+    period_day: 237.15649797415918
+    a_thiele_innes: 0.5263573808904036
+    b_thiele_innes: -0.5324038655914957
+    f_thiele_innes: 1.3151431501527244
+    g_thiele_innes: -0.7564023985184419
+  - source_id: 5839182174066052224
+    nss_solution_type: Orbital
+    abs_g_mag: 4.879149639893386
+    bp_rp: 1.1201915740966797
+    phot_g_mean_mag: 12.988483428955078
+    parallax: 2.3885439793273817
+    period_day: 331.7767814040449
+    a_thiele_innes: -1.8235008101150605
+    b_thiele_innes: -0.49914253062885794
+    f_thiele_innes: -0.41518665311645897
+    g_thiele_innes: 1.7347520355495754
+  - source_id: 1695294922548180224
+    nss_solution_type: Orbital
+    abs_g_mag: 3.76118424916676
+    bp_rp: 0.8298845291137695
+    phot_g_mean_mag: 13.11996841430664
+    parallax: 1.343517002737875
+    period_day: 601.1775441016509
+    a_thiele_innes: 0.9848170671700537
+    b_thiele_innes: -1.1124025112907208
+    f_thiele_innes: -1.038486095687041
+    g_thiele_innes: -0.9900167460683236
+  - source_id: 2080945469200565248
+    nss_solution_type: Orbital
+    abs_g_mag: 4.010151733092105
+    bp_rp: 0.8431863784790039
+    phot_g_mean_mag: 13.294159889221191
+    parallax: 1.3905876523580052
+    period_day: 196.64003858005705
+    a_thiele_innes: -0.03933278406367471
+    b_thiele_innes: -0.385783683723004
+    f_thiele_innes: -0.12542713972189376
+    g_thiele_innes: -0.5667064856791677
+  - source_id: 2426116249713980416
+    nss_solution_type: Orbital
+    abs_g_mag: 4.106114413886301
+    bp_rp: 0.798771858215332
+    phot_g_mean_mag: 13.024138450622559
+    parallax: 1.6458687244608092
+    period_day: 711.7033843848643
+    a_thiele_innes: -0.382058639424744
+    b_thiele_innes: -2.031680772640989
+    f_thiele_innes: -1.6563956555226402
+    g_thiele_innes: 0.18267597850523468
+  - source_id: 1028887114002082432
+    nss_solution_type: Orbital
+    abs_g_mag: 4.658792870299697
+    bp_rp: 0.7898063659667969
+    phot_g_mean_mag: 13.59300708770752
+    parallax: 1.633643001224257
+    period_day: 994.4169672411456
+    a_thiele_innes: 1.341131452214145
+    b_thiele_innes: -0.8968150335053883
+    f_thiele_innes: -1.5687080802557622
+    g_thiele_innes: -2.075924218573803
+  - source_id: 6791860144283753984
+    nss_solution_type: Orbital
+    abs_g_mag: 4.13050046481667
+    bp_rp: 0.8553256988525391
+    phot_g_mean_mag: 12.799684524536133
+    parallax: 1.8457088220806956
+    period_day: 935.8300972313355
+    a_thiele_innes: 1.4140272384850678
+    b_thiele_innes: -0.9668935733877472
+    f_thiele_innes: 0.8575237543386666
+    g_thiele_innes: -2.093568362440595
+  - source_id: 5136025521527939072
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 3.9899722387135625
+    bp_rp: 0.634516716003418
+    phot_g_mean_mag: 12.04779052734375
+    parallax: 2.4458867382250764
+    period_day: 536.9000374541339
+    a_thiele_innes: 1.04993662343193
+    b_thiele_innes: 0.9350270819878659
+    f_thiele_innes: 1.1297683592990406
+    g_thiele_innes: -2.1480318444908777
+  - source_id: 2397135910639986304
+    nss_solution_type: Orbital
+    abs_g_mag: 4.896566970832762
+    bp_rp: 0.7187967300415039
+    phot_g_mean_mag: 13.346147537231445
+    parallax: 2.042132357330552
+    period_day: 916.0157822158293
+    a_thiele_innes: -1.3562434826823475
+    b_thiele_innes: -2.529332279334463
+    f_thiele_innes: -1.9151954126784771
+    g_thiele_innes: -0.19258865346389034
+  - source_id: 1144019690966028928
+    nss_solution_type: Orbital
+    abs_g_mag: 5.129680318396721
+    bp_rp: 0.7101049423217773
+    phot_g_mean_mag: 13.57052993774414
+    parallax: 2.0503597895438817
+    period_day: 1401.859598247573
+    a_thiele_innes: -3.5144140539609947
+    b_thiele_innes: 1.9492326244303948
+    f_thiele_innes: -1.4375036910377705
+    g_thiele_innes: -3.628626481680722
+  - source_id: 4524807699152454144
+    nss_solution_type: Orbital
+    abs_g_mag: 4.234631553872983
+    bp_rp: 0.9644956588745117
+    phot_g_mean_mag: 14.796396255493164
+    parallax: 0.7720529018874677
+    period_day: 947.2013263950695
+    a_thiele_innes: 0.5431313678346118
+    b_thiele_innes: 0.7634400362225028
+    f_thiele_innes: 0.7865547705838599
+    g_thiele_innes: -0.7641258129940746
+  - source_id: 5530442371304582912
+    nss_solution_type: Orbital
+    abs_g_mag: 4.640951657152861
+    bp_rp: 1.0340471267700195
+    phot_g_mean_mag: 14.60024642944336
+    parallax: 1.0189222490534207
+    period_day: 498.8305431951074
+    a_thiele_innes: -0.9833632849932583
+    b_thiele_innes: -0.05468711546100354
+    f_thiele_innes: -0.17716667949897352
+    g_thiele_innes: 0.627050938004463
+  - source_id: 4637171465304969216
+    nss_solution_type: Orbital
+    abs_g_mag: 4.391936740087896
+    bp_rp: 0.8599395751953125
+    phot_g_mean_mag: 14.011240005493164
+    parallax: 1.1916242890460678
+    period_day: 639.1506475352518
+    a_thiele_innes: 0.43842919204300435
+    b_thiele_innes: 1.140446630849205
+    f_thiele_innes: 0.8093367830587809
+    g_thiele_innes: -0.7619485393079084
+  - source_id: 1871419337958702720
+    nss_solution_type: Orbital
+    abs_g_mag: 4.600875961812914
+    bp_rp: 0.7184686660766602
+    phot_g_mean_mag: 13.69947624206543
+    parallax: 1.514537196605183
+    period_day: 479.3129789471415
+    a_thiele_innes: 1.2123708244928422
+    b_thiele_innes: 0.570078817899787
+    f_thiele_innes: 0.16512399672150496
+    g_thiele_innes: -1.1498415725589242
+  - source_id: 1854241667792418304
+    nss_solution_type: Orbital
+    abs_g_mag: 8.09314644683571
+    bp_rp: 1.556992530822754
+    phot_g_mean_mag: 14.87132740020752
+    parallax: 4.409240717875964
+    period_day: 1430.3335792623632
+    a_thiele_innes: 3.465141624055357
+    b_thiele_innes: -8.746160560029736
+    f_thiele_innes: 9.305702635957832
+    g_thiele_innes: 2.9994127090539973
+  - source_id: 3494029910469026432
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 3.854096102522888
+    bp_rp: 0.8254537582397461
+    phot_g_mean_mag: 12.658865928649902
+    parallax: 1.7339877889600528
+    period_day: 632.5299065981172
+    a_thiele_innes: 1.7987856975086365
+    b_thiele_innes: -0.4996686762122274
+    f_thiele_innes: -0.32823159742431485
+    g_thiele_innes: -0.9257008467776688
+  - source_id: 5820382041374661888
+    nss_solution_type: Orbital
+    abs_g_mag: 4.758259258082623
+    bp_rp: 0.8072481155395508
+    phot_g_mean_mag: 14.188474655151367
+    parallax: 1.3000406153877446
+    period_day: 311.1399656291668
+    a_thiele_innes: -0.694773718957028
+    b_thiele_innes: -0.036312709970799203
+    f_thiele_innes: -0.5940366825685681
+    g_thiele_innes: -0.18461630536594553
+  - source_id: 4922744974687373440
+    nss_solution_type: Orbital
+    abs_g_mag: 6.163750079485872
+    bp_rp: 1.1015853881835938
+    phot_g_mean_mag: 14.47603988647461
+    parallax: 2.1754145984334397
+    period_day: 562.3805772557849
+    a_thiele_innes: -0.3841473631307963
+    b_thiele_innes: -1.4201127587809508
+    f_thiele_innes: -0.247147426621729
+    g_thiele_innes: -1.9665878129117351
+  - source_id: 465093354131112960
+    nss_solution_type: Orbital
+    abs_g_mag: 5.092100262946742
+    bp_rp: 1.0701608657836914
+    phot_g_mean_mag: 13.088571548461914
+    parallax: 2.515971648446335
+    period_day: 1046.3703977514324
+    a_thiele_innes: 0.17028316361091902
+    b_thiele_innes: -1.8708219422982644
+    f_thiele_innes: -3.439615072130577
+    g_thiele_innes: -1.759401063567572
+  - source_id: 1748901959855337472
+    nss_solution_type: Orbital
+    abs_g_mag: 4.405591803847932
+    bp_rp: 0.9704561233520508
+    phot_g_mean_mag: 12.547351837158203
+    parallax: 2.3531412302532284
+    period_day: 991.8474384437686
+    a_thiele_innes: -2.222123310382727
+    b_thiele_innes: 0.47448686006721547
+    f_thiele_innes: 1.8261591552732603
+    g_thiele_innes: -2.1637398515178203
+  - source_id: 747174436620510976
+    nss_solution_type: Orbital
+    abs_g_mag: 6.041646008325323
+    bp_rp: 0.9220714569091797
+    phot_g_mean_mag: 13.987700462341309
+    parallax: 2.575070414557032
+    period_day: 999.4359398395977
+    a_thiele_innes: 3.560434493359178
+    b_thiele_innes: 0.9585572888022309
+    f_thiele_innes: 0.3876715077082523
+    g_thiele_innes: -3.941354218573343
+  - source_id: 5446310318525312768
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 4.009986994488477
+    bp_rp: 0.6577644348144531
+    phot_g_mean_mag: 10.372845649719238
+    parallax: 5.338610901439244
+    period_day: 866.5581398986174
+    a_thiele_innes: -2.010782930854824
+    b_thiele_innes: -6.465867019989138
+    f_thiele_innes: 2.1058587892148446
+    g_thiele_innes: -2.2783041345846455
+  - source_id: 1581117310088807552
+    nss_solution_type: Orbital
+    abs_g_mag: 7.807086830958028
+    bp_rp: 1.5626802444458008
+    phot_g_mean_mag: 14.508785247802734
+    parallax: 4.567308179279272
+    period_day: 927.3139036948771
+    a_thiele_innes: -6.0930139283351386
+    b_thiele_innes: 3.11457607539455
+    f_thiele_innes: 3.386911723972977
+    g_thiele_innes: 6.509418645778307
+  - source_id: 6037767138131854592
+    nss_solution_type: Orbital
+    abs_g_mag: 5.314017099826733
+    bp_rp: 1.1007213592529297
+    phot_g_mean_mag: 14.275906562805176
+    parallax: 1.6129544662045194
+    period_day: 804.7013884937741
+    a_thiele_innes: -0.6009375784295958
+    b_thiele_innes: -2.0459054539057875
+    f_thiele_innes: -0.7517660839091818
+    g_thiele_innes: 0.07779849888649898
+  - source_id: 1434445448240677376
+    nss_solution_type: Orbital
+    abs_g_mag: 4.43669612813629
+    bp_rp: 0.7939090728759766
+    phot_g_mean_mag: 13.64698600769043
+    parallax: 1.4386065194247268
+    period_day: 572.4227597979572
+    a_thiele_innes: -0.6768027306983949
+    b_thiele_innes: 0.6473391418102132
+    f_thiele_innes: -1.2620640912409957
+    g_thiele_innes: -0.5172968954908758
+  - source_id: 1801110822095134848
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 5.282163213609527
+    bp_rp: 0.8512258529663086
+    phot_g_mean_mag: 12.188766479492188
+    parallax: 4.156036440391789
+    period_day: 893.5833196656748
+    a_thiele_innes: 2.0636977570946238
+    b_thiele_innes: -3.657442791610008
+    f_thiele_innes: -5.517926615032027
+    g_thiele_innes: -0.6151958752555952
+  - source_id: 4240540718818313984
+    nss_solution_type: Orbital
+    abs_g_mag: 6.199264696635016
+    bp_rp: 1.1724119186401367
+    phot_g_mean_mag: 14.611237525939941
+    parallax: 2.077808096055644
+    period_day: 691.1678608875368
+    a_thiele_innes: -2.3915204441210545
+    b_thiele_innes: -0.8912050030352773
+    f_thiele_innes: 0.8404586842588937
+    g_thiele_innes: -2.328707916472732
+  - source_id: 1694708646628402048
+    nss_solution_type: Orbital
+    abs_g_mag: 4.496274196367276
+    bp_rp: 0.765172004699707
+    phot_g_mean_mag: 13.19953441619873
+    parallax: 1.8169708338366855
+    period_day: 632.0335601604571
+    a_thiele_innes: -0.4139900357164708
+    b_thiele_innes: 1.099738934733651
+    f_thiele_innes: 1.3193469358867136
+    g_thiele_innes: -0.9972540112039258
+  - source_id: 1522897482203494784
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 6.528334551959489
+    bp_rp: 1.2417936325073242
+    phot_g_mean_mag: 11.052850723266602
+    parallax: 12.447919346427884
+    period_day: 45.51653693310744
+    a_thiele_innes: 0.3985820003836115
+    b_thiele_innes: -0.42157465132951405
+    f_thiele_innes: -0.24040173758870112
+    g_thiele_innes: -2.501504434217134
+  - source_id: 6481502062263141504
+    nss_solution_type: Orbital
+    abs_g_mag: 4.776200244550644
+    bp_rp: 0.7560529708862305
+    phot_g_mean_mag: 13.579686164855957
+    parallax: 1.7350133305657331
+    period_day: 229.68372830263812
+    a_thiele_innes: 0.8096276576137692
+    b_thiele_innes: -0.4051384373694559
+    f_thiele_innes: -0.4698491689048257
+    g_thiele_innes: -0.4418397998999268
+  - source_id: 2995961897685517312
+    nss_solution_type: Orbital
+    abs_g_mag: 4.990599230560251
+    bp_rp: 0.9114646911621094
+    phot_g_mean_mag: 12.9975004196167
+    parallax: 2.50391603966021
+    period_day: 189.76329734040044
+    a_thiele_innes: 0.16700056051516873
+    b_thiele_innes: 1.1819425517592754
+    f_thiele_innes: -0.7169214142352631
+    g_thiele_innes: 0.22460433906842545
+  - source_id: 3184078579032750464
+    nss_solution_type: Orbital
+    abs_g_mag: 4.50930859680796
+    bp_rp: 0.8691587448120117
+    phot_g_mean_mag: 13.731329917907715
+    parallax: 1.4308553634988967
+    period_day: 614.8946644912102
+    a_thiele_innes: 0.6575312353813992
+    b_thiele_innes: 0.8598656570289213
+    f_thiele_innes: 1.2149263823363183
+    g_thiele_innes: -0.13854959836047126
+  - source_id: 2032579979951732736
+    nss_solution_type: Orbital
+    abs_g_mag: 5.521040045391121
+    bp_rp: 0.9650640487670898
+    phot_g_mean_mag: 14.207268714904785
+    parallax: 1.8312779495801943
+    period_day: 215.44661636363173
+    a_thiele_innes: 0.5014207291752242
+    b_thiele_innes: 0.6982876713654476
+    f_thiele_innes: 0.7422983472601047
+    g_thiele_innes: -0.1428090510704284
+  - source_id: 5355633933885075328
+    nss_solution_type: Orbital
+    abs_g_mag: 4.465122600396972
+    bp_rp: 0.9025497436523438
+    phot_g_mean_mag: 13.725296974182129
+    parallax: 1.4059346201004013
+    period_day: 574.7398061433263
+    a_thiele_innes: -0.21261588223065622
+    b_thiele_innes: -1.1647315558369513
+    f_thiele_innes: -1.3004625259144555
+    g_thiele_innes: 0.18480074768560062
+  - source_id: 4466767229088016256
+    nss_solution_type: Orbital
+    abs_g_mag: 4.408102095262736
+    bp_rp: 0.846649169921875
+    phot_g_mean_mag: 13.784063339233398
+    parallax: 1.332931253924247
+    period_day: 776.6040441530886
+    a_thiele_innes: -0.15354383537923938
+    b_thiele_innes: 1.3624864966845267
+    f_thiele_innes: 1.343885169704841
+    g_thiele_innes: -0.23788614135080052
+  - source_id: 3389767036738482432
+    nss_solution_type: Orbital
+    abs_g_mag: 6.0586670306684915
+    bp_rp: 1.340397834777832
+    phot_g_mean_mag: 14.723441123962402
+    parallax: 1.8494610155805042
+    period_day: 717.2313897113473
+    a_thiele_innes: -0.7330604219852351
+    b_thiele_innes: 1.1719803006881522
+    f_thiele_innes: 0.9361293533823162
+    g_thiele_innes: -1.3523830785390913
+  - source_id: 2919995917769953408
+    nss_solution_type: Orbital
+    abs_g_mag: 6.772021405067115
+    bp_rp: 1.2134504318237305
+    phot_g_mean_mag: 14.970134735107422
+    parallax: 2.292858923449565
+    period_day: 456.77405102814447
+    a_thiele_innes: -1.6790402391275971
+    b_thiele_innes: 1.1520073532011912
+    f_thiele_innes: -0.70550653290952
+    g_thiele_innes: -0.657944671615951
+  - source_id: 5039979680444075392
+    nss_solution_type: Orbital
+    abs_g_mag: 4.8514936112800235
+    bp_rp: 0.8702840805053711
+    phot_g_mean_mag: 12.719212532043457
+    parallax: 2.66966160698902
+    period_day: 553.3047797429405
+    a_thiele_innes: 1.6729140898436428
+    b_thiele_innes: -0.7114782637407684
+    f_thiele_innes: -1.7085518095014616
+    g_thiele_innes: -1.5319651992081489
+  - source_id: 1683575679079854848
+    nss_solution_type: Orbital
+    abs_g_mag: 4.988181123380118
+    bp_rp: 0.8870601654052734
+    phot_g_mean_mag: 14.29955005645752
+    parallax: 1.3731760286033063
+    period_day: 795.5664209871641
+    a_thiele_innes: 1.442391507852677
+    b_thiele_innes: 0.7654495206830588
+    f_thiele_innes: -0.5173111614637937
+    g_thiele_innes: 1.101402323001225
+  - source_id: 1579254496872812032
+    nss_solution_type: Orbital
+    abs_g_mag: 5.481365214438743
+    bp_rp: 0.9942255020141602
+    phot_g_mean_mag: 14.497243881225586
+    parallax: 1.5733460952919118
+    period_day: 601.4623670644385
+    a_thiele_innes: 1.0711274417009753
+    b_thiele_innes: -1.1287039246524089
+    f_thiele_innes: 0.7590143766185914
+    g_thiele_innes: 0.6725038802986972
+  - source_id: 5283631903842076032
+    nss_solution_type: Orbital
+    abs_g_mag: 5.948225562063946
+    bp_rp: 1.1442699432373047
+    phot_g_mean_mag: 13.3058443069458
+    parallax: 3.3765738366764193
+    period_day: 90.75407764058359
+    a_thiele_innes: 0.6013502740822139
+    b_thiele_innes: -0.06454599582494275
+    f_thiele_innes: 0.14874553791525413
+    g_thiele_innes: 0.9498052710852986
+  - source_id: 220012968211559296
+    nss_solution_type: Orbital
+    abs_g_mag: 6.4512545877666625
+    bp_rp: 1.1103363037109375
+    phot_g_mean_mag: 13.930195808410645
+    parallax: 3.1930943834375656
+    period_day: 196.34059445516763
+    a_thiele_innes: -0.23105951285954174
+    b_thiele_innes: -0.734724253745241
+    f_thiele_innes: -0.6208552371976138
+    g_thiele_innes: -1.1766837853133971
+  - source_id: 1864406790238257536
+    nss_solution_type: AstroSpectroSB1
+    abs_g_mag: 1.0765549812583366
+    bp_rp: 0.8443851470947266
+    phot_g_mean_mag: 12.724334716796875
+    parallax: 0.4682136308149259
+    period_day: 875.7876433902909
+    a_thiele_innes: -0.10094908206310803
+    b_thiele_innes: -0.44418764811073125
+    f_thiele_innes: 0.38969826305771
+    g_thiele_innes: -0.2639617378503358
+    ebv_map_elbadry2026: 0.4114729299153183

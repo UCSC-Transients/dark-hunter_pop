@@ -325,8 +325,17 @@ def classify_simon2026_row(
     m2_over_m1_min: float,
     astrometric_types: Sequence[str],
     spectroscopic_types: Sequence[str],
+    elbadry_m2_over_m1: float | None = None,
 ) -> SimonReason:
-    """First matching exclusion reason; ``in_sample`` wins if already selected."""
+    """First matching exclusion reason; ``in_sample`` wins if already selected.
+
+    ``elbadry_m2_over_m1`` is El-Badry 2026's own ``M̃2/M̃1`` for this source
+    (Janssens ``M̃1``, AMRF ``M̃2``). The paper's ``fails_m2_over_m1`` exclusion
+    refers to that quantity, so it is used when supplied. When it is ``None``
+    the Simon catalog ``m2_over_m1`` column is used as a fallback. That column
+    is a different mass estimate (Simon et al. 2026 Table 1), and it passes
+    ``1864406790238257536``, which the paper excludes on its own M̃ (#281).
+    """
     if in_sample:
         return "in_sample"
     sol = str(row.get("nss_solution_type", ""))
@@ -342,7 +351,11 @@ def classify_simon2026_row(
         f2 = float(row["goodness_of_fit"])
         if f2 > goodness_of_fit_max:
             return "astrometric_f2_above_max"
-        ratio = float(row["m2_over_m1"])
+        ratio = (
+            float(elbadry_m2_over_m1)
+            if elbadry_m2_over_m1 is not None
+            else float(row["m2_over_m1"])
+        )
         if ratio <= m2_over_m1_min:
             return "fails_m2_over_m1"
         return "unclassified"
@@ -353,8 +366,16 @@ def simon2026_exclusion_breakdown(
     rows: Sequence[Mapping[str, Any]],
     sample_ids: Sequence[int],
     spec: SampleSelectionFile,
+    *,
+    elbadry_m2_over_m1_by_source: Mapping[int, float] | None = None,
 ) -> dict[str, int]:
-    """Reproduce the published 5 / 2 / 1 / 1 split (§8.9)."""
+    """Reproduce the published 5 / 2 / 1 / 1 split (§8.9).
+
+    ``elbadry_m2_over_m1_by_source`` maps ``source_id`` to El-Badry 2026's own
+    ``M̃2/M̃1`` (e.g. ``m2_tilde_msun / m1_tilde_msun`` from
+    :func:`enrich_elbadry2026_row`). Sources missing from it fall back to the
+    Simon catalog ratio; see :func:`classify_simon2026_row`.
+    """
     tests = spec.acceptance_tests
     if tests is None or tests.simon2026_exclusion_breakdown is None:
         raise ValueError("elbadry2026.yaml missing simon2026_exclusion_breakdown")
@@ -376,6 +397,9 @@ def simon2026_exclusion_breakdown(
     sig_cut = next(c for c in (specb.cuts or []) if c.id == "k1_significance")
     sig_min = float(sig_cut.parameters["k1_significance_min"])
     sample = set(int(s) for s in sample_ids)
+    ratios = {
+        int(k): float(v) for k, v in (elbadry_m2_over_m1_by_source or {}).items()
+    }
     counts = {
         "in_sample": 0,
         "sb1_fails_significance": 0,
@@ -394,6 +418,7 @@ def simon2026_exclusion_breakdown(
             m2_over_m1_min=m2m1,
             astrometric_types=astro_types,
             spectroscopic_types=spec_types,
+            elbadry_m2_over_m1=ratios.get(int(row["source_id"])),
         )
         counts[reason] += 1
     del expected
