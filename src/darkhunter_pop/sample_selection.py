@@ -247,6 +247,10 @@ class SampleEvaluationResult:
     branch_surviving: dict[str, tuple[int, ...]] = field(default_factory=dict)
     subsample_surviving: dict[str, tuple[int, ...]] = field(default_factory=dict)
     route_counts: dict[str, int] = field(default_factory=dict)
+    #: Per-outcome counts of the sample's own extinction lookup (#258; El-Badry
+    #: 2026 only — ``ok``, ``beyond_map_limit``, ``invalid_parallax``, ...).
+    #: Empty for samples that do not deredden.
+    extinction_status_counts: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -263,6 +267,7 @@ class SampleEvaluationResult:
                 key: list(ids) for key, ids in self.subsample_surviving.items()
             },
             "route_counts": dict(self.route_counts),
+            "extinction_status_counts": dict(self.extinction_status_counts),
             "attrition": [row.as_dict() for row in self.attrition],
             "n_parent": self.n_parent,
             "n_surviving": self.n_surviving,
@@ -511,6 +516,7 @@ class SampleSelection:
             n_surviving=len(surviving),
             outcomes_by_source=outcomes,
             inference_source_ids=surviving,
+            extinction_status_counts=dict(self.extinction_status_counts),
         )
 
     def _evaluate_branched(
@@ -594,6 +600,7 @@ class SampleSelection:
             branch_surviving=branch_surviving,
             subsample_surviving=subsample_surviving,
             route_counts=route_counts,
+            extinction_status_counts=dict(self.extinction_status_counts),
         )
 
     def _evaluate_and_chain(
@@ -1515,6 +1522,10 @@ def sample_evaluation_result_from_dict(raw: Mapping[str, Any]) -> SampleEvaluati
         },
         route_counts={
             str(k): int(v) for k, v in dict(raw.get("route_counts") or {}).items()
+        },
+        extinction_status_counts={
+            str(k): int(v)
+            for k, v in dict(raw.get("extinction_status_counts") or {}).items()
         },
     )
 

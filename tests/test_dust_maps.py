@@ -434,3 +434,22 @@ def test_real_lallement_is_finite_and_monotone() -> None:
     assert np.all(np.isfinite(vals))
     assert np.all(np.diff(vals) >= -1e-9)
     assert math.isfinite(float(vals[-1])) and vals[-1] > 0.0
+
+
+@pytest.mark.api
+def test_extinction_counts_reach_the_evaluation_result(tmp_path: Path) -> None:
+    from darkhunter_pop.sample_selection import sample_evaluation_result_from_dict
+
+    registry = SampleSelectionRegistry(load_config())
+    selection = registry.selection("elbadry2026")
+    selection.extinction_lookup, _ = _lookup(tmp_path)
+    rows = [
+        {"source_id": 21, "nss_solution_type": "Orbital", "abs_g_mag": 4.0, "bp_rp": 0.8,
+         "ra_deg": 10.0, "dec_deg": 10.0, "parallax_mas": 1.0, "period_day": 300.0},
+        {"source_id": 22, "nss_solution_type": "SB1", "bp_rp": 0.8, "ra_deg": 10.0,
+         "dec_deg": 10.0, "parallax_mas": -1.0, "period_day": 300.0},
+    ]
+    result = selection.evaluate(rows)
+    assert result.extinction_status_counts == {"ok": 1, "invalid_parallax": 1}
+    again = sample_evaluation_result_from_dict(result.as_dict())
+    assert again.extinction_status_counts == result.extinction_status_counts
