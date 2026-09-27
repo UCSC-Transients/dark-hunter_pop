@@ -834,6 +834,25 @@ def test_write_stage_hdf5_keeps_genuine_multi_solution_rows(tmp_path: Path) -> N
     dup = [c for c in loaded if c.source_id == 1002]
     assert {c.nss_solution_type for c in dup} == {"Orbital", "SB1"}
 
+    # #250: every written row round-trips field-by-field unmodified and unmerged —
+    # in input order, each loaded record equal to its own original input record on
+    # every CandidateRecord field (not just source_id / nss_solution_type).
+    assert len(loaded) == len(candidates)
+    for index, (original, back) in enumerate(zip(candidates, loaded, strict=True)):
+        original_fields = original.model_dump(mode="json")
+        back_fields = back.model_dump(mode="json")
+        assert set(back_fields) == set(original_fields)
+        for field in CandidateRecord.model_fields:
+            assert back_fields[field] == original_fields[field], (
+                f"row {index} (source_id={original.source_id}, "
+                f"{original.nss_solution_type}): field {field!r} changed on round-trip"
+            )
+    # The two 1002 rows keep their own distinct orbits (no cross-row merge).
+    orbital_back = next(c for c in dup if c.nss_solution_type == "Orbital")
+    sb1_back = next(c for c in dup if c.nss_solution_type == "SB1")
+    assert orbital_back.nss_orbital["period"] == pytest.approx(200.0)
+    assert sb1_back.nss_orbital["period"] == pytest.approx(0.62)
+
     import h5py
 
     with h5py.File(artifact, "r") as handle:
