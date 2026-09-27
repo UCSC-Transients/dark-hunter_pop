@@ -11,6 +11,25 @@ over editing frozen cut thresholds.
 > `/Users/rfoley/darkhunter/pop/dark-hunter_pop`, against the real `+enrich+mc10000` parent cache
 > (443,211 rows), on 2026-09-13, as the Wave −1 closing baseline (issue #144). Read-only: nothing was
 > rebuilt, no enrichment job re-run, no frozen threshold touched.
+>
+> **Exception: §3.1.2's numbers were measured on `main` @ `9f70a53` (2026-09-26/27, issue #257)**,
+> against a **rebuilt** `+enrich+mc10000` cache (new `mtime`, same 443,211-row count) that now uses
+> the `flame_or_uniform_draw` M1 method instead of fixed `M1=1.0`. **This is the first valid
+> measurement of that method** — a prior attempt on 2026-09-26 (`main` @ `dea93c3`, PR #266) reported
+> numbers from a rebuild that turned out to be a silent no-op: `attach_mc_to_selection_cache.py`'s
+> per-job MC payload never actually received the FLAME mass, so every source fell back to
+> `Uniform(0.63, 1.0)` regardless of whether it had a real Gaia Apsis FLAME value. That defect and its
+> fix are #267/PR #269; the invalid measurement and its write-up were reverted in PR #268/#266's
+> merge commit `d2ad5ab`. **Treat everything PR #266 reported as if it never happened** — this
+> section replaces it with a real measurement against the fixed code. Like the exception above, this
+> is an **in-place rebuild of the same file path**: the fixed-`M1=1.0` version of `+enrich+mc10000`
+> no longer exists on disk, so §3.1's original table, §3.1.1, and §3.2 (which does not depend on
+> Andrews' MC output at all) still accurately describe what was true at `c905575`, but are no longer
+> independently re-derivable from the cache currently on disk. **§3.3's `andrews2022_import` row
+> (target 16, recorded 19) is stale again** — it cross-references `andrews2022`'s surviving
+> membership, which changed from N=33 to N=63 in this rebuild — and needs its own re-measurement
+> (flagged, not done here; see the note at the end of §3.1.2) before being trusted again; the rest of
+> §3.3 does not depend on Andrews membership and is unaffected.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -39,8 +58,10 @@ see §3.3.1).
 |----------|------|--------|
 | Photometry snapshot | `data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/` | Uncut literature parent |
 | NSS enrichment | `data/dr3/gaia_snapshots/nss_enrichment/` | `corr_vec`, K1, significance; job **COMPLETED** — do not re-`--poll-job` |
-| Enrich-only parent cache | `…/20260826T234425Z_3d3f740b080c+enrich/selection_parent_rows.h5` | 691 MB; no Andrews `p_m2_above` |
-| Enrich+Andrews-MC cache | `…/20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` | 734 MB; 443,211 rows; Orbital MC for Andrews `P(M2)` / SNR. **This is the one §3 is measured on.** |
+| FLAME enrichment (#257) | `data/dr3/gaia_snapshots/flame_enrichment/` | 23 MB; `mass_flame`/`_upper`/`_lower` only, via sync fetch (`scripts/fetch_flame_enrichment.py --sync`); 241,196/443,205 rows carry a real value. Independent of `nss_enrichment` — never re-run that job to get this |
+| Enrich-only parent cache | `…/20260826T234425Z_3d3f740b080c+enrich/selection_parent_rows.h5` | 691 MB; no Andrews `p_m2_above`; untouched by #257 |
+| Enrich+FLAME cache (#257) | `…/20260826T234425Z_3d3f740b080c+enrich+flame/selection_parent_rows.h5` | 733 MB; `+enrich` plus `mass_flame`/`_upper`/`_lower` merged in (`scripts/merge_flame_enrichment_into_cache.py`), non-destructively — `+enrich` itself is never modified |
+| Enrich+Andrews-MC cache | `…/20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` | 800 MB; 443,211 rows; rebuilt 2026-09-27 (~5h39m, 8 workers, `elapsed_s=20355.3`) against `+enrich+flame` under the `flame_or_uniform_draw` M1 method (#230/#257), with #269's per-job-payload fix in place — **superseded the earlier fixed-`M1=1.0` build and the invalid 2026-09-26 no-op build (#267/#268) this file used to hold**. **This is the one §3 is measured on now.** |
 
 Rebuilding the Andrews MC cache is a multi-hour job and should not be done unless a landed change
 actually invalidates it:
@@ -129,6 +150,105 @@ Attrition, reproducing the documented shape exactly:
 between `c905575` and `f9603a3` touches the Andrews cut chain, so the rest of the waterfall above is
 carried forward unmeasured-but-unchanged.
 
+#### 3.1.2 #257 landed — FLAME/uniform-draw M1 implemented, real measurement (supersedes reverted PR #266)
+
+Ryan Foley's ruling on #254 (2026-09-25/26): "Yes, update the selection to the Apsis / uniform M1
+mass. Adjust the query, etc." Landed across five PRs, all merged to `main`: **#260** (ADQL join +
+`PrimaryMassSpec.flame_or_uniform_draw` + `MassFunctionDraws` per-draw `m1_msun` +
+`andrews2022.yaml` `schema_version` 1→2), **#261** (supplemental
+`fetch_flame_enrichment.py`/`merge_flame_enrichment_into_cache.py`, leaving the frozen
+`nss_enrichment` job untouched), **#263** (client-side network timeout for the fetch), **#264**
+(sync-mode fallback for a stalled async fetch), and **#265** (fixed a numpy-float-to-JSON bug in the
+merge script).
+
+**A first rebuild+measurement attempt (2026-09-26/27, `main` @ `dea93c3`) was invalid and reverted.**
+`attach_mc_to_selection_cache.py` computed job-enumeration coverage and the printed FLAME-coverage
+line from the FLAME-merged cache correctly, but built each individual MC job's payload from the
+separate, older raw `nss_enrichment` ECSV — which predates #257 and has no `mass_flame` column at
+all — and never folded the FLAME value back in before the payload reached `_resolve_primary_mass_draws`.
+Every source's MC therefore silently fell back to `Uniform(0.63, 1.0)` regardless of whether it had a
+real FLAME mass, for the full ~6h22m rebuild. This was caught (#267), fixed on `main` (PR #269,
+`9f70a53`), and the invalid write-up reverted (PR #268/#266, merge `d2ad5ab`) — **the numbers below
+are the first ones actually measured under the fix.**
+
+**Real-data sanity check (required before trusting anything else in this section).** Before
+re-measuring the reproduction gates, several real `source_id`s with distinct FLAME masses were
+spot-checked between the `+enrich+flame` cache and the freshly rebuilt `+enrich+mc10000` cache
+(random sample of 15 plus a min/q1/median/q3/max-spread sample of 5, covering FLAME masses from
+0.50 to 6.99 M☉):
+
+| `source_id` | FLAME `mass_flame` | rebuilt `m1_msun_mc_mean` | rebuilt `m1_msun_mc_sigma` |
+|---|---|---|---|
+| 5456158781612689536 | 1.5724 | 1.5742 | 0.1011 |
+| 4040121150888032640 | 1.0015 | 1.0017 | 0.0994 |
+| 5884900215454611200 | 2.8766 | 2.8769 | 0.0989 |
+| 1825221226643060864 (min) | 0.5044 | 0.5040 | 0.1000 |
+| 4561479469943220352 (max) | 6.9917 | 6.9923 | 0.0999 |
+
+Full population check across all 73,644 Orbital rows with a real `mass_flame` and a produced MC
+ensemble: `m1_msun_mc_mean` takes **15,359 distinct values** (rounded to 4 dp) ranging 0.504–6.992,
+tracking each source's own FLAME mass to within ~0.002 M☉ — not a single shared constant. `m1_msun_mc_sigma`
+has mean **0.10000**, std **0.00071**, range [0.0974, 0.1031] — consistent with the fixed
+`flame_fixed_error_msun: 0.1` FLAME-branch error, not the ~0.1068 signature of the uniform-fallback
+branch. **Sanity check passes**: the rebuild is genuinely using per-source FLAME data, not a repeat of
+the #267 no-op.
+
+**Full re-fetch + rebuild** (the FLAME fetch and merge were already done and independently verified
+before this ticket started — only the MC rebuild was redone here):
+- FLAME fetch (already staged, not redone): 443,205 NSS rows, 241,196 (54.4%) carry a real Gaia Apsis
+  FLAME mass, in `…+enrich+flame/selection_parent_rows.h5` (733 MB).
+- `attach_mc_to_selection_cache.py --workers 8` against `+enrich+flame` (10,000 draws, 134,598
+  Orbital jobs), run in the primary checkout on `main` @ `9f70a53`: **20355.3 s (~5h39m)**
+  wall-clock, `132759/134598` jobs produced a usable MC ensemble (same unusable-covariance remainder
+  as every previous build), writing `…+enrich+mc10000/selection_parent_rows.h5` (800 MB, `mtime`
+  2026-09-27 02:18).
+
+| Check | Target | `c905575` (fixed `M1=1.0`) | `dea93c3` (invalid, #267 no-op) | **`9f70a53` (real FLAME/uniform-draw)** | Gate |
+|-------|--------|----------------------------|-----------------------------------|-------------------------------------------|------|
+| Parent `Orbital` N | 134598 | 134598 | 134598 | **134598** | **OK** — unaffected by the M1 change |
+| After `m2_probability` | 106 | 352 | 273 (invalid) | **1061** | FAIL — far from target, and from both prior values |
+| Final reproduction N | 24 | 33 | 14 (invalid) | **63** | FAIL |
+| `andrews2022_modified` N | 25 | 34 | 15 (invalid) | **64** | FAIL |
+| `mode_divergence` | only `4373465352415301632` in modified | matches | not re-checked (invalid run) | **matches** (only-modified `[4373465352415301632]`, only-published `[]`) | **OK** |
+| Q9: Andrews (frozen) survivors with `G < 15` | 16 | 19 | 6 (invalid) | **55** | FAIL |
+
+Attrition (real measurement):
+
+```
+134598 → 1061 (m2_probability, 1839 N/A) → 681 (goodness_of_fit) → 408 (m2_snr)
+       → 90 (giant_reject_logg) → 64 (giant_reject_cmd) → 63 (explicit_exclusions)
+```
+
+`andrews2022_modified`: N=64 (frozen 63 + Gaia BH1), G<15 restricted count = 56.
+
+**Read honestly, not spun.** This is worse than both previous baselines, not better, and moved in the
+*opposite* direction from what the (invalid) #267-era run reported: that run's `m2_probability`
+count fell (352→273); this real one **rises sharply** (352→1061), a ~3× increase, and every
+downstream count now **over**-shoots its target by a wider margin than the original fixed-`M1=1.0`
+baseline did. A plausible mechanism (not verified here, and not something this ticket's scope covers
+investigating further): the fixed-`M1=1.0` baseline had **zero** M1 uncertainty, while every source
+now carries either a FLAME-derived M1 with a fixed ±0.1 M☉ error or a much wider
+`Uniform(0.63, 1.0)` draw (fallback for the 45.6% without a real FLAME value) — since
+`m2_probability` is a right-tail probability `P(M2 > 1.4 M☉) ≥ 0.95`, adding substantial M1 variance
+can inflate that tail probability for many marginal systems even where the mean M2 estimate is lower
+than before. This is offered as a hypothesis for whoever picks up #254/#233 next, not as an
+explanation that resolves the gate.
+
+**Escalating rather than retuning, per this ticket's explicit instruction and `CLAUDE.md`'s standing
+rule**: `m2_probability_min` (0.95) and `m2_threshold_msun` (1.4) in `config/selections/andrews2022.yaml`
+were **not** touched, and must not be retuned to chase 106. The gate is not closed. Whoever works
+#254/#233 next should compare per-source `p_m2_above` distributions between the fixed-`M1=1.0`
+baseline's implied shape and this FLAME/uniform-draw run's actual `p_m2_above` histogram (measured
+here: mean 0.032, median 0.0, 95th percentile 0.180, 99th percentile 0.895 across 132,759 sources
+with a usable MC ensemble) to localize whether the swing is expected physics or a remaining
+implementation divergence from #230's exact procedure.
+
+**Out of scope for this ticket, flagged rather than silently updated**: El-Badry 2026's
+`andrews2022_import` row in §3.3 depends on `andrews2022`'s frozen survivor set, which changed from
+N=33 to **N=63** in this rebuild — a re-measurement is needed, but El-Badry 2026 evaluation costs
+~22 min and ~6.8 GiB peak (§1) and touches primary-mass handling this ticket's "Do not" section
+explicitly places out of bounds. **Filed as a follow-up rather than measured here**: #270.
+
 #### 3.1.1 #230/#233 methodology reconciliation — findings (no code change landed)
 
 Issue #230 records a colleague's confirmed Andrews et al. (2022) methodology ("ATF", independently
@@ -205,7 +325,7 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 | Spectroscopic branch | 151 | 123 | **123** | FAIL — no code bug found; binding matches spec exactly (§3.3.2). Same unfixed extinction mechanism as `primary_ns_bh` (#133/#258) — Combined19 diagnostic (non-landed) closes the gap: 123→154 |
 | `primary_ns_bh` | 47 | 42 | **42** | FAIL — **#133**, extinction / `a0` (nsstools vs Thiele–Innes) |
 | `elbadry2023_table_e1` | 5 | 5 | **5** | **OK** — exact match holds |
-| `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** (re-confirmed `63c6f53`, #198) | FAIL until Andrews and Q9 close |
+| `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** (re-confirmed `63c6f53`, #198) — **STALE as of #257/`9f70a53`**: `andrews2022`'s survivor set changed from N=33 to N=63 in the real FLAME/uniform-draw MC rebuild (§3.1.2); this row needs re-measurement against the current cache, not reused. Filed as follow-up #270 rather than re-measured in this ticket | FAIL until Andrews and Q9 close |
 | `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL — Combined19 diagnostic (non-landed, §3.3.2): 141 / 30 / 17 |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4. Re-check attempted under #234 with `primary_ns_bh`-only membership (incomplete methodology — see §3.3.2); full-union re-measurement not completed this session |
