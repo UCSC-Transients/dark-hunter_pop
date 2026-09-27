@@ -491,7 +491,7 @@ extinction correction and nothing else.
 | `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
 | `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1) |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
-| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK once El-Badry's `M̃2/M̃1` is used (#281, §3.3.3): 5 / 2 / 1 / 1**, membership matches Table 7; stage wiring is #285 |
+| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK: 5 / 2 / 1 / 1, 0 unclassified, `in_sample` 11** from the real `sample_selection` stage + `diagnostics` hydration (#285, `main` @ `7c40198` + #285 branch, uncut snapshot; §3.3.3). Artifacts without the `tilde_masses` group still fall back to 5 / 2 / 1 / 0 (+1) |
 
 Extinction outcomes over the 349,599 El-Badry 2026 rows that were enriched (both branches):
 `ok` 318,964 · `beyond_map_limit` 30,446 (Lallement cube boundary or past the last Bayestar node;
@@ -874,8 +874,15 @@ matches the paper. The breakdown read 5/2/1/0 (+1) because `classify_simon2026_r
 ratio on Simon's catalog value (5.08), and because the unit-test fixture had the two sources
 swapped. Fixed in #281: the classifier now takes El-Badry's own `M̃2/M̃1`, the fixture is derived
 from Table 7 ∪ Table 8, and the breakdown is **5 / 2 / 1 / 1, `in_sample` 11, 0 unclassified**.
-The real `diagnostics` stage does not yet hydrate the ratios from the `sample_selection` artifact,
-so a pipeline run still falls back and shows 1 unclassified until **#285** lands.
+**#285 wired it through the stages.** `sample_selection` now persists El-Badry 2026's own
+`(M̃1, M̃2)` per enriched row (`samples/elbadry2026/tilde_masses/`), and `diagnostics` hydrates
+`simon_elbadry_m2_over_m1` from it. Measured with the real `run_sample_selection_stage` on the uncut
+snapshot (443,211 rows; El-Badry 2026 N = 1565; 147,560 ratios persisted) plus
+`_hydrate_diagnostics_from_manifest` and the Simon hook, on `main` @ `7c40198` + the #285 branch:
+**5 / 2 / 1 / 1, `in_sample` 11, 0 unclassified**. `1864406790238257536` hydrates to `M̃2/M̃1` = 0.550.
+Forcing the fallback on the same artifact gives 5 / 2 / 1 / 0 (+1). Peak RSS 12.5 GiB, 63 min
+(E(B-V) cache cold). A full 14-stage run could not be used because the dry run currently stops at
+`data_acquisition` on an unrecognized duplicate-`source_id` shape (**#290**).
 
 ### 3.4 Simon 2026 exclusion breakdown
 
@@ -983,7 +990,7 @@ different shape.
 | `sub_chandrasekhar` 1265 (current, real maps; 861 undereddened) | **Not the `M̃2` chain** (#275, §3.3.3): it reproduces Table 7 to ≤0.06 % median. Every paper member has `M̃2/M̃1 ≥ 1.10` and `A ≥ 0.669`; ours are mostly `q < 1` companions of massive MS primaries that the written criteria admit | PI decision on an unstated criterion and/or the `σ_M̃2` method: **#284**. Do not add a cut or retune without it |
 | `primary_ns_bh` 46 ≠ 47 (current; 42 before #258) | Reconciled against Table 7 (#275, §3.3.3 item 4): −2 sources MS in the paper but evolved on our CMD, +1 at the `M̃2 = 1.4002` boundary. All three are `E(B-V)`/colour boundary effects | #133; not the `a0`/AMRF chain. Do not retune |
 | Spectro 123 ≠ 151 | **Resolved by #258**: 151 exact with the real maps. The binding already matched spec (#234) | Routes 132/30/11 vs 136/30/15 remain — §3.3.2 |
-| Simon `fails_m2_over_m1` 0 ≠ 1 | **Resolved (#281):** the classifier used Simon's catalog ratio and the unit fixture had `1864406790238257536` / `3263804373319076480` swapped relative to Table 7. The pipeline's membership already matched the paper | Pass El-Badry `M̃2/M̃1` (`elbadry_m2_over_m1_by_source`); stage wiring #285 |
+| Simon `fails_m2_over_m1` 0 ≠ 1 | **Resolved (#281):** the classifier used Simon's catalog ratio and the unit fixture had `1864406790238257536` / `3263804373319076480` swapped relative to Table 7. The pipeline's membership already matched the paper | Pass El-Badry `M̃2/M̃1` (`elbadry_m2_over_m1_by_source`); stage wiring landed in #285 (real run 5 / 2 / 1 / 1) |
 
 **Column ownership** (strict — violating this is what produced the 740):
 
