@@ -355,6 +355,35 @@ def test_validation_targets_are_not_cut_inputs() -> None:
     assert rate == 0.40
 
 
+def test_evaluate_records_elbadry_tilde_masses_from_enrichment() -> None:
+    """#285: evaluation keeps El-Badry's own (M̃1, M̃2) from its enrichment chain."""
+    inputs = _table7_inputs()[_SIMON_M2_RATIO_SOURCE]
+    row = {**inputs, EBV_COLUMN: float(inputs["ebv_map_elbadry2026"])}
+    evolved = _astro_row(
+        99,
+        m1_tilde_msun=NotApplicable("outside_janssens_range"),
+        m2_tilde_msun=NotApplicable("outside_janssens_range"),
+    )
+    result = SampleSelection(
+        _elbadry_spec(), mode=SampleSelectionMode.REPRODUCTION
+    ).evaluate([row, evolved])
+    expected = _enrich_with_ebv(inputs, inputs["ebv_map_elbadry2026"])
+    m1, m2 = result.tilde_masses_by_source[_SIMON_M2_RATIO_SOURCE]
+    assert m1 == pytest.approx(float(expected["m1_tilde_msun"]))
+    assert m2 == pytest.approx(float(expected["m2_tilde_msun"]))
+    assert m2 / m1 == pytest.approx(_elbadry_ratio_for_1864()[_SIMON_M2_RATIO_SOURCE])
+    assert m2 / m1 < 0.6  # the paper's fails_m2_over_m1 exclusion
+    # Not-applicable M̃ (evolved primary) is never recorded.
+    assert 99 not in result.tilde_masses_by_source
+
+
+def test_andrews_records_no_elbadry_tilde_masses() -> None:
+    """#285: column ownership — only El-Badry 2026's enrichment fills tilde masses."""
+    results = _registry().evaluate_all(_catalog_rows())
+    assert results["andrews2022"].tilde_masses_by_source == {}
+    assert results["elbadry2026"].tilde_masses_by_source
+
+
 def test_m1_dependent_cut_is_not_applicable_for_evolved() -> None:
     spec = _elbadry_spec()
     selection = SampleSelection(spec, mode=SampleSelectionMode.REPRODUCTION)

@@ -542,6 +542,46 @@ def test_hdf5_producer_consumer_round_trip(tmp_path: Path) -> None:
         assert int(floor.attrs["n_failed"]) == 1
 
 
+@pytest.mark.api
+def test_tilde_masses_hdf5_round_trip(tmp_path: Path) -> None:
+    """#285: El-Badry (M̃1, M̃2) persist in HDF5 only; absent → empty mapping."""
+    from darkhunter_pop.sample_selection import (
+        SampleEvaluationResult,
+        SampleSelectionStageResult,
+        load_tilde_masses_from_artifact,
+    )
+
+    def _res(name: str, masses: dict[int, tuple[float, float]]) -> SampleEvaluationResult:
+        return SampleEvaluationResult(
+            name=name,
+            mode=SampleSelectionMode.REPRODUCTION,
+            mass_source="paper",
+            parent_adql="",
+            surviving_source_ids=(),
+            attrition=[],
+            n_parent=0,
+            n_surviving=0,
+            tilde_masses_by_source=masses,
+        )
+
+    masses = {1864406790238257536: (3.88, 2.13), 7: (1.0, 1.6)}
+    path = tmp_path / "sample_selection.h5"
+    write_sample_selection_artifact(
+        path,
+        SampleSelectionStageResult(
+            schema_version=1,
+            enabled=True,
+            content_fingerprint="x",
+            results={"elbadry2026": _res("elbadry2026", masses), "andrews2022": _res("andrews2022", {})},
+        ),
+    )
+    assert load_tilde_masses_from_artifact(path, "elbadry2026") == masses
+    assert load_tilde_masses_from_artifact(path, "andrews2022") == {}
+    assert load_tilde_masses_from_artifact(path, "missing") == {}
+    payload = read_sample_selection_artifact(path)
+    assert "tilde_masses_by_source" not in payload["results"]["elbadry2026"]
+
+
 def test_stage_runner_skip_and_run(tmp_path: Path) -> None:
     cfg = load_config().model_copy(deep=True)
     cfg.paths.artifact_root = str(tmp_path / "output")

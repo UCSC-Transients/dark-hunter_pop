@@ -796,6 +796,133 @@ def test_hydrate_diagnostics_from_companion_nature(tmp_path: Path) -> None:
     assert len(hydrated["candidates"]) == 2
 
 
+# Simon et al. (2026) sources El-Badry 2026 published as selected (Table 7 ∪ 8, #281).
+_SIMON_IN_SAMPLE_285 = (
+    5593444799901901696,
+    3509370326763016704,
+    3640889032890567040,
+    6281177228434199296,
+    6588211521163024640,
+    6593763230249162112,
+    3263804373319076480,
+    2086448353089047808,
+    4060365702574410752,
+    6102598776102841344,
+    5352109964757046528,
+)
+_SIMON_M2_RATIO_SOURCE_285 = 1864406790238257536
+
+
+def _manifest_with_sample_selection(
+    tmp_path: Path, tilde_masses: dict[int, tuple[float, float]]
+):
+    """Run manifest whose ``sample_selection`` artifact carries El-Badry 2026."""
+    from darkhunter_pop.config_schema import SampleSelectionMode
+    from darkhunter_pop.sample_selection import (
+        SampleEvaluationResult,
+        SampleSelectionStageResult,
+        write_sample_selection_artifact,
+    )
+
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path / "out")}),
+        }
+    )
+    result = SampleSelectionStageResult(
+        schema_version=1,
+        enabled=True,
+        content_fingerprint="test",
+        results={
+            "elbadry2026": SampleEvaluationResult(
+                name="elbadry2026",
+                mode=SampleSelectionMode.REPRODUCTION,
+                mass_source="paper",
+                parent_adql="",
+                surviving_source_ids=_SIMON_IN_SAMPLE_285,
+                attrition=[],
+                n_parent=len(_SIMON_IN_SAMPLE_285),
+                n_surviving=len(_SIMON_IN_SAMPLE_285),
+                tilde_masses_by_source=tilde_masses,
+            )
+        },
+    )
+    ss_path = tmp_path / "sample_selection.h5"
+    write_sample_selection_artifact(ss_path, result)
+    manifest = create_run_manifest(cfg)
+    manifest = manifest.model_copy(
+        update={
+            "stages": {
+                **manifest.stages,
+                "sample_selection": StageRecord(
+                    stage_name="sample_selection",
+                    status=StageStatus.COMPLETED,
+                    artifact_path=str(ss_path),
+                ),
+            }
+        }
+    )
+    return manifest, cfg
+
+
+def _simon_breakdown_from_bundle(cfg, bundle) -> dict:
+    from darkhunter_pop.diagnostics import emit_simon2026_exclusion_breakdown
+
+    emission = emit_simon2026_exclusion_breakdown(
+        cfg,
+        resolve_diagnostic_dirs(cfg, run_id="simon285"),
+        sample_ids=bundle.simon_in_sample_ids,
+        simon_rows=bundle.simon_rows,
+        spec=bundle.sample_specs.get("elbadry2026"),
+        elbadry_m2_over_m1_by_source=bundle.simon_elbadry_m2_over_m1,
+    )
+    return dict(emission.payload)
+
+
+def test_hydrate_passes_elbadry_m2_over_m1_to_simon_breakdown(tmp_path: Path) -> None:
+    """#285: the stage hydrates El-Badry's own M̃2/M̃1 from sample_selection."""
+    # El-Badry chain values for 1864406790238257536 after #258 dereddening,
+    # plus a non-Simon source to show extra rows are harmless.
+    masses = {_SIMON_M2_RATIO_SOURCE_285: (3.88, 2.13), 42: (1.0, 1.6)}
+    manifest, cfg = _manifest_with_sample_selection(tmp_path, masses)
+    hydrated = _hydrate_diagnostics_from_manifest(manifest, cfg)
+    bundle = hydrated["sample_bundle"]
+    ratios = bundle.simon_elbadry_m2_over_m1
+    assert ratios is not None
+    assert ratios[_SIMON_M2_RATIO_SOURCE_285] == pytest.approx(2.13 / 3.88)
+    assert ratios[42] == pytest.approx(1.6)
+    counts = _simon_breakdown_from_bundle(cfg, bundle)
+    assert counts["in_sample"] == 11
+    assert counts["sb1_fails_significance"] == 5
+    assert counts["astrometric_f2_above_max"] == 2
+    assert counts["fainter_than_g_limit"] == 1
+    assert counts["fails_m2_over_m1"] == 1
+    assert counts["unclassified"] == 0
+
+
+def test_hydrate_falls_back_to_simon_ratio_without_tilde_masses(tmp_path: Path) -> None:
+    """#285: a pre-#285 artifact (no tilde_masses) leaves the ratio unset."""
+    manifest, cfg = _manifest_with_sample_selection(tmp_path, {})
+    hydrated = _hydrate_diagnostics_from_manifest(manifest, cfg)
+    bundle = hydrated["sample_bundle"]
+    assert bundle.simon_elbadry_m2_over_m1 is None
+    counts = _simon_breakdown_from_bundle(cfg, bundle)
+    # Simon's catalog ratio (5.08) passes 1864406790238257536 → unclassified.
+    assert counts["fails_m2_over_m1"] == 0
+    assert counts["unclassified"] == 1
+
+
+def test_elbadry_ratio_skips_nonpositive_m1() -> None:
+    from darkhunter_pop.diagnostics import elbadry_m2_over_m1_from_tilde_masses
+
+    assert elbadry_m2_over_m1_from_tilde_masses({}) is None
+    assert elbadry_m2_over_m1_from_tilde_masses({1: (0.0, 1.0)}) is None
+    assert elbadry_m2_over_m1_from_tilde_masses({1: (2.0, 1.0), 2: (0.0, 1.0)}) == {
+        1: 0.5
+    }
+
+
 def test_run_diagnostics_stage_updates_manifest(tmp_path: Path) -> None:
     cfg = load_config()
     cfg = cfg.model_copy(
