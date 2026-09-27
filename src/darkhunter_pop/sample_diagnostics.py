@@ -167,6 +167,9 @@ class SampleDiagnosticsBundle:
     mg_0_values: Sequence[float] | NDArray[np.floating] | None = None
     simon_rows: Sequence[Mapping[str, Any]] | None = None
     simon_in_sample_ids: Sequence[int] | None = None
+    #: El-Badry 2026's own ``M̃2/M̃1`` per Simon source (#281); ``None`` falls
+    #: back to the Simon catalog ratio for ``fails_m2_over_m1``.
+    simon_elbadry_m2_over_m1: Mapping[int, float] | None = None
     selection_function_samples: Sequence[str] | None = None
 
 
@@ -519,8 +522,15 @@ def run_simon2026_diagnostic(
     sample_ids: Sequence[int] | None = None,
     rows: Sequence[Mapping[str, Any]] | None = None,
     repo: Path | None = None,
+    elbadry_m2_over_m1_by_source: Mapping[int, float] | None = None,
 ) -> tuple[dict[str, int], str]:
-    """Compute Simon §8.9 breakdown and format the report."""
+    """Compute Simon §8.9 breakdown and format the report.
+
+    ``elbadry_m2_over_m1_by_source`` (El-Badry 2026's own ``M̃2/M̃1`` per
+    source) is passed through to
+    :func:`~darkhunter_pop.elbadry2026_selection.simon2026_exclusion_breakdown`;
+    without it ``fails_m2_over_m1`` falls back to the Simon catalog ratio (#281).
+    """
     cfg = reproduction_cfg(config)
     simon_rows = (
         list(rows)
@@ -531,7 +541,12 @@ def run_simon2026_diagnostic(
         path = _resolve_path("config/selections/elbadry2026.yaml", repo=repo)
         spec = load_sample_selection_file(path)
     ids = list(sample_ids) if sample_ids is not None else []
-    counts = simon2026_exclusion_breakdown(simon_rows, ids, spec)
+    counts = simon2026_exclusion_breakdown(
+        simon_rows,
+        ids,
+        spec,
+        elbadry_m2_over_m1_by_source=elbadry_m2_over_m1_by_source,
+    )
     expected_block = (
         None
         if spec.acceptance_tests is None
