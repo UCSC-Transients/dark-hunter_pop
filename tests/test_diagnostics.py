@@ -165,7 +165,8 @@ def test_registry_fingerprints_diagnostics_config() -> None:
     assert "paths.artifact_root" in spec.config_fingerprint_keys
     assert "diagnostics" in spec.config_fingerprint_keys
     assert "benchmarks" in spec.config_fingerprint_keys
-    assert spec.inputs_from == ("inference",)
+    assert spec.inputs_from == ("inference", "sample_selection")
+    assert "darkhunter_pop.sample_selection" in spec.dependency_modules
     assert "darkhunter_pop.plotting" not in spec.dependency_modules
     assert "darkhunter_pop.benchmarks" in spec.dependency_modules
     assert "darkhunter_pop.sbc" in spec.dependency_modules

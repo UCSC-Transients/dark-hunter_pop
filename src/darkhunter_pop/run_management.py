@@ -278,10 +278,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
         _spec(
             "diagnostics",
             "darkhunter_pop.diagnostics",
-            inputs_from=("inference",),
+            # sample_selection: El-Badry M̃1/M̃2 for the Simon breakdown (#285).
+            inputs_from=("inference", "sample_selection"),
             deps=(
                 "darkhunter_pop.diagnostics",
                 "darkhunter_pop.sample_diagnostics",
+                "darkhunter_pop.sample_selection",
                 "darkhunter_pop.benchmarks",
                 "darkhunter_pop.sbc",
             ),  # plotting excluded from hash
