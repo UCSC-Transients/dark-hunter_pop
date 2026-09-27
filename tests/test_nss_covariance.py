@@ -275,3 +275,91 @@ def test_candidate_and_hdf5_persist_nss_solution(tmp_path: Path) -> None:
     assert "covariance_ok" in text
     assert "covariance_health (by solution type)" in text
     assert "Orbital" in text
+
+
+def test_hdf5_multi_solution_covariance_keys_do_not_collide(tmp_path: Path) -> None:
+    """#250 / PR #249: two usable covariances for one source_id must both survive.
+
+    A genuine multi-solution source_id (#241/#242) can carry two rows that each
+    reconstruct a real covariance. ``nss_covariance/matrices`` used to key datasets by
+    ``str(source_id)`` alone, so the second write collided with the first. The landed
+    convention keeps the first occurrence at ``"<source_id>"`` and suffixes the 2nd+
+    as ``"<source_id>__<occurrence index>"``. Each dataset must hold its *own* row's
+    matrix (not overwritten, not swapped) with matching attrs.
+    """
+    from darkhunter_pop.data_acquisition import assert_unique_source_ids
+
+    dr = load_config().dr3
+    # Two period-aliased Orbital solutions for source_id 42, each with a distinct
+    # SPD correlation matrix and distinct errors, so the two covariances differ
+    # everywhere (diagonal and off-diagonal).
+    row_a = _orbital_row(seed=11)
+    row_b = _orbital_row(seed=23)
+    row_b["period"] = 2.0 * float(row_a["period"])
+    for key in list(row_b):
+        if key.endswith("_error"):
+            row_b[key] = 3.0 * float(row_b[key])
+    candidates = [
+        table_row_to_candidate(row_a, dr),
+        table_row_to_candidate(row_b, dr),
+    ]
+    assert all(c.nss_solution is not None for c in candidates)
+    cov_a = candidates[0].nss_solution.covariance_array()  # type: ignore[union-attr]
+    cov_b = candidates[1].nss_solution.covariance_array()  # type: ignore[union-attr]
+    assert not np.allclose(cov_a, cov_b)
+
+    multi_solution = assert_unique_source_ids(candidates)
+    assert multi_solution.same_type_period_aliased == 1
+    diagnostics = compute_stage_diagnostics(
+        candidates,
+        funnel=FunnelCounts(
+            queried=2,
+            after_quality_cut=2,
+            candidates_written=2,
+            covariance_ok=2,
+            covariance_failed=0,
+            multi_solution=multi_solution,
+        ),
+        quality_cut_bin_counts={},
+    )
+    artifact = tmp_path / "da.h5"
+    snapshot = SnapshotMeta(
+        snapshot_id="cov_multi",
+        query_date=datetime.now(tz=timezone.utc),
+        adql="SELECT 1",
+        checksum="x",
+        row_count=2,
+        result_path=tmp_path / "q.ecsv",
+        meta_path=tmp_path / "m.yaml",
+    )
+    write_stage_hdf5(artifact, candidates, snapshot=snapshot, diagnostics=diagnostics)
+
+    with h5py.File(artifact, "r") as handle:
+        cov_grp = handle["data_acquisition/nss_covariance"]
+        assert list(cov_grp["source_ids"][()]) == [42, 42]
+        matrices = cov_grp["matrices"]
+        assert sorted(matrices.keys()) == ["42", "42__1"]
+        for key, candidate, expected in (
+            ("42", candidates[0], cov_a),
+            ("42__1", candidates[1], cov_b),
+        ):
+            ds = matrices[key]
+            assert candidate.nss_solution is not None
+            np.testing.assert_array_equal(ds[()], expected)
+            assert [str(n) for n in ds.attrs["names"]] == candidate.nss_solution.names
+            assert ds.attrs["provenance"] == candidate.nss_solution.provenance
+            assert int(ds.attrs["source_id"]) == 42
+            assert ds.attrs["nss_solution_type"] == "Orbital"
+        # Non-overwritten: the two stored matrices are still distinct.
+        assert not np.allclose(matrices["42"][()], matrices["42__1"][()])
+
+    loaded, _meta = read_stage_hdf5(artifact)
+    assert len(loaded) == 2
+    for original, back in zip(candidates, loaded, strict=True):
+        assert back.nss_solution is not None
+        assert original.nss_solution is not None
+        assert back.nss_solution.names == original.nss_solution.names
+        np.testing.assert_array_equal(
+            back.nss_solution.covariance_array(),
+            original.nss_solution.covariance_array(),
+        )
