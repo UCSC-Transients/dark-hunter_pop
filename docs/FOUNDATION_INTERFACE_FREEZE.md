@@ -125,11 +125,20 @@ Canonical names and order: `run_management.STAGE_ORDER` / `STAGE_REGISTRY`.
 | `population_model` | `population_model` | companion_nature + both selection functions |
 | `sensitivity_analysis` | `sensitivity_analysis` | `population_model` |
 | `inference` | `inference` | population + selections + sensitivity |
-| `diagnostics` | `diagnostics` | `inference` |
+| `diagnostics` | `diagnostics` | `inference`, `sample_selection` (El-Badry 2026 `M̃1`/`M̃2` for the Simon breakdown, #285) |
 
 `darkhunter_pop.benchmarks` is a diagnostics helper module (known-truth +
 comparison catalog loaders); it is listed in the ``diagnostics`` stage
 ``dependency_modules`` fingerprint but is not a separate pipeline stage.
+
+`sample_selection` HDF5 artifact (#285, additive): each sample group
+`samples/<name>/` may carry a `tilde_masses/` subgroup with `source_id` (int64),
+`m1_tilde_msun`, `m2_tilde_msun` (float64) — the sample's own enrichment values for
+every enriched row with finite `M̃1` and `M̃2` (El-Badry 2026 only today; El-Badry-owned
+columns, never Andrews' `m2_msun`). Read with
+`sample_selection.load_tilde_masses_from_artifact`; `diagnostics` hydrates
+`SampleDiagnosticsBundle.simon_elbadry_m2_over_m1` from it. Absent in pre-#285
+artifacts, in which case the Simon breakdown falls back to the Simon catalog ratio.
 
 Each stage: `dependency_modules` → `source_hash`; `config_fingerprint_keys` → artifact path;
 optional `uses_gaiamock`.

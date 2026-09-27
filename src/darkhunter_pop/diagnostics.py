@@ -93,6 +93,7 @@ from darkhunter_pop.sample_selection import (
     SampleSelectionRegistry,
     load_evaluation_results_from_artifact,
     load_sample_selection_file,
+    load_tilde_masses_from_artifact,
 )
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
@@ -2487,6 +2488,23 @@ def _read_elbadry_panels_from_manifest(
         return None
 
 
+def elbadry_m2_over_m1_from_tilde_masses(
+    masses: Mapping[int, tuple[float, float]],
+) -> dict[int, float] | None:
+    """El-Badry 2026's own ``M̃2/M̃1`` per source from ``(M̃1, M̃2)`` pairs (#285).
+
+    Pairs with a non-positive ``M̃1`` are skipped (the source falls back to the
+    Simon catalog ratio). Returns ``None`` when nothing usable remains, so the
+    Simon breakdown takes its documented fallback path.
+    """
+    ratios = {
+        int(sid): float(m2) / float(m1)
+        for sid, (m1, m2) in masses.items()
+        if float(m1) > 0.0
+    }
+    return ratios or None
+
+
 def _hydrate_diagnostics_from_manifest(
     manifest: RunManifest,
     config: PipelineConfig,
@@ -2565,6 +2583,14 @@ def _hydrate_diagnostics_from_manifest(
             eval_results = {}
         if eval_results:
             specs = load_specs_for_results(eval_results, config)
+            elbadry_ratios: dict[int, float] | None = None
+            if "elbadry2026" in eval_results:
+                try:
+                    elbadry_ratios = elbadry_m2_over_m1_from_tilde_masses(
+                        load_tilde_masses_from_artifact(ss_path, "elbadry2026")
+                    )
+                except (OSError, KeyError, ValueError):
+                    elbadry_ratios = None
             hydrated["sample_bundle"] = SampleDiagnosticsBundle(
                 evaluation_results=eval_results,
                 sample_specs=specs,
@@ -2573,6 +2599,7 @@ def _hydrate_diagnostics_from_manifest(
                     if "elbadry2026" in eval_results
                     else None
                 ),
+                simon_elbadry_m2_over_m1=elbadry_ratios,
             )
 
     da_cov_path = _optional_artifact_path(manifest, "data_acquisition")

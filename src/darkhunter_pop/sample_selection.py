@@ -251,6 +251,15 @@ class SampleEvaluationResult:
     #: 2026 only — ``ok``, ``beyond_map_limit``, ``invalid_parallax``, ...).
     #: Empty for samples that do not deredden.
     extinction_status_counts: dict[str, int] = field(default_factory=dict)
+    #: El-Badry 2026's own per-source ``(m1_tilde_msun, m2_tilde_msun)`` for
+    #: every row the sample's enrichment produced finite values for (#285).
+    #: El-Badry-owned columns only (Janssens ``M̃1``, AMRF ``M̃2``); never the
+    #: Andrews ``m2_msun`` or the pipeline mass alias. Empty for samples that do
+    #: not enrich. Persisted in the HDF5 artifact (``tilde_masses`` group), not
+    #: in the YAML sidecar, because it covers the whole enriched parent.
+    tilde_masses_by_source: dict[int, tuple[float, float]] = field(
+        default_factory=dict
+    )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -310,6 +319,8 @@ class SampleSelection:
         self.extinction_lookup = extinction_lookup
         #: Per-outcome counts from the last dereddening pass (funnel report).
         self.extinction_status_counts: dict[str, int] = {}
+        #: El-Badry ``(M̃1, M̃2)`` recorded during the last enrichment (#285).
+        self.tilde_masses_by_source: dict[int, tuple[float, float]] = {}
 
     def parent_adql(self) -> str:
         """Literal parent-catalog ADQL for the active data release (§4.5)."""
@@ -451,9 +462,32 @@ class SampleSelection:
                 enriched = dict(row)
             else:
                 enriched = enrich_elbadry2026_row(dereddened.get(i, row), self.spec)
+            self._record_tilde_masses(enriched)
             # Strip Andrews-aliased σ before subsample cuts that need σ_M̃2.
             out.append(clear_non_elbadry_m2_astrometric_sigma(enriched))
         return out
+
+    def _record_tilde_masses(self, row: Mapping[str, Any]) -> None:
+        """Keep this row's El-Badry ``(M̃1, M̃2)`` when both are finite (#285).
+
+        Only called on rows that went through this sample's own enrichment, so
+        the values are El-Badry-owned. ``NotApplicable`` (evolved primary,
+        unusable extinction) and non-finite values are not recorded.
+        """
+        m1 = row.get("m1_tilde_msun")
+        m2 = row.get("m2_tilde_msun")
+        if isinstance(m1, NotApplicable) or isinstance(m2, NotApplicable):
+            return
+        if isinstance(m1, bool) or isinstance(m2, bool):
+            return
+        if not isinstance(m1, (int, float, np.floating)) or not isinstance(
+            m2, (int, float, np.floating)
+        ):
+            return
+        m1_f, m2_f = float(m1), float(m2)
+        if not (math.isfinite(m1_f) and math.isfinite(m2_f)):
+            return
+        self.tilde_masses_by_source[int(row["source_id"])] = (m1_f, m2_f)
 
     def evaluate(
         self,
@@ -471,6 +505,7 @@ class SampleSelection:
         dep_membership = dict(membership or {})
         dep_membership.update(self._external_membership())
         self.extinction_status_counts = {}
+        self.tilde_masses_by_source = {}
         if self.spec.branches:
             # Enrich per branch after solution-type filter (not on full NSS).
             return self._evaluate_branched(list(rows), dep_membership)
@@ -517,6 +552,7 @@ class SampleSelection:
             outcomes_by_source=outcomes,
             inference_source_ids=surviving,
             extinction_status_counts=dict(self.extinction_status_counts),
+            tilde_masses_by_source=dict(self.tilde_masses_by_source),
         )
 
     def _evaluate_branched(
@@ -601,6 +637,7 @@ class SampleSelection:
             subsample_surviving=subsample_surviving,
             route_counts=route_counts,
             extinction_status_counts=dict(self.extinction_status_counts),
+            tilde_masses_by_source=dict(self.tilde_masses_by_source),
         )
 
     def _evaluate_and_chain(
@@ -1459,6 +1496,8 @@ def write_sample_selection_artifact(
             grp.create_dataset("source_id", data=ids)
             inf = np.asarray(sample.inference_source_ids, dtype=np.int64)
             grp.create_dataset("inference_source_id", data=inf)
+            if sample.tilde_masses_by_source:
+                _write_tilde_masses(grp, sample.tilde_masses_by_source)
             attrition_grp = grp.create_group("attrition")
             for row in sample.attrition:
                 cut_grp = attrition_grp.create_group(row.cut_id)
@@ -1474,6 +1513,50 @@ def write_sample_selection_artifact(
     sidecar.write_text(
         yaml.safe_dump(result.as_dict(), sort_keys=False), encoding="utf-8"
     )
+
+
+TILDE_MASSES_GROUP: Final[str] = "tilde_masses"
+
+
+def _write_tilde_masses(
+    grp: h5py.Group, masses: Mapping[int, tuple[float, float]]
+) -> None:
+    """Write per-source El-Badry ``(M̃1, M̃2)`` under ``<sample>/tilde_masses``."""
+    sids = sorted(masses)
+    sub = grp.create_group(TILDE_MASSES_GROUP)
+    sub.create_dataset("source_id", data=np.asarray(sids, dtype=np.int64))
+    sub.create_dataset(
+        "m1_tilde_msun",
+        data=np.asarray([masses[s][0] for s in sids], dtype=np.float64),
+    )
+    sub.create_dataset(
+        "m2_tilde_msun",
+        data=np.asarray([masses[s][1] for s in sids], dtype=np.float64),
+    )
+
+
+def load_tilde_masses_from_artifact(
+    path: Path, sample: str
+) -> dict[int, tuple[float, float]]:
+    """Per-source El-Badry ``(m1_tilde_msun, m2_tilde_msun)`` for ``sample`` (#285).
+
+    Returns an empty mapping when the artifact predates #285 or the sample
+    carries no enriched masses, so callers fall back rather than fail.
+    """
+    with h5py.File(path, "r") as handle:
+        samples = handle.get("samples")
+        if samples is None or sample not in samples:
+            return {}
+        grp = samples[sample]
+        if TILDE_MASSES_GROUP not in grp:
+            return {}
+        sub = grp[TILDE_MASSES_GROUP]
+        sids = np.asarray(sub["source_id"][()], dtype=np.int64)
+        m1 = np.asarray(sub["m1_tilde_msun"][()], dtype=np.float64)
+        m2 = np.asarray(sub["m2_tilde_msun"][()], dtype=np.float64)
+    return {
+        int(s): (float(a), float(b)) for s, a, b in zip(sids, m1, m2, strict=True)
+    }
 
 
 def sample_evaluation_result_from_dict(raw: Mapping[str, Any]) -> SampleEvaluationResult:
