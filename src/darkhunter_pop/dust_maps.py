@@ -49,9 +49,23 @@ from darkhunter_pop.config_schema import (
 
 logger = logging.getLogger(__name__)
 
-#: Bumped whenever a reader's numerical behaviour changes, so cached native
-#: values computed by an older reader are never reused.
+#: Manual salt for the cache key. No longer the invalidation mechanism (#278):
+#: :func:`extinction_fingerprint` also hashes this module's own source, so any
+#: edit to a reader invalidates cached native values without a bump. Kept so a
+#: deliberate invalidation that does not touch this file remains possible.
 READER_VERSION = "1"
+
+
+def module_source_sha256() -> str:
+    """SHA-256 of this module's source bytes (#278).
+
+    Same convention as ``run_management.compute_source_hash`` (raw file bytes),
+    so the per-source cache is invalidated by exactly the edits that change the
+    ``sample_selection`` stage ``source_hash`` through this module. Any edit —
+    including a docstring — therefore forces a cold rebuild; that is the
+    deliberate, conservative trade (a rebuild costs ~45 s).
+    """
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 FloatArray = NDArray[np.float64]
 
@@ -490,13 +504,16 @@ def native_to_ebv(
 
 
 def extinction_fingerprint(spec: ExtinctionSpec, dust_cfg: DustMapsConfig) -> str:
-    """Stable key for a native-value cache: split + map identities + reader version.
+    """Stable key for a native-value cache: split + map identities + reader code.
 
-    Deliberately excludes ``native_to_ebv`` and the photometric coefficients —
+    "Reader code" is :func:`module_source_sha256` (plus the :data:`READER_VERSION`
+    salt), so a change to any reader's numerics can never reuse stale cached
+    integrals (#278). Deliberately excludes ``native_to_ebv`` and the photometric coefficients —
     those are applied after the cache, so revising them never invalidates it.
     """
     digest = hashlib.sha256()
     digest.update(READER_VERSION.encode())
+    digest.update(b"\0" + module_source_sha256().encode())
     for leg in (spec.north, spec.south):
         file_spec = dust_cfg.maps.get(leg.map)
         digest.update(b"\0" + leg.applies_when.encode() + b"\0" + leg.map.encode())
@@ -583,6 +600,7 @@ def write_extinction_cache(path: Path, table: ExtinctionTable, *, fingerprint: s
             handle.create_dataset(name, data=getattr(table, name))
         handle.attrs["fingerprint"] = fingerprint
         handle.attrs["reader_version"] = READER_VERSION
+        handle.attrs["reader_source_sha256"] = module_source_sha256()
         handle.attrs["n_rows"] = len(table)
     tmp.replace(path)
 
