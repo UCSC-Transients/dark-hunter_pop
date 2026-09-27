@@ -196,6 +196,51 @@ def luminous_companion_mass_function_over_m1(
     return out
 
 
+def _dark_companion_q_guess(
+    a: NDArray[np.floating],
+    *,
+    max_iter: int = 200,
+) -> NDArray[np.floating]:
+    """Vectorized positive root of ``q³ = a (1+q)²`` for finite ``a > 0`` (#283).
+
+    Exactly one positive root exists and ``max(a, a^{1/3}) <= q <= s`` with
+    ``s = max(4a, (4a)^{1/3})`` (for ``q >= 1``, ``(1+q)² <= 4q²``; for
+    ``q <= 1``, ``(1+q)² <= 4``). Solve in the scaled variable ``t = q/s`` in
+    ``[1/4, 1]``, ``φ(t) = t³ − α (γ + t)²`` with ``α = a/s``, ``γ = 1/s``, so
+    no intermediate over- or underflows for any finite positive double ``a``.
+    ``φ`` is convex for ``t > α/3`` and the root satisfies ``t* > α``, so Newton
+    from ``t = 1`` decreases monotonically onto the root; iteration stops once
+    no element decreases further (the floating-point fixed point).
+
+    Returns ``nan`` where ``a`` underflowed to ``0`` (``np.roots`` then found
+    only the triple root ``q = 0``, which fails ``q > 0``).
+    """
+    a = np.asarray(a, dtype=np.float64)
+    out = np.full(a.shape, np.nan, dtype=np.float64)
+    pos = a > 0.0
+    if not np.any(pos):
+        return out
+    ap = a[pos]
+    big = 4.0 * ap >= 1.0
+    # s = 4a (big) or (4a)^{1/3}; for big a write α = 1/4, γ = 1/(4a) and
+    # q = (4t)·a so that 4a itself is never formed when it would overflow.
+    s_small = np.cbrt(4.0 * np.where(big, 0.0, ap))
+    alpha = np.where(big, 0.25, ap / np.where(big, 1.0, s_small))
+    gamma = np.where(big, 0.25 / ap, 1.0 / np.where(big, 1.0, s_small))
+    t = np.ones_like(ap)
+    for _ in range(max_iter):
+        gt = gamma + t
+        phi = t**3 - alpha * gt**2
+        dphi = 3.0 * t**2 - 2.0 * alpha * gt
+        t_new = t - phi / dphi
+        update = t_new < t
+        if not np.any(update):
+            break
+        t = np.where(update, t_new, t)
+    out[pos] = np.where(big, (4.0 * t) * ap, s_small * t)
+    return out
+
+
 def invert_astrometric_companion_mass(
     m1_msun: ArrayLike,
     m_f_msun: ArrayLike,
@@ -208,6 +253,28 @@ def invert_astrometric_companion_mass(
 
     Newton's method on ``f(q) = (q − F)³ − (m_f/M1) (1+F)³ (1+q)²`` with
     ``q = M2/M1``. ``F = 0`` is the dark-companion (minimum-M2) limit.
+
+    Root selection: the smallest real root ``q > F``. For every ``F >= 0`` the
+    cubic has exactly one such root (``(q−F)^{3/2}`` is convex, ``√a (1+q)`` is
+    linear and larger at ``q = F``), so "smallest" never has to choose.
+
+    The starting guess for the shared vectorized Newton polish comes from:
+
+    * ``F == 0`` (the dark-companion case every MC path uses): a vectorized,
+      monotone bracketed Newton (:func:`_dark_companion_q_guess`, #283). It
+      replaces a per-element ``np.roots`` call that dominated the MC cost and
+      agrees with it to <= 1e-12 relative (in practice a few ulp) after the
+      polish — see ``tests/test_physics_utils.py``.
+    * ``F > 0``: per-element ``np.roots`` (unchanged). ``np.roots`` is
+      ill-conditioned there when ``m_f/M1`` is tiny (a near-triple root at
+      ``q ≈ F``) and then returns NaN; a vectorized solver would change those
+      answers, so it is deliberately not substituted here.
+
+    Failure markers are those of the per-element ``np.roots`` path: NaN for
+    invalid inputs (non-finite, ``M1 <= 0``, ``m_f <= 0``, ``F < 0``) or when
+    ``m_f/M1`` underflows to zero, and ``numpy.linalg.LinAlgError`` when a valid
+    ``F == 0`` element has a non-finite cubic coefficient (``2 m_f/M1``
+    overflows), exactly as ``np.roots`` raised.
     """
     m1 = np.asarray(m1_msun, dtype=np.float64)
     mf = np.asarray(m_f_msun, dtype=np.float64)
@@ -232,7 +299,17 @@ def invert_astrometric_companion_mass(
     y[valid] = mf_r[valid] / m1_r[valid]
     # Cubic (q-F)^3 - y (1+F)^3 (1+q)^2 = 0, expanded in q.
     # q^3 + (-3F - a) q^2 + (3 F^2 - 2a) q + (-F^3 - a) = 0 with a = y (1+F)^3.
-    for idx in np.flatnonzero(valid):
+    dark = valid & (f_r == 0.0)
+    # np.roots raised LinAlgError on a non-finite coefficient (-a, -2a with
+    # a = y); keep that failure marker at the same element-order position.
+    dark_bad = dark & ~np.isfinite(2.0 * y)
+    first_bad = int(np.argmax(dark_bad)) if np.any(dark_bad) else None
+    dark_ok = dark & ~dark_bad
+    if np.any(dark_ok):
+        q[dark_ok] = _dark_companion_q_guess(y[dark_ok])
+    for idx in np.flatnonzero(valid & ~dark):
+        if first_bad is not None and idx > first_bad:
+            break
         f_i = float(f_r[idx])
         a_i = float(y[idx]) * (1.0 + f_i) ** 3
         coeffs = (
@@ -247,6 +324,8 @@ def invert_astrometric_companion_mass(
         if real.size == 0:
             continue
         q[idx] = float(np.min(real))
+    if first_bad is not None:
+        raise np.linalg.LinAlgError("Array must not contain infs or NaNs")
     one_f3 = (1.0 + f_r) ** 3
     for _ in range(max_iter):
         dq = q - f_r
