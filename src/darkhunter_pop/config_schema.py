@@ -7,6 +7,7 @@ under ``physics``, ``mass_calibration``, ``classification``, etc.
 
 from __future__ import annotations
 
+import math
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
@@ -924,30 +925,131 @@ class DustMapFileSpec(BaseModel):
     physics).
 
     ``path`` is resolved relative to ``paths.data_root`` unless absolute.
-    ``native_to_ebv`` multiplies the native integral to give ``E(B-V)``.
+    ``native_quantity`` says what the map integrates (#295):
+
+    * ``reddening`` — a reddening-like unit (e.g. Bayestar19's SFD-like unit);
+      ``native_to_ebv`` is required and multiplies the native integral to give
+      ``E(B-V)``.
+    * ``a0`` — monochromatic extinction ``A0`` (e.g. Lallement 2019 at 5500 Å);
+      ``native_to_ebv`` is *derived* as ``1 / DustMapsConfig.r_v`` (the Gaia
+      convention ``A0 = R_V E(B-V)``), so R_V is the single knob. A value given
+      explicitly must equal ``1 / r_v`` (a model-dump round trip), else refused.
+
     ``md5`` (optional) pins the exact published file; a mismatch refuses to load.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(..., min_length=1)
-    native_to_ebv: float = Field(..., gt=0.0)
+    native_quantity: Literal["reddening", "a0"] = "reddening"
+    native_to_ebv: float | None = Field(default=None, gt=0.0)
     md5: str | None = None
     provenance: str | None = None
 
 
+class GaiaBandPolynomialCoefficients(BaseModel):
+    """Colour/extinction-dependent Gaia extinction coefficients ``k_X = A_X / A0``.
+
+    Gaia Collaboration, Babusiaux et al. (2018, A&A 616, A10), Eq. 1 / Table 1::
+
+        k_X = c1 + c2 X + c3 X^2 + c4 X^3 + c5 A0 + c6 A0^2 + c7 X A0,
+        X = (G_BP - G_RP)_0
+
+    Each list is ``[c1, ..., c7]`` for band G, BP, RP. The paper's fit covers
+    3500 K < Teff < 10000 K and 0.01 < A0 < 5 mag; outside that range the
+    polynomial is extrapolated, not clipped. ``(G_BP-G_RP)_0`` enters
+    ``k_BP - k_RP`` itself, so it is solved by fixed-point iteration from the
+    observed colour: at most ``max_iterations`` steps, stopping once the colour
+    moves by less than ``tolerance`` mag; non-convergence is a hard error.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    k_g: list[float] = Field(..., min_length=7, max_length=7)
+    k_bp: list[float] = Field(..., min_length=7, max_length=7)
+    k_rp: list[float] = Field(..., min_length=7, max_length=7)
+    max_iterations: int = Field(..., ge=1)
+    tolerance: float = Field(..., gt=0.0)
+    provenance: str | None = None
+
+
+class GaiaBandExtinctionConfig(BaseModel):
+    """How ``E(B-V)`` becomes ``A_G`` and ``E(BP-RP)`` for El-Badry 2026 (#295).
+
+    * ``paper_constant`` (default; the reproduction path) — the frozen selection
+      file's ``extinction.coefficients`` (``A_G = 2.66 E(B-V)``,
+      ``E(BP-RP) = 1.33 E(B-V)``, El-Badry et al. 2026 §2).
+    * ``babusiaux2018`` — the Gaia collaboration's colour/A0-dependent law
+      (:class:`GaiaBandPolynomialCoefficients`) with ``A0 = r_v · E(B-V)``. A
+      sensitivity alternative: it overrides what the paper says it used.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    law: Literal["paper_constant", "babusiaux2018"] = "paper_constant"
+    babusiaux2018: GaiaBandPolynomialCoefficients | None = None
+
+
 class DustMapsConfig(BaseModel):
-    """Host-side location + unit conversion of 3D dust maps (#258).
+    """Host-side location + unit conversion of 3D dust maps (#258, #295).
 
     ``ebv_cache_dir`` (relative to ``paths.data_root`` unless absolute) holds the
     per-source native-value cache, so ~440k map queries are paid once per
     map/split fingerprint rather than once per evaluation.
+
+    ``r_v`` is the ratio ``A0 / E(B-V)`` used by every ``a0`` map and by the
+    ``babusiaux2018`` Gaia band law. No schema default (config only); required
+    whenever something consumes it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     ebv_cache_dir: str = "dust_maps/ebv_cache"
+    r_v: float | None = Field(default=None, gt=0.0)
     maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
+    gaia_band_extinction: GaiaBandExtinctionConfig = Field(
+        default_factory=GaiaBandExtinctionConfig
+    )
+
+    @model_validator(mode="after")
+    def _resolve_conversions(self) -> DustMapsConfig:
+        for name, spec in self.maps.items():
+            if spec.native_quantity == "reddening":
+                if spec.native_to_ebv is None:
+                    raise ValueError(
+                        f"sample_selection.dust_maps.maps.{name}: native_quantity "
+                        "'reddening' requires native_to_ebv"
+                    )
+                continue
+            if self.r_v is None:
+                raise ValueError(
+                    f"sample_selection.dust_maps.maps.{name}: native_quantity 'a0' "
+                    "requires sample_selection.dust_maps.r_v"
+                )
+            derived = 1.0 / self.r_v
+            # Round-trip tolerance only (model_dump → re-validate), not physics.
+            if spec.native_to_ebv is not None and not math.isclose(
+                spec.native_to_ebv, derived, rel_tol=1e-12
+            ):
+                raise ValueError(
+                    f"sample_selection.dust_maps.maps.{name}: native_to_ebv "
+                    f"{spec.native_to_ebv} conflicts with 1/r_v = {derived} for an "
+                    "'a0' map — set r_v instead"
+                )
+            spec.native_to_ebv = derived
+        band = self.gaia_band_extinction
+        if band.law == "babusiaux2018":
+            if band.babusiaux2018 is None:
+                raise ValueError(
+                    "sample_selection.dust_maps.gaia_band_extinction.law "
+                    "'babusiaux2018' requires the babusiaux2018 coefficient block"
+                )
+            if self.r_v is None:
+                raise ValueError(
+                    "gaia_band_extinction.law 'babusiaux2018' requires "
+                    "sample_selection.dust_maps.r_v (A0 = r_v * E(B-V))"
+                )
+        return self
 
 
 class SampleSelectionConfig(BaseModel):

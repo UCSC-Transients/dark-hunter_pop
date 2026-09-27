@@ -263,22 +263,41 @@ sample_selection:
     path: config/selections/accel_jerk.yaml
     mode: forward_model
   # 3D dust maps named by frozen selection-file `extinction:` blocks (#258).
-  # Map CHOICE and split live in the frozen files; this only locates the files on
-  # this host (relative to paths.data_root) and converts each map's native
-  # line-of-sight integral to E(B-V). Consumed by El-Badry 2026 only.
+  # Map CHOICE, split and the paper's Gaia-band coefficients (A_G = 2.66 E(B-V),
+  # E(BP-RP) = 1.33 E(B-V)) live in the frozen files; this section locates the
+  # files on this host (relative to paths.data_root) and holds EVERY adjustable
+  # number in the native-integral -> E(B-V) -> Gaia-band chain. Consumed by
+  # El-Badry 2026 only. Changing any value here changes the sample_selection
+  # stage fingerprint; the per-source native cache (ebv_cache_dir) is
+  # deliberately independent of these factors and never needs rebuilding.
+  #
+  # PI decision (Ryan Foley, 2026-09-27, #295): "Use the Gaia conversion. Use
+  # Rv = 3.1 unless it says something else. Make sure these numbers are all in
+  # the config and easy to adjust." El-Badry et al. 2026 (arXiv:2608.06453v1 §2)
+  # states no map -> E(B-V) conversion; none of El-Badry 2026, Lallement 2019 or
+  # the Bayestar19 documentation states an R_V other than 3.1 for these steps.
   dust_maps:
     ebv_cache_dir: dust_maps/ebv_cache
+    # Total-to-selective ratio A0 / E(B-V). Gaia convention "A_0 = 3.1 E(B-V)"
+    # (Gaia Collaboration, Babusiaux et al. 2018, A&A 616, A10, §2); Lallement
+    # et al. 2019 (App. A) also assume R = 3.1 for their A0 scale. Used for every
+    # `native_quantity: a0` map (E(B-V) = A0 / r_v) and by the babusiaux2018
+    # band law below (A0 = r_v * E(B-V)).
+    r_v: 3.1
     maps:
       green2019:
         # Bayestar19, Harvard Dataverse doi:10.7910/DVN/2EJ9TX file 1CUGA1 — the
         # same file mwdust.Green19 downloads (md5 verified against Dataverse).
         path: dust_maps/green2019/bayestar2019.h5
         md5: ab815d2fd3068d1b81a1bd61fb18a722
-        # Native Bayestar19 units → SFD-scale E(B-V): 0.884 (Green et al. 2018/2019
-        # with the Schlafly & Finkbeiner 2011 recalibration). El-Badry 2026 does not
-        # state its conversion; PENDING PI CONFIRMATION (#258).
+        # Native Bayestar19 unit (SFD-like, arbitrary) -> E(B-V). 0.884 is the
+        # Green et al. (2019) / Argonaut "usage" page conversion via
+        # E(B-V) = 0.981 E(g-r)_P1 (Schlafly & Finkbeiner 2011 Table 6, R_V = 3.1
+        # Fitzpatrick 1999, 7000 K). It is a tabulated number, NOT recomputed
+        # from r_v. The same page's alternative via E(r-z)_P1 gives 0.996.
+        native_quantity: reddening
         native_to_ebv: 0.884
-        provenance: "Green et al. 2019, ApJ 887, 93; E(B-V)=0.884 x Bayestar19"
+        provenance: "Green et al. 2019, ApJ 887, 93 + argonaut.skymaps.info/usage Eq. 1: E(B-V) = 0.884 x Bayestar19 (SF11, R_V=3.1); PI decision 2026-09-27 (#295)"
       lallement2019:
         # Lallement et al. 2019, A&A 625, A135; VizieR J/A+A/625/A135
         # map3D_GAIAdr2_feb2019.h5 (native: integrated A0 at 5500 A, mag).
@@ -286,10 +305,31 @@ sample_selection:
         # (map3D_GAIAdr2_feb2019.h5.gz, 24-May-2019); CDS publishes no checksum.
         path: dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5
         md5: e9262125307831a4a90b394e3b71f213
-        # A0 → E(B-V) = A0 / R_V with R_V = 3.1. El-Badry 2026 does not state its
-        # conversion; PENDING PI CONFIRMATION (#258).
-        native_to_ebv: 0.3225806451612903
-        provenance: "Lallement et al. 2019; E(B-V)=A0/3.1"
+        # A0 -> E(B-V) = A0 / r_v (derived from r_v above; do not set
+        # native_to_ebv here). Gaia convention A0 = 3.1 E(B-V).
+        native_quantity: a0
+        provenance: "Lallement et al. 2019 (A0 at 5500 A); E(B-V) = A0 / r_v, Gaia convention A0 = 3.1 E(B-V) (Babusiaux et al. 2018); PI decision 2026-09-27 (#295)"
+    # E(B-V) -> A_G, E(BP-RP) for the El-Badry 2026 CMD.
+    #   paper_constant (reproduction default): the frozen file's 2.66 / 1.33,
+    #     which El-Badry 2026 §2 says it used ("appropriate for typical sources
+    #     in the sample with Teff ~ 6000 K").
+    #   babusiaux2018: the Gaia collaboration's colour- and A0-dependent law,
+    #     with A0 = r_v * E(B-V). Sensitivity alternative only — it overrides
+    #     what the paper states. One-line flip: law: babusiaux2018.
+    gaia_band_extinction:
+      law: paper_constant
+      babusiaux2018:
+        # Gaia Collaboration, Babusiaux et al. 2018, A&A 616, A10, Table 1:
+        # k_X = A_X/A0 = c1 + c2 X + c3 X^2 + c4 X^3 + c5 A0 + c6 A0^2 + c7 X A0,
+        # X = (BP-RP)_0. Fit valid for 3500 < Teff < 10000 K, 0.01 < A0 < 5.
+        #      [c1,     c2,      c3,      c4,      c5,      c6,       c7]
+        k_g:  [0.9761, -0.1704,  0.0086,  0.0011, -0.0438,  0.0013,   0.0099]
+        k_bp: [1.1517, -0.0871, -0.0333,  0.0173, -0.0230,  0.0006,   0.0043]
+        k_rp: [0.6104, -0.0170, -0.0026, -0.0017, -0.0078,  0.00005,  0.0006]
+        # Fixed-point solve for (BP-RP)_0 from the observed colour.
+        max_iterations: 100
+        tolerance: 1.0e-6
+        provenance: "Gaia Collaboration, Babusiaux et al. 2018, A&A 616, A10, Eq. 1 / Table 1"
 spuriousness_model:
   enabled: true
   path: config/spuriousness_model.yaml

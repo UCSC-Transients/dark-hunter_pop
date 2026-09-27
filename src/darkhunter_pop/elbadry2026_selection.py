@@ -7,10 +7,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import yaml
 
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import (
+    DustMapsConfig,
+    GaiaBandPolynomialCoefficients,
     MainSequenceCutSpec,
     PipelineConfig,
     SampleSelectionFile,
@@ -100,6 +103,71 @@ def extinction_coefficients(spec: SampleSelectionFile) -> tuple[float, float]:
     return float(coeffs[_A_G_KEY]), float(coeffs[_E_BP_RP_KEY])
 
 
+def _babusiaux_k(
+    coeffs: Sequence[float], colour0: np.ndarray, a0: np.ndarray
+) -> np.ndarray:
+    """``k_X`` of Gaia Collaboration, Babusiaux et al. (2018) Eq. 1 (vectorized)."""
+    c1, c2, c3, c4, c5, c6, c7 = (float(c) for c in coeffs)
+    return (
+        c1
+        + c2 * colour0
+        + c3 * colour0**2
+        + c4 * colour0**3
+        + c5 * a0
+        + c6 * a0**2
+        + c7 * colour0 * a0
+    )
+
+
+def gaia_band_extinction_babusiaux2018(
+    bp_rp_observed: np.ndarray,
+    ebv: np.ndarray,
+    *,
+    r_v: float,
+    coeffs: GaiaBandPolynomialCoefficients,
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(A_G, E(BP-RP))`` per source from the Gaia colour/A0-dependent law (#295).
+
+    ``A0 = r_v · E(B-V)``; ``(BP-RP)_0`` solves
+    ``(BP-RP)_0 = (BP-RP)_obs − (k_BP − k_RP)((BP-RP)_0, A0) · A0`` by
+    fixed-point iteration from ``(BP-RP)_obs``, stopping when every finite
+    source moves by less than ``coeffs.tolerance``; raises ``ValueError`` if
+    ``coeffs.max_iterations`` is reached first. Non-finite inputs give NaN.
+    Coefficients and limits come from config (see
+    :class:`~darkhunter_pop.config_schema.GaiaBandPolynomialCoefficients`);
+    the polynomial is extrapolated, not clipped, outside its fitted range.
+    """
+    obs = np.asarray(bp_rp_observed, dtype=np.float64)
+    a0 = float(r_v) * np.asarray(ebv, dtype=np.float64)
+    a_g = np.full(obs.shape, np.nan)
+    e_bp_rp = np.full(obs.shape, np.nan)
+    ok = np.isfinite(obs) & np.isfinite(a0)
+    if not ok.any():
+        return a_g, e_bp_rp
+    x_obs, a0_ok = obs[ok], a0[ok]
+    colour0 = x_obs.copy()
+    for _ in range(coeffs.max_iterations):
+        k_diff = _babusiaux_k(coeffs.k_bp, colour0, a0_ok) - _babusiaux_k(
+            coeffs.k_rp, colour0, a0_ok
+        )
+        updated = x_obs - k_diff * a0_ok
+        converged = bool(np.all(np.abs(updated - colour0) < coeffs.tolerance))
+        colour0 = updated
+        if converged:
+            break
+    else:
+        raise ValueError(
+            "babusiaux2018 (BP-RP)_0 fixed-point iteration did not converge in "
+            f"{coeffs.max_iterations} steps (tolerance {coeffs.tolerance} mag)"
+        )
+    k_diff = _babusiaux_k(coeffs.k_bp, colour0, a0_ok) - _babusiaux_k(
+        coeffs.k_rp, colour0, a0_ok
+    )
+    a_g[ok] = _babusiaux_k(coeffs.k_g, colour0, a0_ok) * a0_ok
+    e_bp_rp[ok] = k_diff * a0_ok
+    return a_g, e_bp_rp
+
+
 def _finite_or_nan(value: Any) -> float:
     if isinstance(value, (int, float)) and math.isfinite(float(value)):
         return float(value)
@@ -122,6 +190,8 @@ def deredden_elbadry2026_rows(
     rows: Sequence[Mapping[str, Any]],
     spec: SampleSelectionFile,
     lookup: ExtinctionLookup | None,
+    *,
+    dust_cfg: DustMapsConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Apply El-Badry 2026's frozen extinction policy to raw ``abs_g_mag``/``bp_rp``.
 
@@ -138,11 +208,21 @@ def deredden_elbadry2026_rows(
     so the attrition waterfall reports it as not-applicable with that reason —
     never silently passed through undereddened.
 
+    The E(B-V) → Gaia-band step follows
+    ``dust_cfg.gaia_band_extinction.law`` (#295): ``paper_constant`` (the
+    default and the reproduction path) uses the frozen coefficients above;
+    ``babusiaux2018`` uses :func:`gaia_band_extinction_babusiaux2018` with
+    ``A0 = dust_cfg.r_v · E(B-V)``. ``dust_cfg`` defaults to ``lookup.dust_cfg``;
+    with neither (fixture rows carrying a pre-computed E(B-V)), the frozen
+    constants apply.
+
     Raises ``DustMapError`` if any row needs a lookup and ``lookup`` is ``None``.
     """
     if spec.extinction is None:
         raise ValueError(f"sample {spec.name!r} has no extinction block")
     a_g, e_bp_rp = extinction_coefficients(spec)
+    if dust_cfg is None and lookup is not None:
+        dust_cfg = lookup.dust_cfg
     out = [dict(row) for row in rows]
     need = [i for i, row in enumerate(out) if EBV_COLUMN not in row]
     if need:
@@ -172,16 +252,35 @@ def deredden_elbadry2026_rows(
                 out[i][EBV_COLUMN] = float(ebv[j])
             else:
                 out[i][EBV_COLUMN] = NotApplicable(f"extinction_{code.name.lower()}")
-    for row in out:
+    usable: list[int] = []
+    for i, row in enumerate(out):
         ebv_value = row[EBV_COLUMN]
         row.setdefault(EXTINCTION_STATUS_COLUMN, "precomputed")
         if isinstance(ebv_value, NotApplicable):
             row["mg_0"] = ebv_value
             row["bp_rp_0"] = ebv_value
             continue
-        ebv_f = float(ebv_value)
-        row["mg_0"] = _finite_or_nan(row.get("abs_g_mag")) - a_g * ebv_f
-        row["bp_rp_0"] = _finite_or_nan(row.get("bp_rp")) - e_bp_rp * ebv_f
+        usable.append(i)
+    if not usable:
+        return out
+    ebv_arr = np.array([float(out[i][EBV_COLUMN]) for i in usable], dtype=np.float64)
+    band = dust_cfg.gaia_band_extinction if dust_cfg is not None else None
+    if band is not None and band.law == "babusiaux2018":
+        assert band.babusiaux2018 is not None and dust_cfg is not None  # schema-validated
+        assert dust_cfg.r_v is not None
+        a_g_arr, e_bp_rp_arr = gaia_band_extinction_babusiaux2018(
+            np.array([_finite_or_nan(out[i].get("bp_rp")) for i in usable]),
+            ebv_arr,
+            r_v=dust_cfg.r_v,
+            coeffs=band.babusiaux2018,
+        )
+    else:
+        a_g_arr = a_g * ebv_arr
+        e_bp_rp_arr = e_bp_rp * ebv_arr
+    for j, i in enumerate(usable):
+        row = out[i]
+        row["mg_0"] = _finite_or_nan(row.get("abs_g_mag")) - float(a_g_arr[j])
+        row["bp_rp_0"] = _finite_or_nan(row.get("bp_rp")) - float(e_bp_rp_arr[j])
     return out
 
 
