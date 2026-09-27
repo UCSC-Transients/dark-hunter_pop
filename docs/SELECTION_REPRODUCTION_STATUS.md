@@ -26,10 +26,9 @@ over editing frozen cut thresholds.
 > no longer exists on disk, so §3.1's original table, §3.1.1, and §3.2 (which does not depend on
 > Andrews' MC output at all) still accurately describe what was true at `c905575`, but are no longer
 > independently re-derivable from the cache currently on disk. **§3.3's `andrews2022_import` row
-> (target 16, recorded 19) is stale again** — it cross-references `andrews2022`'s surviving
-> membership, which changed from N=33 to N=63 in this rebuild — and needs its own re-measurement
-> (flagged, not done here; see the note at the end of §3.1.2) before being trusted again; the rest of
-> §3.3 does not depend on Andrews membership and is unaffected.
+> (target 16) was re-measured against this rebuilt cache on `main` @ `a9397ba` (issue #270): 55,
+> previously 19** (§3.3.0). The only other §3.3 counts that moved are the two unions downstream of
+> it. Everything else in §3.3 is still at `c905575`.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -248,6 +247,8 @@ implementation divergence from #230's exact procedure.
 N=33 to **N=63** in this rebuild — a re-measurement is needed, but El-Badry 2026 evaluation costs
 ~22 min and ~6.8 GiB peak (§1) and touches primary-mass handling this ticket's "Do not" section
 explicitly places out of bounds. **Filed as a follow-up rather than measured here**: #270.
+**#270 has now measured it**: `andrews2022_import` = **55**, the same source-ID set as the Q9
+`G < 15` count above (§3.3.0).
 
 #### 3.1.1 #230/#233 methodology reconciliation — findings (no code change landed)
 
@@ -325,7 +326,7 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 | Spectroscopic branch | 151 | 123 | **123** | FAIL — no code bug found; binding matches spec exactly (§3.3.2). Same unfixed extinction mechanism as `primary_ns_bh` (#133/#258) — Combined19 diagnostic (non-landed) closes the gap: 123→154 |
 | `primary_ns_bh` | 47 | 42 | **42** | FAIL — **#133**, extinction / `a0` (nsstools vs Thiele–Innes) |
 | `elbadry2023_table_e1` | 5 | 5 | **5** | **OK** — exact match holds |
-| `andrews2022_import` | 16 | 19 (with Andrews membership) | **19** (re-confirmed `63c6f53`, #198) — **STALE as of #257/`9f70a53`**: `andrews2022`'s survivor set changed from N=33 to N=63 in the real FLAME/uniform-draw MC rebuild (§3.1.2); this row needs re-measurement against the current cache, not reused. Filed as follow-up #270 rather than re-measured in this ticket | FAIL until Andrews and Q9 close |
+| `andrews2022_import` | 16 | 19 (`c905575`/`63c6f53`, fixed-`M1=1.0` Andrews membership, N=33) | **55** (re-measured `main` @ `a9397ba`, #270, against the FLAME/uniform-draw `+enrich+mc10000` cache, `mtime` 2026-09-27 02:18:53; Andrews membership N=63) — equals §3.1.2's Q9 count exactly (same source-ID set) — see §3.3.0 | FAIL until Andrews and Q9 close |
 | `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL — Combined19 diagnostic (non-landed, §3.3.2): 141 / 30 / 17 |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4. Re-check attempted under #234 with `primary_ns_bh`-only membership (incomplete methodology — see §3.3.2); full-union re-measurement not completed this session |
@@ -351,6 +352,69 @@ The diagnosis is unchanged, and worth restating because it determines where Wave
 the σ binding removed the Andrews pollution but did **not** recover N = 22. The mass window is already
 **1908** wide before the σ cut is applied at all, so the σ cut is second-order. Escalate the
 point-estimate `M̃2` / `a0` / extinction / main-sequence-CMD chain — **not** the 0.105 threshold.
+
+### 3.3.0 `andrews2022_import` re-measurement after the Andrews FLAME rebuild (#270)
+
+**Scope: this subsection records only what #270 measured.** El-Badry 2026's extinction fix (#258) is
+in progress and will move other §3.3 rows again (`primary_ns_bh`, the spectroscopic branch and
+routes, `sub_chandrasekhar`, and the unions). The table's other rows are left at their `c905575`
+values on purpose, for #258 to update; the union shifts caused by this membership change are
+recorded below instead of in the table.
+
+Provenance: `main` @ `a9397ba` (includes #269's FLAME-payload fix and PR #271's Andrews
+re-measurement), isolated worktree, `PYTHONPATH` pointed at the worktree's `src/` (verified
+`darkhunter_pop.__file__`), cache `…+enrich+mc10000/selection_parent_rows.h5` (823,999,664 bytes,
+443,211 rows, `mtime` 2026-09-27 02:18:53). Read-only: no code, config, or cache changed. The
+evaluation followed the §1 pattern: first `andrews2022`, then `elbadry2026` with
+`membership={'andrews2022': frozenset(andrews.surviving_source_ids)}`. El-Badry 2026 took
+1648 s, with **7.38 GiB** peak RSS (`/usr/bin/time -l`), a little above §1's 6.8 GiB.
+
+- `andrews2022` N = **63** (matches §3.1.2). `andrews2022_import` attrition:
+  `168065 → 63 (andrews2022_membership) → 55 (g_mag < 15)`. Target is **16**, so this row still
+  **FAILS**, and by more than before (19 → 55). This is the honest number. No threshold was touched.
+- The 55 IDs are **identical** to §3.1.2's Q9 set (`andrews2022` survivors with `G < 15`). The
+  binding is therefore doing exactly what it should, and the whole overcount comes from Andrews
+  (#254/#233), not from El-Badry 2026's import logic.
+- Overlap with other subsamples: 13 of the 55 are also in `primary_ns_bh` and 2 in
+  `sub_chandrasekhar`. None are in `elbadry2023_table_e1`.
+- Source IDs (55):
+  `181517829171152128, 421246788921590400, 430045252773901440, 809741149368202752,
+  826299038567583744, 987751532149740672, 1002740757557931264, 1144019690966028928,
+  1350295047363872512, 1695294922548180224, 1749013354127453696, 1854241667792418304,
+  1871419337958702720, 2031373192892592000, 2080084929550950272, 2083618416332991616,
+  2180088295239113600, 2195470016228007424, 2397135910639986304, 3113779241530432384,
+  3649963989549165440, 4248199573219059584, 4287259238460324224, 5254694888140645504,
+  5254757074929505792, 5255738530815159168, 5304995582275067136, 5307607682620027776,
+  5311489130468652032, 5312506140052764544, 5322756753808947840, 5337671422919801344,
+  5337911356971992832, 5340413055155981440, 5342871047750973312, 5351774995980250880,
+  5355483511276428672, 5370081104356941184, 5405214250387742592, 5539729980386209536,
+  5556237944880786816, 5580526947012630912, 5593444799901901696, 5602760132982139136,
+  5617846158373940096, 5644387063402978304, 5703347859033266816, 5861845586994786432,
+  5885622869493356288, 5932335341825006208, 5932802153199174912, 6001459821083925120,
+  6052935107242950400, 6328149636482597888, 6593763230249162112`
+
+**Side effects of the membership change on the other El-Badry 2026 counts:**
+
+| Count | `c905575` (table) | `a9397ba` (#270) | Moved? |
+|---|---:|---:|---|
+| `primary_ns_bh` | 42 | 42 | no — attrition identical (`168065 → 137696 → 499 → 85 → 77 → 55 → 42`) |
+| `elbadry2023_table_e1` | 5 | 5 | no |
+| `sub_chandrasekhar` | 861 | 861 | no — attrition identical (`… → 1908 → 1161 (735 fail, 12 missing σ) → 868 → 861`) |
+| Spectroscopic branch | 123 | 123 | no (`181534 → 133642 → 123`, 84090 N/A) |
+| Spectro routes | 98 / 30 / 5 | 98 / 30 / 5 | no |
+| Astrometric branch union | 913 | **946** | **yes, +33**. This is downstream of `andrews2022_import` (+36, minus overlap with the other subsamples). The 946 IDs are exactly the union of the four subsamples |
+| Published union (`n_surviving`) | 1085 | **1119** | **yes, +34**. This is downstream of the astrometric union. See the caveat below |
+
+Nothing moved that is independent of `andrews2022_import`. The cut chains are unaffected by the
+membership input and by the rebuilt Andrews MC columns, as expected.
+
+**Caveat, flagged but not fixed here:** the published-union figure is a count of **non-unique** IDs.
+`surviving_source_ids` has 1119 entries but only **1067 distinct** source IDs. The astrometric and
+spectroscopic branches overlap by 2, so 946 + 123 − 2 = 1067, and 52 IDs appear twice. The 1085 at
+`c905575` presumably includes the same kind of duplication. This looks like the
+cross-match / multi-solution duplicate-`source_id` question already tracked in #221/#237, not
+something new from #270. It is noted so that nobody compares 1119 against the published 227 as if it
+counted unique sources.
 
 ### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix blocked
 
