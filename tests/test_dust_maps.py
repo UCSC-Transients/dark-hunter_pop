@@ -9,6 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
+from darkhunter_pop import dust_maps
 from darkhunter_pop.config_loader import load_config, repo_root
 from darkhunter_pop.config_schema import (
     DustMapFileSpec,
@@ -239,6 +240,39 @@ def test_cache_is_independent_of_unit_conversion(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_reader_code_change_invalidates_cache_without_version_bump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#278: a reader edit must not reuse stale integrals, bump or no bump."""
+    rows = [{"source_id": 1, "abs_g_mag": 5.0, "bp_rp": 1.0, "ra_deg": 10.0,
+             "dec_deg": 10.0, "parallax_mas": 1.0}]
+    warm, _ = _lookup(tmp_path)
+    deredden_elbadry2026_rows(rows, _spec26(), warm)
+    assert warm.cache_path.is_file()
+
+    source = Path(dust_maps.__file__).read_text()
+    # A byte-identical copy elsewhere keys identically (content, not path).
+    same = tmp_path / "same_dust_maps.py"
+    same.write_text(source)
+    monkeypatch.setattr(dust_maps, "__file__", str(same))
+    assert _lookup(tmp_path)[0].cache_path == warm.cache_path
+
+    # Change Lallement numerics (default sightline step), leave READER_VERSION alone.
+    needle = "float(np.min(spacing_pc)) / 2.0"
+    assert needle in source
+    edited = tmp_path / "edited_dust_maps.py"
+    edited.write_text(source.replace(needle, "float(np.min(spacing_pc)) / 4.0"))
+    assert 'READER_VERSION = "1"' in edited.read_text()
+    monkeypatch.setattr(dust_maps, "__file__", str(edited))
+    cold, readers = _lookup(tmp_path)
+    assert cold.cache_path != warm.cache_path
+    deredden_elbadry2026_rows(rows, _spec26(), cold)
+    assert readers["green2019"].n_queried == 1  # re-queried, not served stale
+    with h5py.File(cold.cache_path, "r") as handle:
+        assert handle.attrs["reader_source_sha256"] == dust_maps.module_source_sha256()
+
+
+@pytest.mark.unit
 def test_missing_map_file_is_hard_error(tmp_path: Path) -> None:
     lookup = ExtinctionLookup(
         _split(), _dust_cfg(), data_root=tmp_path, cache_tag="x", use_cache=False
@@ -394,6 +428,71 @@ def test_lallement_reader_integrates_constant_density(tmp_path: Path) -> None:
     assert status[2] == ExtinctionStatus.BEYOND_MAP_LIMIT
 
 
+# Linear density ρ = C0 + GX·X + GY·Y + GZ·Z with distinct gradients: trilinear
+# interpolation reproduces it exactly, so any X/Y/Z swap or sign flip in the
+# reader (axis order, origin, or the (l, b) → (X, Y, Z) unit vector) is visible.
+_LIN_C0, _LIN_G = 2.0e-3, np.array([1.0e-6, 2.0e-6, 3.0e-6])
+
+
+def _write_linear_lallement(path: Path, half_width_pc: float, step_pc: float) -> None:
+    n = int(round(2 * half_width_pc / step_pc)) + 1
+    axis = (np.arange(n) - (n - 1) / 2.0) * step_pc  # voxel-centre coordinates, pc
+    xx, yy, zz = np.meshgrid(axis, axis, axis, indexing="ij")  # published order X, Y, Z
+    cube = (_LIN_C0 + _LIN_G[0] * xx + _LIN_G[1] * yy + _LIN_G[2] * zz).astype(np.float32)
+    centre = (n - 1) / 2.0 + 0.5
+    with h5py.File(path, "w") as handle:
+        dset = handle.create_dataset("stilism/cube_datas", data=cube)
+        dset.attrs["gridstep_values"] = np.array([step_pc] * 3)
+        dset.attrs["gridstep_unit"] = "parsec"
+        dset.attrs["sun_position"] = np.array([centre] * 3)
+        dset.attrs["values_unit"] = "magnitude/parsec"
+
+
+@pytest.mark.physics
+def test_lallement_reader_frame_on_linear_density(tmp_path: Path) -> None:
+    """#279: X → Galactic centre (l=0), Y → rotation (l=90), Z → NGP (b=90)."""
+    path = tmp_path / "linear.h5"
+    _write_linear_lallement(path, half_width_pc=200.0, step_pc=10.0)
+    reader = Lallement2019Map(path)
+    pts = np.array([[37.0, -121.0, 55.0], [-150.0, 80.0, -10.0], [120.0, 0.0, -170.0]])
+    np.testing.assert_allclose(
+        reader._trilinear(pts), _LIN_C0 + pts @ _LIN_G, rtol=1e-5
+    )
+    # ∫₀ˢ ρ(s' û) ds' = C0·s + ½ s² (G·û): closed form per direction.
+    l = np.array([0.0, 90.0, 180.0, 270.0, 0.0, 0.0, 35.0])
+    b = np.array([0.0, 0.0, 0.0, 0.0, 90.0, -90.0, 25.0])
+    s_pc = np.full(l.size, 150.0)
+    lr, br = np.deg2rad(l), np.deg2rad(b)
+    unit = np.stack([np.cos(br) * np.cos(lr), np.cos(br) * np.sin(lr), np.sin(br)], axis=1)
+    expected = _LIN_C0 * s_pc + 0.5 * s_pc**2 * (unit @ _LIN_G)
+    vals, status = reader.query_native(l, b, s_pc / 1.0e3)
+    assert np.all(status == ExtinctionStatus.OK)
+    np.testing.assert_allclose(vals, expected, rtol=1e-5)
+
+
+# Real voxel values from CDS STILISM_cube.fits (J/A+A/625/A135, BINTABLE
+# ``STILISM2019`` with explicit X, Y, Z columns in pc). Read from the first rows
+# of the gzipped table (Z = −400 and −395 planes). The FITS header labels the
+# density column ``mag/kpc``, but the values are identical to the HDF5 cube's
+# mag/pc (the HDF5 attribute and the VizieR ReadMe agree on mag/pc; see
+# docs/SELECTION_REPRODUCTION_STATUS.md §3.3.1) — so compare with no factor.
+# Points were picked across all four (X, Y) quadrants so that an X/Y swap or an
+# X flip changes every value by > 30 %.
+_STILISM_TUPLES = np.array(
+    [
+        # X (pc), Y (pc), Z (pc), dA0/dD (mag/pc, as stored)
+        (-1080.0, -615.0, -400.0, 1.636240e-04),
+        (-675.0, -1060.0, -395.0, 4.563020e-05),
+        (-1950.0, 2815.0, -400.0, 2.346030e-05),
+        (-425.0, 1305.0, -395.0, 1.285660e-05),
+        (2620.0, -310.0, -400.0, 5.360560e-05),
+        (2675.0, -2010.0, -395.0, 6.190530e-05),
+        (1175.0, 425.0, -400.0, 1.803170e-05),
+        (580.0, 2150.0, -395.0, 2.574350e-05),
+    ]
+)
+
+
 # --------------------------------------------------------------------------
 # Real map files (optional: slow, skipped when the data tree lacks them)
 # --------------------------------------------------------------------------
@@ -434,6 +533,15 @@ def test_real_lallement_is_finite_and_monotone() -> None:
     assert np.all(np.isfinite(vals))
     assert np.all(np.diff(vals) >= -1e-9)
     assert math.isfinite(float(vals[-1])) and vals[-1] > 0.0
+
+
+@pytest.mark.slow
+def test_real_lallement_frame_matches_stilism_xyz() -> None:
+    """#279: the HDF5 cube, read by our frame, equals STILISM's explicit (X, Y, Z) values."""
+    reader = Lallement2019Map(_real_map("lallement2019"))
+    xyz, ref = _STILISM_TUPLES[:, :3], _STILISM_TUPLES[:, 3]
+    # FITS float formatting vs the float32 cube: max 5.0e-6 relative over all 2.88M rows of the Z=-400/-395 planes.
+    np.testing.assert_allclose(reader._trilinear(xyz), ref, rtol=2e-5, atol=0.0)
 
 
 @pytest.mark.api

@@ -67,7 +67,7 @@ real Green2019/Lallement2019 maps — spectroscopic branch 151 exact, `primary_n
 | Enrich+Andrews-MC cache | `…/20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` | 800 MB; 443,211 rows; rebuilt 2026-09-27 (~5h39m, 8 workers, `elapsed_s=20355.3`) against `+enrich+flame` under the `flame_or_uniform_draw` M1 method (#230/#257), with #269's per-job-payload fix in place — **superseded the earlier fixed-`M1=1.0` build and the invalid 2026-09-26 no-op build (#267/#268) this file used to hold**. **This is the one §3 is measured on now.** |
 | Green2019 map (#258) | `data/dust_maps/green2019/bayestar2019.h5` | **Symlink** to the `dustmaps` package copy (727,902,836 bytes, md5 `ab815d2fd3068d1b81a1bd61fb18a722` = Dataverse `2EJ9TX/1CUGA1`); also linked at `~/.mwdust/green19/` for the `mwdust` cross-check test |
 | Lallement2019 map (#258) | `data/dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5` | 809 MB; VizieR `J/A+A/625/A135`, downloaded 2026-09-27, md5 `e9262125307831a4a90b394e3b71f213` |
-| El-Badry 2026 `E(B-V)` cache (#258) | `data/dust_maps/ebv_cache/elbadry2026_9c8c2ef40427995c.h5` | Native per-source map integrals for 349,594 keys, keyed `(source_id, ra, dec, parallax)`; built automatically on first evaluation (~45 s cold) |
+| El-Badry 2026 `E(B-V)` cache (#258) | `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5` | Native per-source map integrals for 349,594 keys, keyed `(source_id, ra, dec, parallax)`; built automatically on first evaluation (~45 s cold, ~11.6 GB peak for the full evaluation). Since #278 the fingerprint includes the SHA-256 of `dust_maps.py`, so **any** edit to that file rebuilds it cold; the #258-era `elbadry2026_9c8c2ef40427995c.h5` is orphaned by that change and is no longer read |
 
 Rebuilding the Andrews MC cache is a multi-hour job and should not be done unless a landed change
 actually invalidates it:
@@ -624,6 +624,12 @@ the maps once disk space allowed. What was done:
   centre `[600.5, 600.5, 80.5]` → ±3 kpc in X/Y and ±400 pc in Z. `dust_maps.Lallement2019Map`
   integrates `A0` along the sightline with trilinear interpolation. A source beyond the cube gets the
   integral to the boundary and is counted as `beyond_map_limit`. **No substitute map was used.**
+  **Units (#279):** the CDS `STILISM_cube.fits` BINTABLE labels the density column `mag/kpc`, but
+  the HDF5 attribute and the VizieR ReadMe say mag pc⁻¹ with identical values; **mag pc⁻¹ is
+  correct** (vs `0.884 ×` Bayestar19, median ratio 0.86) — do not "fix" it by 1000×. The reader's
+  axis order/frame is pinned against that FITS table's explicit X/Y/Z columns by
+  `tests/test_dust_maps.py::test_real_lallement_frame_matches_stilism_xyz` (`slow`) and
+  `::test_lallement_reader_frame_on_linear_density` (required gate).
 - **Wiring.** `elbadry2026_selection.deredden_elbadry2026_rows` applies `mg_0 = abs_g_mag − 2.66·E(B−V)`
   and `bp_rp_0 = bp_rp − 1.33·E(B−V)`. Both coefficients are read from the frozen block. `E(B-V)` comes
   from the frozen hemisphere map. The call happens inside El-Badry 2026's enrichment, which is gated
@@ -636,7 +642,9 @@ the maps once disk space allowed. What was done:
   confirmation; the §3.3 sensitivity run bounds their effect.
 - **Caching.** Native per-source integrals are cached at
   `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5`. The fingerprint covers the split, the map
-  identities (md5) and the reader version, but not the unit conversions, so revising a conversion
+  identities (md5), the `READER_VERSION` salt and — since #278 — the SHA-256 of `dust_maps.py`
+  itself (same raw-bytes convention as the stage `source_hash`), so a reader change can no longer
+  silently reuse stale integrals. It does not cover the unit conversions, so revising a conversion
   factor does not invalidate the cache. The cache is keyed per `(source_id, ra, dec, parallax)` and
   appended on miss. A full cold query of all 349,599 enriched rows (two batches, one per branch)
   took about 45 s including loading both maps, which is negligible next to the `σ_M̃2` MC. The slow
