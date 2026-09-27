@@ -29,6 +29,10 @@ over editing frozen cut thresholds.
 > (target 16) was re-measured against this rebuilt cache on `main` @ `a9397ba` (issue #270): 55,
 > previously 19** (§3.3.0). The only other §3.3 counts that moved are the two unions downstream of
 > it. Everything else in §3.3 is still at `c905575`.
+>
+> **§3.1.3's numbers (issue #280) were measured on `main` @ `2470fe5`** against that same rebuilt
+> cache, read-only, using a paired targeted MC. Its production-method variant reproduces the cache
+> exactly, and its fixed-M1 = 1.0 variant reproduces the `c905575` baseline exactly.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -152,6 +156,144 @@ Attrition, reproducing the documented shape exactly:
 between `c905575` and `f9603a3` touches the Andrews cut chain, so the rest of the waterfall above is
 carried forward unmeasured-but-unchanged.
 
+#### 3.1.3 #280 localization — the 63-vs-24 over-count comes from moving FLAME M1 into the selection step, not from M1 scatter
+
+**Provenance.** Measured 2026-09-27 on `main` @ `2470fe5`, in an isolated worktree
+(`../dark-hunter_pop-worktrees/andrews-overcount-280`, `PYTHONPATH` pointed at its `src/`, `data/`
+symlinked to the primary checkout's). The input was the §3.1.2 `+enrich+mc10000` cache, read-only.
+FLAME masses came from `data/dr3/gaia_snapshots/flame_enrichment/query.ecsv`, and the NSS solutions
+from `nss_enrichment/query.ecsv`. No cache was rebuilt, no production MC was run, and no config or
+frozen threshold was touched. The paper text below is from arXiv:2207.00680 (Andrews et al. 2022),
+§2 and the Table 1 footnote.
+
+**Method: a paired MC over the whole usable parent, not a subset.** For each of the 132,759
+Orbital sources that have a usable ensemble, the *same* 10⁴ full-covariance astrometric draws were
+propagated under several M1 inputs. Each source used the same per-source seed as
+`scripts/attach_mc_to_selection_cache.py`. Only the MC columns were substituted: `p_m2_above`,
+`m2_msun` and `sigma_m2_msun`/`m2_msun_error`. The frozen `andrews2022` chain was then re-run
+unchanged through `SampleSelectionRegistry(...).selection("andrews2022").evaluate`. The M1 inputs:
+
+- **A**: fixed M1 = 1.0 M☉ (the pre-#257 convention).
+- **B**: point M1 with no scatter. FLAME sources use their FLAME mass; fallback sources use 0.815 M☉,
+  the midpoint of `Uniform(0.63, 1.0)`.
+- **Bh**: as B, but fallback sources use 1.0 M☉.
+- **C**: the production per-draw M1 from `_resolve_primary_mass_draws`.
+
+A scratch-only vectorized Newton replaced `physics_utils.invert_astrometric_companion_mass`, which
+calls `np.roots` once per draw. For F = 0 the cubic has a unique positive root. Against the
+production solver, the maximum relative difference over 2×10⁴ random inputs was 5×10⁻¹⁶. This took
+the run from about 7 h to 5 min. **Validation:**
+
+- Variant C reproduces the cache exactly. The maximum `|p_C − p_cache|` is **0.0**, the maximum
+  `|m2_C − m2_cache|` is 4×10⁻⁹, and the waterfall is identical (1061/63).
+- Variant A reproduces the `c905575` fixed-M1 baseline exactly: 352 → 278 → 73 → 50 → 34 → **33**.
+
+"pub24" below is the set of Andrews et al. (2022) Table 1 source IDs, taken from the `A22` rows of
+`config/selections/external/elbadry2024_table3.yaml`. That set was cross-checked by eye against the
+paper's Table 1: 23 of 24 matched directly, and the 24th differed only by a digit transposition in
+the reading.
+
+| M1 variant | m2_probability → GoF → m2_snr → logg → CMD → final | Final: FLAME / fallback | pub24 retained |
+|---|---|---|---|
+| **A** fixed 1.0 | 352 → 278 → 73 → 50 → 34 → **33** | 14 / 19 | **24 / 24** |
+| **B** point M1, no scatter | 1092 → 701 → 424 → 101 → 72 → **71** | 58 / 13 | 20 / 24 |
+| **Bh** point M1, fallback at 1.0 | 1120 → 719 → 442 → 118 → 78 → **77** | 58 / 19 | 22 / 24 |
+| **C** production per-draw (= cache) | 1061 → 681 → 408 → 90 → 64 → **63** | 52 / 11 | 18 / 24 |
+| FLAME point, fallback per-draw | 1087 → 697 → 420 → 97 → 70 → 69 | 58 / 11 | 18 / 24 |
+| FLAME per-draw, fallback fixed 1.0 | 1094 → 703 → 430 → 111 → 72 → 71 | 52 / 19 | 22 / 24 |
+| FLAME fixed 1.0, fallback per-draw | 319 → 256 → 51 → 29 → 26 → 25 | 14 / 11 | 20 / 24 |
+
+**1. The widening hypothesis (§3.1.2) is refuted.** Compare the paired B and C runs, which use
+identical astrometric draws. **No source** crosses `P(M2 > 1.4) ≥ 0.95` because of M1 scatter.
+Scatter moves 31 sources the *other* way, from passing under B to failing under C (26 FLAME,
+5 fallback). M1 scatter therefore slightly *reduces* the count, from 1092 to 1061 and from 71 to 63
+final.
+
+**2. The over-count is a mean shift toward massive FLAME primaries.** Going from A to C,
+**747 sources gain** `p ≥ 0.95` and 38 lose it:
+
+- **All 747 gainers have FLAME M1 > 1.0 M☉.** Their FLAME masses have median **2.80 M☉**, with a
+  5–95% range of 1.66–4.70 M☉.
+- The 38 losers are 5 FLAME sources with M1 < 1 (0.61–0.88 M☉) and 33 fallback sources.
+
+At fixed m_f, M2 rises with M1, so a 2–3 M☉ primary clears 1.4 M☉ with a modest mass function.
+Of the 52 FLAME final survivors, **50 have FLAME M1 > 1.0**. Their FLAME masses run from 0.91 to
+3.29 M☉, median about 1.8.
+
+**3. FLAME vs fallback split (production C).**
+
+| After cut | N | FLAME | fallback |
+|---|---|---|---|
+| m2_probability | 1061 | 963 | 98 |
+| goodness_of_fit | 681 | 602 | 79 |
+| m2_snr | 408 | 395 | 13 |
+| giant_reject_logg | 90 | 77 | 13 |
+| giant_reject_cmd | 64 | 53 | 11 |
+| explicit_exclusions (final) | 63 | 52 | 11 |
+
+For comparison, 55.5% of the usable parent has FLAME. The **fallback range does not drive
+survivors**. Its upper edge is 1.0 M☉, so relative to the old baseline it can only *lower* M2:
+
+- Fallback sources gain nothing from A to C and lose 33.
+- Putting the fallback sources back at a fixed 1.0 M☉ (the "FLAME per-draw, fallback fixed 1.0" row)
+  moves the final count only from 63 to 71.
+
+Of the 11 fallback survivors, 6 pass `giant_reject_logg` only because they have no Apsis logg
+(`logg_apsis is None`). All 52 FLAME survivors have a logg, because FLAME needs GSP-Phot.
+
+**4. Paper text vs implementation. The main finding.** Andrews et al. (2022) §2 states that the
+106-candidate probability cut was made **assuming the luminous star is 1 M☉**, with a note that the
+assumption is improved later. The FLAME-or-uniform rule appears only in the **Table 1 footnote**, as
+the M1 used for the *reported* M2 of the final 24:
+
+- Apsis or UCO Lick spectroscopic masses get a 0.1 M☉ uncertainty.
+- Otherwise M1 is taken to lie between 0.63 and 1 M☉.
+
+#230's "ATF" rule therefore matches the paper's post-selection mass refinement, not its selection
+M1. #257 applied it to the selection cut itself. Consistent with that:
+
+- Fixed M1 = 1.0 retains **all 24** published sources at every cut.
+- The production FLAME/uniform method loses 6 of them:
+  - `5681911574178198400` (FLAME 0.73): p 0.997 → 0.296
+  - `747174436620510976` (FLAME 0.85): 1.000 → 0.638
+  - `4271998639836225920` (fallback): 1.000 → 0.663
+  - `1581117310088807552` (fallback): 1.000 → 0.903
+  - `1058875159778407808` (fallback): 1.000 → 0.921
+  - `5847919241396757888` (fallback): 0.972 → 0.901
+- It also admits 42 sources the paper never selected.
+
+The remaining line-by-line divergences are listed but not implemented:
+
+| Item | #230 text | Paper (§2, eq. 6, Table 1) | Implementation | Divergence |
+|---|---|---|---|---|
+| M1 for the probability cut | FLAME ±0.1, else U(0.63, 1.0) | **1 M☉** for the 106-cut. FLAME/Lick/U(0.63, 1) only for the final Table 1 masses | `flame_or_uniform_draw` at the selection step (schema_version 2, #257) | **Major.** This alone accounts for 33 → 63 and 352 → 1061. **Needs Ryan's decision** (below) |
+| Probability computation | not stated | 10⁴ MC draws of the full 12×12 covariance; P(M2 > 1.4) ≥ 95% | same | None. A point-estimate reading (MC-mean M2 > 1.4, no probability cut) is ruled out: 4760 → 248 final |
+| "M2 determined within 3σ" | stated, order unspecified | `M2/σ_M2 > 3`, applied **after** the probability and GoF cuts | `m2_snr` (`m2/σ > 3`), after `goodness_of_fit` | None. Order does not affect the final N of an AND chain. The alternative reading `M2 − 3σ > 1.4` is ruled out: 255 → 8 final, 2/24 retained |
+| Giant logg | "require log g > 3.6" | remove log g < 3.6 **only if Apsis measured log g** | `logg_apsis is None or logg_apsis >= 3.6` | None against the paper. #230's wording is a paraphrase. The source table (GSP-Phot only, no MSC) stays open per §3.1.1 |
+| CMD line | slope 11/3.5, intercept 9 − 3·slope | printed as `G > 3.14(BP−RP) − 0.43`, no extinction | `3.14`, `−0.43`, `extinction_corrected: false` | None against the published equation. The frozen values are **exactly** the paper's printed coefficients, which bears on #255 |
+| GoF, parent, exclusion | not mentioned | F2 < 5; 134,598 astrometric-only binaries; exclude `4373465352415301632` | same | None |
+
+**What stays unexplained at fixed M1 = 1.0**, which is paper-faithful for the selection:
+
+- `m2_probability` gives 352 against the published 106.
+- The final 33 is a strict superset of the published 24. The 9 extras are `534854721213752960`,
+  `875505688604417920`, `1100973226624010240`, `2092824730262458496`, `4390946762664086784`,
+  `5449026524561550464`, `5802723506661520512`, `5810797564142964224` and `6424213726885519744`.
+  Three of them pass the logg cut only as `logg_apsis is None`.
+
+This residual gap is the next thing to localize, and it is independent of M1.
+
+**Decision needed from Ryan (escalated, not made).** Ryan's #254 ruling put the FLAME/uniform M1
+into the `m2_probability` step (`andrews2022.yaml` schema_version 2). The paper text says that
+step used 1 M☉, and 1 M☉ retains all 24 published sources. Two choices:
+
+1. Revert the *selection* M1 to fixed 1.0 in a schema_version 3 bump. The FLAME/uniform rule would
+   then apply only to the post-selection refined M2, if at all.
+2. Keep the ruling and accept that the reproduction cannot match.
+
+No frozen file was edited here. Separately, the CMD evidence above suggests #255 can close with
+"frozen values match the paper as printed". That call is Ryan's too.
+
 #### 3.1.2 #257 landed — FLAME/uniform-draw M1 implemented, real measurement (supersedes reverted PR #266)
 
 Ryan Foley's ruling on #254 (2026-09-25/26): "Yes, update the selection to the Apsis / uniform M1
@@ -234,7 +376,8 @@ now carries either a FLAME-derived M1 with a fixed ±0.1 M☉ error or a much wi
 `m2_probability` is a right-tail probability `P(M2 > 1.4 M☉) ≥ 0.95`, adding substantial M1 variance
 can inflate that tail probability for many marginal systems even where the mean M2 estimate is lower
 than before. This is offered as a hypothesis for whoever picks up #254/#233 next, not as an
-explanation that resolves the gate.
+explanation that resolves the gate. **Tested in §3.1.3 (#280): refuted.** M1 scatter moves no source
+across the threshold and removes 31. The rise comes from the FLAME mean shift toward M1 > 1 M☉.
 
 **Escalating rather than retuning, per this ticket's explicit instruction and `CLAUDE.md`'s standing
 rule**: `m2_probability_min` (0.95) and `m2_threshold_msun` (1.4) in `config/selections/andrews2022.yaml`
