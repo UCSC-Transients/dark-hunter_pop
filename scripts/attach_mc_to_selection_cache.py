@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any
 
@@ -41,6 +42,49 @@ from darkhunter_pop.sample_selection import (
     _write_selection_parent_cache,
     load_sample_selection_file,
 )
+
+
+def _flame_value_lookup(
+    rows: Sequence[Mapping[str, Any]], flame_column: str
+) -> dict[tuple[int, str], Any]:
+    """``(source_id, nss_solution_type) -> flame_column`` value from the
+    FLAME-merged ``enrich_cache`` ``rows`` (#267).
+
+    ``main()``'s per-job payload for ``_mc_one`` is otherwise built entirely
+    from the separate, raw ``nss_enrichment`` ECSV (``enrich_table`` below),
+    which predates issue #257's FLAME join and has no ``mass_flame`` column
+    at all. That table is still the only source for ``corr_vec`` / K1 /
+    Thiele-Innes / etc., so it cannot simply be replaced -- but the FLAME
+    value on each already-loaded ``rows`` entry (preferring
+    ``…+enrich+flame`` when it exists, see ``main()``) must be folded back
+    in via :func:`_augment_job_payload_with_flame`, or it is silently
+    discarded before it reaches ``_resolve_primary_mass_draws`` and every
+    source falls back to the uniform draw regardless of whether it has a
+    real Gaia Apsis FLAME mass.
+    """
+    out: dict[tuple[int, str], Any] = {}
+    for row in rows:
+        sid_raw = row.get("source_id")
+        sol_raw = row.get("nss_solution_type")
+        if sid_raw is None or sol_raw is None:
+            continue
+        out[(int(sid_raw), str(sol_raw))] = row.get(flame_column)
+    return out
+
+
+def _augment_job_payload_with_flame(
+    enrich_cols: list[str],
+    vals: tuple[Any, ...],
+    flame_column: str,
+    flame_value: Any,
+) -> tuple[list[str], tuple[Any, ...]]:
+    """Append ``flame_column``/``flame_value`` onto a raw-enrichment job
+    payload (#267) so it actually reaches ``_mc_one`` /
+    ``_resolve_primary_mass_draws``, rather than the FLAME value being read
+    from the FLAME-merged cache for job enumeration and the coverage print
+    only, then dropped before the per-job payload is built.
+    """
+    return [*enrich_cols, flame_column], (*vals, flame_value)
 
 
 def _mc_one(payload: tuple[Any, ...]) -> tuple[int, dict[str, Any] | None]:
@@ -143,8 +187,10 @@ def main(argv: list[str] | None = None) -> int:
     primary_mass_dump = (
         primary_mass.model_dump(mode="json") if primary_mass is not None else None
     )
+    flame_column = "mass_flame"
+    if primary_mass is not None and primary_mass.flame_column:
+        flame_column = primary_mass.flame_column
     if primary_mass is not None and primary_mass.method == "flame_or_uniform_draw":
-        flame_column = primary_mass.flame_column or "mass_flame"
         n_with_flame = sum(
             1 for row in rows if isinstance(row.get(flame_column), (int, float))
         )
@@ -191,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         by_key[(sid, sol)] = vals
 
+    # #267: `enrich_table` above is the *raw* nss_enrichment fetch (corr_vec /
+    # K1 / Thiele-Innes / etc. needed by reconstruct_nss_covariance) and never
+    # carries `mass_flame` — only the separately-fetched, separately-merged
+    # `enrich_cache` (`rows`, preferring `+enrich+flame`) does. Fold that
+    # column into the same per-job payload here so it actually reaches
+    # `_mc_one` / `_resolve_primary_mass_draws`, instead of being loaded for
+    # job enumeration and the coverage print only and then silently dropped.
+    flame_by_key = _flame_value_lookup(rows, flame_column)
+
     types = set(args.types)
     jobs: list[tuple[Any, ...]] = []
     dr_dump = cfg.active_dr().model_dump(mode="json")
@@ -203,12 +258,15 @@ def main(argv: list[str] | None = None) -> int:
         vals = by_key.get((sid, sol))
         if vals is None:
             continue
+        enrich_cols_full, full_vals = _augment_job_payload_with_flame(
+            enrich_cols, vals, flame_column, flame_by_key.get((sid, sol))
+        )
         jobs.append(
             (
                 sid,
                 sol,
-                enrich_cols,
-                vals,
+                enrich_cols_full,
+                full_vals,
                 primary_mass_dump,
                 m2_thr,
                 int(mc.n_draws),
