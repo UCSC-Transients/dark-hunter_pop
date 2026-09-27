@@ -914,6 +914,42 @@ def default_sample_selection_entries() -> list[SampleSelectionEntry]:
     ]
 
 
+class DustMapFileSpec(BaseModel):
+    """One on-disk 3D dust map that a frozen selection file names by ``map:`` key (#258).
+
+    The *choice* of map (which hemisphere uses which map, and the split) is frozen
+    in the per-sample selection file; this block only says where the file lives on
+    this host and how the map's native line-of-sight integral converts to
+    ``E(B-V)``. Values live in ``config.yaml`` (no schema defaults — no hardcoded
+    physics).
+
+    ``path`` is resolved relative to ``paths.data_root`` unless absolute.
+    ``native_to_ebv`` multiplies the native integral to give ``E(B-V)``.
+    ``md5`` (optional) pins the exact published file; a mismatch refuses to load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., min_length=1)
+    native_to_ebv: float = Field(..., gt=0.0)
+    md5: str | None = None
+    provenance: str | None = None
+
+
+class DustMapsConfig(BaseModel):
+    """Host-side location + unit conversion of 3D dust maps (#258).
+
+    ``ebv_cache_dir`` (relative to ``paths.data_root`` unless absolute) holds the
+    per-source native-value cache, so ~440k map queries are paid once per
+    map/split fingerprint rather than once per evaluation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ebv_cache_dir: str = "dust_maps/ebv_cache"
+    maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
+
+
 class SampleSelectionConfig(BaseModel):
     """Pipeline registry for literature sample-selection functions (§12.1–§12.2).
 
@@ -927,6 +963,7 @@ class SampleSelectionConfig(BaseModel):
     samples: list[SampleSelectionEntry] = Field(
         default_factory=default_sample_selection_entries
     )
+    dust_maps: DustMapsConfig = Field(default_factory=DustMapsConfig)
 
     @model_validator(mode="after")
     def _unique_names_and_enabled_files(self) -> SampleSelectionConfig:

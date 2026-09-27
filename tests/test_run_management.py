@@ -610,8 +610,9 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     those modules pull in are also declared: physics_utils (imported by
     elbadry2026_selection.py and mc_mass_function.py for the AMRF/a0/M-tilde-2
     chain), sensitivity_analysis (imported by mc_mass_function.py), and
-    data_acquisition (imported directly by sample_selection.py). All eight
-    must feed source_hash.
+    data_acquisition (imported directly by sample_selection.py). #258 adds
+    dust_maps (imported by elbadry2026_selection.py for the frozen
+    extinction policy). All nine must feed source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -622,6 +623,7 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
         "darkhunter_pop.elbadry2026_m2_sigma",
         "darkhunter_pop.janssens_mass",
         "darkhunter_pop.elbadry2026_selection",
+        "darkhunter_pop.dust_maps",
         "darkhunter_pop.mc_mass_function",
         "darkhunter_pop.physics_utils",
         "darkhunter_pop.sensitivity_analysis",

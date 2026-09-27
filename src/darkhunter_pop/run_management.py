@@ -133,6 +133,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.elbadry2026_m2_sigma",
                 "darkhunter_pop.janssens_mass",
                 "darkhunter_pop.elbadry2026_selection",
+                "darkhunter_pop.dust_maps",
                 "darkhunter_pop.mc_mass_function",
                 "darkhunter_pop.physics_utils",
                 "darkhunter_pop.sensitivity_analysis",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -11,8 +12,17 @@ import yaml
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import (
     MainSequenceCutSpec,
+    PipelineConfig,
     SampleSelectionFile,
     Simon2026ExclusionBreakdown,
+)
+from darkhunter_pop.dust_maps import (
+    HEMISPHERE_NORTH,
+    HEMISPHERE_SOUTH,
+    USABLE_STATUSES,
+    DustMapError,
+    ExtinctionLookup,
+    ExtinctionStatus,
 )
 from darkhunter_pop.janssens_mass import invert_mg_to_mass, load_janssens_table
 from darkhunter_pop.physics_utils import (
@@ -66,13 +76,172 @@ def paper_m1_from_mg(
     return result.mass_msun
 
 
+#: Row column carrying the per-source ``E(B-V)`` used for El-Badry 2026's CMD.
+EBV_COLUMN = "ebv_elbadry2026"
+#: Row column naming the ``ExtinctionStatus`` of that lookup (``ok``, ...).
+EXTINCTION_STATUS_COLUMN = "extinction_status_elbadry2026"
+#: Row column naming the frozen map that supplied ``E(B-V)``.
+EXTINCTION_MAP_COLUMN = "extinction_map_elbadry2026"
+
+_A_G_KEY = "a_g_over_e_bv"
+_E_BP_RP_KEY = "e_bp_rp_over_e_bv"
+
+
+def extinction_coefficients(spec: SampleSelectionFile) -> tuple[float, float]:
+    """``(A_G/E(B-V), E(BP-RP)/E(B-V))`` from the frozen ``extinction.coefficients``."""
+    if spec.extinction is None:
+        raise ValueError(f"sample {spec.name!r} has no extinction block")
+    coeffs = spec.extinction.coefficients
+    missing = [k for k in (_A_G_KEY, _E_BP_RP_KEY) if k not in coeffs]
+    if missing:
+        raise ValueError(
+            f"sample {spec.name!r} extinction.coefficients missing {missing}"
+        )
+    return float(coeffs[_A_G_KEY]), float(coeffs[_E_BP_RP_KEY])
+
+
+def _finite_or_nan(value: Any) -> float:
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return float(value)
+    return float("nan")
+
+
+def _row_parallax(row: Mapping[str, Any]) -> float:
+    """Parallax behind ``abs_g_mag``: ``parallax_mas``, else NSS ``parallax``.
+
+    Mirrors ``sample_selection.candidate_to_selection_row``'s choice.
+    """
+    for key in ("parallax_mas", "parallax"):
+        value = _finite_or_nan(row.get(key))
+        if math.isfinite(value):
+            return value
+    return float("nan")
+
+
+def deredden_elbadry2026_rows(
+    rows: Sequence[Mapping[str, Any]],
+    spec: SampleSelectionFile,
+    lookup: ExtinctionLookup | None,
+) -> list[dict[str, Any]]:
+    """Apply El-Badry 2026's frozen extinction policy to raw ``abs_g_mag``/``bp_rp``.
+
+    ``mg_0 = abs_g_mag − (A_G/E(B-V))·E(B-V)`` and
+    ``bp_rp_0 = bp_rp − (E(BP-RP)/E(B-V))·E(B-V)``, with both coefficients from
+    the frozen ``extinction.coefficients`` block and ``E(B-V)`` from the frozen
+    hemisphere map via ``lookup``. Owned by El-Badry 2026 only: El-Badry 2024
+    and Andrews never call this.
+
+    A row already carrying :data:`EBV_COLUMN` (pre-computed, e.g. a fixture) is
+    dereddened with that value and not looked up. Every other row is looked
+    up; a row whose lookup is unusable (invalid parallax, no map pixel, bad
+    position) gets ``mg_0``/``bp_rp_0`` = ``NotApplicable("extinction_<status>")``
+    so the attrition waterfall reports it as not-applicable with that reason —
+    never silently passed through undereddened.
+
+    Raises ``DustMapError`` if any row needs a lookup and ``lookup`` is ``None``.
+    """
+    if spec.extinction is None:
+        raise ValueError(f"sample {spec.name!r} has no extinction block")
+    a_g, e_bp_rp = extinction_coefficients(spec)
+    out = [dict(row) for row in rows]
+    need = [i for i, row in enumerate(out) if EBV_COLUMN not in row]
+    if need:
+        if lookup is None:
+            raise DustMapError(
+                f"sample {spec.name!r}: {len(need)} rows need an E(B-V) lookup for "
+                "the frozen extinction policy but no ExtinctionLookup was supplied "
+                "(evaluate through SampleSelectionRegistry with a PipelineConfig, "
+                f"or pre-compute {EBV_COLUMN!r}) — refusing to evaluate "
+                "undereddened photometry"
+            )
+        ebv, status, hemi = lookup.ebv_for(
+            [int(out[i]["source_id"]) for i in need],
+            [_finite_or_nan(out[i].get("ra_deg")) for i in need],
+            [_finite_or_nan(out[i].get("dec_deg")) for i in need],
+            [_row_parallax(out[i]) for i in need],
+        )
+        legs = {
+            HEMISPHERE_NORTH: spec.extinction.north.map,
+            HEMISPHERE_SOUTH: spec.extinction.south.map,
+        }
+        for j, i in enumerate(need):
+            code = ExtinctionStatus(int(status[j]))
+            out[i][EXTINCTION_STATUS_COLUMN] = code.name.lower()
+            out[i][EXTINCTION_MAP_COLUMN] = legs.get(int(hemi[j]))
+            if int(code) in USABLE_STATUSES:
+                out[i][EBV_COLUMN] = float(ebv[j])
+            else:
+                out[i][EBV_COLUMN] = NotApplicable(f"extinction_{code.name.lower()}")
+    for row in out:
+        ebv_value = row[EBV_COLUMN]
+        row.setdefault(EXTINCTION_STATUS_COLUMN, "precomputed")
+        if isinstance(ebv_value, NotApplicable):
+            row["mg_0"] = ebv_value
+            row["bp_rp_0"] = ebv_value
+            continue
+        ebv_f = float(ebv_value)
+        row["mg_0"] = _finite_or_nan(row.get("abs_g_mag")) - a_g * ebv_f
+        row["bp_rp_0"] = _finite_or_nan(row.get("bp_rp")) - e_bp_rp * ebv_f
+    return out
+
+
+def build_elbadry2026_extinction_lookup(
+    spec: SampleSelectionFile,
+    config: PipelineConfig,
+    *,
+    repo: Path | None = None,
+) -> ExtinctionLookup | None:
+    """Lazy ``E(B-V)`` provider for El-Badry 2026's frozen extinction block.
+
+    Returns ``None`` when the spec has no extinction block. No map file is
+    opened until a cache miss forces a query. ``paths.data_root`` anchors the
+    configured map paths and the per-source cache.
+    """
+    if spec.extinction is None:
+        return None
+    root = repo if repo is not None else repo_root()
+    data_root = Path(config.paths.data_root)
+    if not data_root.is_absolute():
+        data_root = root / data_root
+    return ExtinctionLookup(
+        spec.extinction,
+        config.sample_selection.dust_maps,
+        data_root=data_root,
+        cache_tag=spec.name,
+    )
+
+
+def extinction_status_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """Funnel summary: how many rows got each extinction outcome."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        status = row.get(EXTINCTION_STATUS_COLUMN)
+        if status is None:
+            continue
+        counts[str(status)] = counts.get(str(status), 0) + 1
+    return counts
+
+
 def enrich_elbadry2026_row(
     row: Mapping[str, Any],
     spec: SampleSelectionFile,
 ) -> dict[str, Any]:
-    """Catalog-level derived columns used by the frozen cut chain."""
+    """Catalog-level derived columns used by the frozen cut chain.
+
+    Expects ``mg_0``/``bp_rp_0`` already dereddened by
+    :func:`deredden_elbadry2026_rows` (the registry path does this). A
+    ``NotApplicable`` ``mg_0`` (unusable extinction lookup) propagates to
+    ``main_sequence`` and the mass columns with its reason.
+    """
     out = dict(row)
     ms_cut = spec.main_sequence_cut
+    mg_na = out.get("mg_0")
+    if ms_cut is not None and isinstance(mg_na, NotApplicable):
+        out["main_sequence"] = mg_na
+        out["m1_tilde_msun"] = mg_na
+        out["m2_tilde_msun"] = mg_na
+        out["amrf"] = mg_na
+        ms_cut = None
     if ms_cut is not None:
         mg_0 = float(out.get("mg_0", float("nan")))
         color = float(out.get("bp_rp_0", float("nan")))
