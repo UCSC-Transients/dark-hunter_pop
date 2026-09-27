@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import math
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -62,6 +63,8 @@ from darkhunter_pop.schemas import (
 
 if TYPE_CHECKING:
     from darkhunter_pop.config_schema import SpectroscopicMassFunctionConfig
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION: Final[int] = 1
 EXPLICIT_EXCLUSIONS_CUT_ID: Final[str] = "explicit_exclusions"
@@ -283,7 +286,11 @@ class SampleSelection:
         *,
         mode: SampleSelectionMode,
         dr_mode: ActiveDRMode = ActiveDRMode.DR3,
+        extinction_lookup: Any | None = None,
     ) -> None:
+        """``extinction_lookup`` (``dust_maps.ExtinctionLookup``) supplies
+        per-source ``E(B-V)`` for samples whose enrichment dereddens (El-Badry
+        2026). It is only consulted for rows that need enrichment."""
         if spec.branches:
             pass
         elif spec.parent_query is None or spec.cuts is None:
@@ -295,6 +302,9 @@ class SampleSelection:
         self.mode = mode
         self.dr_mode = dr_mode
         self.mass_source = mass_source_for_mode(mode)
+        self.extinction_lookup = extinction_lookup
+        #: Per-outcome counts from the last dereddening pass (funnel report).
+        self.extinction_status_counts: dict[str, int] = {}
 
     def parent_adql(self) -> str:
         """Literal parent-catalog ADQL for the active data release (§4.5)."""
@@ -383,7 +393,11 @@ class SampleSelection:
         from darkhunter_pop.elbadry2026_m2_sigma import (
             clear_non_elbadry_m2_astrometric_sigma,
         )
-        from darkhunter_pop.elbadry2026_selection import enrich_elbadry2026_row
+        from darkhunter_pop.elbadry2026_selection import (
+            deredden_elbadry2026_rows,
+            enrich_elbadry2026_row,
+            extinction_status_counts,
+        )
 
         relevant_types: set[str] = set()
         if self.spec.branches:
@@ -393,8 +407,37 @@ class SampleSelection:
                 )
                 relevant_types.update(parent.solution_types)
 
+        # Rows that need enrichment (relevant solution type, not pre-enriched)
+        # are dereddened in one vectorized batch first (#258): the frozen
+        # extinction block is applied here, per sample, never globally.
+        to_enrich = [
+            i
+            for i, row in enumerate(rows)
+            if not (
+                relevant_types
+                and str(row.get("nss_solution_type", "")) not in relevant_types
+            )
+            and "main_sequence" not in row
+        ]
+        dereddened: dict[int, Mapping[str, Any]] = {}
+        if to_enrich and self.spec.extinction is not None:
+            batch = deredden_elbadry2026_rows(
+                [rows[i] for i in to_enrich], self.spec, self.extinction_lookup
+            )
+            dereddened = dict(zip(to_enrich, batch))
+            batch_counts = extinction_status_counts(batch)
+            for key, value in batch_counts.items():
+                self.extinction_status_counts[key] = (
+                    self.extinction_status_counts.get(key, 0) + value
+                )
+            logger.info(
+                "sample %s extinction outcomes (this batch): %s",
+                self.spec.name,
+                batch_counts,
+            )
+
         out: list[Mapping[str, Any]] = []
-        for row in rows:
+        for i, row in enumerate(rows):
             sol = str(row.get("nss_solution_type", ""))
             if relevant_types and sol not in relevant_types:
                 out.append(row)
@@ -402,7 +445,7 @@ class SampleSelection:
             if "main_sequence" in row:
                 enriched = dict(row)
             else:
-                enriched = enrich_elbadry2026_row(row, self.spec)
+                enriched = enrich_elbadry2026_row(dereddened.get(i, row), self.spec)
             # Strip Andrews-aliased σ before subsample cuts that need σ_M̃2.
             out.append(clear_non_elbadry_m2_astrometric_sigma(enriched))
         return out
@@ -422,6 +465,7 @@ class SampleSelection:
         """
         dep_membership = dict(membership or {})
         dep_membership.update(self._external_membership())
+        self.extinction_status_counts = {}
         if self.spec.branches:
             # Enrich per branch after solution-type filter (not on full NSS).
             return self._evaluate_branched(list(rows), dep_membership)
@@ -1257,6 +1301,7 @@ class SampleSelectionRegistry:
             self.cfg = config
             self.dr_mode = ActiveDRMode.DR3
         self.repo = repo if repo is not None else repo_root()
+        self._lookups: dict[str, Any] = {}
         self._raw_files = (
             dict(files_by_name) if files_by_name is not None else self._load_raw_files()
         )
@@ -1307,9 +1352,41 @@ class SampleSelectionRegistry:
         entry = next((e for e in self.cfg.samples if e.name == name), None)
         if entry is None:
             raise SampleSelectionError(f"sample {name!r} is not in the registry")
+        spec = self.resolved(name)
         return SampleSelection(
-            self.resolved(name), mode=entry.mode, dr_mode=self.dr_mode
+            spec,
+            mode=entry.mode,
+            dr_mode=self.dr_mode,
+            extinction_lookup=self._extinction_lookup(spec),
         )
+
+    def _extinction_lookup(self, spec: SampleSelectionFile) -> Any | None:
+        """Lazy ``E(B-V)`` provider for samples whose enrichment dereddens.
+
+        Only samples with both a frozen ``extinction`` block **and** a
+        ``main_sequence_cut`` (El-Badry 2026's CMD) consume extinction; El-Badry
+        2024's extinction block is documented but not applied by this pipeline,
+        and Andrews has none. Needs a ``PipelineConfig`` for map paths; without
+        one, rows needing a lookup raise at evaluation time.
+        """
+        if (
+            self.pipeline is None
+            or spec.extinction is None
+            or spec.main_sequence_cut is None
+        ):
+            return None
+        cached = self._lookups.get(spec.name)
+        if cached is None:
+            # Circular-dep exception: elbadry2026_selection ↔ sample_selection.
+            from darkhunter_pop.elbadry2026_selection import (
+                build_elbadry2026_extinction_lookup,
+            )
+
+            cached = build_elbadry2026_extinction_lookup(
+                spec, self.pipeline, repo=self.repo
+            )
+            self._lookups[spec.name] = cached
+        return cached
 
     def evaluation_order(self) -> list[str]:
         enabled = {entry.name for entry in self.enabled_entries()}

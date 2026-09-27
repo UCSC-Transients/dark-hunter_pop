@@ -262,6 +262,34 @@ sample_selection:
     enabled: false
     path: config/selections/accel_jerk.yaml
     mode: forward_model
+  # 3D dust maps named by frozen selection-file `extinction:` blocks (#258).
+  # Map CHOICE and split live in the frozen files; this only locates the files on
+  # this host (relative to paths.data_root) and converts each map's native
+  # line-of-sight integral to E(B-V). Consumed by El-Badry 2026 only.
+  dust_maps:
+    ebv_cache_dir: dust_maps/ebv_cache
+    maps:
+      green2019:
+        # Bayestar19, Harvard Dataverse doi:10.7910/DVN/2EJ9TX file 1CUGA1 — the
+        # same file mwdust.Green19 downloads (md5 verified against Dataverse).
+        path: dust_maps/green2019/bayestar2019.h5
+        md5: ab815d2fd3068d1b81a1bd61fb18a722
+        # Native Bayestar19 units → SFD-scale E(B-V): 0.884 (Green et al. 2018/2019
+        # with the Schlafly & Finkbeiner 2011 recalibration). El-Badry 2026 does not
+        # state its conversion; PENDING PI CONFIRMATION (#258).
+        native_to_ebv: 0.884
+        provenance: "Green et al. 2019, ApJ 887, 93; E(B-V)=0.884 x Bayestar19"
+      lallement2019:
+        # Lallement et al. 2019, A&A 625, A135; VizieR J/A+A/625/A135
+        # map3D_GAIAdr2_feb2019.h5 (native: integrated A0 at 5500 A, mag).
+        # md5 of the decompressed file as downloaded from CDS on 2026-09-27
+        # (map3D_GAIAdr2_feb2019.h5.gz, 24-May-2019); CDS publishes no checksum.
+        path: dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5
+        md5: e9262125307831a4a90b394e3b71f213
+        # A0 → E(B-V) = A0 / R_V with R_V = 3.1. El-Badry 2026 does not state its
+        # conversion; PENDING PI CONFIRMATION (#258).
+        native_to_ebv: 0.3225806451612903
+        provenance: "Lallement et al. 2019; E(B-V)=A0/3.1"
 spuriousness_model:
   enabled: true
   path: config/spuriousness_model.yaml
