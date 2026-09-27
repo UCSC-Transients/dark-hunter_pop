@@ -45,9 +45,9 @@ produce a number that matches and means nothing.
 **Who fixes these.** Wave −1 measured them; **Wave A owns closing them** (`EXECUTION_PLAN.md` §7).
 
 Related issues: **#132** (NSS enrichment / K1 — largely unblocked), **#133** (`primary_ns_bh` 42 ≠ 47;
-extinction / `a0` / nsstools, Q7), **#258** (extinction root cause confirmed — dead `ExtinctionSpec`,
-never wired up — real fix blocked on missing Green2019/Lallement2019 map data and laptop disk space;
-see §3.3.1).
+extinction / `a0` / nsstools, Q7), **#258** (extinction root cause was a dead `ExtinctionSpec`; now fixed with the
+real Green2019/Lallement2019 maps — spectroscopic branch 151 exact, `primary_ns_bh` 46; see §3.3 /
+§3.3.1).
 
 ---
 
@@ -61,6 +61,9 @@ see §3.3.1).
 | Enrich-only parent cache | `…/20260826T234425Z_3d3f740b080c+enrich/selection_parent_rows.h5` | 691 MB; no Andrews `p_m2_above`; untouched by #257 |
 | Enrich+FLAME cache (#257) | `…/20260826T234425Z_3d3f740b080c+enrich+flame/selection_parent_rows.h5` | 733 MB; `+enrich` plus `mass_flame`/`_upper`/`_lower` merged in (`scripts/merge_flame_enrichment_into_cache.py`), non-destructively — `+enrich` itself is never modified |
 | Enrich+Andrews-MC cache | `…/20260826T234425Z_3d3f740b080c+enrich+mc10000/selection_parent_rows.h5` | 800 MB; 443,211 rows; rebuilt 2026-09-27 (~5h39m, 8 workers, `elapsed_s=20355.3`) against `+enrich+flame` under the `flame_or_uniform_draw` M1 method (#230/#257), with #269's per-job-payload fix in place — **superseded the earlier fixed-`M1=1.0` build and the invalid 2026-09-26 no-op build (#267/#268) this file used to hold**. **This is the one §3 is measured on now.** |
+| Green2019 map (#258) | `data/dust_maps/green2019/bayestar2019.h5` | **Symlink** to the `dustmaps` package copy (727,902,836 bytes, md5 `ab815d2fd3068d1b81a1bd61fb18a722` = Dataverse `2EJ9TX/1CUGA1`); also linked at `~/.mwdust/green19/` for the `mwdust` cross-check test |
+| Lallement2019 map (#258) | `data/dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5` | 809 MB; VizieR `J/A+A/625/A135`, downloaded 2026-09-27, md5 `e9262125307831a4a90b394e3b71f213` |
+| El-Badry 2026 `E(B-V)` cache (#258) | `data/dust_maps/ebv_cache/elbadry2026_9c8c2ef40427995c.h5` | Native per-source map integrals for 349,594 keys, keyed `(source_id, ra, dec, parallax)`; built automatically on first evaluation (~45 s cold) |
 
 Rebuilding the Andrews MC cache is a multi-hour job and should not be done unless a landed change
 actually invalidates it:
@@ -319,39 +322,74 @@ be re-measured by whoever next works the El-Badry 2024 path. The catalog path do
 
 ### 3.3 El-Badry et al. (2026)
 
-| Check | Target | Previous (`5725e54`) | **`main` @ `c905575`** | Gate |
-|-------|--------|----------------------|------------------------|------|
-| Published union | 227 | inflated (astro-dominated) | **1085** | FAIL |
-| Astrometric branch union | 76 | 913 | **913** | FAIL |
-| Spectroscopic branch | 151 | 123 | **123** | FAIL — no code bug found; binding matches spec exactly (§3.3.2). Same unfixed extinction mechanism as `primary_ns_bh` (#133/#258) — Combined19 diagnostic (non-landed) closes the gap: 123→154 |
-| `primary_ns_bh` | 47 | 42 | **42** | FAIL — **#133**, extinction / `a0` (nsstools vs Thiele–Innes) |
-| `elbadry2023_table_e1` | 5 | 5 | **5** | **OK** — exact match holds |
-| `andrews2022_import` | 16 | 19 (`c905575`/`63c6f53`, fixed-`M1=1.0` Andrews membership, N=33) | **55** (re-measured `main` @ `a9397ba`, #270, against the FLAME/uniform-draw `+enrich+mc10000` cache, `mtime` 2026-09-27 02:18:53; Andrews membership N=63) — equals §3.1.2's Q9 count exactly (same source-ID set) — see §3.3.0 | FAIL until Andrews and Q9 close |
-| `sub_chandrasekhar` | 22 | 861 | **861** | FAIL — see the waterfall below |
-| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | **98 / 30 / 5** | FAIL — Combined19 diagnostic (non-landed, §3.3.2): 141 / 30 / 17 |
-| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | **5 / 2 / 1 / 0** (+1 unclassified) | FAIL last slot — diagnosed (#133-linked), not fixed — §3.4. Re-check attempted under #234 with `primary_ns_bh`-only membership (incomplete methodology — see §3.3.2); full-union re-measurement not completed this session |
+**Re-measured with the real frozen extinction policy (#258)** — Green2019 (Bayestar19) for
+`dec_deg > -28`, Lallement 2019 for `dec_deg <= -28`, `A_G/E(B-V)=2.66`, `E(BP-RP)/E(B-V)=1.33`,
+now actually applied (`dust_maps.py` + `elbadry2026_selection.deredden_elbadry2026_rows`; §3.3.1).
+Provenance: branch `feat/elbadry2026-extinction-258` @ `1058e29` (= `main` @ `a9397ba` + the #258
+commits), isolated worktree, `PYTHONPATH` → worktree `src/`, cache `…+enrich+mc10000` (443,211 rows,
+the FLAME/uniform-draw rebuild §3.3.0 used), full `SampleSelectionRegistry.evaluate_all`. The
+"undereddened" column is the **same code and cache** with `E(B-V)=0` forced on every row — it
+reproduces the `c905575`/`a9397ba` (#270) numbers exactly, so every change in the last column is the
+extinction correction and nothing else.
 
-`primary_ns_bh` attrition:
+| Check | Target | `main` @ `c905575` | Undereddened @ `1058e29` | **Real maps @ `1058e29` (#258)** | Gate |
+|-------|--------|--------------------|--------------------------|----------------------------------|------|
+| Published union (`n_surviving`, non-unique) | 227 | 1085 | 1119 (1067 distinct) | **1565** (1504 distinct) | FAIL — driven by `sub_chandrasekhar` |
+| Astrometric branch union | 76 | 913 | 946 | **1356** | FAIL |
+| Spectroscopic branch | 151 | 123 | 123 | **151** | **OK** — exact match |
+| `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
+| `elbadry2023_table_e1` | 5 | 5 | 5 | **5** | **OK** — unchanged |
+| `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
+| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1) |
+| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
+| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | FAIL last slot — full-union membership this time (§3.4) |
+
+Extinction outcomes over the 349,599 El-Badry 2026 rows that were enriched (both branches):
+`ok` 318,964 · `beyond_map_limit` 30,446 (Lallement cube boundary or past the last Bayestar node;
+integral to the limit is used and counted) · `invalid_parallax` 189 (now `NotApplicable
+("extinction_invalid_parallax")` on `main_sequence`/`M̃1`, not silently undereddened). No source
+fell outside a map footprint (Bayestar covers all of `dec > -28`).
+
+`primary_ns_bh` attrition (real maps):
 
 ```
-168065 → 137696 (main_sequence) → 499 (m2_floor) → 85 (m2_over_m1)
-       → 77 (goodness_of_fit) → 55 (period) → 42 (g_mag)        [target 47]
+168065 → 147560 (main_sequence) → 1052 (m2_floor) → 91 (m2_over_m1)
+       → 82 (goodness_of_fit) → 59 (period) → 46 (g_mag)        [target 47]
 ```
 
-`sub_chandrasekhar` attrition:
+Undereddened for comparison: `168065 → 137696 → 499 → 85 → 77 → 55 → 42`. Versus the undereddened
+set, 7 sources join (`465093354131112960, 1748901959855337472, 2010172929375186304,
+2278534305772981504, 4099356347737522432, 5954343888087990656, 6037767138131854592`) and 3 leave
+(`1998863902528338304, 2080945469200565248, 6742294434981881728`).
+
+`sub_chandrasekhar` attrition (real maps):
 
 ```
-168065 → 137696 (main_sequence) → 1908 (m2_range 1.05–1.40)
-       → 1161 (m2_error σ ≤ 0.105; 735 fail, 12 missing σ) → 868 (period ≤ 900 d)
-       → 861 (G < 15)                                            [target 22]
+168065 → 147560 (main_sequence) → 3043 (m2_range 1.05–1.40)
+       → 1687 (m2_error σ ≤ 0.105; 1341 fail, 15 missing σ) → 1275 (period ≤ 900 d)
+       → 1265 (G < 15)                                            [target 22]
 ```
 
-Spectroscopic branch: `181534 → 133642 (k1_significance) → 123 (mass_route, 84090 N/A)`.
+Spectroscopic branch (real maps): `181534 → 133642 (k1_significance) → 151 (mass_route, 78839 N/A)`.
 
-The diagnosis is unchanged, and worth restating because it determines where Wave A should look: fixing
-the σ binding removed the Andrews pollution but did **not** recover N = 22. The mass window is already
-**1908** wide before the σ cut is applied at all, so the σ cut is second-order. Escalate the
-point-estimate `M̃2` / `a0` / extinction / main-sequence-CMD chain — **not** the 0.105 threshold.
+**Unit-conversion sensitivity (not the landed config).** El-Badry 2026 does not state how it converts
+either map to `E(B-V)`. The landed config uses `E(B-V) = 0.884 × Bayestar19` and `E(B-V) = A0/3.1`,
+both flagged in `config.yaml` as pending PI confirmation. Re-running El-Badry 2026 alone with the
+Bayestar factor set to 1.0 (raw Bayestar units as `E(B-V)`, the `mwdust` / #232-diagnostic convention),
+same SHA and membership: `primary_ns_bh` 45, spectroscopic 150, routes 134 / 30 / 14,
+`sub_chandrasekhar` 1313, astrometric union 1403, Simon unchanged. The conversion choice moves the
+counts by a few; it does not change any conclusion.
+
+The σ-cut diagnosis still stands: `sub_chandrasekhar`'s `M̃2` window is now **3043** wide before the
+σ cut. Dereddening moves more sources onto the main sequence (137,696 → 147,560) and brightens
+`MG,0`, which raises the Janssens `M̃1` and hence `M̃2`. Escalate the point-estimate `M̃2` / `a0` /
+AMRF chain (#133 Q7 remainder, #237) — **not** the 0.105 threshold, and not the extinction policy.
+
+Peak RSS for the full real-map `evaluate_all`: **11.6 GB** (`/usr/bin/time -l`, 2185 s). That is above
+the ~8.7–8.8 GiB end-to-end figure in §5.6 of `EXECUTION_PLAN.md`: the two maps add about 3 GB
+(Bayestar19 `best_fit` ≈ 2 GB, the Lallement cube ≈ 0.9 GB) on top of the row set. The cost is only
+paid on a cache miss; once `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5` exists, no map is
+loaded.
 
 ### 3.3.0 `andrews2022_import` re-measurement after the Andrews FLAME rebuild (#270)
 
@@ -416,7 +454,52 @@ cross-match / multi-solution duplicate-`source_id` question already tracked in #
 something new from #270. It is noted so that nobody compares 1119 against the published 227 as if it
 counted unique sources.
 
-### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix blocked
+### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix landed (#258)
+
+**Update (#258): the frozen policy is now applied, with the real maps.** The PI authorized acquiring
+the maps once disk space allowed. What was done:
+
+- **Green2019 (north).** The Bayestar19 file was already on disk from the separate `dustmaps` package
+  (`…/site-packages/dustmaps/data/bayestar/bayestar2019.h5`). Its md5 `ab815d2f…a722` equals the
+  Harvard Dataverse checksum for `doi:10.7910/DVN/2EJ9TX/1CUGA1`, which is the exact URL
+  `mwdust.Green19.download()` fetches. It is the same file, with the same HDF5 layout (`pixel_info`,
+  `best_fit`, `samples`), so it was **symlinked**, not copied or re-downloaded, into both
+  `data/dust_maps/green2019/bayestar2019.h5` (the pipeline's configured path) and
+  `~/.mwdust/green19/bayestar2019.h5` (used only by the `slow` cross-check test against
+  `mwdust.Green19`). No new dependency: `dust_maps.Bayestar2019Map` is a small vectorized reader that
+  reuses `mwdust.util.healpix.ang2pix` and reproduces `mwdust.Green19` to `rtol 1e-5` inside the grid.
+  It does not use `mwdust.Green19` directly because that class reads its path from the `DUST_DIR`
+  environment variable at import time rather than from config, and it evaluates sources in a
+  per-source Python loop.
+- **Lallement2019 (south).** No maintained Python package ships a reader (`mwdust` has none, and
+  `dustmaps` has Leike/Edenhofer/Chen but not Lallement 2019). The published cube *is* obtainable:
+  VizieR `J/A+A/625/A135`, `map3D_GAIAdr2_feb2019.h5.gz` (772 MB compressed, 809 MB decompressed;
+  the alternative `STILISM_cube.fits.gz` is 1.5 GB). It was downloaded to
+  `data/dust_maps/lallement2019/` (md5 `e9262125…f213`, pinned in config; disk went from 12 GiB to
+  14 GiB free over the session because of other cleanup — never below the 5 GiB floor). Layout:
+  `stilism/cube_datas`, `(1201, 1201, 161)` float32 `dA0/ds` in mag pc⁻¹, 5 pc voxels, Sun at voxel
+  centre `[600.5, 600.5, 80.5]` → ±3 kpc in X/Y and ±400 pc in Z. `dust_maps.Lallement2019Map`
+  integrates `A0` along the sightline with trilinear interpolation. A source beyond the cube gets the
+  integral to the boundary and is counted as `beyond_map_limit`. **No substitute map was used.**
+- **Wiring.** `elbadry2026_selection.deredden_elbadry2026_rows` applies `mg_0 = abs_g_mag − 2.66·E(B−V)`
+  and `bp_rp_0 = bp_rp − 1.33·E(B−V)`. Both coefficients are read from the frozen block. `E(B-V)` comes
+  from the frozen hemisphere map. The call happens inside El-Badry 2026's enrichment, which is gated
+  on the sample having both `extinction` **and** `main_sequence_cut`. El-Badry 2024 (whose file
+  names Lallement 2022 at δ = −30°) and Andrews therefore never deredden; a test pins this.
+  `candidate_to_selection_row` is unchanged. Its `mg_0 = abs_g_mag` alias is still what those samples
+  see, and El-Badry 2026 overwrites it from the raw columns. Map locations and native→`E(B-V)`
+  conversions (`0.884` for Bayestar19, `1/3.1` for `A0`) are config (`sample_selection.dust_maps`),
+  **not** the frozen file. The conversions are not stated by the paper and are flagged pending PI
+  confirmation; the §3.3 sensitivity run bounds their effect.
+- **Caching.** Native per-source integrals are cached at
+  `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5`. The fingerprint covers the split, the map
+  identities (md5) and the reader version, but not the unit conversions, so revising a conversion
+  factor does not invalidate the cache. The cache is keyed per `(source_id, ra, dec, parallax)` and
+  appended on miss. A full cold query of all 349,599 enriched rows (two batches, one per branch)
+  took about 45 s including loading both maps, which is negligible next to the `σ_M̃2` MC. The slow
+  part of the #232 Combined19 diagnostic was `mwdust`'s per-source loop, not the maps.
+
+The rest of this subsection is the pre-fix record, kept for provenance.
 
 **Root cause, confirmed by direct code inspection, not just symptom:** `config/selections/
 elbadry2026.yaml`'s `extinction:` block (Green2019 north / Lallement2019 south, split at
@@ -467,6 +550,11 @@ space allows vs. accept a documented, schema-bumped approximation vs. treat `sub
 a separately-rooted problem) rather than guessing at it here.
 
 ### 3.3.2 Spectroscopic-branch binding audit (#234) — no code bug found, same root cause as #133/#258
+
+**Update (#258):** with the real frozen maps applied (§3.3.1), the spectroscopic branch is **151,
+an exact match**. Routes are 132 / 30 / 11 against 136 / 30 / 15: the total is right and the route
+split is 4 off in each overlapping bucket. The `f_m > 3` route stays at 30, as it should. The
+conclusion below stands: no spectroscopic-branch bug, the gap was extinction.
 
 **Traced the full `mass_route`/main-sequence/`m2_min` chain at `main` @ `31ad1f2`, against the same
 `+enrich+mc10000` cache, isolating just the spectroscopic branch's own cuts (bypassing the expensive
@@ -544,6 +632,27 @@ should redo the full-union version; the isolated-branch harness used here (bypas
 
 ### 3.4 Simon 2026 exclusion breakdown
 
+**Update (#258): re-measured with the full-union membership that #234 left incomplete**, using the
+real frozen maps on `1058e29`. `sample_ids` was the whole El-Badry 2026 survivor set (1565 entries,
+astrometric ∪ spectroscopic, §3.3). Result: **5 / 2 / 1 / 0 (+1 unclassified), `in_sample` 11** —
+identical to the pre-fix breakdown and to the same run with `E(B-V)=0`. Per-source detail for the
+two swap sources below, after dereddening:
+
+- `1864406790238257536` (north, Green2019): `E(B-V)=0.411` moves it from `mg_0 = 1.077,
+  bp_rp_0 = 0.844` (evolved) to `mg_0 = −0.018, bp_rp_0 = 0.297`. It is now `main_sequence = True`,
+  but the Janssens inversion at `MG,0 ≈ 0` gives `M̃1 = 3.88`, so `M̃2 = 2.13` and
+  `M̃2/M̃1 = 0.55 < 1.2`. It still drops out of `primary_ns_bh`, now via the `m2_over_m1` cut instead
+  of the evolved gate. The paper has `m2_over_m1 = 5.08`, which implies a far smaller `M̃1`. Either
+  the paper's reddening toward this source is much lower than Bayestar19's 0.41 (× 0.884), or it
+  treats `M̃1` differently at the bright end. This is a real per-source discrepancy to chase; it is
+  not a tuning knob.
+- `3263804373319076480` (north): `E(B-V)=0.088`, `mg_0 = 4.104`, `M̃1 = 1.17`, `M̃2 = 2.93`. It is
+  still in the sample. As §3.4 already said, this one is the `a0`/AMRF chain (`M̃2` ≈4× the paper),
+  not extinction.
+
+So extinction alone does not close the Simon last slot. The remaining swap is the `a0`/AMRF chain
+(#133 Q7 remainder) plus the bright-end `M̃1` behaviour for `1864406790238257536`.
+
 Re-measured at `eb009d8` (post Wave −1, ahead of Wave A) via
 `sample_diagnostics.run_simon2026_diagnostic`/`elbadry2026_selection.simon2026_exclusion_breakdown`,
 fed the real `elbadry2026` `sample_selection` stage output (`surviving_source_ids`, 1088 rows — the
@@ -618,10 +727,10 @@ different shape.
 | Andrews 352 after `P(M2)` vs 106 | Our full-cov MC ≠ the paper's attrition (packing / floors / prefilters) | Escalate; don't edit 0.95 |
 | `sub_chandrasekhar` 0 | Pre-reconciliation branch state, before `σ_M̃2` bound | Historical; resolved |
 | `sub_chandrasekhar` 740 | Andrews `σ` aliased into `sigma_m2_astrometric_msun` | Fixed; on `main` since `03a452a` |
-| `sub_chandrasekhar` 861 (current) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | **Not extinction** (#258: Combined19 diagnostic makes this worse, 861→1399) — look at `a0`/AMRF or #237's open multi-solution question instead |
-| `primary_ns_bh` 42 ≠ 47 | **Confirmed**: `ExtinctionSpec` parsed but never applied — `mg_0`/`bp_rp_0` are raw, un-dereddened `abs_g_mag`/`bp_rp` (dead code, not the `a0` method — Q7 already ruled that out). Combined19 diagnostic closes ~80% of the gap (42→46) | #133, #258; real fix needs Green2019/Lallement2019 map data, blocked on disk space — §3.3.1 |
-| Spectro 123 ≠ 151 | **Confirmed (#234)**: binding matches spec exactly (K1 sig + mass_route both bit-for-bit `CONTINUATION_PLAN.md` §8.4); the gap is the same undereddened `mg_0`/`bp_rp_0` → `main_sequence` chain as `primary_ns_bh`. Combined19 diagnostic closes it fully (123→154, target 151) | Same root cause as #133/#258; not a spectroscopic-branch-specific bug — §3.3.2 |
-| Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap via `mg_0`/`a0` chain — `1864406790238257536` wrongly `evolved` (unextincted `mg_0`), `3263804373319076480` wrongly clears `m2_over_m1` (AMRF `M̃2` ≈4x paper) | Same root cause as #133; fix there, not by editing `elbadry2026_selection.py` |
+| `sub_chandrasekhar` 1265 (current, real maps; 861 undereddened) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | **Not extinction**: the real Green2019/Lallement2019 correction makes it worse (861→1265, #258). Look at `a0`/AMRF or #237's open multi-solution question instead |
+| `primary_ns_bh` 46 ≠ 47 (current; 42 before #258) | Extinction was the dominant cause: `ExtinctionSpec` was parsed but never applied. **Fixed in #258** with the real maps (42→46) | The 1-source residual plus 7-in/3-out membership churn (§3.3) is the `a0`/AMRF chain or a per-source `E(B-V)`/`M̃1` difference. Do not retune |
+| Spectro 123 ≠ 151 | **Resolved by #258**: 151 exact with the real maps. The binding already matched spec (#234) | Routes 132/30/11 vs 136/30/15 remain — §3.3.2 |
+| Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap. After #258, `1864406790238257536` is MS but fails `m2_over_m1` (`M̃1 = 3.88` at `MG,0 ≈ 0`, vs the paper's ratio of 5.08). `3263804373319076480` still clears `m2_over_m1` (AMRF `M̃2` ≈4× the paper) | `a0`/AMRF chain (#133) plus the bright-end `M̃1` for the first source — §3.4. Do not edit `elbadry2026_selection.py` thresholds |
 
 **Column ownership** (strict — violating this is what produced the 740):
 
