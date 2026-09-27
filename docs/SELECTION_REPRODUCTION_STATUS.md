@@ -33,6 +33,11 @@ over editing frozen cut thresholds.
 > **§3.1.3's numbers (issue #280) were measured on `main` @ `2470fe5`** against that same rebuilt
 > cache, read-only, using a paired targeted MC. Its production-method variant reproduces the cache
 > exactly, and its fixed-M1 = 1.0 variant reproduces the `c905575` baseline exactly.
+>
+> **§3.3.3 (#275) was measured on `main` @ `2470fe5`** (#258's real maps landed), isolated worktree,
+> astrometric-branch enrichment plus the window-only `σ_M̃2` MC. No count in the §3.3 table moved.
+> The Simon row's status changed because of the #281 classifier/fixture fix, not because of a
+> re-measured count.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -51,7 +56,8 @@ produce a number that matches and means nothing.
 Related issues: **#132** (NSS enrichment / K1 — largely unblocked), **#133** (`primary_ns_bh` 42 ≠ 47;
 extinction / `a0` / nsstools, Q7), **#258** (extinction root cause was a dead `ExtinctionSpec`; now fixed with the
 real Green2019/Lallement2019 maps — spectroscopic branch 151 exact, `primary_ns_bh` 46; see §3.3 /
-§3.3.1).
+§3.3.1). **#275** (the `M̃2` chain reproduces El-Badry 2026 Table 7; `sub_chandrasekhar` is a
+selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage wiring **#285**; §3.3.3).
 
 ---
 
@@ -485,7 +491,7 @@ extinction correction and nothing else.
 | `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
 | `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1) |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
-| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | FAIL last slot — full-union membership this time (§3.4) |
+| Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK once El-Badry's `M̃2/M̃1` is used (#281, §3.3.3): 5 / 2 / 1 / 1**, membership matches Table 7; stage wiring is #285 |
 
 Extinction outcomes over the 349,599 El-Badry 2026 rows that were enriched (both branches):
 `ok` 318,964 · `beyond_map_limit` 30,446 (Lallement cube boundary or past the last Bayestar node;
@@ -781,7 +787,103 @@ reported speculatively** — whoever next has budget for a ~5–10 min `sub_chan
 should redo the full-union version; the isolated-branch harness used here (bypassing `evaluate_all`'s
 25-minute full sweep) is fast enough to make that cheap once resumed.
 
+### 3.3.3 `M̃2` point-estimate chain audit (#275): the chain is right; `sub_chandrasekhar` is a selection-definition gap
+
+**Provenance.** Branch `feat/elbadry2026-m2-chain-275`, cut from `main` @ `2470fe5` (#258 real maps
+landed). Isolated worktree, `PYTHONPATH` pointed at the worktree `src/` (checked with
+`darkhunter_pop.__file__`). Cache `…+enrich+mc10000` (the #257 rebuild) and the warm
+`ebv_cache`. Measured 2026-09-27. To stay inside the memory budget, `evaluate_all` was not re-run.
+Only the astrometric branch was enriched (168,065 `Orbital`/`AstroSpectroSB1` rows, through
+`SampleSelection._enrich_rows_for_spec`), and the fixed-`M̃1` `σ_M̃2` MC was run on just the
+3043-source `m2_range` window (`_attach_elbadry_m2_sigma_inplace`: 1268 s, 3.9 GB peak RSS). This
+path reproduces the §3.3 attrition exactly: `168065 → 147560 → 3043 → 1687 → … → 1265`
+(σ missing for 15). The σ run gives the same missing-σ count.
+
+**1. The point-estimate chain reproduces the paper's own per-source values.** El-Badry 2026
+Table 7 (`config/selections/external/elbadry2026_table7.yaml`, all 76 astrometric members)
+publishes `A`, `M̃1`, `M̃2` and `E(B-V)` for each source. Given the paper's own `E(B-V)` (which
+separates our chain from our map lookup), 73 of the 76 rows are main-sequence on our CMD cut. On
+all 73, our `A` / `M̃1` / `M̃2` match Table 7 with median relative differences of **0.03 % / 0.06 % /
+0.03 %**. The worst case is `2032579979951732736`, at 0.5 % / 1.7 % / 0.8 %, which is consistent with
+the table's rounded `E(B-V)`. With our own map `E(B-V)` the median ratios stay within 0.4 % of unity (16–84 % range within ±2 % for `M̃1` and ±0.7 % for `M̃2`).
+The chain being checked here is Janssens inversion → `photocenter_a0_from_thiele_innes` → AMRF
+→ dark-companion inversion, on the NSS parallax. It is now pinned by
+`tests/test_elbadry2026.py::test_point_chain_reproduces_elbadry2026_table7`, with real DR3 inputs in
+`tests/fixtures/selections/elbadry2026_table7_dr3_inputs.yaml`. The other three rows
+(`5870569352746779008` = Gaia BH2, `3664684869697065984`, `6152333294796189568`) are evolved on our
+cut. They enter through subsamples 2 and 3, which need no MS cut.
+
+**2. Input decomposition on the 3043-source `m2_range` window**, measured:
+
+| Input | Effect on `M̃2` | Sources leaving the window |
+|---|---|---|
+| `a0` method (nsstools vs `photocenter_a0_from_thiele_innes`) | **0**, bit-identical (#199: \|Δa0\| ≤ 1.2e-13 mas) | 0 |
+| `M̃1` via extinction (real maps vs `E(B-V)=0`) | median `ΔM̃1/M̃1` +8.8 % → median `ΔM̃2/M̃2` +4.5 % | 960 |
+| Parallax ±1σ | median \|`ΔM̃2/M̃2`\| 2.7–2.8 % | 435 (+1σ) / 206 (−1σ) |
+| Parallax zero point (0.017 mas) | median 2.2 % | 347 — **but the paper uses raw parallax in Eq. 2** (its ZP is §5.1.3, later), as do we |
+
+Extinction is the only lever that moves the window materially, and it moves it the wrong way
+(§3.3.1). No input in the chain can shrink 3043 → ~20.
+
+**3. Where the 1265 differ from the paper's subsample 4.** The Table 7 rows with
+`1.05 ≤ M̃2 ≤ 1.40` number 22. Two of them (`1581117310088807552` at P = 927 d, `747174436620510976`
+at P = 999 d) fail the paper's own `P ≤ 900 d`. They are El-Badry 2024 Table 3 (Andrews/Shahaf) NS
+candidates and are most likely subsample-3 imports, so the paper's 22 cannot be recovered from
+Table 7 exactly. `6037767138131854592` (paper `M̃2` 1.383; ours 1.4002 on our `E(B-V)` of 0.208 vs
+the paper's 0.165) lands in our `primary_ns_bh` instead. Of the 22, **17 are in our 1265**. Two
+more fail only on our MC `σ_M̃2` (`3389767036738482432` σ 0.140, `4466767229088016256` σ 0.119;
+the analytic-vs-MC `σ` gap from #199).
+
+**Every** paper member of this subsample has `M̃2/M̃1 ≥ 1.10` and `A ≥ 0.669` (max `M̃1` = 1.20).
+Our 1265 have median `q = M̃2/M̃1 = 0.79` and median `A = 0.54`, and 56 % of the window has
+`M̃1 > 1.5`. These are massive main-sequence primaries for which `M̃2 ∈ [1.05, 1.40]` is an
+ordinary `q < 1` companion. The criteria in the paper's §2.1, as transcribed and re-read against
+the arXiv HTML (2026-09-27), admit them: `MS`, `1.05 ≤ M̃2 ≤ 1.40`, `σ_M̃2 ≤ 0.105`,
+`P ≤ 900 d`, `G < 15`. The paper states no ratio or AMRF threshold and no `σ_M̃2` method.
+Counterfactuals on our 1265 (**diagnostic only, not proposed config**):
+
+| Extra condition | N | paper members kept (of 17) |
+|---|---:|---:|
+| none (frozen) | 1265 | 17 |
+| `M̃2 > M̃1` | 68 | 17 |
+| `M̃2/M̃1 > 1.05` | 44 | 17 |
+| `A > 0.65` | 44 | 17 |
+| `M̃1 < 1.25` | 183 | 17 |
+| Janssens fit σ (zero `a`–`b` correlation) added to `σ_M̃2` (the Q12 alternative) | 939 | 17 |
+
+**Conclusion.** No code bug in the `M̃2` chain. `sub_chandrasekhar` needs a PI decision on an
+unstated selection criterion and/or the `σ_M̃2` method: **#284**. Do not add a ratio or AMRF cut to
+the frozen file without that decision and a `schema_version` bump.
+
+**4. `primary_ns_bh` 46 vs 47, fully reconciled against Table 7.** Our 46 is a strict subset of
+Table 7. Applying subsample 1's cuts to Table 7's own values (with our `F2`) gives exactly 47.
+We miss `6054379247042197504` and `6152333294796189568`, which are MS in the paper and evolved on
+our CMD. The first becomes MS with the paper's `E(B-V)` (0.201 vs our 0.166). The second stays
+evolved even at the paper's 0.051 (`bp_rp_0` 0.973 vs the 0.934 needed at `MG,0` 3.16). We add
+`6037767138131854592`, the `M̃2 = 1.4002` boundary case above. All three are `E(B-V)`/colour
+boundary effects (#133), not the `a0`/AMRF chain.
+
+**5. Simon 2026 last slot: a fixture defect, not the chain (#281).** `3263804373319076480` **is** in
+El-Badry 2026's sample. Table 7 lists it with `A = 1.09`, `M̃1 = 1.16`, `M̃2 = 2.925`, and our chain
+gives 1.088 / 1.166 / 2.931. The "M̃2 ≈ 4× the paper" in §3.4 compared our `M̃2` against Simon's
+catalog `m2_lower` (0.73), which is a different estimator. `1864406790238257536` is **not** in
+Table 7 or Table 8. It is the only excluded Simon source that is astrometric with `G < 15` and
+`F2 < 10`, so it must be the paper's single `fails_m2_over_m1` exclusion, and our chain agrees
+(`M̃2/M̃1` = 0.55 after #258). The real pipeline's membership for both sources therefore already
+matches the paper. The breakdown read 5/2/1/0 (+1) because `classify_simon2026_row` judged the
+ratio on Simon's catalog value (5.08), and because the unit-test fixture had the two sources
+swapped. Fixed in #281: the classifier now takes El-Badry's own `M̃2/M̃1`, the fixture is derived
+from Table 7 ∪ Table 8, and the breakdown is **5 / 2 / 1 / 1, `in_sample` 11, 0 unclassified**.
+The real `diagnostics` stage does not yet hydrate the ratios from the `sample_selection` artifact,
+so a pipeline run still falls back and shows 1 unclassified until **#285** lands.
+
 ### 3.4 Simon 2026 exclusion breakdown
+
+**Update (#275/#281): resolved as a fixture/classifier defect; see §3.3.3 item 5.** With El-Badry's
+own `M̃2/M̃1` supplied, the breakdown is 5 / 2 / 1 / 1 with `in_sample` 11. The pipeline's
+membership for `3263804373319076480` (in) and `1864406790238257536` (out) matches Table 7. The
+historical record below attributes the slot to the `a0`/AMRF chain. That attribution was wrong:
+it compared against Simon's catalog masses, not El-Badry's.
 
 **Update (#258): re-measured with the full-union membership that #234 left incomplete**, using the
 real frozen maps on `1058e29`. `sample_ids` was the whole El-Badry 2026 survivor set (1565 entries,
@@ -878,10 +980,10 @@ different shape.
 | Andrews 352 after `P(M2)` vs 106 | Our full-cov MC ≠ the paper's attrition (packing / floors / prefilters) | Escalate; don't edit 0.95 |
 | `sub_chandrasekhar` 0 | Pre-reconciliation branch state, before `σ_M̃2` bound | Historical; resolved |
 | `sub_chandrasekhar` 740 | Andrews `σ` aliased into `sigma_m2_astrometric_msun` | Fixed; on `main` since `03a452a` |
-| `sub_chandrasekhar` 1265 (current, real maps; 861 undereddened) | Too many systems with `M̃2` ∈ [1.05, 1.40]; the σ cut is secondary | **Not extinction**: the real Green2019/Lallement2019 correction makes it worse (861→1265, #258). Look at `a0`/AMRF or #237's open multi-solution question instead |
-| `primary_ns_bh` 46 ≠ 47 (current; 42 before #258) | Extinction was the dominant cause: `ExtinctionSpec` was parsed but never applied. **Fixed in #258** with the real maps (42→46) | The 1-source residual plus 7-in/3-out membership churn (§3.3) is the `a0`/AMRF chain or a per-source `E(B-V)`/`M̃1` difference. Do not retune |
+| `sub_chandrasekhar` 1265 (current, real maps; 861 undereddened) | **Not the `M̃2` chain** (#275, §3.3.3): it reproduces Table 7 to ≤0.06 % median. Every paper member has `M̃2/M̃1 ≥ 1.10` and `A ≥ 0.669`; ours are mostly `q < 1` companions of massive MS primaries that the written criteria admit | PI decision on an unstated criterion and/or the `σ_M̃2` method: **#284**. Do not add a cut or retune without it |
+| `primary_ns_bh` 46 ≠ 47 (current; 42 before #258) | Reconciled against Table 7 (#275, §3.3.3 item 4): −2 sources MS in the paper but evolved on our CMD, +1 at the `M̃2 = 1.4002` boundary. All three are `E(B-V)`/colour boundary effects | #133; not the `a0`/AMRF chain. Do not retune |
 | Spectro 123 ≠ 151 | **Resolved by #258**: 151 exact with the real maps. The binding already matched spec (#234) | Routes 132/30/11 vs 136/30/15 remain — §3.3.2 |
-| Simon `fails_m2_over_m1` 0 ≠ 1 | Confirmed (#200): two sources swap. After #258, `1864406790238257536` is MS but fails `m2_over_m1` (`M̃1 = 3.88` at `MG,0 ≈ 0`, vs the paper's ratio of 5.08). `3263804373319076480` still clears `m2_over_m1` (AMRF `M̃2` ≈4× the paper) | `a0`/AMRF chain (#133) plus the bright-end `M̃1` for the first source — §3.4. Do not edit `elbadry2026_selection.py` thresholds |
+| Simon `fails_m2_over_m1` 0 ≠ 1 | **Resolved (#281):** the classifier used Simon's catalog ratio and the unit fixture had `1864406790238257536` / `3263804373319076480` swapped relative to Table 7. The pipeline's membership already matched the paper | Pass El-Badry `M̃2/M̃1` (`elbadry_m2_over_m1_by_source`); stage wiring #285 |
 
 **Column ownership** (strict — violating this is what produced the 740):
 
