@@ -175,16 +175,33 @@ reviewed.
   `same_type_period_aliased` (more than one period-aliased `Orbital`-family solution, possibly both
   at once), and every row in a kept group is written through unmodified, carrying only its own
   Gaia row's fields including its own `nss_solution_type`. The remaining 6 groups (0.1%) are genuine
-  cross-match fan-out (identical `nss_solution_type` **and** identical `period`, differing only
-  2MASS photometry) and any other unrecognized duplicate shape: both are still refused via
-  `DuplicateSourceIdError`, since no fan-out resolution logic exists yet (tracked separately from
-  #242). The error counts and names the two refused shapes separately (#290). Measured on `main`
-  @ `c07897e` (#290): 5 of the 6 fan-out groups survive `quality_cut_bins` (all `SB1`, differing
-  only in 2MASS `J/H/Ks` values and errors via the `tmass_psc_xsc_join` hop; the sixth,
-  `EclipsingBinary` at G≈18.8, is cut), 0 are `unresolved`, and the post-cut `cross_type` count is
-  3,841 — so **`data_acquisition` refuses on the documented snapshot, and no full end-to-end run
-  is possible, until #221 decides fan-out resolution**. The funnel report (`FunnelCounts.multi_solution`, a `MultiSolutionCounts`) records the
-  per-sub-case kept counts.
+  cross-match fan-out (identical `nss_solution_type` **and** identical `period`, differing only in
+  2MASS `J/H/Ks` values and errors — one clean PSC/XSC oid in `gaiadr3.tmass_psc_xsc_join` maps to
+  more than one `original_psc_source_id`; #290). Measured on `main` @ `c07897e` (#290): 5 of the 6
+  survive `quality_cut_bins` (all `SB1`; the sixth, `EclipsingBinary` at G≈18.8, is cut), 0 are
+  `unresolved`, and the post-cut `cross_type` count is 3,841.
+- **Cross-match fan-out is collapsed with the conflicting bands masked** (#221 option B, Ryan Foley,
+  2026-09-27). `collapse_crossmatch_fanout` runs after `apply_quality_cuts` and before the duplicate
+  guard. A duplicated `source_id` group collapses to one row **only if** its rows are cell-for-cell
+  identical (masked/NaN equal only to masked/NaN) in every column except the `<band>_mag` /
+  `<band>_mag_err` columns of `dr3.crossmatch_fanout_maskable_bands` (`[J, H, Ks]`; must name
+  enabled `external_photometry_crossmatches` bands; `[]` disables the collapse). The kept row is the
+  group's first table row, so every surviving cell is that row's own — nothing is copied between
+  rows and no measurement is chosen: a band whose value **or** error differs across the rows is
+  masked in both value and error (read downstream as an absent band, exactly like a source with no
+  2MASS match); a band that agrees is kept. Each collapsed candidate carries
+  `extras.crossmatch_fanout_collapsed = True`, `crossmatch_fanout_n_matches` (rows collapsed) and
+  `crossmatch_fanout_masked_bands` (possibly empty). A fan-out-shaped group that differs in any
+  other column is not collapsed and is still refused by `DuplicateSourceIdError` (counted as
+  fan-out that "could not be collapsed", separately from `unresolved`); `unresolved` shapes are
+  still refused; genuine multi-solution groups never match the collapse (their orbit columns
+  differ) and pass through untouched. Option A — joining 2MASS PSC on Gaia's own best-neighbour
+  designation so no fan-out enters at the query — is deferred to the next snapshot. The funnel
+  report records the per-sub-case kept multi-solution counts (`FunnelCounts.multi_solution`, a
+  `MultiSolutionCounts`) and the collapse (`FunnelCounts.crossmatch_fanout`:
+  `crossmatch_fanout_groups_collapsed` / `_rows_removed` / `_sources_masked` / `_bands_masked`).
+  Limitation: `dark-hunter_sed` gathers its own photometry, so the mask does not reach an SED fit
+  run upstream; it governs only pop's own `CandidateRecord.photometry`.
 
 #### Multi-solution sources (real, not a bug — §15 Q17 resolved)
 
@@ -206,7 +223,8 @@ also be reproduced." Binding consequences for downstream design:
 
 - `data_acquisition.py` must **tag, never merge or collapse**, genuine multi-solution rows — each
   row is kept in the output and carries its own `nss_solution_type`; the 6 genuine cross-match
-  fan-out cases stay handled by their own existing/planned logic, unaffected by this ruling.
+  fan-out cases are handled by their own collapse-and-mask logic (#221, above), unaffected by this
+  ruling.
 - `forward_model.py`'s `selection_function_astrometric` **and** `selection_function_followup` must
   reproduce the **empirical multi-solution emission rate** — both cross-type and same-type/period-
   aliasing — so a simulated system can emit more than one solution-type row at the rate real systems
@@ -255,6 +273,23 @@ emission rate (#243). `inference.row_multiplicity_consistency_diagnostic` (backe
 comparison as a new **diagnostic-only** field on the `inference` payload (`row_multiplicity_diagnostic`,
 alongside `posterior_prior_overlap` / `zero_count_upper_limits`) so this asymmetry is visible without
 being silently baked into the likelihood. See issue #252 for the follow-up.
+
+**Reproduction-mode counting against a published N (issue #274).** A literature paper's published N
+counts objects, not NSS rows. **Ruling (verbatim, Ryan Foley, 2026-09-27):** "In each solution type,
+count distinct stars." So every count that `sample_diagnostics` compares against a published N
+(`compare_to_published`, `build_reproduction_comparisons`, the attrition waterfall's `n_stars` line)
+is the number of distinct `source_id`s **within each `nss_solution_type`, summed over types**
+(`sample_selection.distinct_star_count`). Same-type duplicate rows of one star (period aliases,
+cross-match fan-out) count once; a star with an `Orbital` row and an `SB1` row that **each passed
+their own branch chain** counts once in each type. A multi-branch union is therefore the sum of
+per-type distinct counts (El-Badry 2026: 227 = 76 astrometric + 151 spectroscopic). Per-type
+survivors come from the rows that actually passed (`SampleEvaluationResult.*_by_solution_type`), not
+from every row of a surviving star: the per-row `surviving_source_ids` emits all of a surviving
+star's rows, including rows of other types that never passed any chain, and those do not count.
+The per-row count (`recovered_n_rows`) and the distinct-across-types count
+(`recovered_n_distinct_sources`) are still reported, as informational fields only. **This is
+reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `surviving_source_ids` /
+`inference_source_ids`, and the per-row likelihood above are unchanged.
 - Quality cut: goodness-of-fit vs. magnitude, configurable as **N separate (magnitude, threshold)
   bins** (El-Badry et al. 2023's <5/G>13, <10/G≤13 as the v1 default values; the mechanism
   supports arbitrary bin counts, since DR4 may need a different scheme).

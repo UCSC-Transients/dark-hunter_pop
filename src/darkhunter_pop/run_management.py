@@ -104,6 +104,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "dr4.quality_cut_bins",
                 "dr3.external_photometry_crossmatches",
                 "dr4.external_photometry_crossmatches",
+                "dr3.crossmatch_fanout_maskable_bands",
+                "dr4.crossmatch_fanout_maskable_bands",
                 "dr3.nss_table",
                 "dr4.nss_table",
             ),

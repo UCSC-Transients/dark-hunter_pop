@@ -40,18 +40,33 @@ from darkhunter_pop.janssens_mass import (
 )
 from darkhunter_pop.nss_covariance import CovarianceHealth
 from darkhunter_pop.sample_selection import (
+    UNSPECIFIED_SOLUTION_TYPE,
     CutAttrition,
     SampleEvaluationResult,
     SampleSelection,
     SampleSelectionFile,
+    distinct_star_count,
     load_sample_selection_file,
     resolve_inherits,
+    restrict_ids_by_solution_type,
 )
+
+
+#: Label recorded on every comparison so a report states which rule produced N.
+COUNTING_RULE_PER_SOLUTION_TYPE: str = "distinct_stars_per_solution_type_summed"
+COUNTING_RULE_DISTINCT_FALLBACK: str = "distinct_source_ids_no_solution_type"
 
 
 @dataclass
 class ReproductionCompareResult:
-    """Recovered vs published membership for one named sample / branch."""
+    """Recovered vs published membership for one named sample / branch.
+
+    ``recovered_n`` follows the #274 counting rule (Ryan Foley, 2026-09-27:
+    *"In each solution type, count distinct stars."*): distinct ``source_id``
+    per ``nss_solution_type``, summed over types. ``recovered_n_rows`` (per-row
+    emission) and ``recovered_n_distinct_sources`` (distinct across all types)
+    are informational only and never gate ``n_match``.
+    """
 
     sample_name: str
     recovered_n: int
@@ -63,11 +78,19 @@ class ReproductionCompareResult:
     n_match: bool
     id_match: bool | None
     notes: str = ""
+    recovered_n_rows: int | None = None
+    recovered_n_distinct_sources: int | None = None
+    recovered_n_by_solution_type: dict[str, int] = field(default_factory=dict)
+    counting_rule: str = COUNTING_RULE_PER_SOLUTION_TYPE
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "sample_name": self.sample_name,
             "recovered_n": self.recovered_n,
+            "recovered_n_rows": self.recovered_n_rows,
+            "recovered_n_distinct_sources": self.recovered_n_distinct_sources,
+            "recovered_n_by_solution_type": dict(self.recovered_n_by_solution_type),
+            "counting_rule": self.counting_rule,
             "published_n": self.published_n,
             "recovered_ids": list(self.recovered_ids),
             "published_ids": (
@@ -224,9 +247,29 @@ def format_attrition_waterfall_report(
         lines.append(f"  mass_source: {result.mass_source}")
         lines.append(f"  n_parent: {result.n_parent}")
         lines.append(f"  n_surviving: {result.n_surviving}")
+        lines.append(
+            "  n_stars (distinct per solution type, summed; #274 rule, "
+            f"compared to published N): {result.n_stars_per_solution_type}"
+        )
+        if result.surviving_by_solution_type:
+            lines.append(
+                "  n_stars_by_solution_type: "
+                + _format_type_counts(result.surviving_by_solution_type)
+            )
+        lines.append(
+            "  n_distinct_source_ids (across types; informational): "
+            f"{result.n_distinct_source_ids}"
+        )
         if result.branch_surviving:
             for branch_id, ids in sorted(result.branch_surviving.items()):
                 lines.append(f"  branch[{branch_id}].n: {len(ids)}")
+                by_type = result.branch_surviving_by_solution_type.get(branch_id)
+                if by_type:
+                    lines.append(
+                        f"  branch[{branch_id}].n_stars: "
+                        f"{distinct_star_count(by_type)} "
+                        f"({_format_type_counts(by_type)})"
+                    )
         if result.subsample_surviving:
             for sub_id, ids in sorted(result.subsample_surviving.items()):
                 lines.append(f"  subsample[{sub_id}].n: {len(ids)}")
@@ -264,6 +307,12 @@ def format_attrition_waterfall_report(
     return "\n".join(lines)
 
 
+def _format_type_counts(by_type: Mapping[str, Sequence[int]]) -> str:
+    return ", ".join(
+        f"{key}={len(set(ids))}" for key, ids in sorted(by_type.items())
+    )
+
+
 def _expected_match_token(row: CutAttrition) -> str:
     if row.expected_n_after is None:
         return "n/a"
@@ -288,14 +337,83 @@ def compare_to_published(
     recovered_ids: Sequence[int],
     published_n: int | None,
     published_ids: Sequence[int] | None,
+    recovered_ids_by_solution_type: Mapping[str, Sequence[int]] | None = None,
 ) -> ReproductionCompareResult:
-    """Symmetric-difference report; N-only when no published ID table is configured."""
-    recovered = tuple(sorted(int(s) for s in recovered_ids))
+    """Symmetric-difference report; N-only when no published ID table is configured.
+
+    Counting rule (#274, Ryan Foley 2026-09-27: *"In each solution type, count
+    distinct stars."*). ``recovered_n`` — the number compared against
+    ``published_n`` — is ``distinct_star_count(recovered_ids_by_solution_type)``:
+    distinct ``source_id`` within each ``nss_solution_type``, summed over types.
+    Same-type duplicate rows of one star count once; a star with an ``Orbital``
+    and an ``SB1`` row that each survived counts once per type. A union (e.g.
+    El-Badry 2026's 227 = 76 astrometric + 151 spectroscopic) is therefore the
+    sum of per-type distinct counts.
+
+    Parameters
+    ----------
+    sample_name
+        Report label.
+    recovered_ids
+        Surviving ``source_id`` values, one per emitted row (may repeat). Used
+        for the per-row and distinct-across-types informational counts and the
+        ID-set symmetric difference.
+    published_n
+        Published N, or ``None`` when the paper gives none.
+    published_ids
+        Published source-ID table, or ``None`` for an N-only comparison.
+    recovered_ids_by_solution_type
+        Survivors grouped by solution type (``SampleEvaluationResult``'s
+        ``*_by_solution_type`` maps). When ``None`` (payloads predating #274),
+        all rows are treated as one type, i.e. ``recovered_n`` is the distinct
+        ``source_id`` count, and the fallback is named in ``notes``.
+
+    Notes
+    -----
+    Reporting only. Per-row emission (``surviving_source_ids``) and per-row
+    likelihood counting (CONTINUATION_PLAN §15 Q17, #244) are unchanged.
+    """
+    rows = [int(s) for s in recovered_ids]
+    recovered = tuple(sorted(set(rows)))
+    notes: list[str] = []
+    if recovered_ids_by_solution_type is None:
+        by_type: dict[str, tuple[int, ...]] = (
+            {UNSPECIFIED_SOLUTION_TYPE: recovered} if recovered else {}
+        )
+        rule = COUNTING_RULE_DISTINCT_FALLBACK
+        notes.append(
+            "solution types unavailable; recovered_n counts distinct source_ids "
+            "as a single type"
+        )
+    else:
+        by_type = {
+            str(k): tuple(sorted({int(s) for s in v}))
+            for k, v in recovered_ids_by_solution_type.items()
+        }
+        rule = COUNTING_RULE_PER_SOLUTION_TYPE
+        typed_ids = set().union(*by_type.values()) if by_type else set()
+        if typed_ids != set(recovered):
+            notes.append(
+                "per-type ids differ from recovered_ids as a set "
+                f"({len(typed_ids)} vs {len(recovered)} distinct)"
+            )
+    n_stars = distinct_star_count(by_type)
+    counts = {
+        "recovered_n_rows": len(rows),
+        "recovered_n_distinct_sources": len(recovered),
+        "recovered_n_by_solution_type": {k: len(v) for k, v in by_type.items()},
+        "counting_rule": rule,
+    }
     if published_ids is None:
-        n_match = published_n is not None and len(recovered) == published_n
+        n_match = published_n is not None and n_stars == published_n
+        notes.insert(
+            0,
+            "published source-ID table unavailable; N-only comparison "
+            f"(recovered_n={n_stars}, published_n={published_n})",
+        )
         return ReproductionCompareResult(
             sample_name=sample_name,
-            recovered_n=len(recovered),
+            recovered_n=n_stars,
             published_n=published_n,
             recovered_ids=recovered,
             published_ids=None,
@@ -303,10 +421,8 @@ def compare_to_published(
             only_published=(),
             n_match=n_match,
             id_match=None,
-            notes=(
-                "published source-ID table unavailable; N-only comparison "
-                f"(recovered_n={len(recovered)}, published_n={published_n})"
-            ),
+            notes="; ".join(notes),
+            **counts,
         )
     published = tuple(sorted(int(s) for s in published_ids))
     rec_set = set(recovered)
@@ -316,16 +432,31 @@ def compare_to_published(
     expected_n = published_n if published_n is not None else len(published)
     return ReproductionCompareResult(
         sample_name=sample_name,
-        recovered_n=len(recovered),
+        recovered_n=n_stars,
         published_n=expected_n,
         recovered_ids=recovered,
         published_ids=published,
         only_recovered=only_rec,
         only_published=only_pub,
-        n_match=len(recovered) == expected_n,
+        n_match=n_stars == expected_n,
         id_match=not only_rec and not only_pub,
-        notes="",
+        notes="; ".join(notes),
+        **counts,
     )
+
+
+def _by_type_or_none(
+    mapping: Mapping[str, Sequence[int]] | None,
+    recovered_ids: Sequence[int],
+) -> Mapping[str, Sequence[int]] | None:
+    """An empty per-type map beside non-empty ids is a pre-#274 payload.
+
+    Returns ``None`` in that case so ``compare_to_published`` names its
+    fallback; otherwise the map (``{}`` for a genuinely empty sample).
+    """
+    if not mapping:
+        return None if len(recovered_ids) else {}
+    return mapping
 
 
 def build_reproduction_comparisons(
@@ -372,6 +503,9 @@ def build_reproduction_comparisons(
                 recovered_ids=result.surviving_source_ids,
                 published_n=compare_n,
                 published_ids=published_ids,
+                recovered_ids_by_solution_type=_by_type_or_none(
+                    result.surviving_by_solution_type, result.surviving_source_ids
+                ),
             )
         )
         if name == "elbadry2024":
@@ -379,12 +513,22 @@ def build_reproduction_comparisons(
             pub_ids = published_sample_source_ids()
             survivors = set(int(s) for s in result.surviving_source_ids)
             recovered_pub = tuple(sorted(sid for sid in pub_ids if sid in survivors))
+            pub_by_type = _by_type_or_none(
+                result.surviving_by_solution_type, result.surviving_source_ids
+            )
             out.append(
                 compare_to_published(
                     sample_name="elbadry2024_published_compact_object_candidate",
                     recovered_ids=recovered_pub,
                     published_n=len(pub_ids),
                     published_ids=pub_ids,
+                    recovered_ids_by_solution_type=(
+                        None
+                        if pub_by_type is None
+                        else restrict_ids_by_solution_type(
+                            pub_by_type, set(recovered_pub)
+                        )
+                    ),
                 )
             )
         if name == "elbadry2026" and result.branch_surviving:
@@ -399,6 +543,10 @@ def build_reproduction_comparisons(
                     compare_to_published(
                         sample_name=key,
                         recovered_ids=ids,
+                        recovered_ids_by_solution_type=_by_type_or_none(
+                            result.branch_surviving_by_solution_type.get(branch_id),
+                            ids,
+                        ),
                         published_n=by_branch.get(branch_id),
                         published_ids=(
                             None
@@ -419,6 +567,12 @@ def build_reproduction_comparisons(
                         compare_to_published(
                             sample_name=f"elbadry2026_subsample_{sub_id}",
                             recovered_ids=ids,
+                            recovered_ids_by_solution_type=_by_type_or_none(
+                                result.subsample_surviving_by_solution_type.get(
+                                    sub_id
+                                ),
+                                ids,
+                            ),
                             published_n=expected,
                             published_ids=None,
                         )
@@ -461,12 +615,32 @@ def format_sample_reproduction_report(
         "=== sample_reproduction_report ===",
         "A sample's reproduction path is not considered working until recovered N",
         "matches the published N exactly (CONTINUATION_PLAN §13).",
+        "Counting rule (#274, Ryan Foley 2026-09-27): 'In each solution type, count",
+        "distinct stars.' recovered_n = distinct source_id per nss_solution_type,",
+        "summed over types. recovered_n_rows (per-row emission) and",
+        "recovered_n_distinct_sources (distinct across types) are informational only.",
     ]
     if not comparisons:
         lines.append("  (no comparisons; provide SampleEvaluationResult payloads)")
     for cmp in comparisons:
         lines.append(f"sample: {cmp.sample_name}")
         lines.append(f"  recovered_n: {cmp.recovered_n}")
+        lines.append(f"  counting_rule: {cmp.counting_rule}")
+        if cmp.recovered_n_by_solution_type:
+            lines.append(
+                "  recovered_n_by_solution_type: "
+                + ", ".join(
+                    f"{k}={v}"
+                    for k, v in sorted(cmp.recovered_n_by_solution_type.items())
+                )
+            )
+        if cmp.recovered_n_rows is not None:
+            lines.append(f"  recovered_n_rows (informational): {cmp.recovered_n_rows}")
+        if cmp.recovered_n_distinct_sources is not None:
+            lines.append(
+                "  recovered_n_distinct_sources (informational): "
+                f"{cmp.recovered_n_distinct_sources}"
+            )
         lines.append(f"  published_n: {cmp.published_n}")
         lines.append(f"  n_match: {cmp.n_match}")
         lines.append(f"  id_match: {cmp.id_match}")

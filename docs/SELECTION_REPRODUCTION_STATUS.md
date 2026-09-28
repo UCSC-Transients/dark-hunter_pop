@@ -38,6 +38,10 @@ over editing frozen cut thresholds.
 > astrometric-branch enrichment plus the window-only `σ_M̃2` MC. No count in the §3.3 table moved.
 > The Simon row's status changed because of the #281 classifier/fixture fix, not because of a
 > re-measured count.
+>
+> **§3.3.4 (#274) recounts the recorded membership sets** (`a9397ba` #270 and `1058e29` real maps)
+> under the PI's per-solution-type distinct-star rule, using code off `main` @ `c07897e`. It does
+> not re-evaluate anything. Only the El-Badry 2026 union moves: 1119 → 1069 and 1565 → 1507.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -483,7 +487,7 @@ extinction correction and nothing else.
 
 | Check | Target | `main` @ `c905575` | Undereddened @ `1058e29` | **Real maps @ `1058e29` (#258)** | Gate |
 |-------|--------|--------------------|--------------------------|----------------------------------|------|
-| Published union (`n_surviving`, non-unique) | 227 | 1085 | 1119 (1067 distinct) | **1565** (1504 distinct) | FAIL — driven by `sub_chandrasekhar` |
+| Published union (per-row `n_surviving`; **#274 per-type distinct count in brackets**, §3.3.4) | 227 | 1085 | 1119 (1067 distinct) [**1069**] | **1565** (1504 distinct) [**1507**] | FAIL — driven by `sub_chandrasekhar` |
 | Astrometric branch union | 76 | 913 | 946 | **1356** | FAIL |
 | Spectroscopic branch | 151 | 123 | 123 | **151** | **OK** — exact match |
 | `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
@@ -601,7 +605,59 @@ spectroscopic branches overlap by 2, so 946 + 123 − 2 = 1067, and 52 IDs appea
 `c905575` presumably includes the same kind of duplication. This looks like the
 cross-match / multi-solution duplicate-`source_id` question already tracked in #221/#237, not
 something new from #270. It is noted so that nobody compares 1119 against the published 227 as if it
-counted unique sources.
+counted unique sources. **Resolved by #274 (§3.3.4):** all 52 are cross-type, and the counting rule
+is now fixed.
+
+### 3.3.4 Counting rule for published-N comparisons (#274)
+
+**Ruling (verbatim, Ryan Foley, 2026-09-27):** "In each solution type, count distinct stars." Every
+reproduction count compared against a published N is now the number of distinct `source_id`s
+within each `nss_solution_type`, summed over types. It is computed from the rows that actually
+passed their own branch chain (`sample_selection.distinct_star_count`,
+`SampleEvaluationResult.*_by_solution_type`, `sample_diagnostics.compare_to_published`;
+`docs/ARCHITECTURE.md` §4 "Multi-solution sources"). The per-row count and the count of distinct
+IDs across all types are still reported, but only as information. This is reporting only: per-row
+emission and the per-row likelihood (Q17 / #244) are unchanged.
+
+**What the 52 duplicated IDs were (#270 membership, `a9397ba`).** Every one of the 52 is a
+**cross-type** multi-solution star. None is a same-type duplicate and none is #221-style
+cross-match fan-out. Row shapes in the parent cache: `Orbital`+`SB1` 49, `EclipsingBinary`+`SB1` 3.
+By branch:
+
+- **2** passed both branches: the `Orbital` row passed astrometric and the `SB1` row passed
+  spectroscopic. These count once in each type.
+- **39** passed astrometric only. Their `SB1` row failed the spectroscopic chain but is still
+  emitted, because `_evaluate_branched` emits every row of a surviving star.
+- **11** passed spectroscopic only. They carry an `Orbital` row (8) or an `EclipsingBinary` row (3)
+  that is emitted the same way.
+
+The 50 emitted rows that passed no chain do not count under the rule. The emission behavior itself
+is tracked in **#299** and is not changed here.
+
+For the real-map membership (`1058e29`, 1565 entries, 1504 distinct), 61 IDs are duplicated, again
+all cross-type: 3 passed both branches, 46 are astrometric survivors with an emitted `SB1` row, and
+12 are spectroscopic survivors with an emitted `Orbital` (9) or `EclipsingBinary` (3) row.
+
+**Re-reported counts.** These are the membership sets recorded at the SHAs shown, recounted with the
+landed rule (branch `feat/distinct-star-counts-274`, off `main` @ `c07897e`). Solution types come
+from `…+enrich+mc10000/selection_parent_rows.h5` (443,211 rows). No selection was re-evaluated and
+no threshold was touched.
+
+| Count | Target | Per-row (old) | **Per-type distinct (#274)** | Distinct across types (info) | Per-type breakdown |
+|---|---:|---:|---:|---:|---|
+| El-Badry 2026 union, #270 (`a9397ba`, undereddened) | 227 | 1119 | **1069** = 946 + 123 | 1067 | `Orbital` 722, `AstroSpectroSB1` 224, `SB1` 122, `SB1C` 1 |
+| El-Badry 2026 union, real maps (`1058e29`) | 227 | 1565 | **1507** = 1356 + 151 | 1504 | astrometric: `Orbital` 1068, `AstroSpectroSB1` 288; spectroscopic 151 |
+| El-Badry 2026 astrometric branch (real maps) | 76 | 1356 | **1356** | 1356 | unchanged: no star has both `Orbital` and `AstroSpectroSB1` rows |
+| El-Badry 2026 spectroscopic branch (real maps) | 151 | 151 | **151** | 151 | unchanged, still exact |
+| El-Badry 2026 subsamples (real maps) | 47 / 5 / 16 / 22 | 46 / 5 / 55 / 1265 | **46 / 5 / 55 / 1265** | same | unchanged |
+| Andrews 2022 (`andrews2022`) | 24 | 63 | **63** | 63 | `Orbital` only (Orbital-only parent) |
+| Andrews 2022 modified | 25 | 64 | **64** | 64 | `Orbital` only |
+| El-Badry 2024 catalog union | 48 | 48 | **48** | 48 | `Orbital` 42, `AstroSpectroSB1` 6 |
+
+Same-type duplicates cannot move any of these numbers. The parent cache has only **6** same-type
+`(source_id, type)` pairs (5 `SB1`, 1 `EclipsingBinary`), and none of them is in any sample's
+membership. Only the El-Badry 2026 **union** moves. It is still a FAIL, driven by
+`sub_chandrasekhar`, as before.
 
 ### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix landed (#258)
 
