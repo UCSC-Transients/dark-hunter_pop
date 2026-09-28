@@ -182,6 +182,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             inputs_from=("mass_derivation_refined",),
             deps=(
                 "darkhunter_pop.rv_consistency",
+                "darkhunter_pop.constants",
                 "darkhunter_pop.mass_derivation",
                 "darkhunter_pop.data_acquisition",
                 "darkhunter_pop.diagnostic_hooks",
@@ -198,6 +199,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             inputs_from=("rv_astrometry_gate",),
             deps=(
                 "darkhunter_pop.rv_consistency",
+                "darkhunter_pop.constants",
                 "darkhunter_pop.mass_derivation",
                 "darkhunter_pop.data_acquisition",
                 "darkhunter_pop.diagnostic_hooks",
