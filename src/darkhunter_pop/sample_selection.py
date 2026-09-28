@@ -1005,10 +1005,19 @@ class SampleSelection:
         n_na = 0
         na_reasons: dict[str, int] = {}
         rows_for_cut: Sequence[Mapping[str, Any]] = remaining
-        if self._cut_needs_elbadry_m2_sigma(cut):
+        needs_sigma = self._cut_needs_elbadry_m2_sigma(cut)
+        needs_amrf = self._cut_needs_elbadry_amrf_threshold(cut)
+        if needs_sigma or needs_amrf:
             # Mutate remaining dicts in place after m2_range (~2k), not full parent.
             filled = [dict(row) for row in remaining]
-            self._attach_elbadry_m2_sigma_inplace(filled)
+            if needs_sigma:
+                self._attach_elbadry_m2_sigma_inplace(filled)
+            if needs_amrf:
+                from darkhunter_pop.elbadry2026_selection import (
+                    attach_amrf_threshold,
+                )
+
+                filled = [attach_amrf_threshold(row, self.spec) for row in filled]
             rows_for_cut = filled
             # Keep outcomes keyed to same source_ids; replace remaining content
             # for subsequent cuts by updating caller's list when possible.
@@ -1049,8 +1058,25 @@ class SampleSelection:
         expr = cut.expression or ""
         return "sigma_m2_astrometric_msun" in expr
 
+    def _cut_needs_elbadry_amrf_threshold(self, cut: SampleCut) -> bool:
+        if self.spec.amrf_cut is None:
+            return False
+        from darkhunter_pop.elbadry2026_selection import AMRF_THRESHOLD_COLUMN
+
+        if AMRF_THRESHOLD_COLUMN in cut.requires_defined:
+            return True
+        return AMRF_THRESHOLD_COLUMN in (cut.expression or "")
+
     def _attach_elbadry_m2_sigma_inplace(self, rows: list[dict[str, Any]]) -> None:
-        """Fill ``sigma_m2_astrometric_msun`` via fixed-M̃1 NSS MC (Q12)."""
+        """Fill ``sigma_m2_astrometric_msun`` per ``spec.sigma_m2_tilde`` (#284).
+
+        ``method: analytic`` (first-order Jacobian, nsstools-style) or
+        ``monte_carlo`` (full-12×12 NSS draws). With no ``sigma_m2_tilde`` block
+        the MC path is used (pre-#284 behavior). Janssens ``M̃1`` fit
+        uncertainty enters only when ``primary_mass.propagate_fit_uncertainty``
+        is true (Q12). Every filled row is tagged with
+        :func:`~darkhunter_pop.elbadry2026_m2_sigma.sigma_provenance_tag`.
+        """
         # Local imports: data_acquisition ↔ diagnostics ↔ sample_selection cycle;
         # mc/elbadry helpers only needed on this cut.
         from darkhunter_pop.config_loader import load_config
@@ -1059,11 +1085,34 @@ class SampleSelection:
             merge_nss_enrichment_into_row,
             reconstruct_nss_covariance,
         )
-        from darkhunter_pop.elbadry2026_m2_sigma import sigma_m2_tilde_astrometric_msun
+        from darkhunter_pop.elbadry2026_m2_sigma import (
+            is_elbadry_sigma_provenance,
+            sigma_m2_tilde_analytic_msun,
+            sigma_m2_tilde_astrometric_msun,
+            sigma_provenance_tag,
+        )
+        from darkhunter_pop.janssens_mass import (
+            load_janssens_table,
+            sigma_log10_mass_from_fit,
+        )
 
         enrich_index = self._nss_enrichment_index()
         if not enrich_index:
             return
+        sigma_spec = self.spec.sigma_m2_tilde
+        method = "monte_carlo" if sigma_spec is None else sigma_spec.method
+        analytic_cov = "full" if sigma_spec is None else sigma_spec.analytic_covariance
+        primary = self.spec.primary_mass
+        m1_uncertainty = bool(primary is not None and primary.propagate_fit_uncertainty)
+        ab_rho = float(primary.ab_correlation or 0.0) if primary is not None else 0.0
+        janssens_table = (
+            load_janssens_table(primary.table)
+            if m1_uncertainty and primary is not None and primary.table
+            else None
+        )
+        tag = sigma_provenance_tag(
+            method, m1_uncertainty=m1_uncertainty, analytic_covariance=analytic_cov
+        )
         mc = load_config().mc_mass_function
         # Prefer per-sample monte_carlo.n_draws when present.
         n_draws = int(mc.n_draws)
@@ -1071,7 +1120,7 @@ class SampleSelection:
             n_draws = int(self.spec.monte_carlo.n_draws)
 
         for row in rows:
-            if row.get("_sigma_m2_astrometric_provenance") == "elbadry2026_m1_tilde_fixed":
+            if is_elbadry_sigma_provenance(row.get("_sigma_m2_astrometric_provenance")):
                 continue
             if row.get("sigma_m2_astrometric_msun") is not None:
                 continue
@@ -1082,6 +1131,17 @@ class SampleSelection:
                 m1_f = float(m1)
             except (TypeError, ValueError):
                 continue
+            sigma_log_m1 = 0.0
+            if m1_uncertainty:
+                mg_0 = row.get("mg_0")
+                if isinstance(mg_0, NotApplicable) or mg_0 is None:
+                    continue
+                fit_sigma = sigma_log10_mass_from_fit(
+                    float(mg_0), table=janssens_table, ab_correlation=ab_rho
+                )
+                if fit_sigma is None:
+                    continue
+                sigma_log_m1 = fit_sigma
             key = _enrichment_join_key(row)
             extra = enrich_index.get(key)
             if extra is None:
@@ -1093,20 +1153,31 @@ class SampleSelection:
             if cov.parameter_set is None:
                 continue
             sid = int(row["source_id"])
-            seed = int(mc.random_seed) ^ (sid & 0x7FFFFFFF)
-            sigma = sigma_m2_tilde_astrometric_msun(
-                cov.parameter_set,
-                m1_tilde_msun=m1_f,
-                n_draws=n_draws,
-                random_seed=seed,
-                eig_rel_floor=float(mc.eig_rel_floor),
-                eig_abs_floor=float(mc.eig_abs_floor),
-                source_id=sid,
-            )
+            if method == "analytic":
+                sigma = sigma_m2_tilde_analytic_msun(
+                    cov.parameter_set,
+                    m1_tilde_msun=m1_f,
+                    analytic_covariance=analytic_cov,
+                    sigma_log10_m1=sigma_log_m1,
+                )
+            elif method == "monte_carlo":
+                seed = int(mc.random_seed) ^ (sid & 0x7FFFFFFF)
+                sigma = sigma_m2_tilde_astrometric_msun(
+                    cov.parameter_set,
+                    m1_tilde_msun=m1_f,
+                    n_draws=n_draws,
+                    random_seed=seed,
+                    eig_rel_floor=float(mc.eig_rel_floor),
+                    eig_abs_floor=float(mc.eig_abs_floor),
+                    source_id=sid,
+                    sigma_log10_m1=sigma_log_m1,
+                )
+            else:
+                raise ValueError(f"unhandled sigma_m2_tilde method {method!r}")
             if sigma is None:
                 continue
             row["sigma_m2_astrometric_msun"] = sigma
-            row["_sigma_m2_astrometric_provenance"] = "elbadry2026_m1_tilde_fixed"
+            row["_sigma_m2_astrometric_provenance"] = tag
 
     def _nss_enrichment_index(
         self,
