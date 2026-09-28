@@ -273,6 +273,23 @@ emission rate (#243). `inference.row_multiplicity_consistency_diagnostic` (backe
 comparison as a new **diagnostic-only** field on the `inference` payload (`row_multiplicity_diagnostic`,
 alongside `posterior_prior_overlap` / `zero_count_upper_limits`) so this asymmetry is visible without
 being silently baked into the likelihood. See issue #252 for the follow-up.
+
+**Reproduction-mode counting against a published N (issue #274).** A literature paper's published N
+counts objects, not NSS rows. **Ruling (verbatim, Ryan Foley, 2026-09-27):** "In each solution type,
+count distinct stars." So every count that `sample_diagnostics` compares against a published N
+(`compare_to_published`, `build_reproduction_comparisons`, the attrition waterfall's `n_stars` line)
+is the number of distinct `source_id`s **within each `nss_solution_type`, summed over types**
+(`sample_selection.distinct_star_count`). Same-type duplicate rows of one star (period aliases,
+cross-match fan-out) count once; a star with an `Orbital` row and an `SB1` row that **each passed
+their own branch chain** counts once in each type. A multi-branch union is therefore the sum of
+per-type distinct counts (El-Badry 2026: 227 = 76 astrometric + 151 spectroscopic). Per-type
+survivors come from the rows that actually passed (`SampleEvaluationResult.*_by_solution_type`), not
+from every row of a surviving star: the per-row `surviving_source_ids` emits all of a surviving
+star's rows, including rows of other types that never passed any chain, and those do not count.
+The per-row count (`recovered_n_rows`) and the distinct-across-types count
+(`recovered_n_distinct_sources`) are still reported, as informational fields only. **This is
+reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `surviving_source_ids` /
+`inference_source_ids`, and the per-row likelihood above are unchanged.
 - Quality cut: goodness-of-fit vs. magnitude, configurable as **N separate (magnitude, threshold)
   bins** (El-Badry et al. 2023's <5/G>13, <10/G≤13 as the v1 default values; the mechanism
   supports arbitrary bin counts, since DR4 may need a different scheme).
