@@ -1165,3 +1165,10 @@ def test_run_data_acquisition_collapses_tmass_fanout_and_reports_funnel(
         assert attrs["crossmatch_fanout_rows_removed"] == 1
         assert attrs["crossmatch_fanout_sources_masked"] == 1
         assert attrs["crossmatch_fanout_bands_masked"] == 2
+
+
+def test_crossmatch_fanout_maskable_bands_is_in_data_acquisition_fingerprint() -> None:
+    """Changing the maskable-band set must invalidate a cached data_acquisition artifact."""
+    spec = STAGE_REGISTRY["data_acquisition"]
+    assert "dr3.crossmatch_fanout_maskable_bands" in spec.config_fingerprint_keys
+    assert "dr4.crossmatch_fanout_maskable_bands" in spec.config_fingerprint_keys
