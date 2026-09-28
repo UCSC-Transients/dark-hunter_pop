@@ -178,7 +178,12 @@ reviewed.
   cross-match fan-out (identical `nss_solution_type` **and** identical `period`, differing only
   2MASS photometry) and any other unrecognized duplicate shape: both are still refused via
   `DuplicateSourceIdError`, since no fan-out resolution logic exists yet (tracked separately from
-  #242). The funnel report (`FunnelCounts.multi_solution`, a `MultiSolutionCounts`) records the
+  #242). The error counts and names the two refused shapes separately (#290). Measured on `main`
+  @ `c07897e` (#290): 5 of the 6 fan-out groups survive `quality_cut_bins` (all `SB1`, differing
+  only in 2MASS `J/H/Ks` values and errors via the `tmass_psc_xsc_join` hop; the sixth,
+  `EclipsingBinary` at G≈18.8, is cut), 0 are `unresolved`, and the post-cut `cross_type` count is
+  3,841 — so **`data_acquisition` refuses on the documented snapshot, and no full end-to-end run
+  is possible, until #221 decides fan-out resolution**. The funnel report (`FunnelCounts.multi_solution`, a `MultiSolutionCounts`) records the
   per-sub-case kept counts.
 
 #### Multi-solution sources (real, not a bug — §15 Q17 resolved)
