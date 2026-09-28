@@ -759,6 +759,12 @@ dr3:
   external_mag_err_floor: 0.05
   external_mag_err_zero_as_missing: true
   impute_external_mag_err: true
+  # #221 option B: fan-out groups differing only in these bands collapse to one row
+  # with the conflicting bands masked (ARCHITECTURE.md §4 "Multi-solution sources").
+  crossmatch_fanout_maskable_bands:
+  - J
+  - H
+  - Ks
   nss_table: gaiadr3.nss_two_body_orbit
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
@@ -802,6 +808,8 @@ dr4:
   external_mag_err_floor: 0.05
   external_mag_err_zero_as_missing: true
   impute_external_mag_err: true
+  # DR4 has no external cross-matches configured yet, so nothing is maskable.
+  crossmatch_fanout_maskable_bands: []
   nss_table: gaiadr4.nss_two_body_orbit
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true

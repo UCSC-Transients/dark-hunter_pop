@@ -19,7 +19,7 @@ from typing import Any
 import h5py
 import numpy as np
 import yaml
-from astropy.table import Table
+from astropy.table import MaskedColumn, Table
 from numpy.typing import NDArray
 
 from darkhunter_pop.config_loader import load_config, repo_root, require_dr3_active_for_v1
@@ -130,9 +130,10 @@ class MultiSolutionCounts:
     an additional row count, mirroring ``measure_multi_solution_rate.py``'s
     ``both_groups``.
 
-    This dataclass counts *kept* ``source_id``\\ s only — the 6 genuine cross-match
-    fan-out groups (#221/PR #240) and any duplicate shape this classifier does not
-    recognize are refused by ``assert_unique_source_ids`` and never reach here.
+    This dataclass counts *kept* ``source_id``\\ s only — cross-match fan-out groups
+    (#221) are either collapsed upstream by ``collapse_crossmatch_fanout`` (counted in
+    ``CrossmatchFanoutCounts``) or refused by ``assert_unique_source_ids``, as is any
+    duplicate shape this classifier does not recognize; neither reaches here.
     """
 
     cross_type: int = 0
@@ -154,6 +155,29 @@ class MultiSolutionCounts:
 
 
 @dataclass(frozen=True)
+class CrossmatchFanoutCounts:
+    """Funnel counts for the #221 cross-match fan-out collapse.
+
+    ``groups_collapsed`` duplicated ``source_id`` groups were collapsed to one row each,
+    removing ``rows_removed`` redundant rows. ``sources_masked`` of those sources had at
+    least one conflicting band masked, ``bands_masked`` (source, band) pairs in total.
+    """
+
+    groups_collapsed: int = 0
+    rows_removed: int = 0
+    sources_masked: int = 0
+    bands_masked: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "crossmatch_fanout_groups_collapsed": self.groups_collapsed,
+            "crossmatch_fanout_rows_removed": self.rows_removed,
+            "crossmatch_fanout_sources_masked": self.sources_masked,
+            "crossmatch_fanout_bands_masked": self.bands_masked,
+        }
+
+
+@dataclass(frozen=True)
 class FunnelCounts:
     """Row counts at each data_acquisition filtering step."""
 
@@ -163,6 +187,9 @@ class FunnelCounts:
     covariance_ok: int = 0
     covariance_failed: int = 0
     multi_solution: MultiSolutionCounts = field(default_factory=MultiSolutionCounts)
+    crossmatch_fanout: CrossmatchFanoutCounts = field(
+        default_factory=CrossmatchFanoutCounts
+    )
 
     def as_dict(self) -> dict[str, int]:
         counts = {
@@ -173,6 +200,7 @@ class FunnelCounts:
             "covariance_failed": self.covariance_failed,
         }
         counts.update(self.multi_solution.as_dict())
+        counts.update(self.crossmatch_fanout.as_dict())
         return counts
 
 
@@ -190,11 +218,17 @@ class DuplicateSourceIdError(ValueError):
     one period-aliased ``Orbital``-family solution — are *not* raised as this error
     any more; they are real and are tagged and kept unmodified. This error now fires
     only for (a) the cross-match fan-out signature (identical ``nss_solution_type``
-    AND identical ``period`` across every row in the group — #221, PR #240), which has
-    no resolution logic yet, and (b) any other duplicate shape this classifier does
+    AND identical ``period`` across every row in the group — #221, PR #240) when the
+    group was not collapsed upstream, and (b) any other duplicate shape this classifier does
     not recognize as one of the two known-safe multi-solution sub-cases. Either way
     this is still a **hard stop, not a repair**: no row-merging or solution-selection
     logic is authorized (see the revert of PR #238 in PR #239).
+
+    Since #221 option B, ``run_data_acquisition`` first runs
+    :func:`collapse_crossmatch_fanout`, which collapses fan-out groups that differ
+    *only* in ``dr.crossmatch_fanout_maskable_bands`` (masking conflicting bands). A
+    fan-out-shaped group reaching this error therefore differs in some other column
+    too, and is refused as not the known fan-out shape.
 
     Parameters
     ----------
@@ -247,8 +281,9 @@ class DuplicateSourceIdError(ValueError):
         else:
             breakdown = (
                 f"{fanout_source_ids or 0} in the cross-match fan-out shape "
-                "(identical nss_solution_type and period, differing only in "
-                "cross-matched photometry, #221) and "
+                "(identical nss_solution_type and period, #221) that could not be "
+                "collapsed because the rows also differ in a column outside "
+                "crossmatch_fanout_maskable_bands (or the collapse was not applied) and "
                 f"{unresolved_source_ids or 0} in an unrecognized shape (neither "
                 "fan-out nor a genuine multi-solution shape: distinct "
                 "nss_solution_type families, or multiple period-aliased Orbital "
@@ -260,8 +295,9 @@ class DuplicateSourceIdError(ValueError):
             f"{breakdown}; "
             f"example source_id {example_source_id} appears {example_multiplicity} "
             "times. source_id is unique per object, so these records cannot all be "
-            "written as-is. Fan-out resolution has no logic yet; an unrecognized shape "
-            "is not proven safe to keep, so nothing is merged automatically."
+            "written as-is. Only fan-out groups differing solely in the maskable "
+            "cross-match bands are collapsed (collapse_crossmatch_fanout, #221); an "
+            "unrecognized shape is not proven safe to keep, so nothing else is merged."
         )
 
 
@@ -321,8 +357,10 @@ def classify_duplicate_source_id_group(records: Sequence[CandidateRecord]) -> st
 
     Returns one of:
 
-    - ``"fanout"``: the #221/PR #240 cross-match fan-out signature. Still refused —
-      no resolution logic exists yet.
+    - ``"fanout"``: the #221/PR #240 cross-match fan-out signature. Refused here;
+      the resolvable subset (rows differing only in the maskable cross-match bands)
+      is collapsed upstream by :func:`collapse_crossmatch_fanout` and never reaches
+      this classifier as a duplicate.
     - ``"cross_type"``: distinct ``nss_solution_type`` families. Genuine multi-solution;
       kept.
     - ``"same_type_period_aliased"``: more than one period-aliased ``Orbital``-family
@@ -367,9 +405,9 @@ def assert_unique_source_ids(
 
     A duplicate group is still refused when ``classify_duplicate_source_id_group``
     returns ``"fanout"`` (the #221/PR #240 cross-match fan-out signature — same
-    ``nss_solution_type`` and same ``period`` for every row in the group; no
-    resolution logic exists for it yet — #221 remains open and now scoped to exactly
-    this narrower 6-group case) or ``"unresolved"`` (any duplicate shape this
+    ``nss_solution_type`` and same ``period`` for every row in the group — the
+    resolvable subset is collapsed upstream by ``collapse_crossmatch_fanout``, so a
+    fan-out group seen here differs in some other column too) or ``"unresolved"`` (any duplicate shape this
     classifier does not recognize as one of the two known-safe multi-solution
     sub-cases — refused for the same conservative reason PR #240 refused every
     duplicate).
@@ -403,8 +441,8 @@ def assert_unique_source_ids(
     Limitations
     -----------
     Classification and validation only — never repairs, merges, or drops records.
-    Real fan-out resolution logic does not exist yet; those duplicates keep raising
-    until issue #221 (narrowed to this 6-group case) designs it.
+    Fan-out resolution (#221 option B) is :func:`collapse_crossmatch_fanout`, applied
+    by the stage runner before this guard; anything it did not collapse raises here.
     """
     groups: dict[int, list[CandidateRecord]] = {}
     for candidate in candidates:
@@ -449,6 +487,217 @@ def assert_unique_source_ids(
         same_type_period_aliased=same_type_period_aliased,
         both=both,
     )
+
+
+# --- cross-match fan-out collapse (#221, option B) ---------------------------------
+#
+# Ryan Foley's decision (2026-09-27, #221): a duplicated source_id group whose rows are
+# identical in EVERY column except the configured maskable cross-match bands
+# (``dr.crossmatch_fanout_maskable_bands``: 2MASS J/H/Ks via tmass_psc_xsc_join on DR3)
+# collapses to one row. A band whose value or error differs across the rows is masked
+# (value and error), never chosen between; a band that agrees is kept. The surviving
+# row is the group's first table row, so every kept cell is that row's own cell —
+# nothing is copied between rows. Any group differing anywhere else is left untouched
+# for ``assert_unique_source_ids`` to keep (genuine multi-solution) or refuse.
+
+CROSSMATCH_FANOUT_COLLAPSED_KEY = "crossmatch_fanout_collapsed"
+CROSSMATCH_FANOUT_N_MATCHES_KEY = "crossmatch_fanout_n_matches"
+CROSSMATCH_FANOUT_MASKED_BANDS_KEY = "crossmatch_fanout_masked_bands"
+
+
+@dataclass(frozen=True)
+class CrossmatchFanoutResult:
+    """Output of :func:`collapse_crossmatch_fanout`.
+
+    ``provenance`` maps each collapsed ``source_id`` to the extras written onto its
+    candidate (``crossmatch_fanout_collapsed`` / ``_n_matches`` / ``_masked_bands``).
+    """
+
+    table: Table
+    provenance: dict[int, dict[str, Any]]
+    counts: CrossmatchFanoutCounts
+
+
+def _fanout_band_columns(band: str) -> tuple[str, str]:
+    """Snapshot column names for one cross-match band (as ``build_nss_adql`` aliases them)."""
+    return f"{band}_mag", f"{band}_mag_err"
+
+
+def _cell_is_missing(value: Any) -> bool:
+    if value is None or value is np.ma.masked:
+        return True
+    try:
+        if bool(np.ma.is_masked(value)):
+            return True
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (float, np.floating)):
+        return bool(np.isnan(value))
+    return False
+
+
+def _cells_equal(a: Any, b: Any) -> bool:
+    """Exact cell equality; missing (masked / None / NaN) equals only missing."""
+    a_missing = _cell_is_missing(a)
+    b_missing = _cell_is_missing(b)
+    if a_missing or b_missing:
+        return a_missing and b_missing
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        a_arr = np.ma.asarray(a)
+        b_arr = np.ma.asarray(b)
+        if a_arr.shape != b_arr.shape:
+            return False
+        if a_arr.dtype.kind in "fc" and b_arr.dtype.kind in "fc":
+            return bool(
+                np.array_equal(np.ma.getmaskarray(a_arr), np.ma.getmaskarray(b_arr))
+                and np.array_equal(
+                    np.ma.filled(a_arr, np.nan), np.ma.filled(b_arr, np.nan), equal_nan=True
+                )
+            )
+        return bool(np.array_equal(a_arr, b_arr))
+    return bool(a == b)
+
+
+def _column_equal_across(table: Table, name: str, rows: Sequence[int]) -> bool:
+    col = table[name]
+    first = col[rows[0]]
+    return all(_cells_equal(first, col[r]) for r in rows[1:])
+
+
+def _mask_cell(table: Table, name: str, row: int) -> None:
+    """Mark one cell missing so ``_optional_float`` reads it as ``None``.
+
+    The column is converted to a ``MaskedColumn`` if needed and the cell's mask bit
+    set; a float cell is also overwritten with NaN underneath, so the conflicting
+    value never survives in ``.data`` either.
+    """
+    col = table[name]
+    if not isinstance(col, MaskedColumn):
+        table[name] = MaskedColumn(col, mask=np.zeros(len(col), dtype=bool))
+        col = table[name]
+    if col.dtype.kind == "f":
+        col[row] = np.nan
+    col.mask[row] = True
+
+
+def collapse_crossmatch_fanout(
+    table: Table,
+    maskable_bands: Sequence[str],
+) -> CrossmatchFanoutResult:
+    """Collapse #221 cross-match fan-out groups to one row, masking conflicting bands.
+
+    Parameters
+    ----------
+    table:
+        Joined archive rows (after ``apply_quality_cuts``). Not modified; a new table
+        is returned.
+    maskable_bands:
+        Cross-match bands (``dr.crossmatch_fanout_maskable_bands``) whose
+        ``<band>_mag`` / ``<band>_mag_err`` columns are the only ones allowed to differ
+        within a collapsible group. Empty disables the collapse.
+
+    Returns
+    -------
+    CrossmatchFanoutResult
+        The collapsed table (original row order, redundant fan-out rows removed), the
+        per-``source_id`` provenance extras, and funnel counts.
+
+    Limitations
+    -----------
+    Verification is exact, cell-by-cell, over every column of the table except the
+    maskable band columns — a group differing in any other column (e.g. a genuine
+    multi-solution group, or a fan-out whose other photometry also disagrees) is left
+    untouched and reaches ``assert_unique_source_ids`` unchanged. Never picks a
+    measurement: a conflicting band is masked in both value and error, and the kept
+    row is the group's first row, so every surviving cell is that row's own.
+    """
+    empty = CrossmatchFanoutResult(table=table, provenance={}, counts=CrossmatchFanoutCounts())
+    if not maskable_bands or len(table) == 0 or "source_id" not in table.colnames:
+        return empty
+
+    source_ids = np.asarray(table["source_id"])
+    unique_ids, inverse, counts = np.unique(
+        source_ids, return_inverse=True, return_counts=True
+    )
+    dup_group_idx = np.flatnonzero(counts > 1)
+    if dup_group_idx.size == 0:
+        return empty
+
+    band_columns: dict[str, tuple[str, ...]] = {}
+    for band in maskable_bands:
+        band_columns[band] = tuple(c for c in _fanout_band_columns(band) if c in table.colnames)
+    maskable_columns = {c for cols in band_columns.values() for c in cols}
+    verify_columns = [c for c in table.colnames if c not in maskable_columns]
+
+    order = np.argsort(inverse, kind="stable")
+    boundaries = np.concatenate(([0], np.cumsum(counts)))
+
+    drop_rows: list[int] = []
+    to_mask: list[tuple[int, str]] = []
+    provenance: dict[int, dict[str, Any]] = {}
+    sources_masked = 0
+    bands_masked = 0
+    for g in dup_group_idx:
+        rows = [int(r) for r in order[boundaries[g] : boundaries[g + 1]]]
+        if not all(_column_equal_across(table, name, rows) for name in verify_columns):
+            continue  # not the fan-out shape; assert_unique_source_ids decides
+        keep = rows[0]
+        masked_bands = [
+            band
+            for band, cols in band_columns.items()
+            if cols and not all(_column_equal_across(table, c, rows) for c in cols)
+        ]
+        for band in masked_bands:
+            for col_name in band_columns[band]:
+                to_mask.append((keep, col_name))
+        drop_rows.extend(rows[1:])
+        if masked_bands:
+            sources_masked += 1
+            bands_masked += len(masked_bands)
+        provenance[int(unique_ids[g])] = {
+            CROSSMATCH_FANOUT_COLLAPSED_KEY: True,
+            CROSSMATCH_FANOUT_N_MATCHES_KEY: len(rows),
+            CROSSMATCH_FANOUT_MASKED_BANDS_KEY: masked_bands,
+        }
+
+    if not provenance:
+        return empty
+
+    out = table.copy(copy_data=True)
+    for row, col_name in to_mask:
+        _mask_cell(out, col_name, row)
+    keep_mask = np.ones(len(out), dtype=bool)
+    keep_mask[drop_rows] = False
+    out = out[keep_mask]
+    return CrossmatchFanoutResult(
+        table=out,
+        provenance=provenance,
+        counts=CrossmatchFanoutCounts(
+            groups_collapsed=len(provenance),
+            rows_removed=len(drop_rows),
+            sources_masked=sources_masked,
+            bands_masked=bands_masked,
+        ),
+    )
+
+
+def attach_crossmatch_fanout_provenance(
+    candidates: Sequence[CandidateRecord],
+    provenance: Mapping[int, Mapping[str, Any]],
+) -> list[CandidateRecord]:
+    """Write each collapsed source's fan-out provenance into its ``extras`` (#221)."""
+    if not provenance:
+        return list(candidates)
+    out: list[CandidateRecord] = []
+    for candidate in candidates:
+        flags = provenance.get(candidate.source_id)
+        if flags is None:
+            out.append(candidate)
+            continue
+        extras = dict(candidate.extras)
+        extras.update({k: (list(v) if isinstance(v, list) else v) for k, v in flags.items()})
+        out.append(candidate.model_copy(update={"extras": extras}))
+    return out
 
 
 @dataclass(frozen=True)
@@ -1893,9 +2142,15 @@ def run_data_acquisition(
         )
 
     filtered, bin_counts = apply_quality_cuts(raw_table, dr.quality_cut_bins)
+    # #221 option B: collapse cross-match fan-out groups (rows identical except in the
+    # configured maskable bands) to one row with conflicting bands masked, BEFORE the
+    # duplicate guard below sees them. Genuine multi-solution groups and any group
+    # differing elsewhere pass through untouched.
+    fanout = collapse_crossmatch_fanout(filtered, dr.crossmatch_fanout_maskable_bands)
     candidates = table_to_candidates(
-        filtered, dr, spectroscopic=config.spectroscopic_mass_function
+        fanout.table, dr, spectroscopic=config.spectroscopic_mass_function
     )
+    candidates = attach_crossmatch_fanout_provenance(candidates, fanout.provenance)
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
     # Classifies duplicate source_ids (#241/#242) and refuses any unsafe shape here,
     # before diagnostics are even built, so the funnel report carries the real kept
@@ -1910,6 +2165,7 @@ def run_data_acquisition(
         covariance_ok=cov_health.ok,
         covariance_failed=cov_health.failed,
         multi_solution=multi_solution,
+        crossmatch_fanout=fanout.counts,
     )
     diagnostics = compute_stage_diagnostics(
         candidates,
