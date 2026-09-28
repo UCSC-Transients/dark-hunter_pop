@@ -810,6 +810,9 @@ dr3:
   - H
   - Ks
   nss_table: gaiadr3.nss_two_body_orbit
+  # #308: frozen NSS enrichment (corr_vec / bit_index / NSS errors / K1) merged into
+  # data_acquisition rows per (source_id, nss_solution_type). Never re-run the job.
+  nss_enrichment_snapshot: nss_enrichment
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
   selection_function_astrometric:
@@ -855,6 +858,8 @@ dr4:
   # DR4 has no external cross-matches configured yet, so nothing is maskable.
   crossmatch_fanout_maskable_bands: []
   nss_table: gaiadr4.nss_two_body_orbit
+  # DR4 queries are expected to carry corr_vec natively; no enrichment staged.
+  nss_enrichment_snapshot: null
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true
   selection_function_astrometric:

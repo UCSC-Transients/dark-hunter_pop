@@ -108,6 +108,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "dr4.crossmatch_fanout_maskable_bands",
                 "dr3.nss_table",
                 "dr4.nss_table",
+                "dr3.nss_enrichment_snapshot",
+                "dr4.nss_enrichment_snapshot",
             ),
         ),
         _spec(

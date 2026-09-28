@@ -2204,6 +2204,12 @@ class DRPathConfig(BaseModel):
     crossmatch_fanout_maskable_bands: list[str] = Field(default_factory=list)
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
+    # NSS covariance / K1 / NSS-error enrichment merged into data_acquisition rows
+    # per (source_id, nss_solution_type) (#308; ARCHITECTURE.md §4 data_acquisition).
+    # Directory name under ``{data_root}/{dr}/gaia_snapshots/`` holding a ``meta.yaml``
+    # written by scripts/fetch_nss_enrichment.py. Null disables the merge; configured
+    # but missing is a hard error, never a silent skip.
+    nss_enrichment_snapshot: str | None = None
     # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
     rv_summary_root: str | None = None
     rv_summary_filename_template: str = "Gaia_DR3_{source_id}_summary.json"
@@ -2309,6 +2315,7 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "impute_external_mag_err",
         "crossmatch_fanout_maskable_bands",
         "nss_table",
+        "nss_enrichment_snapshot",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",
         "accel_jerk_catalog_id",
