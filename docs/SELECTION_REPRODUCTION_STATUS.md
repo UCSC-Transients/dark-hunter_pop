@@ -527,7 +527,7 @@ Spectroscopic branch (real maps): `181534 → 133642 (k1_significance) → 151 (
 
 **Unit-conversion sensitivity (not the landed config).** El-Badry 2026 does not state how it converts
 either map to `E(B-V)`. The landed config uses `E(B-V) = 0.884 × Bayestar19` and `E(B-V) = A0/3.1`,
-which **the PI confirmed on 2026-09-27 (#295; §3.3.4)**. Re-running El-Badry 2026 alone with the
+which **the PI confirmed on 2026-09-27 (#295; §3.3.5)**. Re-running El-Badry 2026 alone with the
 Bayestar factor set to 1.0 (raw Bayestar units as `E(B-V)`, the `mwdust` / #232-diagnostic convention),
 same SHA and membership: `primary_ns_bh` 45, spectroscopic 150, routes 134 / 30 / 14,
 `sub_chandrasekhar` 1313, astrometric union 1403, Simon unchanged. The conversion choice moves the
@@ -705,7 +705,7 @@ the maps once disk space allowed. What was done:
   `A0 → E(B-V) = A0 / r_v` (derived from `r_v`, `native_quantity: a0`), Bayestar19 `0.884` (Green et al.
   2019 / Argonaut usage page Eq. 1, SF11 `R_V = 3.1`; the page's `E(r−z)` alternative is `0.996`). The
   `E(B-V) → A_G, E(BP−RP)` step is `gaia_band_extinction.law`: `paper_constant` (default, the frozen
-  2.66 / 1.33) or `babusiaux2018` (the Gaia colour/`A0`-dependent law, coefficients in config). See §3.3.4.
+  2.66 / 1.33) or `babusiaux2018` (the Gaia colour/`A0`-dependent law, coefficients in config). See §3.3.5.
 - **Caching.** Native per-source integrals are cached at
   `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5`. The fingerprint covers the split, the map
   identities (md5), the `READER_VERSION` salt and — since #278 — the SHA-256 of `dust_maps.py`
@@ -944,7 +944,7 @@ Forcing the fallback on the same artifact gives 5 / 2 / 1 / 0 (+1). Peak RSS 12.
 (E(B-V) cache cold). A full 14-stage run could not be used because the dry run currently stops at
 `data_acquisition` on an unrecognized duplicate-`source_id` shape (**#290**).
 
-### 3.3.4 PI decision on the `E(B-V)` conversions (#295) — re-measured, no count moves
+### 3.3.5 PI decision on the `E(B-V)` conversions (#295) — re-measured, no count moves
 
 PI decision (Ryan Foley, 2026-09-27), verbatim: *"Use the Gaia conversion. Use Rv = 3.1 unless it
 says something else. Make sure these numbers are all in the config and easy to adjust."*
@@ -965,7 +965,7 @@ the reproduction default. It is implemented as a one-line switch
 (`gaia_band_extinction.law: babusiaux2018`, coefficients in config). Note: the paper's 2.66 equals
 `3.1 × k_G` of that law at `(BP−RP)_0 ≈ 0.72`, `A0 → 0`, but its 1.33 does not (the law gives ≈ 1.49 there).
 
-Provenance: branch `feat/ebv-conversion-pi` @ `1d54daa` (= `main` @ `c07897e` + #295), isolated
+Provenance: branch `feat/ebv-conversion-pi` @ `1d54daa` (= `main` @ `c07897e` + #295; the later merge of `main` @ `a5ce757` brings only #274 counting helpers and #221 data-acquisition collapse, neither of which touches cut evaluation or this cache), isolated
 worktree, `PYTHONPATH` → worktree `src/` (verified), cache `…+enrich+mc10000` (443,211 rows, 823,999,664
 bytes, mtime 2026-09-27 02:18:53), warm native `E(B-V)` cache `elbadry2026_30a69867aa069bca.h5` (unchanged:
 `dust_maps.py` was not edited). `andrews2022` first (N = 63), then `elbadry2026` with that membership.
@@ -973,7 +973,7 @@ Peak RSS for both variants in one process: **7.3 GB** (`/usr/bin/time -l`; warm 
 
 | Check | Target | `paper_constant` (**landed default**) | `babusiaux2018` (sensitivity) |
 |---|---|---|---|
-| Published union (`n_surviving`, non-unique) | 227 | **1565** (1504 distinct) | 1584 (1522 distinct) |
+| Published union (`n_surviving`, non-unique) | 227 | **1565** (1504 distinct; #274 per-type distinct **1507**, same membership as §3.3.4's real-map set) | 1584 (1522 distinct) |
 | Astrometric branch union | 76 | **1356** | 1372 |
 | Spectroscopic branch | 151 | **151** | 153 |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | **132 / 30 / 11** | 137 / 30 / 14 |
