@@ -290,6 +290,10 @@ sample_selection:
         # conversion; PENDING PI CONFIRMATION (#258).
         native_to_ebv: 0.3225806451612903
         provenance: "Lallement et al. 2019; E(B-V)=A0/3.1"
+  # #296: fingerprint-keyed sidecars of reproduction-procedure columns
+  # (andrews_atf_*, built by scripts/build_andrews2022_atf_columns.py), relative
+  # to paths.data_root; one subdirectory per active_dr_mode.
+  reproduction_column_cache_dir: reproduction_columns
 spuriousness_model:
   enabled: true
   path: config/spuriousness_model.yaml

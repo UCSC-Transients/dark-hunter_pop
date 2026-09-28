@@ -1033,6 +1033,21 @@ def test_nonbranched_evaluate_filters_solution_types() -> None:
     config = load_config()
     registry = SampleSelectionRegistry(config)
     selection = registry.selection("andrews2022")
+    # Reproduction mode evaluates the ATF-notebook chain (#296), which reads
+    # the precomputed andrews_atf_* columns.
+    atf = {
+        "andrews_atf_covariance_ok": True,
+        "andrews_atf_pass1_root_ok": True,
+        "andrews_atf_p_m2_above": 0.99,
+        "andrews_atf_goodness_of_fit": 1.0,
+        "andrews_atf_m1_source": "flame",
+        "andrews_atf_logg": 4.5,
+        "andrews_atf_bp_rp": 1.0,
+        "andrews_atf_abs_g_mag": 5.0,
+        "andrews_atf_pass2_root_ok": True,
+        "andrews_atf_m2_mean_msun": 2.0,
+        "andrews_atf_m2_std_msun": 0.1,
+    }
     rows = [
         {
             "source_id": 1,
@@ -1044,6 +1059,7 @@ def test_nonbranched_evaluate_filters_solution_types() -> None:
             "logg_apsis": 4.5,
             "abs_g_mag": 5.0,
             "bp_rp": 1.0,
+            **atf,
         },
         {
             "source_id": 2,
@@ -1055,6 +1071,7 @@ def test_nonbranched_evaluate_filters_solution_types() -> None:
             "logg_apsis": 4.5,
             "abs_g_mag": 5.0,
             "bp_rp": 1.0,
+            **atf,
         },
     ]
     result = selection.evaluate(rows)
