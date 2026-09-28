@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -44,15 +44,28 @@ from darkhunter_pop.benchmarks import (
     synthetic_observed_from_truth,
     validate_benchmarks_config,
 )
-from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import PipelineConfig, SBCConfig
+
+# Shared hook primitives moved to ``diagnostic_hooks`` (#182); re-exported here so
+# ``from darkhunter_pop.diagnostics import ...`` call sites keep working.
+from darkhunter_pop.diagnostic_hooks import (
+    DiagnosticDirs,
+    HookEmissionResult,
+    _maybe_plot,
+    emit_funnel_sky,
+    emit_gate_pass_rate,
+    format_funnel_report,
+    format_gate_pass_rate_report,
+    resolve_artifact_root,
+    resolve_diagnostic_dirs,
+    write_report,
+)
 from darkhunter_pop.forward_model import (
     SOLUTION_TYPE_LABELS,
     SolutionTypeFractionResult,
 )
 from darkhunter_pop.nss_covariance import CovarianceHealth
 from darkhunter_pop.plotting import (
-    MatplotlibUnavailableError,
     matplotlib_available,
     plot_categorical_bars,
     plot_grouped_bars,
@@ -61,7 +74,6 @@ from darkhunter_pop.plotting import (
     plot_m2_posterior_convergence,
     plot_overlay_histograms,
     plot_six_panel_grid,
-    plot_sky_mollweide,
 )
 from darkhunter_pop.mc_mass_function import (
     M2PosteriorConvergenceDiagnostic,
@@ -116,9 +128,12 @@ from darkhunter_pop.sensitivity_analysis import (
     run_mc_noise_convergence,
 )
 
-# Circular-import note: ``data_acquisition`` imports diagnostics emitters at module
-# load, and ``companion_nature`` / ``mass_derivation`` sit on that import path.
-# Those two modules are therefore imported only inside the helpers that need them.
+# Lazy-import note: ``companion_nature`` / ``mass_derivation`` (and the upstream-stage
+# artifact readers) are imported only inside the helpers that need them. This was
+# originally to break an import cycle through ``data_acquisition``; since #182 the
+# early stages import ``diagnostic_hooks`` instead, so no cycle remains, but the
+# imports stay lazy to keep this module's import-time reach small. They are still
+# declared in the ``diagnostics`` stage's ``dependency_modules`` (#183).
 
 # Default El-Badry et al. (2024) panel axis names (ARCHITECTURE.md §4 / forward_model).
 DEFAULT_ELBADRY_PANEL_ORDER: tuple[str, ...] = (
@@ -142,35 +157,6 @@ ELBADRY_PANEL_XLABELS: dict[str, str] = {
 
 DiagnosticHelper = Callable[..., Any]
 DIAGNOSTICS_SCHEMA_VERSION = 2
-
-
-@dataclass(frozen=True)
-class DiagnosticDirs:
-    """Resolved output directories for one diagnostics emission site."""
-
-    root: Path
-    figures: Path
-    reports: Path
-
-
-@dataclass
-class HookEmissionResult:
-    """Paths written by one diagnostic hook."""
-
-    hook_name: str
-    figures: list[Path] = field(default_factory=list)
-    reports: list[Path] = field(default_factory=list)
-    skipped_reason: str | None = None
-    payload: dict[str, Any] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "hook_name": self.hook_name,
-            "figures": [str(p) for p in self.figures],
-            "reports": [str(p) for p in self.reports],
-            "skipped_reason": self.skipped_reason,
-            "payload": self.payload,
-        }
 
 
 @dataclass
@@ -273,47 +259,6 @@ def get_diagnostic_helper(name: str) -> DiagnosticHelper:
 def clear_diagnostic_helpers() -> None:
     """Remove all registered helpers (tests only)."""
     _HELPER_REGISTRY.clear()
-
-
-def resolve_artifact_root(config: PipelineConfig) -> Path:
-    """Resolve ``paths.artifact_root`` relative to the repo when not absolute."""
-    root = Path(config.paths.artifact_root)
-    if not root.is_absolute():
-        root = repo_root() / root
-    return root
-
-
-def resolve_diagnostic_dirs(
-    config: PipelineConfig,
-    *,
-    run_id: str,
-    beside_artifact: Path | None = None,
-) -> DiagnosticDirs:
-    """Resolve figure/report directories under config paths.
-
-    Default layout: ``{artifact_root}/{run_id}/diagnostics/{figures,reports}/``.
-    When ``beside_artifact`` is set (stage-local emission), directories sit next to
-    that HDF5 as ``{stem}_diagnostics/{figures,reports}/``.
-    """
-    diag = config.diagnostics
-    if beside_artifact is not None:
-        root = Path(beside_artifact).parent / f"{Path(beside_artifact).stem}_diagnostics"
-    else:
-        root = resolve_artifact_root(config) / run_id / "diagnostics"
-    figures = root / diag.figures_subdir
-    reports = root / diag.reports_subdir
-    root.mkdir(parents=True, exist_ok=True)
-    figures.mkdir(parents=True, exist_ok=True)
-    reports.mkdir(parents=True, exist_ok=True)
-    return DiagnosticDirs(root=root, figures=figures, reports=reports)
-
-
-def write_report(path: Path, text: str) -> Path:
-    """Write a full-detail diagnostic text report (UTF-8)."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
-    return path
 
 
 def count_fit_tiers(candidates: Sequence[CandidateRecord]) -> dict[str, int]:
@@ -420,26 +365,6 @@ def rank_information_gain(
     return rows
 
 
-def format_funnel_report(
-    funnel_counts: Mapping[str, int],
-    *,
-    quality_cut_bin_counts: Mapping[str, int] | None = None,
-    stage_name: str = "data_acquisition",
-) -> str:
-    """Full-detail funnel table for stage diagnostics."""
-    lines = [
-        f"=== {stage_name} funnel ===",
-    ]
-    for key, value in funnel_counts.items():
-        lines.append(f"  {key}: {value}")
-    if quality_cut_bin_counts:
-        lines.append("  quality_cut_bins:")
-        for key, count in sorted(quality_cut_bin_counts.items()):
-            lines.append(f"    {key}: {count}")
-    lines.append(f"=== end {stage_name} funnel ===")
-    return "\n".join(lines)
-
-
 def format_elbadry_panel_report(
     panels: Mapping[str, Mapping[str, Sequence[float] | NDArray[np.floating]]],
     *,
@@ -482,48 +407,6 @@ def format_fit_tier_coverage_report(counts: Mapping[str, int]) -> str:
         frac = (n / total) if total else 0.0
         lines.append(f"  {key}: count={n} fraction={frac:.4f}")
     lines.append("=== end fit-tier coverage ===")
-    return "\n".join(lines)
-
-
-def format_gate_pass_rate_report(
-    counts: Mapping[str, int],
-    *,
-    gate_name: str = "rv_astrometry_gate",
-    chi2_dof_values: Sequence[float] | None = None,
-    chi2_dof_threshold: float | None = None,
-) -> str:
-    """Full-detail gate pass/fail report (threshold values stay in stage config)."""
-    passed = int(counts.get("passed", 0))
-    failed = int(counts.get("failed", 0))
-    skipped = int(counts.get("skipped", 0))
-    total = passed + failed + skipped
-    rate = (passed / (passed + failed)) if (passed + failed) else float("nan")
-    lines = [
-        f"=== {gate_name} pass-rate diagnostic ===",
-        f"  passed: {passed}",
-        f"  failed: {failed}",
-        f"  skipped: {skipped}",
-        f"  total: {total}",
-        f"  pass_rate_among_scored: {rate:.4f}"
-        if passed + failed
-        else "  pass_rate_among_scored: undefined (no scored systems)",
-    ]
-    if chi2_dof_threshold is not None:
-        lines.append(
-            f"  chi2_dof_threshold (from rv_consistency config): {chi2_dof_threshold}"
-        )
-    if chi2_dof_values:
-        arr = np.asarray(list(chi2_dof_values), dtype=np.float64)
-        lines.append(
-            f"  chi2_dof: n={arr.size} median={float(np.median(arr)):.4f} "
-            f"p90={float(np.percentile(arr, 90)):.4f} "
-            f"max={float(np.max(arr)):.4f}"
-        )
-    lines.append(
-        "  note: chi2/dof threshold is config-owned by rv_astrometry_gate; "
-        "this hook records pass/fail counts and optional chi2/dof distribution."
-    )
-    lines.append(f"=== end {gate_name} pass-rate diagnostic ===")
     return "\n".join(lines)
 
 
@@ -704,107 +587,6 @@ def format_solution_type_fraction_report(
     return "\n".join(lines)
 
 
-def _maybe_plot(write_figures: bool, fn: Callable[[], Path | None]) -> Path | None:
-    if not write_figures:
-        return None
-    try:
-        return fn()
-    except MatplotlibUnavailableError:
-        return None
-
-
-def emit_funnel_sky(
-    config: PipelineConfig,
-    dirs: DiagnosticDirs,
-    *,
-    funnel_counts: Mapping[str, int],
-    quality_cut_bin_counts: Mapping[str, int] | None = None,
-    ruwe: NDArray[np.floating] | Sequence[float] | None = None,
-    period_day: NDArray[np.floating] | Sequence[float] | None = None,
-    eccentricity: NDArray[np.floating] | Sequence[float] | None = None,
-    ra_deg: NDArray[np.floating] | Sequence[float] | None = None,
-    dec_deg: NDArray[np.floating] | Sequence[float] | None = None,
-    stage_name: str = "data_acquisition",
-) -> HookEmissionResult:
-    """Hook: funnel table + RUWE/period/ecc histograms + sky map (data_acquisition)."""
-    diag = config.diagnostics
-    if not diag.hooks.funnel_sky:
-        return HookEmissionResult(
-            hook_name="funnel_sky",
-            skipped_reason="diagnostics.hooks.funnel_sky=false",
-        )
-    result = HookEmissionResult(hook_name="funnel_sky")
-    dpi = diag.figure_dpi
-
-    if diag.write_reports:
-        report = write_report(
-            dirs.reports / f"{stage_name}_funnel.txt",
-            format_funnel_report(
-                funnel_counts,
-                quality_cut_bin_counts=quality_cut_bin_counts,
-                stage_name=stage_name,
-            ),
-        )
-        result.reports.append(report)
-
-    if diag.write_figures:
-        max_bins = int(diag.histogram_max_bins)
-        for name, values, xlabel in (
-            ("ruwe", ruwe, "RUWE"),
-            ("period_day", period_day, "period (day)"),
-            ("eccentricity", eccentricity, "eccentricity"),
-        ):
-            path = _maybe_plot(
-                True,
-                lambda values=values, name=name, xlabel=xlabel: plot_histogram(
-                    values,
-                    dirs.figures / f"{name}.png",
-                    xlabel=xlabel,
-                    title=name,
-                    dpi=dpi,
-                    max_bins=max_bins,
-                    style=config.plotting,
-                ),
-            )
-            if path is not None:
-                result.figures.append(path)
-        sky = _maybe_plot(
-            True,
-            lambda: plot_sky_mollweide(
-                ra_deg,
-                dec_deg,
-                dirs.figures / "sky_map.png",
-                title="sky coverage",
-                dpi=dpi,
-                point_size=float(diag.sky_map_point_size),
-                alpha=float(diag.sky_map_alpha),
-                style=config.plotting,
-            ),
-        )
-        if sky is not None:
-            result.figures.append(sky)
-        if funnel_counts:
-            labels = list(funnel_counts.keys())
-            values = [float(funnel_counts[k]) for k in labels]
-            bars = _maybe_plot(
-                True,
-                lambda: plot_categorical_bars(
-                    labels,
-                    values,
-                    dirs.figures / "funnel_bars.png",
-                    xlabel="step",
-                    ylabel="count",
-                    title=f"{stage_name} funnel",
-                    dpi=dpi,
-                    style=config.plotting,
-                ),
-            )
-            if bars is not None:
-                result.figures.append(bars)
-
-    return result
-
-
 def emit_elbadry_six_panel(
     config: PipelineConfig,
     dirs: DiagnosticDirs,
@@ -913,81 +695,6 @@ def emit_fit_tier_coverage(
         )
         if path is not None:
             result.figures.append(path)
-    return result
-
-
-def emit_gate_pass_rate(
-    config: PipelineConfig,
-    dirs: DiagnosticDirs,
-    *,
-    counts: Mapping[str, int],
-    gate_name: str = "rv_astrometry_gate",
-    chi2_dof_values: Sequence[float] | None = None,
-    chi2_dof_threshold: float | None = None,
-) -> HookEmissionResult:
-    """Hook: RV/astrometry gate pass-rate + optional chi2/dof distribution."""
-    diag = config.diagnostics
-    if not diag.hooks.gate_pass_rate:
-        return HookEmissionResult(
-            hook_name="gate_pass_rate",
-            skipped_reason="diagnostics.hooks.gate_pass_rate=false",
-        )
-    threshold = chi2_dof_threshold
-    if threshold is None:
-        threshold = float(config.rv_consistency.chi2_dof_threshold)
-    result = HookEmissionResult(
-        hook_name="gate_pass_rate",
-        payload={
-            "counts": {k: int(v) for k, v in counts.items()},
-            "chi2_dof_threshold": threshold,
-            "n_chi2_dof": len(chi2_dof_values) if chi2_dof_values else 0,
-        },
-    )
-    if diag.write_reports:
-        result.reports.append(
-            write_report(
-                dirs.reports / f"{gate_name}_pass_rate.txt",
-                format_gate_pass_rate_report(
-                    counts,
-                    gate_name=gate_name,
-                    chi2_dof_values=chi2_dof_values,
-                    chi2_dof_threshold=threshold,
-                ),
-            )
-        )
-    if diag.write_figures and counts:
-        labels = list(counts.keys())
-        values = [float(counts[k]) for k in labels]
-        path = _maybe_plot(
-            True,
-            lambda: plot_categorical_bars(
-                labels,
-                values,
-                dirs.figures / f"{gate_name}_pass_rate.png",
-                xlabel="outcome",
-                ylabel="count",
-                title=f"{gate_name} outcomes",
-                dpi=diag.figure_dpi,
-                style=config.plotting,
-            ),
-        )
-        if path is not None:
-            result.figures.append(path)
-        if chi2_dof_values:
-            hist = _maybe_plot(
-                True,
-                lambda: plot_histogram(
-                    chi2_dof_values,
-                    dirs.figures / f"{gate_name}_chi2_dof.png",
-                    xlabel="chi2 per dof",
-                    title=f"{gate_name} chi2/dof",
-                    dpi=diag.figure_dpi,
-                    max_bins=int(diag.histogram_max_bins),
-                    style=config.plotting,
-                ),
-            )
-            if hist is not None:
-                result.figures.append(hist)
     return result
 
 

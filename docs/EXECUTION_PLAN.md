@@ -929,7 +929,7 @@ downstream of the K1 bind, and the last Simon exclusion slot. Re-run every §3 c
   exclusion as published anyway; the correction lives only in `andrews2022_modified.yaml`.
 - That the NSS enrichment job needs re-running. It is **COMPLETED**.
 - That `σ_M̃2` propagates the Janssens fit uncertainty. It does not — Q12, `propagate_fit_uncertainty:
-  false`, provenance `elbadry2026_m1_tilde_fixed`.
+  false`. Since #284 the provenance names the σ method, e.g. `elbadry2026_analytic_full_m1_tilde_fixed`.
 
 **Exit artifacts (Gate A)**
 

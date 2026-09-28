@@ -710,8 +710,9 @@ def test_emit_funnel_sky_uses_config_hist_and_sky_defaults(
         Path(path).write_bytes(b"png")
         return Path(path)
 
-    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_histogram", _fake_hist)
-    monkeypatch.setattr("darkhunter_pop.diagnostics.plot_sky_mollweide", _fake_sky)
+    # emit_funnel_sky lives in diagnostic_hooks since #182; patch where it looks names up.
+    monkeypatch.setattr("darkhunter_pop.diagnostic_hooks.plot_histogram", _fake_hist)
+    monkeypatch.setattr("darkhunter_pop.diagnostic_hooks.plot_sky_mollweide", _fake_sky)
 
     dirs = resolve_diagnostic_dirs(cfg, run_id="t", beside_artifact=tmp_path / "x.h5")
     emit_funnel_sky(

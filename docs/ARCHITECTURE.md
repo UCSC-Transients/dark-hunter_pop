@@ -60,6 +60,7 @@ dark-hunter_pop/
 │   ├── sensitivity_analysis.py # stage: sensitivity_analysis
 │   ├── inference.py            # stage: inference
 │   ├── plotting.py             # shared rendering primitives
+│   ├── diagnostic_hooks.py     # low-level hooks shared by early stages + diagnostics (infra-only imports)
 │   └── diagnostics.py          # stage: diagnostics
 ├── vendor/
 │   ├── DATA_MANIFEST.md        # SHA256s for Release gaiamock-mod-v1 assets
@@ -625,7 +626,14 @@ answers. At stage completion the run file records `source_hash` for that depende
 and, via `assert_stage_source_hash`, at stage start on the execute path. Reproducibility is the
 tuple `(stage_name, source_hash_at_run, config_subset, artifact_path)` per stage. Docstring /
 plotting / display-only modules are omitted from dependency lists so they do not spuriously
-invalidate science stages. Human judgment owns whether upstream stages must be force-re-run after
+invalidate science stages. Apart from that cross-cutting infrastructure set (`run_management`,
+`schemas`, `config_schema`, `config_loader`, `plotting`; `constants` is **not** exempt, since it
+holds the TAG10/Santos tables and `M_Ch`), a stage's
+`dependency_modules` must be **closed under first-party module-scope imports** and must also
+declare every function-level (lazy) first-party import that executes in the stage, unless an
+explicit, reasoned allowlist entry says otherwise; `tests/test_stage_dependency_modules.py`
+enforces both (#183). No stage module imports the `diagnostics` stage at module scope — shared
+early-stage hooks live in `diagnostic_hooks.py` (#182). Human judgment owns whether upstream stages must be force-re-run after
 upstream code changes.
 
 **Config checksum**: computed over the **active DR subtree + shared physics/population keys**

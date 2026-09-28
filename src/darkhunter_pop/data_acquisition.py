@@ -30,12 +30,13 @@ from darkhunter_pop.config_schema import (
     QualityCutBin,
     SpectroscopicMassFunctionConfig,
 )
-from darkhunter_pop.diagnostics import (
+from darkhunter_pop.diagnostic_hooks import (
+    SIX_PANEL_NAMES,
+    SOLUTION_TYPE_LABELS,
     emit_funnel_sky,
     format_funnel_report,
     resolve_diagnostic_dirs,
 )
-from darkhunter_pop.forward_model import SIX_PANEL_NAMES, SOLUTION_TYPE_LABELS
 from darkhunter_pop.nss_covariance import (
     CovarianceFailure,
     CovarianceHealth,

@@ -111,9 +111,11 @@ while living only on a branch.
 2. NSS enrichment merge + Gaia `SOURCE_ID` → `source_id` normalize.
 3. Andrews: `sigma_m2_msun` → `m2_msun_error`; missing `logg_apsis` binds as `None` (giant cut).
 4. El-Badry 2026: **never** alias Andrews `sigma_m2_msun` → `sigma_m2_astrometric_msun`.
-5. `σ_M̃2` = lazy full-covariance NSS MC at the `m2_error` cut with **fixed** Janssens `M̃1`
-   (`propagate_fit_uncertainty: false`, CONTINUATION_PLAN §15 Q12). Provenance tag:
-   `_sigma_m2_astrometric_provenance == "elbadry2026_m1_tilde_fixed"`.
+5. `σ_M̃2` is filled lazily at the `m2_error` cut with **fixed** Janssens `M̃1`
+   (`propagate_fit_uncertainty: false`, CONTINUATION_PLAN §15 Q12). Since #284 the method is
+   config-switched (`sigma_m2_tilde.method`: `analytic` default, `monte_carlo` alternative), and the
+   provenance tag names it (`elbadry2026_{analytic_full|analytic_nsstools_blocks|mc}_m1_tilde_{fixed|janssens}`;
+   legacy `elbadry2026_m1_tilde_fixed` still recognized).
 6. Janssens YAML load is path-`lru_cache`'d and frozen against mutation (`janssens_mass.py`, PR #156).
 
 The direct evidence that item 5 really landed is `sub_chandrasekhar` = **861**. On the raw branch,
@@ -602,7 +604,7 @@ extinction correction and nothing else.
 | `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
 | `elbadry2023_table_e1` | 5 | 5 | 5 | **5** | **OK** — unchanged |
 | `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
-| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1) |
+| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1). **After #284 (schema_version 2: `M̃2/M̃1 > 1`, `A > 0.65`, analytic σ): 49, containing 19 of the paper's 22 — §3.3.6.** Still FAIL; no defensible combination reaches the paper's set |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK: 5 / 2 / 1 / 1, 0 unclassified, `in_sample` 11** from the real `sample_selection` stage + `diagnostics` hydration (#285, `main` @ `7c40198` + #285 branch, uncut snapshot; §3.3.3). Artifacts without the `tilde_masses` group still fall back to 5 / 2 / 1 / 0 (+1) |
 
@@ -1100,6 +1102,125 @@ ones #258 already used, and it is the same arithmetic. `primary_ns_bh` attrition
 `babusiaux2018`, 60 very red, highly extincted rows fail the law's fixed-point `(BP−RP)_0` solve (outside
 its fitted 3500–10000 K range). They are `NotApplicable("extinction_gaia_law_nonconvergent")` and
 counted, never passed through.
+
+### 3.3.6 `sub_chandrasekhar` after the #284 decision: `M̃2 > M̃1`, AMRF cut, analytic `σ_M̃2`
+
+**Provenance.** Branch `feat/elbadry2026-subchandra-284` @ `0cd19bc` (= `main` @ `3df5da1` + the #284
+commits), isolated worktree, `PYTHONPATH` → worktree `src/` (checked with `darkhunter_pop.__file__`).
+Same path as §3.3.3: the 168,065 astrometric-branch rows of the `…+enrich+mc10000` cache went through
+`SampleSelection._enrich_rows_for_spec` with the real maps and the warm `ebv_cache`. That gives
+`147,560` main-sequence rows, and **3043** in the `m2_range` window, the same as §3.3. It took 70 s at
+2.3 GB peak RSS. `σ_M̃2` was then computed on that window only, and the combinations were evaluated
+from the stored columns. The default configuration was cross-checked through the real
+`SampleSelection.evaluate` on the window rows, and gives the same 49. Measured 2026-09-28. **Re-measured after
+merging #307** (PI `E(B-V)` conversions, §3.3.5), at `6e1d6e1`. Every number in this section is
+identical there: window 3043, every sweep cell, and the real-evaluator 49 / 19. As §3.3.5 records,
+the landed conversions are the ones #258 already used.
+
+**What landed** (`config/selections/elbadry2026.yaml` schema_version 2, sanctioned by Ryan Foley's
+#284 decision):
+
+- `sub_chandrasekhar` gains `m2_over_m1` (`M̃2/M̃1 > 1.0`) and `amrf`
+  (`amrf > amrf_threshold_elbadry2026`), placed before `m2_error`.
+- The `amrf_cut` block selects the threshold:
+  - `flat` uses `flat_min`, default **0.65**, the #275 counterfactual.
+  - `shahaf2019_class3` uses the Shahaf et al. (2019) class-II/III boundary `max_q A_triple(q; M̃1)`,
+    for an equal-mass close MS pair that is fainter than the primary. It is available with three
+    mass–luminosity relations:
+    - `shahaf2019_hp`: their Table A1 Hipparcos relation, primaries 0.6–1.8 M☉. This reproduces their
+      Fig. 3 to within 0.01 (unit-tested).
+    - `janssens2022_g`: Gaia G, the same relation El-Badry 2026 uses for `M̃1`.
+    - `power_law`: reproduces their published β = 5 maxima of 0.36 and 0.56.
+- `sigma_m2_tilde.method: analytic` is a first-order Jacobian of `M̃2(A, B, F, G, ϖ, P; M̃1)`.
+  `analytic_covariance` has two settings:
+  - `full`: the 6×6 block of the NSS covariance, cross terms kept. This is the default.
+  - `nsstools_blocks`: nsstools' `σ_a0` from the `(A, B, F, G)` block, then `ϖ` and `P` in quadrature.
+
+  `monte_carlo` is still available.
+- Janssens `M̃1` fit σ enters when `primary_mass.propagate_fit_uncertainty` is set. That remains
+  `false` (Q12).
+- `_sigma_m2_astrometric_provenance` names the method and the `M̃1` treatment, e.g.
+  `elbadry2026_analytic_full_m1_tilde_fixed`.
+
+Frozen window / σ / period / G thresholds are unchanged.
+
+**(1) The two MC-σ failures are recovered.** With the analytic method:
+
+- `3389767036738482432`: MC σ 0.140 → analytic 0.062.
+- `4466767229088016256`: MC σ 0.119 → analytic 0.064.
+
+Both pass every #284 cut in every analytic variant, so our set now holds **19 of the paper's 22**
+(was 17). The other three:
+
+- `1581117310088807552` (P = 927 d) and `747174436620510976` (P = 999 d) fail the paper's own
+  `P ≤ 900 d`, so they cannot be subsample-4 members.
+  - Both are Andrews et al. (2022) published members (El-Badry 2024 Table 3, reference "A22"), with
+    G = 14.51 and 13.99. They therefore reach El-Badry's table through `andrews2022_import`
+    (published Andrews ∩ `G < 15` = 16).
+  - With #296 (ATF selection notebook, §3.1.4, merged into this branch at `d923c83`), the Andrews
+    reproduction is the published 24 plus one extra at G = 15.15, and `andrews2022_import` is exactly
+    the published 16. **Both sources are therefore now recovered through ATF.** Under the earlier
+    FLAME-at-selection rule (#257) both were dropped (p 0.903 / 0.638, §3.1.3).
+- `6037767138131854592`: our `M̃2` = 1.40020 against the paper's 1.383. The difference comes from our
+  map `E(B-V)` of 0.208 against the paper's 0.165. It is a window-edge / `E(B-V)` boundary case, not
+  a σ or cut effect.
+  - It falls outside the window by 2 × 10⁻⁴ M☉, so it is never σ-tested here, and it lands in our
+    `primary_ns_bh` instead.
+  - Rounding `M̃2` to Table 7's 3 decimals (1.400) would admit it. That would be an unstated
+    edge-treatment choice, so it is **not** adopted.
+
+**(2) Sample size with the new cuts.** The default (`M̃2/M̃1 > 1`, `A > 0.65`, analytic-full σ,
+`M̃1` fixed) gives **49**, containing 19 of the paper's 22 (all 19 of its 20 `P ≤ 900 d` members that
+are in our window). Attrition:
+
+```
+3043 (m2_range) → 256 (m2_over_m1) → 182 (amrf > 0.65) → 101 (m2_error) → 58 (period) → 49 (G < 15)
+```
+
+With the Shahaf class-III boundary instead of 0.65, the size is 70 (Hp relation) or 77 (Janssens G).
+Both contain the same 19.
+
+For point estimates `A > 0.65` implies `q > 1.049`, so the flat cut makes `M̃2 > M̃1` redundant. The
+class-III boundary (0.62–0.67 in Hp, 0.44–0.64 in G for these `M̃1`) is looser than 0.65 and much
+looser than `q > 1` (`A(q=1) = 0.63`). With the Janssens-G relation it removes nothing beyond
+`M̃2 > M̃1`.
+
+**(3) Combination sweep.** All rows below include `M̃2/M̃1 > 1`, the frozen window, `σ ≤ 0.105`,
+`P ≤ 900 d` and `G < 15`. Entries are N / paper members kept (of 22):
+
+| `σ_M̃2` method | `M̃1` σ | no AMRF cut | `A > 0.65` | class III (Hp) | class III (Janssens G) |
+|---|---|---:|---:|---:|---:|
+| analytic, full cov | fixed | 77 / 19 | **49 / 19** | 70 / 19 | 77 / 19 |
+| analytic, full cov | Janssens | 71 / 19 | 44 / 19 | 64 / 19 | 71 / 19 |
+| analytic, nsstools blocks | fixed | 76 / 19 | 48 / 19 | 69 / 19 | 76 / 19 |
+| analytic, nsstools blocks | Janssens | 68 / 19 | 43 / 19 | 61 / 19 | 68 / 19 |
+| MC (10⁴ draws) | fixed | 68 / 17 | 44 / 17 | 63 / 17 | 68 / 17 |
+| MC (10⁴ draws) | Janssens | 58 / 17 | 39 / 17 | 53 / 17 | 58 / 17 |
+
+Without `M̃2 > M̃1` (analytic-full, `M̃1` fixed), the sizes are: σ alone 1605, `A > 0.65` 49, Hp class
+III 134, G class III 541. Every analytic variant keeps the same 19 members.
+
+**No combination reproduces the paper's set.** Against Ryan's 17 (our pre-#284 overlap) or against
+19 (the 17 plus the two σ recoveries), the smallest analytic size is 43. That is 24 non-members
+beyond the 19, from nsstools-blocks σ with the Janssens `M̃1` σ and `A > 0.65`.
+
+The 30 extras in the default 49 look like the paper's members, which have `A` ≥ 0.669 and `q` ≥ 1.096
+on our values:
+
+- `q` 1.05–1.41 and `A` 0.652–0.784;
+- analytic σ 0.012–0.097 and G 11.6–15.0;
+- F2 spanning the same range as the members (one member has F2 = 11.3, so an F2 < 10 cut is not
+  implied).
+
+About 17 of the 30 have `A` < 0.669. A threshold near the members' minimum `A` would remove them, but
+it would be tuned to the answer, so it is not proposed. The remaining gap is therefore not a σ-method
+or AMRF-variant question. It is an unstated selection or vetting step, or the E(B-V) conversion.
+
+**Adopted default:** `amrf_cut.criterion: flat`, `flat_min: 0.65`. This matches the "≤ 44 objects"
+in Ryan's decision (the #275 counterfactual) and is the tightest of the tested variants. To use the
+paper-formula boundary instead, set `amrf_cut.criterion: shahaf2019_class3` with a `mass_luminosity`
+choice. The σ default is analytic, full covariance, `M̃1` fixed. Flipping any switch is a config
+edit, with the counts above.
 
 ### 3.4 Simon 2026 exclusion breakdown
 

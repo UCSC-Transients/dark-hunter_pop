@@ -32,7 +32,7 @@ from scipy.optimize import least_squares, minimize_scalar
 from darkhunter_pop import constants
 from darkhunter_pop.config_loader import require_dr3_active_for_v1
 from darkhunter_pop.config_schema import PipelineConfig, RvConsistencyConfig
-from darkhunter_pop.diagnostics import (
+from darkhunter_pop.diagnostic_hooks import (
     emit_gate_pass_rate,
     resolve_diagnostic_dirs,
 )
