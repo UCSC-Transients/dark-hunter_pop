@@ -234,7 +234,15 @@ def _half_range_err(upper: Any, lower: Any) -> float | None:
 
 def resolve_atmosphere(candidate: CandidateRecord) -> AtmosphereParams | None:
     """Prefer MSC primary parameters; fall back to gspphot (ARCHITECTURE.md §4)."""
-    extras = candidate.extras
+    return resolve_atmosphere_from_extras(candidate.extras)
+
+
+def resolve_atmosphere_from_extras(extras: Mapping[str, Any]) -> AtmosphereParams | None:
+    """:func:`resolve_atmosphere` on a bare column mapping (``teff_msc1``, ...).
+
+    Used where no ``CandidateRecord`` exists (the Andrews ATF forward-model
+    sidecar builder, #306) so the bulk-tier M1 is computed by the same code.
+    """
 
     def _pack(
         teff_key: str,

@@ -32,6 +32,22 @@ Thresholds and switches live in the frozen selection file; nothing here is a
 choosable number. Column ownership: ``andrews_atf_*`` are Andrews-owned and
 are never aliased into El-Badry columns.
 
+Forward model (#306)
+--------------------
+Ryan Foley (2026-09-28): the forward model follows the same notebook
+procedure. One sidecar is built per evaluation mode and differs **only** in
+the pass-2 refined M1: ``reproduction`` uses the notebook's UCO Lick → FLAME →
+uniform rule (``pass2.primary_mass``); ``forward_model`` uses the pipeline's
+bulk-tier TAG10 M1 posterior ``N(M1, σ_M1)``, else the notebook's uniform
+fallback (``pass2.forward_model_primary_mass``). Pass 1 (fixed ``M1``), the
+covariance gate, GoF, logg, CMD, root and 3σ logic are shared. With no Lick
+branch in forward-model mode, the giant ``logg`` cut applies to every source.
+
+The notebook's Apsis ``logg`` / ``Mass-Flame`` came from VizieR I/355/paramp
+(``massive_apsis.vot``); those values are carried as separate
+``*_vizier_apsis`` columns (:func:`load_vizier_apsis`) beside the Gaia-archive
+ones and named by ``pass2.giant_logg_column`` / ``primary_mass.flame_column``.
+
 Limitations
 -----------
 * The notebook is unseeded; this module is seeded per source
@@ -68,11 +84,13 @@ from scipy.optimize import brentq
 from scipy.stats import multivariate_normal
 
 from darkhunter_pop.config_schema import (
+    AtfForwardModelPrimaryMassSpec,
     AtfNotebookPrimaryMassSpec,
     PipelineConfig,
     ReproductionProcedureSpec,
     SampleCut,
     SampleSelectionFile,
+    SampleSelectionMode,
 )
 from darkhunter_pop.constants import JULIAN_YEAR_DAYS, PARALLAX_MAS_AT_10PC
 from darkhunter_pop.physics_utils import invert_astrometric_companion_mass
@@ -84,7 +102,28 @@ COLUMN_PREFIX: Final[str] = "andrews_atf_"
 M1_SOURCE_LICK: Final[str] = "lick"
 M1_SOURCE_FLAME: Final[str] = "flame"
 M1_SOURCE_UNIFORM: Final[str] = "uniform"
+M1_SOURCE_PIPELINE: Final[str] = "pipeline_tag10_bulk"
 _SEED_MASK: Final[int] = 0x7FFFFFFF
+
+# VizieR Gaia DR3 Apsis table the notebook read (massive_apsis.vot, cells 13-17;
+# #306). VizieR column name -> our column name. The ``*_vizier_apsis`` columns
+# are kept beside the Gaia-archive ones (``logg_gspphot``, ``mass_flame``),
+# never merged into them (Ryan Foley, 2026-09-28).
+VIZIER_APSIS_CATALOG: Final[str] = "I/355/paramp"
+VIZIER_APSIS_COLUMN_MAP: Final[dict[str, str]] = {
+    "Source": "source_id",
+    "RA_ICRS": "ra_vizier_apsis",
+    "DE_ICRS": "dec_vizier_apsis",
+    "Teff": "teff_vizier_apsis",
+    "b_Teff": "teff_lower_vizier_apsis",
+    "B_Teff": "teff_upper_vizier_apsis",
+    "logg": "logg_vizier_apsis",
+    "b_logg": "logg_lower_vizier_apsis",
+    "B_logg": "logg_upper_vizier_apsis",
+    "Mass-Flame": "mass_flame_vizier_apsis",
+    "b_Mass-Flame": "mass_flame_lower_vizier_apsis",
+    "B_Mass-Flame": "mass_flame_upper_vizier_apsis",
+}
 
 # Covariance-gate failure classes (scipy messages mapped to stable labels).
 COV_FAIL_CORR_VEC_SHORT: Final[str] = "corr_vec_too_short"
@@ -141,7 +180,9 @@ class AtfSourceInputs:
     are NaN (they fail the covariance gate, as in the notebook). ``corr_vec``
     is the archive vector as stored (any length; shorter than the 66 entries
     the notebook indexes is a covariance failure). Photometry / ``logg`` /
-    FLAME are NaN when absent.
+    FLAME are NaN when absent. ``pipeline_m1_msun`` / ``pipeline_m1_sigma_msun``
+    are the pipeline's bulk-tier M1 posterior, used only by the forward-model
+    pass 2 (NaN when TAG10 has no usable atmosphere).
     """
 
     source_id: int
@@ -154,6 +195,8 @@ class AtfSourceInputs:
     g_mag: float
     bp_mag: float
     rp_mag: float
+    pipeline_m1_msun: float = float("nan")
+    pipeline_m1_sigma_msun: float = float("nan")
 
 
 def notebook_float(value: Any, *, float32_decimal_roundtrip: bool) -> float:
@@ -468,12 +511,47 @@ def resolve_refined_m1(
     )
 
 
-def run_pass2(inputs: AtfSourceInputs, proc: ReproductionProcedureSpec) -> dict[str, Any]:
+def resolve_forward_model_m1(
+    pipeline_m1_msun: float,
+    pipeline_m1_sigma_msun: float,
+    spec: AtfForwardModelPrimaryMassSpec,
+    *,
+    n_draws: int,
+    rng: np.random.Generator,
+) -> tuple[str, NDArray[np.floating]]:
+    """Forward-model pass-2 M1 (#306): pipeline ``N(M1, σ_M1)``, else uniform.
+
+    A pipeline M1 counts as available when both the value and its sigma are
+    finite, the value is positive and the sigma non-negative. Non-positive
+    Gaussian draws are not clipped (the notebook's own convention).
+    """
+    if spec.method != "pipeline_tag10_bulk":
+        raise AtfProcedureError(f"unhandled forward-model M1 method {spec.method!r}")
+    mu = float(pipeline_m1_msun)
+    sigma = float(pipeline_m1_sigma_msun)
+    if math.isfinite(mu) and math.isfinite(sigma) and mu > 0.0 and sigma >= 0.0:
+        return M1_SOURCE_PIPELINE, rng.normal(loc=mu, scale=sigma, size=n_draws)
+    if spec.fallback != "uniform":
+        raise AtfProcedureError(f"unhandled forward-model M1 fallback {spec.fallback!r}")
+    return M1_SOURCE_UNIFORM, rng.uniform(
+        low=float(spec.uniform_low_msun), high=float(spec.uniform_high_msun), size=n_draws
+    )
+
+
+def run_pass2(
+    inputs: AtfSourceInputs,
+    proc: ReproductionProcedureSpec,
+    *,
+    mode: SampleSelectionMode = SampleSelectionMode.REPRODUCTION,
+) -> dict[str, Any]:
     """Notebook ``plot_system`` M2 recomputation for one pass-1 survivor.
 
     Draws a fresh covariance sample (the notebook calls ``get_random_samples``
-    again), resolves the refined M1, solves every draw with ``brentq`` in the
-    pass-2 bracket, and returns ``mean`` / ``std`` (``m2_std_ddof``) of ``M2``.
+    again), resolves the refined M1 for ``mode`` (reproduction: Lick → FLAME →
+    uniform; forward_model: pipeline TAG10 → uniform), solves every draw with
+    ``brentq`` in the pass-2 bracket, and returns ``mean`` / ``std``
+    (``m2_std_ddof``) of ``M2``. Both modes use the same seed and draw order,
+    so they differ only through M1.
     """
     p2 = proc.pass2
     rng = np.random.default_rng(source_seed(p2.random_seed, inputs.source_id))
@@ -486,9 +564,20 @@ def run_pass2(inputs: AtfSourceInputs, proc: ReproductionProcedureSpec) -> dict[
         )
     samples = draw_notebook_samples(dist, p2.n_draws, rng)
     m_f, _plx = notebook_mass_function(samples, proc.covariance.parameter_order)
-    m1_source, m1 = resolve_refined_m1(
-        inputs.source_id, inputs.mass_flame, p2.primary_mass, n_draws=p2.n_draws, rng=rng
-    )
+    if mode is SampleSelectionMode.REPRODUCTION:
+        m1_source, m1 = resolve_refined_m1(
+            inputs.source_id, inputs.mass_flame, p2.primary_mass, n_draws=p2.n_draws, rng=rng
+        )
+    elif mode is SampleSelectionMode.FORWARD_MODEL:
+        m1_source, m1 = resolve_forward_model_m1(
+            inputs.pipeline_m1_msun,
+            inputs.pipeline_m1_sigma_msun,
+            p2.forward_model_primary_mass,
+            n_draws=p2.n_draws,
+            rng=rng,
+        )
+    else:
+        raise AtfProcedureError(f"unhandled SampleSelectionMode {mode!r}")
     m2, ok = solve_m2_brentq(m_f, m1, bracket_msun=p2.root_bracket_msun)
     n_fail = int(np.count_nonzero(~ok))
     valid = m2[ok]
@@ -557,27 +646,116 @@ def empty_pass2_columns() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def procedure_fingerprint(spec: SampleSelectionFile) -> str:
+def procedure_fingerprint(
+    spec: SampleSelectionFile,
+    *,
+    mode: SampleSelectionMode = SampleSelectionMode.REPRODUCTION,
+    config: PipelineConfig | None = None,
+) -> str:
     """16-hex digest of everything that changes an ``andrews_atf_*`` value.
 
-    Covers the procedure block and the pass-1 probability cut (its threshold
-    drives ``p_m2_above`` and the pass-2 subset). The rest of the cut chain is
-    applied at evaluation time and is deliberately excluded.
+    Covers the procedure block, the pass-1 probability cut (its threshold
+    drives ``p_m2_above`` and the pass-2 subset) and the evaluation ``mode``.
+    ``forward_model`` also covers ``config.mass_calibration`` (it sets the
+    pipeline TAG10 M1) and ``config.<dr>.vizier_apsis_snapshot_meta``; the
+    latter is covered in ``reproduction`` too whenever a pass-2 column is a
+    ``*_vizier_apsis`` one. The rest of the cut chain is applied at evaluation
+    time and is deliberately excluded.
+
+    Raises
+    ------
+    AtfProcedureError
+        ``forward_model`` without a ``config``.
     """
     proc = require_procedure(spec)
-    payload = {
+    payload: dict[str, Any] = {
         "sidecar_schema_version": SIDECAR_SCHEMA_VERSION,
         "procedure": proc.model_dump(mode="json"),
         "probability_cut": probability_cut(spec).model_dump(mode="json"),
+        "mode": mode.value,
     }
+    if mode is SampleSelectionMode.FORWARD_MODEL:
+        if config is None:
+            raise AtfProcedureError("forward_model fingerprint needs the PipelineConfig")
+        payload["mass_calibration"] = config.mass_calibration.model_dump(mode="json")
+    if config is not None and uses_vizier_apsis(proc):
+        payload["vizier_apsis_snapshot_meta"] = vizier_apsis_meta_setting(config)
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def sidecar_path(cache_dir: Path, dr_mode: str, spec: SampleSelectionFile) -> Path:
-    """``<cache_dir>/<dr_mode>/<method>_<fingerprint>.h5``."""
+def sidecar_path(
+    cache_dir: Path,
+    dr_mode: str,
+    spec: SampleSelectionFile,
+    *,
+    mode: SampleSelectionMode = SampleSelectionMode.REPRODUCTION,
+    config: PipelineConfig | None = None,
+) -> Path:
+    """``<cache_dir>/<dr_mode>/<method>_<mode>_<fingerprint>.h5``."""
     proc = require_procedure(spec)
-    return cache_dir / dr_mode / f"{proc.method}_{procedure_fingerprint(spec)}.h5"
+    fingerprint = procedure_fingerprint(spec, mode=mode, config=config)
+    return cache_dir / dr_mode / f"{proc.method}_{mode.value}_{fingerprint}.h5"
+
+
+def uses_vizier_apsis(proc: ReproductionProcedureSpec) -> bool:
+    """True when a pass-2 input column is read from the VizieR Apsis snapshot."""
+    cols = (proc.pass2.giant_logg_column, proc.pass2.primary_mass.flame_column)
+    return any(col in VIZIER_APSIS_COLUMN_MAP.values() for col in cols)
+
+
+def vizier_apsis_meta_setting(config: PipelineConfig) -> str | None:
+    """``<active dr>.vizier_apsis_snapshot_meta`` as configured (unresolved)."""
+    dr_cfg = getattr(config, config.active_dr_mode.value)
+    return dr_cfg.vizier_apsis_snapshot_meta
+
+
+def load_vizier_apsis(meta_path: Path) -> tuple[frozenset[int], dict[int, dict[str, float]]]:
+    """Read a ``scripts/fetch_vizier_apsis.py`` snapshot (#306).
+
+    Returns ``(requested_source_ids, rows_by_source)``: every ID the fetch
+    asked VizieR for, and the ``*_vizier_apsis`` columns (NaN when VizieR's
+    cell is empty) for each row it returned. A requested ID with no row is a
+    source VizieR has no entry for; an ID outside the requested set was never
+    asked about, and callers must not treat it as "no Apsis values".
+
+    Raises
+    ------
+    AtfProcedureError
+        Checksum / row-count mismatch, a missing requested-ID file, or a
+        duplicated ``source_id``.
+    """
+    # Local import: data_acquisition is heavy and only the builder calls this.
+    import yaml
+
+    from darkhunter_pop.data_acquisition import load_gaia_snapshot
+
+    try:
+        _meta, table = load_gaia_snapshot(meta_path, verify_checksum=True)
+    except ValueError as exc:
+        raise AtfProcedureError(str(exc)) from exc
+    raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    ids_name = raw.get("requested_ids_path")
+    if not ids_name:
+        raise AtfProcedureError(f"{meta_path}: no requested_ids_path")
+    ids_path = meta_path.parent / str(ids_name)
+    if not ids_path.is_file():
+        raise AtfProcedureError(f"{meta_path}: requested-ID file {ids_path} missing")
+    requested = frozenset(
+        int(line) for line in ids_path.read_text(encoding="utf-8").split() if line
+    )
+    value_cols = [c for c in VIZIER_APSIS_COLUMN_MAP.values() if c != "source_id"]
+    rows: dict[int, dict[str, float]] = {}
+    for row in table:
+        sid = int(row["source_id"])
+        if sid in rows:
+            raise AtfProcedureError(f"{meta_path}: duplicate source_id {sid}")
+        rows[sid] = {
+            col: (float("nan") if np.ma.is_masked(row[col]) else float(row[col]))
+            for col in value_cols
+            if col in table.colnames
+        }
+    return requested, rows
 
 
 def write_sidecar(
@@ -664,26 +842,37 @@ def reproduction_cache_dir(config: PipelineConfig, *, repo: Path) -> Path:
 
 
 def load_reproduction_columns(
-    spec: SampleSelectionFile, config: PipelineConfig, *, repo: Path
+    spec: SampleSelectionFile,
+    config: PipelineConfig,
+    *,
+    repo: Path,
+    mode: SampleSelectionMode = SampleSelectionMode.REPRODUCTION,
 ) -> dict[int, dict[str, Any]]:
-    """Sidecar columns for ``spec``'s procedure on this host, or ``{}`` if not built.
+    """``mode``'s sidecar columns for ``spec``'s procedure, or ``{}`` if not built.
 
     A missing sidecar is logged, not raised: the ``atf_*`` cuts then report
     ``NOT_APPLICABLE`` (``missing:andrews_atf_*``) for every row, which is
     visible in the attrition waterfall.
     """
     path = sidecar_path(
-        reproduction_cache_dir(config, repo=repo), config.active_dr_mode.value, spec
+        reproduction_cache_dir(config, repo=repo),
+        config.active_dr_mode.value,
+        spec,
+        mode=mode,
+        config=config,
     )
     if not path.is_file():
         logger.warning(
-            "sample %s: reproduction-procedure sidecar %s not built; run "
-            "scripts/build_andrews2022_atf_columns.py (#296)",
+            "sample %s: %s-mode procedure sidecar %s not built; run "
+            "scripts/build_andrews2022_atf_columns.py (#296, #306)",
             spec.name,
+            mode.value,
             path,
         )
         return {}
-    return read_sidecar(path, fingerprint=procedure_fingerprint(spec))
+    return read_sidecar(
+        path, fingerprint=procedure_fingerprint(spec, mode=mode, config=config)
+    )
 
 
 def merge_reproduction_columns(

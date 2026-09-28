@@ -424,9 +424,10 @@ class SampleSelection:
 
         ``reproduction_columns_loader`` returns the precomputed
         ``reproduction_procedure`` columns (``andrews_atf_*``, #296) keyed by
-        ``source_id``. It is called lazily and only when this sample is
-        evaluated in ``reproduction`` mode with a procedure block; the columns
-        are merged without overwriting keys the rows already carry."""
+        ``source_id``, built for this evaluator's ``mode`` (one sidecar per
+        mode, #306). It is called lazily and only when the sample has a
+        procedure block; the columns are merged without overwriting keys the
+        rows already carry."""
         if spec.branches:
             pass
         elif spec.parent_query is None or spec.cuts is None:
@@ -593,14 +594,15 @@ class SampleSelection:
     def _merge_reproduction_columns(
         self, rows: Sequence[Mapping[str, Any]]
     ) -> Sequence[Mapping[str, Any]]:
-        """Merge ``reproduction_procedure`` columns in reproduction mode only (#296).
+        """Merge this mode's ``reproduction_procedure`` columns (#296, #306).
 
-        ``forward_model`` evaluation, samples without a procedure block, and
-        registries without a loader see the rows unchanged.
+        The loader serves the sidecar built for ``self.mode`` (reproduction:
+        the paper's pass-2 M1; forward_model: the pipeline's). Samples without
+        a procedure block and evaluators without a loader see the rows
+        unchanged.
         """
         if (
-            self.mode is not SampleSelectionMode.REPRODUCTION
-            or self.spec.reproduction_procedure is None
+            self.spec.reproduction_procedure is None
             or self.reproduction_columns_loader is None
         ):
             return rows
@@ -1683,17 +1685,20 @@ class SampleSelectionRegistry:
             mode=entry.mode,
             dr_mode=self.dr_mode,
             extinction_lookup=self._extinction_lookup(spec),
-            reproduction_columns_loader=self._reproduction_columns_loader(spec),
+            reproduction_columns_loader=self._reproduction_columns_loader(
+                spec, mode=entry.mode
+            ),
         )
 
     def _reproduction_columns_loader(
-        self, spec: SampleSelectionFile
+        self, spec: SampleSelectionFile, *, mode: SampleSelectionMode
     ) -> Callable[[], Mapping[int, Mapping[str, Any]]] | None:
         """Lazy, memoized sidecar reader for ``spec.reproduction_procedure`` (#296).
 
-        ``None`` without a ``PipelineConfig`` (no data paths) or without a
-        procedure block. Variants that inherit the same procedure share one
-        read (keyed by the procedure fingerprint).
+        Reads the sidecar built for ``mode`` (#306). ``None`` without a
+        ``PipelineConfig`` (no data paths) or without a procedure block.
+        Variants that inherit the same procedure share one read per mode
+        (keyed by the mode-specific procedure fingerprint).
         """
         if self.pipeline is None or spec.reproduction_procedure is None:
             return None
@@ -1704,12 +1709,15 @@ class SampleSelectionRegistry:
         )
 
         pipeline = self.pipeline
-        key = f"reproduction:{procedure_fingerprint(spec)}"
+        fingerprint = procedure_fingerprint(spec, mode=mode, config=pipeline)
+        key = f"reproduction:{mode.value}:{fingerprint}"
 
         def _load() -> Mapping[int, Mapping[str, Any]]:
             cached = self._lookups.get(key)
             if cached is None:
-                cached = load_reproduction_columns(spec, pipeline, repo=self.repo)
+                cached = load_reproduction_columns(
+                    spec, pipeline, repo=self.repo, mode=mode
+                )
                 self._lookups[key] = cached
             return cached
 
