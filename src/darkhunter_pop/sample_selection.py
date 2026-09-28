@@ -27,11 +27,6 @@ import h5py
 import numpy as np
 import yaml
 
-from darkhunter_pop.andrews2022_atf import (
-    load_reproduction_columns,
-    merge_reproduction_columns,
-    procedure_fingerprint,
-)
 from darkhunter_pop.config_loader import (
     enabled_selection_content_fingerprint,
     repo_root,
@@ -612,6 +607,12 @@ class SampleSelection:
         columns = self.reproduction_columns_loader()
         if not columns:
             return rows
+        # Local import keeps andrews2022_atf out of the module-level import
+        # graph every stage reaches through data_acquisition → diagnostics
+        # (tests/test_stage_dependency_modules.py ledger); sample_selection
+        # declares it in its own dependency_modules.
+        from darkhunter_pop.andrews2022_atf import merge_reproduction_columns
+
         return merge_reproduction_columns(rows, columns)
 
     def _record_tilde_masses(self, row: Mapping[str, Any]) -> None:
@@ -1625,6 +1626,12 @@ class SampleSelectionRegistry:
         """
         if self.pipeline is None or spec.reproduction_procedure is None:
             return None
+        # Local import: see SampleSelection._merge_reproduction_columns.
+        from darkhunter_pop.andrews2022_atf import (
+            load_reproduction_columns,
+            procedure_fingerprint,
+        )
+
         pipeline = self.pipeline
         key = f"reproduction:{procedure_fingerprint(spec)}"
 
