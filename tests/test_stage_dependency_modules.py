@@ -1,92 +1,206 @@
 """Regression pins for ``STAGE_REGISTRY`` ``dependency_modules`` completeness.
 
 A stage's ``source_hash`` is computed over its declared ``dependency_modules``
-(``run_management`` line ~362). Any module whose source can change the stage's
-behaviour but which is *not* declared is invisible to the cache: edit it, and
-``plan_stage`` will happily reuse a stale artifact.
+(``run_management.compute_source_hash``) -- a *flat* digest that does not follow
+imports. Any module whose source can change the stage's behaviour but which is
+*not* declared is invisible to the cache: edit it, and ``plan_stage`` will
+happily reuse a stale artifact.
 
-These tests were written by the verification agent while verifying PR #179
-(issue #143; commit ``e89ed62`` on ``verify/179-dependency-modules-regression``,
-never PR'd). They pin defects found by a full 14-stage audit; they do NOT fix
-them. The ``xfail(strict=True)`` markers keep the required suite green while the
-defects stand, and will flip to failures the moment a forward fix lands --
-at which point the marker (not the assertion) should be deleted. Open fix
-tickets: #183 (full audit, consolidates #160-#165), #182 (data_acquisition ->
-diagnostics layering inversion).
+History: the verification agent wrote the first version of these tests while
+verifying PR #179 (issue #143), pinning the defects of a full 14-stage audit as
+``xfail(strict=True)`` plus a ``_KNOWN_GAPS`` ratchet (PR #298). #182 removed
+the root cause (``data_acquisition`` importing the ``diagnostics`` stage at
+module scope) and #183 declared every remaining gap, so the xfails are now
+plain assertions and the ledger is empty.
 
-An xfail can only report a *fix*; it cannot catch a new regression while the
-defect it pins still stands. ``test_dependency_module_gaps_match_known_ledger``
-is therefore a strict (non-xfail) ratchet: the current gaps are recorded in
-``_KNOWN_GAPS`` and any *new* under-declaration fails immediately. A forward fix
-must also shrink the ledger.
+The rule the registry is held to (dependency lists are hand-declared; these
+tests are what keeps them honest):
+
+1. **Closure.** The declared set, plus the stage's own module, is closed under
+   first-party *module-scope* imports (including imports nested in module-level
+   ``try`` / ``if`` / class bodies, ``import darkhunter_pop.x`` and
+   ``from darkhunter_pop import x``), minus the cross-cutting ``_INFRA``
+   modules deliberately kept out of stage hashes.
+2. **Lazy imports.** Every function-level first-party import made by a declared
+   module is itself declared, or listed in ``_LAZY_IMPORT_ALLOWLIST`` with a
+   reason. Allowlist entries must stay live (not declared, still imported).
 """
 
 from __future__ import annotations
 
 import ast
 import pathlib
+from functools import cache
 
 import pytest
 
 from darkhunter_pop.run_management import STAGE_ORDER, STAGE_REGISTRY
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "darkhunter_pop"
+SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
+PKG = "darkhunter_pop"
 
 # Cross-cutting infrastructure: imported nearly everywhere, and deliberately
-# outside the per-stage dependency hashes.
-_INFRA = {
-    "run_management",
-    "schemas",
-    "config_schema",
-    "config_loader",
-    "constants",
-    "plotting",
+# outside the per-stage dependency hashes (plotting-only edits never invalidate
+# a stage; CLAUDE.md "Run management").
+_INFRA = frozenset(
+    f"{PKG}.{m}"
+    for m in (
+        "run_management",
+        "schemas",
+        "config_schema",
+        "config_loader",
+        "constants",
+        "plotting",
+    )
+) | {PKG}
+
+# (stage, lazily imported module) -> why it need not feed that stage's hash.
+_LAZY_IMPORT_ALLOWLIST: dict[tuple[str, str], str] = {
+    ("population_model", f"{PKG}.companion_nature"): (
+        "population_model imports companion_nature.read_stage_hdf5 lazily only to "
+        "read the upstream companion_nature_likelihood artifact. That stage hashes "
+        "companion_nature, so a reader change makes it stale; the force-rerun that "
+        "follows starts a new run file that re-runs every downstream stage."
+    ),
+    ("inference", f"{PKG}.companion_nature"): (
+        "Reached only via population_model's lazy upstream-artifact reader "
+        "(see the population_model entry)."
+    ),
+    **{
+        ("inference", f"{PKG}.{m}"): (
+            "Lazy import inside sample_selection's cut-evaluation / parent-cache "
+            "paths. inference reaches sample_selection only through "
+            "sample_inclusion's selection-file loaders (load_sample_selection_file, "
+            "resolve_inherits), which never execute it; the sample_selection stage "
+            "that does execute it hashes it."
+        )
+        for m in (
+            "data_acquisition",
+            "elbadry2026_m2_sigma",
+            "elbadry2026_selection",
+            "mc_mass_function",
+        )
+    },
 }
 
+# Stage-registry gaps still standing. The #183 fix emptied it; a future
+# regression must be fixed, never added here.
+_KNOWN_GAPS: dict[str, frozenset[str]] = {}
 
-def _module_level_imports(module: str) -> set[str]:
-    """First-party ``darkhunter_pop`` modules imported at module scope."""
-    path = SRC / f"{module}.py"
-    if not path.is_file():
-        return set()
-    found: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
-        if (
-            isinstance(node, ast.ImportFrom)
-            and node.col_offset == 0
-            and node.module
-            and node.module.startswith("darkhunter_pop")
-        ):
-            found.add(node.module.split(".")[-1])
-            if node.module == "darkhunter_pop":
-                # ``from darkhunter_pop import constants`` style.
-                found.update(alias.name for alias in node.names)
-    return {m for m in found if (SRC / f"{m}.py").is_file()}
+# Only orchestration entry points (never a stage module) may import the
+# ``diagnostics`` *stage* module at module scope (#182).
+_DIAGNOSTICS_IMPORTERS_ALLOWED = frozenset({f"{PKG}.pipeline", f"{PKG}.dry_run"})
 
 
-def _transitive(module: str) -> set[str]:
-    seen: set[str] = set()
-    stack = [module]
+def _source_path(module: str) -> pathlib.Path | None:
+    base = SRC.joinpath(*module.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _dotted(path: pathlib.Path) -> str:
+    rel = path.relative_to(SRC).with_suffix("")
+    parts = rel.parts[:-1] if rel.name == "__init__" else rel.parts
+    return ".".join(parts)
+
+
+def _first_party_targets(node: ast.stmt) -> set[str]:
+    out: set[str] = set()
+    if isinstance(node, ast.ImportFrom):
+        if node.level or not node.module or node.module.split(".")[0] != PKG:
+            return out
+        out.add(node.module)
+        for alias in node.names:
+            # ``from darkhunter_pop import constants`` / ``from pkg.sub import mod``.
+            sub = f"{node.module}.{alias.name}"
+            if _source_path(sub) is not None:
+                out.add(sub)
+    elif isinstance(node, ast.Import):
+        out.update(a.name for a in node.names if a.name.split(".")[0] == PKG)
+    return {m for m in out if _source_path(m) is not None}
+
+
+@cache
+def _imports(module: str) -> tuple[frozenset[str], frozenset[str]]:
+    """``(module_scope, lazy)`` first-party imports of ``module``.
+
+    Module scope includes imports nested in module-level ``if`` / ``try`` /
+    ``with`` / class bodies (all execute at import time). Lazy means inside a
+    function or method body.
+    """
+    path = _source_path(module)
+    if path is None:
+        return frozenset(), frozenset()
+    top: set[str] = set()
+    lazy: set[str] = set()
+
+    def walk(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for inner in ast.walk(node):
+                    if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                        lazy.update(_first_party_targets(inner))
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                top.update(_first_party_targets(node))
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body)
+            else:
+                for attr in ("body", "orelse", "finalbody", "handlers"):
+                    sub = getattr(node, attr, None)
+                    if isinstance(sub, list):
+                        walk(sub)
+
+    walk(ast.parse(path.read_text(encoding="utf-8")).body)
+    top.discard(module)
+    lazy.discard(module)
+    return frozenset(top), frozenset(lazy - top)
+
+
+def _module_scope_closure(roots: set[str]) -> set[str]:
+    seen = set(roots)
+    stack = list(roots)
     while stack:
-        for dep in _module_level_imports(stack.pop()):
+        for dep in _imports(stack.pop())[0]:
             if dep not in seen:
                 seen.add(dep)
                 stack.append(dep)
     return seen
 
 
+def _declared(stage: str) -> set[str]:
+    return set(STAGE_REGISTRY[stage].dependency_modules)
+
+
+def _missing(stage: str) -> set[str]:
+    spec = STAGE_REGISTRY[stage]
+    required = _module_scope_closure(_declared(stage) | {spec.module})
+    return (required - _declared(stage)) - _INFRA
+
+
+def _lazy_of_declared(stage: str) -> set[str]:
+    declared = _declared(stage) | {STAGE_REGISTRY[stage].module}
+    return set().union(*(_imports(m)[1] for m in declared)) - declared - _INFRA
+
+
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Defect found verifying PR #179: neither uses_gaiamock stage declares "
-        "darkhunter_pop.gaiamock_vendor, so editing the vendor import / "
-        "version-triple refusal does not invalidate their cached artifacts."
-    ),
-)
+def test_scanner_sees_known_imports() -> None:
+    """Guard against a broken scanner passing every check vacuously."""
+    md_top, _ = _imports(f"{PKG}.mass_derivation")
+    assert f"{PKG}.gaiamock_vendor" in md_top
+    assert f"{PKG}.data_acquisition" in md_top
+    ss_top, ss_lazy = _imports(f"{PKG}.sample_selection")
+    assert f"{PKG}.data_acquisition" in ss_lazy
+    assert f"{PKG}.data_acquisition" not in ss_top
+    assert f"{PKG}.constants" in _imports(f"{PKG}.physics_utils")[0]
+    assert f"{PKG}.triples.rotation_check" in _imports(f"{PKG}.triples")[0]
+    assert _dotted(SRC / PKG / "triples" / "__init__.py") == f"{PKG}.triples"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
-    "stage",
-    ["mass_derivation_bulk", "selection_function_astrometric"],
+    "stage", [name for name in STAGE_ORDER if STAGE_REGISTRY[name].uses_gaiamock]
 )
 def test_gaiamock_stages_declare_gaiamock_vendor(stage: str) -> None:
     """``uses_gaiamock`` stages must hash ``gaiamock_vendor``.
@@ -94,20 +208,19 @@ def test_gaiamock_stages_declare_gaiamock_vendor(stage: str) -> None:
     ``gaiamock_vendor`` owns ``import_gaiamock_mod`` / ``read_versions`` and the
     version-triple refusal. Editing it must invalidate these stages' artifacts.
     """
-    spec = STAGE_REGISTRY[stage]
-    assert spec.uses_gaiamock, f"{stage} is expected to be a gaiamock stage"
-    assert "darkhunter_pop.gaiamock_vendor" in spec.dependency_modules
+    assert f"{PKG}.gaiamock_vendor" in STAGE_REGISTRY[stage].dependency_modules
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Defect found verifying PR #179: rv_astrometry_gate, joint_orbit_fit, "
-        "companion_nature_likelihood, selection_function_astrometric and "
-        "selection_function_followup are all left on the bare (module,) default."
-    ),
-)
+def test_uses_gaiamock_stages_are_the_expected_pair() -> None:
+    """Keeps the parametrized gaiamock test above from silently shrinking."""
+    assert {n for n in STAGE_ORDER if STAGE_REGISTRY[n].uses_gaiamock} == {
+        "mass_derivation_bulk",
+        "selection_function_astrometric",
+    }
+
+
+@pytest.mark.unit
 def test_no_stage_is_registered_with_a_bare_module_default() -> None:
     """Every stage whose module pulls in first-party code declares more than itself.
 
@@ -117,10 +230,9 @@ def test_no_stage_is_registered_with_a_bare_module_default() -> None:
     offenders = []
     for name in STAGE_ORDER:
         spec = STAGE_REGISTRY[name]
-        short = spec.module.split(".")[-1]
         if spec.dependency_modules != (spec.module,):
             continue
-        if _transitive(short) - _INFRA:
+        if _module_scope_closure({spec.module}) - {spec.module} - _INFRA:
             offenders.append(name)
     assert not offenders, (
         "stages left on the bare (module,) dependency default despite importing "
@@ -129,128 +241,93 @@ def test_no_stage_is_registered_with_a_bare_module_default() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known gap found verifying PR #179: 11 of 14 stages under-declare "
-        "dependency_modules. Only sample_selection was fixed this wave "
-        "(#151/#158/#166). Needs its own ticket; do not delete this test to "
-        "make it pass."
-    ),
-)
 def test_all_stages_declare_their_module_level_dependencies() -> None:
-    gaps: dict[str, list[str]] = {}
-    for name in STAGE_ORDER:
-        spec = STAGE_REGISTRY[name]
-        short = spec.module.split(".")[-1]
-        declared = {d.split(".")[-1] for d in spec.dependency_modules}
-        reachable = _transitive(short) | {short}
-        missing = sorted((reachable - declared) - _INFRA)
-        if missing:
-            gaps[name] = missing
+    gaps = {name: sorted(_missing(name)) for name in STAGE_ORDER if _missing(name)}
     assert not gaps, f"under-declared dependency_modules: {gaps}"
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Layering inversion found verifying PR #179: data_acquisition (stage 1) "
-        "imports diagnostics (stage 14) at module scope, which transitively "
-        "reaches ~25 modules and makes any honest dependency_modules list for "
-        "the early stages degenerate to 'everything'."
-    ),
-)
-def test_data_acquisition_does_not_import_diagnostics() -> None:
-    assert "diagnostics" not in _module_level_imports("data_acquisition")
+def test_declared_dependency_modules_resolve_and_are_unique() -> None:
+    for name in STAGE_ORDER:
+        deps = STAGE_REGISTRY[name].dependency_modules
+        assert len(deps) == len(set(deps)), f"{name}: duplicate dependency_modules"
+        assert deps[0] == STAGE_REGISTRY[name].module, f"{name}: own module not first"
+        for module in deps:
+            assert _source_path(module) is not None, f"{name}: {module} has no source"
 
 
-# Gap ledger measured on main @ c07897e. Most of it is one root cause: every
-# stage that reaches data_acquisition inherits its module-scope import of
-# diagnostics (#182), which transitively pulls in most of the package.
-_VIA_DATA_ACQUISITION = frozenset(
-    {
-        "benchmarks",
-        "diagnostics",
-        "dust_maps",
-        "elbadry2024_selection",
-        "elbadry2026_selection",
-        "forward_model",
-        "gaiamock_vendor",
-        "inference",
-        "janssens_mass",
-        "mc_mass_function",
-        "physics_utils",
-        "population_model",
-        "rv_adapter",
-        "sample_diagnostics",
-        "sample_inclusion",
-        "sample_selection",
-        "sbc",
-        "sensitivity_analysis",
-        "spuriousness_model",
+@pytest.mark.unit
+def test_lazy_imports_are_declared_or_allowlisted() -> None:
+    """Function-level first-party imports of declared modules feed the hash too."""
+    undeclared = {
+        name: sorted(m for m in _lazy_of_declared(name) if (name, m) not in _LAZY_IMPORT_ALLOWLIST)
+        for name in STAGE_ORDER
     }
-)
-_MASS_DERIVATION = _VIA_DATA_ACQUISITION | {"data_acquisition", "nss_covariance"}
-_RV_AND_NATURE = _MASS_DERIVATION | {"mass_derivation"}
+    undeclared = {k: v for k, v in undeclared.items() if v}
+    assert not undeclared, (
+        "lazy first-party imports neither declared in dependency_modules nor "
+        f"allowlisted in _LAZY_IMPORT_ALLOWLIST: {undeclared}"
+    )
 
-_KNOWN_GAPS: dict[str, frozenset[str]] = {
-    "data_acquisition": _VIA_DATA_ACQUISITION,
-    "mass_derivation_bulk": _MASS_DERIVATION,
-    "mass_derivation_refined": _MASS_DERIVATION,
-    "rv_astrometry_gate": _RV_AND_NATURE,
-    "joint_orbit_fit": _RV_AND_NATURE,
-    "companion_nature_likelihood": _RV_AND_NATURE,
-    "selection_function_astrometric": frozenset({"gaiamock_vendor"}),
-    "selection_function_followup": frozenset({"gaiamock_vendor"}),
-    "population_model": frozenset({"sensitivity_analysis"}),
-    "inference": frozenset({"sample_selection", "sensitivity_analysis"}),
-    "diagnostics": frozenset(
-        {
-            "dust_maps",
-            "elbadry2024_selection",
-            "elbadry2026_selection",
-            "forward_model",
-            "gaiamock_vendor",
-            "inference",
-            "janssens_mass",
-            "mc_mass_function",
-            "nss_covariance",
-            "physics_utils",
-            "population_model",
-            "sample_inclusion",
-            "sensitivity_analysis",
-            "spuriousness_model",
-        }
-    ),
-}
+
+@pytest.mark.unit
+def test_lazy_import_allowlist_is_live() -> None:
+    """Allowlist entries must name a stage, be undeclared, and still be imported."""
+    stale = [
+        key
+        for key, reason in _LAZY_IMPORT_ALLOWLIST.items()
+        if not reason.strip()
+        or key[0] not in STAGE_REGISTRY
+        or key[1] not in _lazy_of_declared(key[0])
+    ]
+    assert not stale, f"stale _LAZY_IMPORT_ALLOWLIST entries: {stale}"
+
+
+@pytest.mark.unit
+def test_data_acquisition_does_not_import_diagnostics() -> None:
+    """#182: stage 1 must not reach the stage-14 ``diagnostics`` module (or gaiamock)."""
+    reach = _module_scope_closure({f"{PKG}.data_acquisition"})
+    assert f"{PKG}.diagnostics" not in reach
+    assert f"{PKG}.forward_model" not in reach
+    assert f"{PKG}.gaiamock_vendor" not in reach
+
+
+@pytest.mark.unit
+def test_only_orchestration_imports_diagnostics_stage_at_module_scope() -> None:
+    """#182 layering audit: no stage module imports ``diagnostics`` at module scope."""
+    importers = {
+        _dotted(p)
+        for p in (SRC / PKG).rglob("*.py")
+        if f"{PKG}.diagnostics" in _imports(_dotted(p))[0]
+    }
+    assert importers <= _DIAGNOSTICS_IMPORTERS_ALLOWED, sorted(importers)
+
+
+@pytest.mark.unit
+def test_diagnostic_hooks_depends_only_on_infra() -> None:
+    """``diagnostic_hooks`` sits below every stage; it must never import one."""
+    hooks = f"{PKG}.diagnostic_hooks"
+    assert _module_scope_closure({hooks}) - _INFRA == {hooks}
+    assert not (_imports(hooks)[1] - _INFRA)
 
 
 @pytest.mark.unit
 def test_dependency_module_gaps_match_known_ledger() -> None:
     """Ratchet: no stage may under-declare anything beyond ``_KNOWN_GAPS``.
 
-    A dropped declaration (or a new module-scope import left undeclared) fails
-    here even while the xfail pins above still stand. A forward fix for
-    #182/#183 fails here too until its entries are removed from the ledger --
-    shrink ``_KNOWN_GAPS``; never grow it to make this pass.
+    The ledger is empty since #183; keep it that way. A new gap is fixed by
+    declaring the module in ``run_management.STAGE_REGISTRY``, never by growing
+    the ledger.
     """
     new: dict[str, list[str]] = {}
     fixed: dict[str, list[str]] = {}
     for name in STAGE_ORDER:
-        spec = STAGE_REGISTRY[name]
-        short = spec.module.split(".")[-1]
-        declared = {d.split(".")[-1] for d in spec.dependency_modules}
-        reachable = _transitive(short) | {short}
-        missing = (reachable - declared) - _INFRA
+        missing = _missing(name)
         known = _KNOWN_GAPS.get(name, frozenset())
         if missing - known:
             new[name] = sorted(missing - known)
         if known - missing:
             fixed[name] = sorted(known - missing)
     assert not new, f"new dependency_modules under-declarations: {new}"
-    assert not fixed, (
-        f"gaps fixed -- remove them from _KNOWN_GAPS (and drop the matching "
-        f"xfail markers if now fully fixed): {fixed}"
-    )
+    assert not fixed, f"gaps fixed -- remove them from _KNOWN_GAPS: {fixed}"
     assert set(_KNOWN_GAPS) <= set(STAGE_ORDER), "ledger names an unknown stage"

@@ -77,6 +77,8 @@ def _spec(
     config_keys: Sequence[str] = (),
     uses_gaiamock: bool = False,
 ) -> StageSpec:
+    # Bare ``(module,)`` default is only honest for a module with no first-party
+    # imports; tests/test_stage_dependency_modules.py enforces completeness (#183).
     dependency_modules = tuple(deps) if deps is not None else (module,)
     return StageSpec(
         name=name,
@@ -97,6 +99,9 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.data_acquisition",
                 "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=(
                 "active_dr_mode",
@@ -115,6 +120,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.mass_derivation",
                 "darkhunter_pop.constants",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=(
                 "mass_calibration",
@@ -138,6 +149,10 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.physics_utils",
                 "darkhunter_pop.sensitivity_analysis",
                 "darkhunter_pop.data_acquisition",
+                # data_acquisition's own module-scope imports (#183).
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=("sample_selection", "mc_mass_function"),
         ),
@@ -148,6 +163,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.mass_derivation",
                 "darkhunter_pop.constants",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=(
                 "mass_calibration",
@@ -159,12 +180,32 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "rv_astrometry_gate",
             "darkhunter_pop.rv_consistency",
             inputs_from=("mass_derivation_refined",),
+            deps=(
+                "darkhunter_pop.rv_consistency",
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
+            ),
             config_keys=("rv_consistency",),
         ),
         _spec(
             "joint_orbit_fit",
             "darkhunter_pop.rv_consistency",
             inputs_from=("rv_astrometry_gate",),
+            deps=(
+                "darkhunter_pop.rv_consistency",
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
+            ),
             config_keys=("rv_consistency",),
         ),
         _spec(
@@ -174,6 +215,13 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.companion_nature",
                 "darkhunter_pop.phot_sed_adapter",
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=(
                 "companion_nature",
@@ -199,6 +247,11 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "selection_function_astrometric",
             "darkhunter_pop.forward_model",
             inputs_from=("data_acquisition",),
+            deps=(
+                "darkhunter_pop.forward_model",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+            ),
             config_keys=(
                 "gaiamock",
                 "active_dr_mode",
@@ -213,6 +266,11 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             "selection_function_followup",
             "darkhunter_pop.forward_model",
             inputs_from=("selection_function_astrometric",),
+            deps=(
+                "darkhunter_pop.forward_model",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
+            ),
             config_keys=(
                 "active_dr_mode",
                 "physics",
@@ -232,6 +290,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.population_model",
                 "darkhunter_pop.constants",
+                "darkhunter_pop.sensitivity_analysis",
             ),
             config_keys=(
                 "population_model",
@@ -265,6 +324,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.population_model",
                 "darkhunter_pop.sample_inclusion",
                 "darkhunter_pop.spuriousness_model",
+                "darkhunter_pop.sample_selection",
+                "darkhunter_pop.sensitivity_analysis",
+                # Lazy: load_multi_solution_rate_table feeds the likelihood (#183).
+                "darkhunter_pop.forward_model",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.gaiamock_vendor",
             ),
             config_keys=(
                 "inference",
@@ -286,6 +351,31 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.sample_selection",
                 "darkhunter_pop.benchmarks",
                 "darkhunter_pop.sbc",
+                # Terminal stage: everything it reaches at module scope plus its
+                # lazy helpers (age_bin_diagnostic, information_gain_stub, the
+                # upstream artifact readers) and their closures (#183).
+                "darkhunter_pop.companion_nature",
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.dust_maps",
+                "darkhunter_pop.elbadry2024_selection",
+                "darkhunter_pop.elbadry2026_m2_sigma",
+                "darkhunter_pop.elbadry2026_selection",
+                "darkhunter_pop.forward_model",
+                "darkhunter_pop.gaiamock_vendor",
+                "darkhunter_pop.inference",
+                "darkhunter_pop.janssens_mass",
+                "darkhunter_pop.mass_derivation",
+                "darkhunter_pop.mc_mass_function",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.phot_sed_adapter",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.population_model",
+                "darkhunter_pop.rv_adapter",
+                "darkhunter_pop.rv_consistency",
+                "darkhunter_pop.sample_inclusion",
+                "darkhunter_pop.sensitivity_analysis",
+                "darkhunter_pop.spuriousness_model",
             ),  # plotting excluded from hash
             config_keys=("paths.artifact_root", "diagnostics", "benchmarks"),
         ),
