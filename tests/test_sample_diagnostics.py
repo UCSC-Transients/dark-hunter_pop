@@ -26,6 +26,8 @@ from darkhunter_pop.diagnostics import (
 from darkhunter_pop.elbadry2026_selection import load_simon2026_orbital
 from darkhunter_pop.nss_covariance import CovarianceFailure, CovarianceHealth, CovarianceResult
 from darkhunter_pop.sample_diagnostics import (
+    COUNTING_RULE_DISTINCT_FALLBACK,
+    COUNTING_RULE_PER_SOLUTION_TYPE,
     SampleDiagnosticsBundle,
     compare_to_published,
     compute_janssens_segment_occupancy,
@@ -43,6 +45,8 @@ from darkhunter_pop.sample_selection import (
     SampleSelection,
     SampleSelectionError,
     SampleSelectionRegistry,
+    distinct_star_count,
+    ids_by_solution_type,
     load_sample_selection_file,
     sample_evaluation_result_from_dict,
 )
@@ -563,3 +567,112 @@ def test_suite_runs_sample_hooks_with_bundle(tmp_path: Path) -> None:
         assert name in by_name
         assert by_name[name].skipped_reason is None
         assert by_name[name].reports
+
+
+# --- #274: per-solution-type distinct-star counting (reporting only) ----------
+
+
+def test_distinct_star_count_orbital_plus_sb1_counts_once_per_type() -> None:
+    rows = [
+        {"source_id": 7, "nss_solution_type": "Orbital"},
+        {"source_id": 7, "nss_solution_type": "SB1"},
+    ]
+    by_type = ids_by_solution_type(rows)
+    assert by_type == {"Orbital": (7,), "SB1": (7,)}
+    assert distinct_star_count(by_type) == 2
+
+
+def test_distinct_star_count_two_orbital_rows_count_once() -> None:
+    rows = [
+        {"source_id": 8, "nss_solution_type": "Orbital", "period_day": 100.0},
+        {"source_id": 8, "nss_solution_type": "Orbital", "period_day": 50.0},
+        {"source_id": 9, "nss_solution_type": "Orbital"},
+    ]
+    by_type = ids_by_solution_type(rows)
+    assert by_type == {"Orbital": (8, 9)}
+    assert distinct_star_count(by_type) == 2
+
+
+def test_compare_to_published_uses_per_type_rule_and_reports_informational() -> None:
+    cmp = compare_to_published(
+        sample_name="demo",
+        recovered_ids=(7, 7, 8, 8, 9),
+        published_n=4,
+        published_ids=None,
+        recovered_ids_by_solution_type={"Orbital": (7, 8, 8, 9), "SB1": (7,)},
+    )
+    # Orbital {7, 8, 9} + SB1 {7} = 4; star 8's same-type duplicate counts once.
+    assert cmp.recovered_n == 4
+    assert cmp.n_match is True
+    assert cmp.recovered_n_rows == 5
+    assert cmp.recovered_n_distinct_sources == 3
+    assert cmp.recovered_n_by_solution_type == {"Orbital": 3, "SB1": 1}
+    assert cmp.counting_rule == COUNTING_RULE_PER_SOLUTION_TYPE
+    assert cmp.recovered_ids == (7, 8, 9)
+
+
+def test_compare_to_published_without_types_falls_back_to_distinct() -> None:
+    cmp = compare_to_published(
+        sample_name="legacy",
+        recovered_ids=(1, 1, 2),
+        published_n=2,
+        published_ids=(1, 2),
+    )
+    assert cmp.recovered_n == 2
+    assert cmp.n_match is True
+    assert cmp.id_match is True
+    assert cmp.counting_rule == COUNTING_RULE_DISTINCT_FALLBACK
+    assert "solution types unavailable" in cmp.notes
+
+
+def test_elbadry2026_union_counts_distinct_stars_per_solution_type() -> None:
+    """Orbital+SB1 star in both branches counts once per type; a ride-along row
+    (SB1 row that failed the spectroscopic chain) and a duplicate Orbital row do
+    not add to the reproduction count, though both stay in per-row emission."""
+    base_rows = _catalog_rows()
+    base = _elbadry_registry().evaluate_all(base_rows)["elbadry2026"]
+    both_sid, ride_sid, dup_sid = 10, 11, 12
+    astro = set(base.branch_surviving["astrometric"])
+    assert {both_sid, ride_sid, dup_sid} <= astro
+    dup_row = next(r for r in base_rows if r["source_id"] == dup_sid)
+    rows = [
+        *base_rows,
+        _sb1_row(both_sid, fm_msun=0.5, m2_min_msun=1.5),
+        _sb1_row(ride_sid, k1_significance=0.0),
+        dict(dup_row),
+    ]
+    result = _elbadry_registry().evaluate_all(rows)["elbadry2026"]
+
+    # Per-row emission is unchanged in kind: every row of a surviving star.
+    counts = {s: result.surviving_source_ids.count(s) for s in (both_sid, ride_sid, dup_sid)}
+    assert counts == {both_sid: 2, ride_sid: 2, dup_sid: 2}
+
+    by_type = result.surviving_by_solution_type
+    assert both_sid in by_type["Orbital"] and both_sid in by_type["SB1"]
+    assert ride_sid in by_type["Orbital"] and ride_sid not in by_type["SB1"]
+    assert by_type["Orbital"].count(dup_sid) == 1
+    # Only the star whose SB1 row genuinely survived adds one (in SB1).
+    assert result.n_stars_per_solution_type == base.n_stars_per_solution_type + 1
+    assert result.n_distinct_source_ids == base.n_distinct_source_ids
+
+    spec = load_sample_selection_file(repo_root() / "config/selections/elbadry2026.yaml")
+    from darkhunter_pop.sample_diagnostics import build_reproduction_comparisons
+
+    cmps = {
+        c.sample_name: c
+        for c in build_reproduction_comparisons(
+            {"elbadry2026": result}, {"elbadry2026": spec}, load_config()
+        )
+    }
+    top = cmps["elbadry2026"]
+    assert top.recovered_n == result.n_stars_per_solution_type
+    assert top.recovered_n_rows == len(result.surviving_source_ids)
+    assert top.recovered_n_distinct_sources == result.n_distinct_source_ids
+    assert cmps["elbadry2026_astrometric"].recovered_n == len(astro)
+    assert cmps["elbadry2026_spectroscopic"].recovered_n == (
+        len(set(base.branch_surviving["spectroscopic"])) + 1
+    )
+
+    restored = sample_evaluation_result_from_dict(result.as_dict())
+    assert restored.surviving_by_solution_type == by_type
+    assert restored.n_stars_per_solution_type == result.n_stars_per_solution_type
