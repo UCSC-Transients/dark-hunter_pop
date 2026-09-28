@@ -17,7 +17,7 @@ import ast
 import json
 import logging
 import math
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -414,10 +414,19 @@ class SampleSelection:
         mode: SampleSelectionMode,
         dr_mode: ActiveDRMode = ActiveDRMode.DR3,
         extinction_lookup: Any | None = None,
+        reproduction_columns_loader: (
+            Callable[[], Mapping[int, Mapping[str, Any]]] | None
+        ) = None,
     ) -> None:
         """``extinction_lookup`` (``dust_maps.ExtinctionLookup``) supplies
         per-source ``E(B-V)`` for samples whose enrichment dereddens (El-Badry
-        2026). It is only consulted for rows that need enrichment."""
+        2026). It is only consulted for rows that need enrichment.
+
+        ``reproduction_columns_loader`` returns the precomputed
+        ``reproduction_procedure`` columns (``andrews_atf_*``, #296) keyed by
+        ``source_id``. It is called lazily and only when this sample is
+        evaluated in ``reproduction`` mode with a procedure block; the columns
+        are merged without overwriting keys the rows already carry."""
         if spec.branches:
             pass
         elif spec.parent_query is None or spec.cuts is None:
@@ -430,6 +439,7 @@ class SampleSelection:
         self.dr_mode = dr_mode
         self.mass_source = mass_source_for_mode(mode)
         self.extinction_lookup = extinction_lookup
+        self.reproduction_columns_loader = reproduction_columns_loader
         #: Per-outcome counts from the last dereddening pass (funnel report).
         self.extinction_status_counts: dict[str, int] = {}
         #: El-Badry ``(M̃1, M̃2)`` recorded during the last enrichment (#285).
@@ -580,6 +590,31 @@ class SampleSelection:
             out.append(clear_non_elbadry_m2_astrometric_sigma(enriched))
         return out
 
+    def _merge_reproduction_columns(
+        self, rows: Sequence[Mapping[str, Any]]
+    ) -> Sequence[Mapping[str, Any]]:
+        """Merge ``reproduction_procedure`` columns in reproduction mode only (#296).
+
+        ``forward_model`` evaluation, samples without a procedure block, and
+        registries without a loader see the rows unchanged.
+        """
+        if (
+            self.mode is not SampleSelectionMode.REPRODUCTION
+            or self.spec.reproduction_procedure is None
+            or self.reproduction_columns_loader is None
+        ):
+            return rows
+        columns = self.reproduction_columns_loader()
+        if not columns:
+            return rows
+        # Local import keeps andrews2022_atf out of the module-level import
+        # graph every stage reaches through data_acquisition → diagnostics
+        # (tests/test_stage_dependency_modules.py ledger); sample_selection
+        # declares it in its own dependency_modules.
+        from darkhunter_pop.andrews2022_atf import merge_reproduction_columns
+
+        return merge_reproduction_columns(rows, columns)
+
     def _record_tilde_masses(self, row: Mapping[str, Any]) -> None:
         """Keep this row's El-Badry ``(M̃1, M̃2)`` when both are finite (#285).
 
@@ -622,6 +657,7 @@ class SampleSelection:
         if self.spec.branches:
             # Enrich per branch after solution-type filter (not on full NSS).
             return self._evaluate_branched(list(rows), dep_membership)
+        rows = self._merge_reproduction_columns(rows)
         enriched = self._enrich_rows_for_spec(rows)
         parent = parent_query_for_mode(self.spec, self.dr_mode)
         types = set(parent.solution_types)
@@ -1521,6 +1557,11 @@ def resolve_inherits(
         if spec.monte_carlo is not None
         else resolved_parent.monte_carlo
     )
+    reproduction_procedure = (
+        spec.reproduction_procedure
+        if spec.reproduction_procedure is not None
+        else resolved_parent.reproduction_procedure
+    )
     depends_on = spec.depends_on or list(resolved_parent.depends_on)
     return spec.model_copy(
         update={
@@ -1529,6 +1570,7 @@ def resolve_inherits(
             "exclusions": exclusions,
             "primary_mass": primary_mass,
             "monte_carlo": monte_carlo,
+            "reproduction_procedure": reproduction_procedure,
             "depends_on": depends_on,
         }
     )
@@ -1641,7 +1683,37 @@ class SampleSelectionRegistry:
             mode=entry.mode,
             dr_mode=self.dr_mode,
             extinction_lookup=self._extinction_lookup(spec),
+            reproduction_columns_loader=self._reproduction_columns_loader(spec),
         )
+
+    def _reproduction_columns_loader(
+        self, spec: SampleSelectionFile
+    ) -> Callable[[], Mapping[int, Mapping[str, Any]]] | None:
+        """Lazy, memoized sidecar reader for ``spec.reproduction_procedure`` (#296).
+
+        ``None`` without a ``PipelineConfig`` (no data paths) or without a
+        procedure block. Variants that inherit the same procedure share one
+        read (keyed by the procedure fingerprint).
+        """
+        if self.pipeline is None or spec.reproduction_procedure is None:
+            return None
+        # Local import: see SampleSelection._merge_reproduction_columns.
+        from darkhunter_pop.andrews2022_atf import (
+            load_reproduction_columns,
+            procedure_fingerprint,
+        )
+
+        pipeline = self.pipeline
+        key = f"reproduction:{procedure_fingerprint(spec)}"
+
+        def _load() -> Mapping[int, Mapping[str, Any]]:
+            cached = self._lookups.get(key)
+            if cached is None:
+                cached = load_reproduction_columns(spec, pipeline, repo=self.repo)
+                self._lookups[key] = cached
+            return cached
+
+        return _load
 
     def _extinction_lookup(self, spec: SampleSelectionFile) -> Any | None:
         """Lazy ``E(B-V)`` provider for samples whose enrichment dereddens.

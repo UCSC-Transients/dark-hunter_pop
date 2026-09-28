@@ -43,6 +43,18 @@ pc = const.pc
 M_CH: Final[u.Quantity] = 1.4 * u.Msun
 
 # ---------------------------------------------------------------------------
+# Unit bookkeeping used by the astrometric mass function / absolute magnitudes
+# ---------------------------------------------------------------------------
+
+# Days per Julian year (IAU; astropy ``u.yr``): P_yr = P_day / JULIAN_YEAR_DAYS.
+JULIAN_YEAR_DAYS: Final[float] = float((1.0 * u.yr).to_value(u.day))
+# Parallax (mas) of a source at the 10 pc absolute-magnitude reference distance:
+# M = m - 5 log10(PARALLAX_MAS_AT_10PC / parallax_mas).
+# Written as 1000 mas arcsec^-1 / 10 pc (exactly 100.0; the astropy unit
+# conversion rounds to 99.99999999999999).
+PARALLAX_MAS_AT_10PC: Final[float] = 1000.0 / 10.0
+
+# ---------------------------------------------------------------------------
 # Torres, Andersen & Giménez (2010) — Table 1 coefficients
 # https://doi.org/10.1007/s00159-009-0025-1  (arXiv:0908.2624)
 #
