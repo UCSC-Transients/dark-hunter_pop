@@ -543,6 +543,70 @@ class MonteCarloSpec(BaseModel):
         return self
 
 
+class SigmaM2TildeSpec(BaseModel):
+    """How El-Badry 2026's ``σ_M̃2`` is propagated (#284 / #199 / Q12).
+
+    ``method``:
+
+    - ``analytic`` — first-order (Jacobian) propagation of ``M̃2`` through
+      ``(A, B, F, G, ϖ, P)``, the nsstools-style estimate;
+    - ``monte_carlo`` — the ``monte_carlo.n_draws`` full-12×12 NSS draw
+      ensemble (the pre-#284 default).
+
+    ``analytic_covariance`` (``analytic`` only):
+
+    - ``full`` — one Jacobian through the 6×6 ``(A, B, F, G, ϖ, P)`` block of
+      the full NSS covariance, cross terms included;
+    - ``nsstools_blocks`` — ``σ_a0`` from the ``(A, B, F, G)`` block alone (as
+      nsstools' ``campbell()`` does), then ``a0``, ``ϖ`` and ``P`` combined in
+      quadrature as independent.
+
+    Janssens ``M̃1`` fit uncertainty enters only when
+    ``primary_mass.propagate_fit_uncertainty`` is true (Q12 default: false).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["analytic", "monte_carlo"]
+    analytic_covariance: Literal["full", "nsstools_blocks"] = "full"
+
+
+class AmrfCutSpec(BaseModel):
+    """AMRF threshold criterion for El-Badry 2026 ``sub_chandrasekhar`` (#284).
+
+    Fills the row column ``amrf_threshold_elbadry2026`` that the frozen cut
+    compares ``amrf`` against:
+
+    - ``flat`` — the constant ``flat_min``;
+    - ``shahaf2019_class3`` — the Shahaf et al. (2019) class-II/III boundary
+      ``max_q A_triple(q; M̃1)`` (companion an equal-mass close MS pair, fainter
+      than the primary), evaluated with the ``mass_luminosity`` relation:
+      ``shahaf2019_hp`` (their Table A1 Hipparcos broken power law, primaries
+      0.6–1.8 M☉), ``janssens2022_g`` (the Gaia-G Janssens relation El-Badry
+      2026 already uses for ``M̃1``) or ``power_law`` (``L ∝ M^β``, reference).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    criterion: Literal["flat", "shahaf2019_class3"]
+    flat_min: float | None = Field(default=None, gt=0)
+    mass_luminosity: Literal["shahaf2019_hp", "janssens2022_g", "power_law"] = (
+        "janssens2022_g"
+    )
+    power_law_beta: float | None = Field(default=None, gt=1)
+    q_grid_points: int = Field(4001, ge=101)
+
+    @model_validator(mode="after")
+    def _criterion_parameters(self) -> AmrfCutSpec:
+        if self.criterion == "flat" and self.flat_min is None:
+            raise ValueError("amrf_cut.criterion 'flat' requires flat_min")
+        if self.mass_luminosity == "power_law" and self.power_law_beta is None:
+            raise ValueError(
+                "amrf_cut.mass_luminosity 'power_law' requires power_law_beta"
+            )
+        return self
+
+
 class ParentQueryVerification(BaseModel):
     """Archive-count verification block for a parent ADQL query (§4.5)."""
 
@@ -815,6 +879,8 @@ class SampleSelectionFile(BaseModel):
     branches: list[SampleBranch] | None = None
     exclusions: list[SampleExclusion] | None = None
     monte_carlo: MonteCarloSpec | None = None
+    sigma_m2_tilde: SigmaM2TildeSpec | None = None
+    amrf_cut: AmrfCutSpec | None = None
     correction: SampleCorrection | None = None
     extinction: ExtinctionSpec | None = None
     main_sequence_cut: MainSequenceCutSpec | None = None

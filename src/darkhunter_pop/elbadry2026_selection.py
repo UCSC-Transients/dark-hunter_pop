@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import yaml
 
 from darkhunter_pop.config_loader import repo_root
@@ -24,7 +25,11 @@ from darkhunter_pop.dust_maps import (
     ExtinctionLookup,
     ExtinctionStatus,
 )
-from darkhunter_pop.janssens_mass import invert_mg_to_mass, load_janssens_table
+from darkhunter_pop.janssens_mass import (
+    invert_mg_to_mass,
+    load_janssens_table,
+    segments_from_table,
+)
 from darkhunter_pop.physics_utils import (
     astrometric_mass_function,
     astrometric_mass_ratio_function,
@@ -299,6 +304,165 @@ def enrich_elbadry2026_row(
     k1_err = out.get("k1_error", out.get("semi_amplitude_primary_error"))
     if k1 is not None and k1_err not in (None, 0):
         out["k1_significance"] = float(k1) / float(k1_err)
+    return out
+
+
+#: Row column: the AMRF threshold ``sub_chandrasekhar``'s ``amrf`` cut compares to.
+AMRF_THRESHOLD_COLUMN = "amrf_threshold_elbadry2026"
+#: Row column: which ``amrf_cut`` criterion produced :data:`AMRF_THRESHOLD_COLUMN`.
+AMRF_THRESHOLD_SOURCE_COLUMN = "amrf_threshold_source_elbadry2026"
+
+#: Shahaf et al. (2019) Table A1: Hipparcos ``Hp = a log10(M) + b`` segments
+#: ``(m_low, m_up, a, b)``. Masses below 0.6 M☉ continue the 0.6–0.9 slope, as
+#: their Eqs. (A3)–(A5) do (``S ∝ q^8.2`` for ``qM1 < 0.9`` with no floor).
+SHAHAF2019_HP_SEGMENTS: tuple[tuple[float, float, float, float], ...] = (
+    (1.5, 1.8, -8.9, 4.3),
+    (0.9, 1.5, -12.39, 4.955),
+    (0.0, 0.9, -20.39, 4.57),
+)
+#: Primary-mass domain of the Shahaf et al. (2019) Hp relation.
+SHAHAF2019_HP_PRIMARY_RANGE: tuple[float, float] = (0.6, 1.8)
+
+
+def amrf_with_luminous_companion(q: Any, flux_ratio: Any) -> Any:
+    """Shahaf et al. (2019) Eq. (7): ``A = q/(1+q)^{2/3} · [1 − S(1+q)/(q(1+S))]``."""
+    q_arr = np.asarray(q, dtype=np.float64)
+    s_arr = np.asarray(flux_ratio, dtype=np.float64)
+    return q_arr / (1.0 + q_arr) ** (2.0 / 3.0) * (
+        1.0 - s_arr * (1.0 + q_arr) / (q_arr * (1.0 + s_arr))
+    )
+
+
+def _mag_shahaf2019_hp(mass: Any) -> Any:
+    m = np.asarray(mass, dtype=np.float64)
+    out = np.full(m.shape, np.nan)
+    for m_low, m_up, a, b in SHAHAF2019_HP_SEGMENTS:
+        sel = (m > m_low) & (m <= m_up) if m_low > 0 else (m > 0) & (m <= m_up)
+        out[sel] = a * np.log10(m[sel]) + b
+    return out
+
+
+def _mag_janssens2022_g(mass: Any) -> Any:
+    """Janssens ``M_G(M)``; below the table floor the lowest segment continues."""
+    segs = sorted(segments_from_table(), key=lambda s: s.m_low)
+    m = np.asarray(mass, dtype=np.float64)
+    out = np.full(m.shape, np.nan)
+    for i, seg in enumerate(segs):
+        lo = 0.0 if i == 0 else seg.m_low
+        sel = (m > lo) & (m <= seg.m_up)
+        out[sel] = seg.a * np.log10(m[sel]) + seg.b
+    return out
+
+
+def mass_magnitude_relation(
+    name: str, *, power_law_beta: float | None = None
+) -> Any:
+    """``mag(M)`` callable for the ``amrf_cut.mass_luminosity`` choice."""
+    if name == "shahaf2019_hp":
+        return _mag_shahaf2019_hp
+    if name == "janssens2022_g":
+        return _mag_janssens2022_g
+    if name == "power_law":
+        if power_law_beta is None:
+            raise ValueError("power_law mass-luminosity needs power_law_beta")
+        beta = float(power_law_beta)
+        return lambda mass: -2.5 * beta * np.log10(np.asarray(mass, dtype=np.float64))
+    raise ValueError(f"unhandled mass_luminosity {name!r}")
+
+
+def shahaf2019_class_boundary(
+    m1_msun: float,
+    mag_of_mass: Any,
+    *,
+    companion: Literal["ms", "triple"] = "triple",
+    q_grid_points: int = 4001,
+) -> float:
+    """Shahaf et al. (2019) ``max{A_MS}`` or ``max{A_triple}`` at primary mass ``M1``.
+
+    ``companion="triple"`` is the class-II/III boundary: the astrometric
+    secondary is an equal-mass close MS pair (``q2 = 1``, each star ``qM1/2``,
+    ``S = 2·10^{−0.4(mag(qM1/2) − mag(M1))}``), the configuration that
+    maximizes ``A`` for a luminous companion; it must be fainter than the
+    primary (``S ≤ 1``, their Eq. 13). ``companion="ms"`` is the class-I/II
+    boundary (single MS secondary, ``q ≤ 1``). The maximum is taken on a
+    uniform ``q`` grid and polished with a parabola through the peak.
+    """
+    m1 = float(m1_msun)
+    q_max = 2.0 if companion == "triple" else 1.0
+    q = np.linspace(q_max / q_grid_points, q_max, int(q_grid_points))
+
+    def amrf_of(qv: Any) -> Any:
+        qv = np.asarray(qv, dtype=np.float64)
+        mag1 = mag_of_mass(np.array([m1]))[0]
+        if companion == "triple":
+            s = 2.0 * 10.0 ** (-0.4 * (mag_of_mass(qv * m1 / 2.0) - mag1))
+        else:
+            s = 10.0 ** (-0.4 * (mag_of_mass(qv * m1) - mag1))
+        amrf = amrf_with_luminous_companion(qv, s)
+        return np.where(np.isfinite(s) & (s <= 1.0), amrf, np.nan)
+
+    values = amrf_of(q)
+    if not np.any(np.isfinite(values)):
+        return float("nan")
+    k = int(np.nanargmax(values))
+    best = float(values[k])
+    if 0 < k < len(q) - 1 and np.all(np.isfinite(values[k - 1 : k + 2])):
+        y0, y1, y2 = values[k - 1 : k + 2]
+        curvature = y0 - 2.0 * y1 + y2
+        if curvature < 0.0:
+            shift = 0.5 * (y0 - y2) / curvature
+            q_peak = q[k] + shift * (q[1] - q[0])
+            polished = float(amrf_of(np.array([q_peak]))[0])
+            if np.isfinite(polished) and polished > best:
+                best = polished
+    return best
+
+
+def amrf_threshold_for_row(
+    row: Mapping[str, Any], spec: SampleSelectionFile
+) -> tuple[float | NotApplicable, str] | None:
+    """``(threshold, source)`` for this row under ``spec.amrf_cut``; ``None`` if unset."""
+    cut = spec.amrf_cut
+    if cut is None:
+        return None
+    if cut.criterion == "flat":
+        return float(cut.flat_min), "flat"
+    source = f"shahaf2019_class3:{cut.mass_luminosity}"
+    m1 = row.get("m1_tilde_msun")
+    if isinstance(m1, NotApplicable):
+        return NotApplicable(m1.reason), source
+    m1_f = _finite_or_nan(m1)
+    if not math.isfinite(m1_f) or m1_f <= 0.0:
+        return NotApplicable("missing_m1_tilde"), source
+    if cut.mass_luminosity == "shahaf2019_hp":
+        lo, hi = SHAHAF2019_HP_PRIMARY_RANGE
+        if not lo <= m1_f <= hi:
+            return NotApplicable("outside_shahaf2019_hp_range"), source
+    mag = mass_magnitude_relation(
+        cut.mass_luminosity, power_law_beta=cut.power_law_beta
+    )
+    value = shahaf2019_class_boundary(
+        m1_f, mag, companion="triple", q_grid_points=cut.q_grid_points
+    )
+    if not math.isfinite(value):
+        return NotApplicable("amrf_boundary_undefined"), source
+    return value, source
+
+
+def attach_amrf_threshold(
+    row: Mapping[str, Any], spec: SampleSelectionFile
+) -> dict[str, Any]:
+    """Copy ``row`` with :data:`AMRF_THRESHOLD_COLUMN` filled per ``spec.amrf_cut``.
+
+    Idempotent: a row that already carries the column is returned unchanged.
+    """
+    out = dict(row)
+    if AMRF_THRESHOLD_COLUMN in out:
+        return out
+    result = amrf_threshold_for_row(out, spec)
+    if result is None:
+        return out
+    out[AMRF_THRESHOLD_COLUMN], out[AMRF_THRESHOLD_SOURCE_COLUMN] = result
     return out
 
 
