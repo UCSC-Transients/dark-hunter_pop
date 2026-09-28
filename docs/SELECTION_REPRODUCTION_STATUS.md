@@ -133,6 +133,115 @@ The "Previous" column is the last value recorded before this baseline: measured 
 
 ### 3.1 Andrews et al. (2022)
 
+#### 3.1.4 #296 — reproduction mode is now the ATF selection notebook (current state; supersedes §3.1.1–§3.1.3 for reproduction)
+
+**Provenance.** Measured 2026-09-28 on branch `feat/andrews-atf-notebook-296` (`main` @ `c07897e` + the
+#296 commits, merged with `main` before the PR), in the isolated worktree
+`../dark-hunter_pop-worktrees/andrews-atf-notebook-296` with `PYTHONPATH` → its `src/` and `data/`
+symlinked to the primary checkout. The spec is the notebook that actually selected the published
+sample. Ryan Foley (PI; co-author of Andrews, Taggart & Foley 2022) supplied it:
+`data/reference/andrews2022_ATF_sample_selection.ipynb`, sha256 `343dc9e1…c5ccad`. It is gitignored
+and not committed. The notebook functions used are `get_random_samples` / `find_massive` (cell 7),
+`plot_system` (cell 17) and `calc_M2` (cell 34).
+
+The columns come from `scripts/build_andrews2022_atf_columns.py --workers 8`, which ran in 217 s on a
+warm file cache. It read the raw `nss_enrichment` NSS table, the `flame_enrichment` table and the
+uncut snapshot `20260826T234425Z_3d3f740b080c`, all read-only. It wrote the sidecar
+`data/reproduction_columns/dr3/atf_notebook_4181870cbce6ac8f.h5` (134,598 rows, 28 MB). Neither
+`+enrich+mc*` cache was rewritten.
+
+**Method.** `config/selections/andrews2022.yaml` is now at schema_version 3; `andrews2022_modified`
+is at schema_version 2. The notebook is implemented exactly, including its quirks:
+
+- **Pass 1.**
+  - M1 is fixed at 1.0.
+  - Each source gets 10⁴ draws from the 12×12 covariance, built from `*_error` and `corr_vec`
+    **without `bit_index`**.
+  - The source is **rejected** when `scipy.stats.multivariate_normal` refuses the matrix. Nothing is
+    floored.
+  - It is also rejected when `brentq` on [0, 1000] fails for **any** draw.
+  - The source passes when `fraction(M2 > 1.4) > 0.95`, a strict inequality over **all** draws.
+- **Pass 2.**
+  - Rejected when GoF > 5.
+  - Gaia BH1 is removed by hand. This is the existing exclusion.
+  - The refined M1 is the UCO Lick mass, else FLAME, else U(0.63, 1.0).
+    - Lick: `N(m, 0.1)` for 8 sources. The table is in the selection file with its provenance.
+    - FLAME: `N(mass_flame, 0.1)`.
+  - Rejected when `logg_gspphot < 3.6`, only for sources outside the Lick branch.
+  - CMD cut: the line through (−0.5, −2) and (3, 9), i.e. slope **exactly** 11/3.5 and intercept
+    9 − 3·slope (#255). Absolute magnitudes use the NSS parallax, with no extinction.
+  - `brentq` on [0, 10⁴] per refined-M1 draw; any failure rejects.
+  - Rejected when `mean(M2) < 3·std(M2)`.
+
+These `atf_*` cuts apply **only in reproduction mode**. The schema_version-2 chain is kept verbatim
+as `applies_to: [forward_model]`. As a check, forward_model `andrews2022_modified` still gives **64**
+(1061 → 681 → 408 → 90 → 64), unchanged.
+
+| Check | Target | fixed-M1 baseline (`c905575`) | FLAME at selection (`9f70a53`) | **ATF notebook (#296)** | Gate |
+|-------|--------|------------------|------------------|--------------------------|------|
+| Parent `Orbital` N | 134598 | 134598 | 134598 | **134598** | **OK** |
+| After pass 1 (`atf_m2_probability`) | 106 | 352 | 1061 | **115** | FAIL by 9. All 24 published sources are in the 115; see the boundary note |
+| Final reproduction N | 24 | 33 | 63 | **25** | FAIL by 1. It is a **strict superset** of the published 24 |
+| Source-ID diff vs published 24 | — | +9 | +42 / −6 | **+1 / −0**: extra `6424213726885519744` | — |
+| `andrews2022_modified` N (reproduction mode) | 25 | 34 | 64 | **26** | 25 + the same extra |
+| Q9: `G < 15` among `andrews2022` | 16 | 19 | 55 | **16** | **OK** — exact |
+| El-Badry 2026 `andrews2022_import` | 16 | 19 | 55 | **16** (see note) | **OK** |
+
+Attrition (reproduction):
+
+```
+134598 → 130012 (atf_covariance_valid: 2747 singular, 1839 NaN inputs = bit_index 8179)
+       → 129556 (atf_pass1_root_found: 456, every one m_f > g(1000))
+       → 115 (atf_m2_probability) → 81 (atf_goodness_of_fit) → 49 (atf_giant_reject_logg)
+       → 32 (atf_giant_reject_cmd) → 32 (atf_pass2_root_found) → 26 (atf_m2_3sigma)
+       → 25 (explicit_exclusions, Gaia BH1)
+```
+
+**Implicit-rejection breakdown against our previous path.** The previous path uses
+`propagate_nss_solution` at fixed M1 = 1.0, the cache's per-source seeds and the
+`eig_rel_floor` / `eig_abs_floor` factorization. Re-run here, it reproduces the documented **352**
+exactly. The table sorts those 352 by the reason the notebook removes each one:
+
+| Reason | N of 352 | Note |
+|---|---|---|
+| SciPy covariance gate: "singular" | **235** | Our path factorized all 2747 such matrices by **plain Cholesky**, with no nugget and no clipping. SciPy's `allow_singular=False` check rejects any matrix with `min λ ≤ 1e6·eps·max|λ|` (≈ 2.2e-10). That check is relative, over a mixed-unit 12×12 (mas, days). All 235 sit below it (max ratio 1.3e-10). Only 6 lie within ×3 of the threshold, and 14 accepted sources lie within ×3 above it. **This is the 352-vs-106 driver.** |
+| Any-draw root failure, `m_f > g(1000)` | 2 | No negative-parallax draw occurs in any of the 456 root failures parent-wide |
+| `p` at or below 0.95 under the notebook's draws (MC noise) | 1 | — |
+| Passes the notebook | 114 | Plus 1 source (`6092954989675820416`) that our path had at p = 0.9487 |
+| NaN inputs (`bit_index` 8179) | 0 | Both paths reject the same 1839 sources, so ignoring `bit_index` changes nothing for `Orbital` |
+| Valid-draw-only denominator | 0 | Our `p_m2_above` already used all draws. Only 2 root-failed sources would pass on a valid-draw denominator |
+
+**Boundary sources.** The notebook is unseeded. At N = 10⁴ the binomial σ of p near 0.95 is ≈ 0.0022.
+
+- The one extra final source, `6424213726885519744` (G = 15.15, FLAME-less, uniform M1), has
+  **p = 0.9545**, about 2σ above threshold. The published `1749013354127453696` has **p = 0.9549**.
+  Either could legitimately flip. The notebook run evidently kept the second and dropped the first.
+- Other pass-1 sources with 0.95 < p ≤ 0.96: `1827768657631141248` 0.9564, `1982739530143208192`
+  0.9528, `2010172929375186304` 0.9546, `2174796689377604480` 0.9560, `2231278532962626176` 0.9558,
+  `3076065988396801280` 0.9557, `4509011462269157888` 0.9554, `5843399973710547584` 0.9550,
+  `5866015312999519744` 0.9508, `6047116732165574016` 0.9576, `6092954989675820416` 0.9542. All of
+  them fail a later cut, so they move the pass-1 count but not the final N.
+- Just below threshold: `1987234539838699904` 0.9500 exactly (fails the strict `>`),
+  `4783369128404125952` 0.9462, `276061123196785920` 0.9449, `5531157844139797632` 0.9447.
+- A scratch run of the same pass 1 with an independent seed gave 116 against 115 here. The residual
+  115 vs 106 is therefore not MC noise alone. It stays open and is not tuned.
+
+**Q9 / `andrews2022_import`.** The survivors with `G < 15` are exactly the 16 published sources; the
+extra source is at G = 15.15. The `andrews2022_import` subsample chain is `in_sample('andrews2022')`
+AND `phot_g_mean_mag < 15`, so it evaluates to the same 16 by construction. Measured caveat: this was
+computed from that chain's definition on the `andrews2022` survivor set, not from a full El-Badry 2026
+`evaluate_all`. The full run was skipped because disk was critically low (≈ 4.6 GiB free) and a cold
+E(B-V) run peaks near 12.5 GiB. The full `evaluate_all` should be re-run by #49.
+
+**Ambiguity, flagged for Ryan.** The notebook's Apsis `logg` comes from VizieR `massive_apsis.vot`,
+which has the columns `Teff, logg, [Fe/H], Dist, Mass-Flame`, i.e. I/355/paramp. It is taken to be
+**`logg_gspphot`**, since VizieR paramp's `logg` is the GSP-Phot value. This is a config switch:
+`reproduction_procedure.pass2.giant_logg_column`.
+
+`mode_divergence` is not re-measured here. In the registry, `andrews2022` is reproduction mode, now
+the ATF chain, while `andrews2022_modified` is forward_model mode, still the schema_version-2 chain.
+The pair therefore no longer differs by BH1 alone. In reproduction mode the two differ by exactly BH1. Filed as #306.
+
 | Check | Target | Previous (`5725e54`) | **`main` @ `c905575`** | Gate |
 |-------|--------|----------------------|------------------------|------|
 | Parent `Orbital` N | 134598 | 134598 | **134598** | **OK** — exact match holds |
