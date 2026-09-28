@@ -1,20 +1,177 @@
-run_id: 20260904-152655-674c989
-created_at: '2026-09-04T15:26:55.628136Z'
-parent_run_id: null
-config_checksum: 3631bb45f1269eac96040e210adf4ee5a04453f30ec1c49ae0c84ef3d1e8d5c1
+run_id: 20260928-083639-f944c93
+created_at: '2026-09-28T08:36:39.209158Z'
+parent_run_id: 20260928-035425-721e4b4
+config_checksum: 406ffea5413f94a02636f32b15f34251dadcbc4619472946505ce0d10bc2803d
 active_dr_mode: dr3
 artifact_root: output
+host_profile: laptop
 gaiamock_mod_release: gaiamock-mod-v1
 gaiamock_mod_sha256: null
 gaiamock_git_commit: null
-random_seeds: {}
+random_seeds:
+  inference.random_seed: 63
+  inference.robustness_seed_stride: 17
+  population_model.random_seed: 57
+  sensitivity_analysis.random_seed: 38
+  mc_mass_function.random_seed: 19
+  diagnostics.sbc.random_seed: 69
+  selection_function_astrometric.mock_population.random_seed: 42
+dry_run: true
+dry_run_label: "synthetic inputs \u2014 plumbing check, not a science result"
+synthetic_stand_ins:
+- name: offline_gaia_snapshot_replay
+  stage: data_acquisition
+  kind: offline_replay
+  replaces: a live gaiadr3.nss_two_body_orbit archive query
+  description: "data_acquisition is replayed from a Gaia snapshot already on this\
+    \ laptop instead of re-querying the archive. The rows are real DR3 NSS rows, not\
+    \ synthetic \u2014 but they are frozen at the snapshot's query date, so this run\
+    \ says nothing about the current archive contents, and the funnel counts it reports\
+    \ are the snapshot's. Replay also makes the run reproducible, which a live query\
+    \ is not."
+  config_keys:
+  - dr3.nss_table
+  - paths.data_root
+  values:
+    snapshot_meta: data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/meta.yaml
+- name: analytic_companion_nature_evidence
+  stage: companion_nature_likelihood
+  kind: analytic_surrogate
+  replaces: per-star SED / XP model comparison evidence (dark vs WD vs other)
+  description: 'The WD/other/dark decision is driven by closed-form magnitude-mass
+    relations, not by a real model comparison. The phot_sed adapter that would supply
+    genuine dynesty BIC and lnZ is wired (#197), but nothing reaches it yet: the upstream
+    wd model emits no readable BIC at the pop-facing path (#206) and the channel needs
+    all three hypotheses, so every candidate falls back to the analytic relations
+    and is labelled analytic_fallback. Consequences: the five-class responsibilities
+    are a smooth function of absolute magnitude rather than a fit, they carry no covariance
+    of any kind because the surrogate has no uncertainty model at all, and WD contamination
+    is entirely unconstrained by this run.'
+  config_keys:
+  - companion_nature.wd_mg_zero_point
+  - companion_nature.wd_mg_mass_slope
+  - companion_nature.other_mg_zero_point
+  - companion_nature.other_mg_mass_slope
+  - companion_nature.primary_mg_zero_point
+  - companion_nature.primary_mg_mass_slope
+  - companion_nature.dark_to_bh_fraction
+  - companion_nature.delta_bic_threshold
+  values:
+    wd_mg_zero_point: 12.0
+    wd_mg_mass_slope: -2.5
+    other_mg_zero_point: 5.0
+    other_mg_mass_slope: -5.0
+    dark_to_bh_fraction: 0.5
+    delta_bic_threshold: 10.0
+- name: unrefined_primary_masses
+  stage: mass_derivation_refined
+  kind: disabled_path
+  replaces: uberMS-refined primary masses M1
+  description: 'dark-hunter_sed is not importable in this environment, and mass_derivation.require_sed_package
+    is false, so the stage runs in its documented degraded mode (issue #181): the
+    bulk TAG10 M1 estimate passes through unrefined for every candidate and no refinement
+    happens at all. M1 feeds the companion mass, so every M2 downstream carries the
+    bulk estimate''s error budget rather than a refined one.'
+  config_keys:
+  - mass_derivation.require_sed_package
+  - mass_derivation.sed_summary_root
+  values:
+    require_sed_package: false
+    plan_note: 'SED UNAVAILABLE (darkhunter_sed.batch cannot import darkhunter_rv.summary_paths
+      (darkhunter_rv not installed)); require_sed_package=false so this stage will
+      RUN in DEGRADED mode: bulk M1 estimates pass through unrefined for every candidate,
+      refinement is skipped'
+- name: per_sample_selection_weights
+  stage: inference
+  kind: config_placeholder
+  replaces: forward-modeled per-sample selection functions SF_sample_s(theta)
+  description: 'Each published sample''s own cut chain is itself a selection function
+    and must be forward-modeled (CLAUDE.md, Phase 8). None of them reproduces its
+    published N yet, so none may be forward-modeled here. The multi-sample inclusion
+    operator instead runs on flat catalog weights and one flat spurious rate shared
+    by every sample. Flat is the crudest available stand-in and that is the point:
+    a weight chosen to make the output look plausible would be worse than an obviously
+    crude one. No inference conclusion survives this.'
+  config_keys:
+  - inference.multi_sample.default_catalog_sf
+  - inference.multi_sample.default_p_spurious
+  - inference.default_astrometric_sf
+  - inference.default_followup_sf
+  values:
+    default_catalog_sf:
+      andrews2022_modified: 1.0
+      elbadry2024: 1.0
+      elbadry2026: 1.0
+    default_p_spurious: 0.25
+    default_astrometric_sf: 1.0
+    default_followup_sf: 1.0
+- name: no_reproducing_literature_sample
+  stage: sample_selection
+  kind: disabled_path
+  replaces: a reproducing literature sample feeding inference
+  description: "No literature sample reproduces its published N yet (CLAUDE.md Status;\
+    \ that is Wave A's work), so the sample-selection layer contributes nothing trustworthy\
+    \ to this run either way. Samples in reproduction mode are regression tests against\
+    \ a published number and are never inference inputs by construction. This run's\
+    \ config additionally leaves andrews2022_modified enabled in forward_model mode,\
+    \ inherited from config.yaml as authored \u2014 this harness neither enabled it\
+    \ nor changed it. Its contribution is still meaningless here, because the per-sample\
+    \ weight it would carry is the flat placeholder described under per_sample_selection_weights,\
+    \ not a forward-modeled selection function."
+  config_keys:
+  - sample_selection.samples
+  values:
+    modes:
+      andrews2022: reproduction
+      andrews2022_modified: forward_model
+      elbadry2024: reproduction
+      elbadry2026: reproduction
+    forward_model_mode_samples:
+    - andrews2022_modified
+- name: ci_scale_dynesty
+  stage: inference
+  kind: ci_scale_sampler
+  replaces: a production nested-sampling run
+  description: "dynesty stays at the CI smoke settings. The posterior is not converged,\
+    \ the evidence is not usable, and the multi-run robustness protocol that validates\
+    \ a real dynesty result (ARCHITECTURE.md \xA74 inference) has not been satisfied.\
+    \ The cluster recipe lives in config/fragments/inference.yaml and is deliberately\
+    \ not used: raising these numbers here would buy a slower run with no more meaning,\
+    \ since the likelihood it samples is built on the placeholders above."
+  config_keys:
+  - inference.nlive
+  - inference.dlogz
+  - inference.maxcall
+  - inference.n_robustness_runs
+  values:
+    nlive: 20
+    dlogz: 0.5
+    maxcall: 400
+    n_robustness_runs: 1
+- name: fiducial_mass_function_heights
+  stage: population_model
+  kind: config_placeholder
+  replaces: mass-function bin heights informed by anything
+  description: 'The non-parametric mass function starts from fiducial bin heights
+    on bin edges fixed in config before any real count was looked at (which is the
+    correct guardrail, not a stand-in). What makes it a stand-in is that the heights
+    themselves are a configured fiducial: the shape of the product figure is set by
+    that fiducial and by the class truncations, not by the data. Read the figure as
+    a check that a shape propagates, and read nothing else from it.'
+  config_keys:
+  - population_model.mass_function_model
+  - population_model.mass_bin_edges_msun
+  - population_model.default_bin_height
+  values:
+    mass_function_model: free_height_bins
+    n_bins: 8
 stages:
   data_acquisition:
     stage_name: data_acquisition
     status: completed
-    started_at: '2026-09-04T15:27:23.578881Z'
-    finished_at: '2026-09-04T15:30:57.475764Z'
-    source_hash: 719c8d7858f3ef22b262ca3f440f14e39d74d5f17b0807b53581179cf6e3b2b5
+    started_at: '2026-09-28T08:36:39.317413Z'
+    finished_at: '2026-09-28T08:40:12.079557Z'
+    source_hash: 8a99584a7d0147ee23a0c83a19041667fdde1d5c8613129b12b9b582f18b6b64
     config_subset:
       active_dr_mode: dr3
       dr3.quality_cut_bins:
@@ -203,21 +360,29 @@ stages:
         neighbour_to_join: null
         join_to_catalog: null
       dr4.external_photometry_crossmatches: []
+      dr3.crossmatch_fanout_maskable_bands:
+      - J
+      - H
+      - Ks
+      dr4.crossmatch_fanout_maskable_bands: []
       dr3.nss_table: gaiadr3.nss_two_body_orbit
       dr4.nss_table: gaiadr4.nss_two_body_orbit
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/data_acquisition/6a1e0a1176c60bcb.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/data_acquisition/f049cea92d7fd74d.h5
+    code_commit: f944c93
     force_rerun: true
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 213.65093070900184
+    rss_increase_bytes: 6589743104
+    rss_high_water_bytes: 6737428480
   mass_derivation_bulk:
     stage_name: mass_derivation_bulk
     status: completed
-    started_at: '2026-09-04T15:32:28.538635Z'
-    finished_at: '2026-09-04T15:32:58.629286Z'
-    source_hash: 1835878fd3ab906d862f5af225f9f0ff94509882f0d6d14c2e55251b1f78e51d
+    started_at: '2026-09-28T08:40:12.933442Z'
+    finished_at: '2026-09-28T08:40:39.727313Z'
+    source_hash: cb811b85ab34c5f8836696c404609e587cf800dc0a66a834c999d84a41451688
     config_subset:
       mass_calibration:
         method: TAG10
@@ -229,19 +394,22 @@ stages:
       classification.M_MIN_msun: 1.1
       classification.n_sigma_mass_cut: 2.0
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/mass_derivation_bulk/dbcfab1b48af00a2.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/mass_derivation_bulk/dbcfab1b48af00a2.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: gaiamock-mod-v1
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 27.214103165984852
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 6737428480
   sample_selection:
     stage_name: sample_selection
     status: completed
-    started_at: '2026-09-04T15:32:59.378977Z'
-    finished_at: '2026-09-04T15:32:59.512465Z'
-    source_hash: 057f34a18b972967f4d259fafdde59fc3fdb28f46b929b820d5c1aeec6999848
+    started_at: '2026-09-28T08:40:40.160191Z'
+    finished_at: '2026-09-28T08:45:31.324307Z'
+    source_hash: 8ae5b8229ca57abc3e61c373d6e1fccabc5c82809d05c9e607c8a0ab88dd6d05
     config_subset:
       sample_selection:
         enabled: true
@@ -266,21 +434,44 @@ stages:
           enabled: false
           path: config/selections/accel_jerk.yaml
           mode: forward_model
+        dust_maps:
+          ebv_cache_dir: dust_maps/ebv_cache
+          maps:
+            green2019:
+              path: dust_maps/green2019/bayestar2019.h5
+              native_to_ebv: 0.884
+              md5: ab815d2fd3068d1b81a1bd61fb18a722
+              provenance: Green et al. 2019, ApJ 887, 93; E(B-V)=0.884 x Bayestar19
+            lallement2019:
+              path: dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5
+              native_to_ebv: 0.3225806451612903
+              md5: e9262125307831a4a90b394e3b71f213
+              provenance: Lallement et al. 2019; E(B-V)=A0/3.1
+      mc_mass_function:
+        n_draws: 10000
+        random_seed: 19
+        covariance: full_12x12
+        eig_rel_floor: 1.0e-12
+        eig_abs_floor: 1.0e-18
+        boundary_n_sigma: 1.0
       active_dr_mode: dr3
-      enabled_selection_content_sha256: a0c9c330707addf423ddbd46135ce2cdb6bc2356b2e9c72dd811d72dd2fc0d07
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/sample_selection/bf44a84424e88634.h5
-    code_commit: 674c989
+      enabled_selection_content_sha256: 89a0902c967a680ba712d2f8bcdfd5792075feca80f53648d5a17ea532071207
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/sample_selection/0b018df5a0ed2a34.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 291.69053316599457
+    rss_increase_bytes: 2807037952
+    rss_high_water_bytes: 9544466432
   mass_derivation_refined:
     stage_name: mass_derivation_refined
     status: completed
-    started_at: '2026-09-04T15:32:59.520926Z'
-    finished_at: '2026-09-04T15:33:01.224005Z'
-    source_hash: 1835878fd3ab906d862f5af225f9f0ff94509882f0d6d14c2e55251b1f78e51d
+    started_at: '2026-09-28T08:45:31.860577Z'
+    finished_at: '2026-09-28T08:45:33.329686Z'
+    source_hash: cb811b85ab34c5f8836696c404609e587cf800dc0a66a834c999d84a41451688
     config_subset:
       mass_calibration:
         method: TAG10
@@ -294,27 +485,34 @@ stages:
         uberms_m1_watchlist_fraction: 0.95
         information_gain_sigma_floor_msun: 0.01
         sed_queue_max_stars: null
-        sed_summary_root: null
-        sed_summary_filename_template: '{source_id}.json'
+        sed_summary_root: data/sed_summaries
+        sed_summary_filename_template: Gaia_DR3_{source_id}_sed_summary.json
+        phot_sed_root: data/phot_sed
+        phot_sed_filename_template: Gaia_DR3_{source_id}_{model}_summary.json
         require_sed_package: false
         bulk_progress_log_interval: 10000
         bulk_m2_histogram_xmin_msun: 0.0
         bulk_m2_histogram_xmax_msun: 30.0
         bulk_m2_histogram_log_y: true
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/mass_derivation_refined/2de25ff14b1df6f1.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/mass_derivation_refined/c925fd23650d894f.h5
+    code_commit: f944c93
     force_rerun: false
-    reason: null
+    reason: 'sed_unavailable_refinement_skipped: 7816/7816 queued candidate(s) kept
+      bulk M1 (darkhunter_sed.batch cannot import darkhunter_rv.summary_paths (darkhunter_rv
+      not installed))'
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 1.5175134580058511
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   rv_astrometry_gate:
     stage_name: rv_astrometry_gate
     status: completed
-    started_at: '2026-09-04T15:33:01.276737Z'
-    finished_at: '2026-09-04T15:33:02.839465Z'
-    source_hash: c602edcc6be6ad2a39afce8ef5cc70dc509a71d586490605b2b49b8b0c0d7403
+    started_at: '2026-09-28T08:45:33.389445Z'
+    finished_at: '2026-09-28T08:45:34.949808Z'
+    source_hash: 7e0c5f1fe86698a6d02a4f9d1c4120277c2a55ac826e55fc9195e2173177dc2b
     config_subset:
       rv_consistency:
         chi2_dof_threshold: 5.0
@@ -329,20 +527,28 @@ stages:
         joint_prior_omega_rad: 0.2
         joint_prior_t_peri_day: 5.0
         joint_fit_max_nfev: 200
+        prefer_recent_summary_mtime: true
+        priority_source_ids:
+        - 4373465352415301632
+        - 5870569352746779008
+        prefer_public_external_rvs: true
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/rv_astrometry_gate/50bf09a3f5a61821.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/rv_astrometry_gate/9fae3abe34ac162c.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 1.6053343329986092
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   joint_orbit_fit:
     stage_name: joint_orbit_fit
-    status: skipped
-    started_at: '2026-09-04T15:33:02.885510Z'
-    finished_at: '2026-09-04T15:33:04.399092Z'
-    source_hash: c602edcc6be6ad2a39afce8ef5cc70dc509a71d586490605b2b49b8b0c0d7403
+    status: completed
+    started_at: '2026-09-28T08:45:35.005655Z'
+    finished_at: '2026-09-28T08:45:37.540923Z'
+    source_hash: 7e0c5f1fe86698a6d02a4f9d1c4120277c2a55ac826e55fc9195e2173177dc2b
     config_subset:
       rv_consistency:
         chi2_dof_threshold: 5.0
@@ -357,20 +563,28 @@ stages:
         joint_prior_omega_rad: 0.2
         joint_prior_t_peri_day: 5.0
         joint_fit_max_nfev: 200
+        prefer_recent_summary_mtime: true
+        priority_source_ids:
+        - 4373465352415301632
+        - 5870569352746779008
+        prefer_public_external_rvs: true
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/joint_orbit_fit/50bf09a3f5a61821.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/joint_orbit_fit/9fae3abe34ac162c.h5
+    code_commit: f944c93
     force_rerun: false
-    reason: rv_astrometry_gate_failed
+    reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 2.5799237500177696
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   companion_nature_likelihood:
     stage_name: companion_nature_likelihood
     status: completed
-    started_at: '2026-09-04T15:33:04.445866Z'
-    finished_at: '2026-09-04T15:33:06.445626Z'
-    source_hash: efb38a0207dec192e5603aca8ee526fa10fa9e6bade0cc44eec0203bcf8a88a5
+    started_at: '2026-09-28T08:45:37.598511Z'
+    finished_at: '2026-09-28T08:45:40.050430Z'
+    source_hash: a851c801c069d99614a1f14450893045b189e0edf989725f6e49c50079bc3c3b
     config_subset:
       companion_nature:
         delta_bic_threshold: 10.0
@@ -415,42 +629,50 @@ stages:
         - 10.0
         - 14.0
         age_extras_key: age_gyr
+      mass_derivation.phot_sed_root: data/phot_sed
+      mass_derivation.phot_sed_filename_template: Gaia_DR3_{source_id}_{model}_summary.json
       physics.cooling_tracks: bedard
       physics.cooling_atmosphere: DA
       physics.cooling_tracks_path: null
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/companion_nature_likelihood/5c7d43921b9f1198.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/companion_nature_likelihood/1306ebaef88e2f71.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 2.50922791697667
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   triples:
     stage_name: triples
     status: skipped
-    started_at: '2026-09-04T15:33:06.493407Z'
-    finished_at: '2026-09-04T15:33:06.528899Z'
-    source_hash: ae92915ed5a133c9478d71cb7d59d50d401679059fd418767d6e8fe3018b0979
+    started_at: '2026-09-28T08:45:40.118212Z'
+    finished_at: '2026-09-28T08:45:40.174403Z'
+    source_hash: 363a0134ea5914d959b24e4d7d9fc09fdd0ee5861bfe2eedd209877e408a53c6
     config_subset:
       triples:
         enabled: false
         tess_variability_channel: true
         rotation_consistency_channel: true
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/triples/fa3e8689b68cc523.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/triples/fa3e8689b68cc523.h5
+    code_commit: f944c93
     force_rerun: false
     reason: triples.enabled=false
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: null
+    rss_increase_bytes: null
+    rss_high_water_bytes: null
   selection_function_astrometric:
     stage_name: selection_function_astrometric
     status: completed
-    started_at: '2026-09-04T15:33:06.540439Z'
-    finished_at: '2026-09-04T15:43:21.596179Z'
-    source_hash: e0735116a83dccf2b4b23e12a595076a552d05419fd4f0bd0fb0c2360c8d5b76
+    started_at: '2026-09-28T08:45:40.189850Z'
+    finished_at: '2026-09-28T08:57:10.642717Z'
+    source_hash: 616260c62f2f79dc2555b1d8fdb2c39c90577454ec9e42064968cc6ec5a3d662
     config_subset:
       gaiamock:
         mod_release: gaiamock-mod-v1
@@ -469,6 +691,7 @@ stages:
           ks_pvalue_min: 0.01
           solution_type_fraction_max_abs_delta: 0.05
           reference_path: null
+          multi_solution_rate_max_abs_delta: 0.05
         mock_population:
           sampling: elbadry_prior
           random_seed: 42
@@ -496,25 +719,34 @@ stages:
           ruwe_min: 1.4
           skip_acceleration: false
           hz_pc: 300.0
+        multi_solution:
+          enabled: true
+          primary_type: Orbital
+          same_type_period_alias_ratio_min: 0.5
+          same_type_period_alias_ratio_max: 2.0
+          random_seed: 4241
       dr3.selection_function_astrometric:
         d_min_pc: 50.0
         d_max_pc: 1200.0
       dr4.selection_function_astrometric:
         d_min_pc: 50.0
         d_max_pc: 1200.0
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/selection_function_astrometric/b5393a0abb5f5d0c.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/selection_function_astrometric/7321305b6ab85f92.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: gaiamock-mod-v1
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 690.4701462090015
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   selection_function_followup:
     stage_name: selection_function_followup
     status: completed
-    started_at: '2026-09-04T15:43:21.613094Z'
-    finished_at: '2026-09-04T15:43:21.680018Z'
-    source_hash: e0735116a83dccf2b4b23e12a595076a552d05419fd4f0bd0fb0c2360c8d5b76
+    started_at: '2026-09-28T08:57:10.676107Z'
+    finished_at: '2026-09-28T08:57:10.753717Z'
+    source_hash: 616260c62f2f79dc2555b1d8fdb2c39c90577454ec9e42064968cc6ec5a3d662
     config_subset:
       active_dr_mode: dr3
       physics:
@@ -586,23 +818,32 @@ stages:
           revision_history_incompleteness_caveat: true
           weekly_snapshot_relative_dir: target_lists/snapshots
           derived_adoption_dates_relative_dir: config/target_lists/derived
+        multi_solution:
+          enabled: true
+          primary_type: SB1
+          same_type_period_alias_ratio_min: 0.5
+          same_type_period_alias_ratio_max: 2.0
+          random_seed: 4242
       dr3.selection_function_followup:
         accel_jerk_catalog_id: dr3_accel_jerk_pinned
       dr4.selection_function_followup:
         accel_jerk_catalog_id: dr4_accel_jerk_pinned
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/selection_function_followup/499f37c7bd9923e7.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/selection_function_followup/20c21f8535e2e181.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 0.09679224999854341
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   population_model:
     stage_name: population_model
     status: completed
-    started_at: '2026-09-04T15:43:21.695081Z'
-    finished_at: '2026-09-04T15:43:22.956819Z'
-    source_hash: 35b7bd39a5b23112f6257b17d31005300accc04a1f4585acce4c5ac8140fe5a2
+    started_at: '2026-09-28T08:57:10.789190Z'
+    finished_at: '2026-09-28T08:57:11.975074Z'
+    source_hash: 50331bbf801211409bcb73deb04366e07055adff68912ff3bfc36d10af3ff609
     config_subset:
       population_model:
         p_single: 0.0
@@ -655,19 +896,22 @@ stages:
         M_TOV_msun: 2.2
       mass_calibration.delta_M_Ch_msun: 0.0
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/population_model/6aee2f3b085706c2.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/population_model/6aee2f3b085706c2.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 1.2337788330041803
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   sensitivity_analysis:
     stage_name: sensitivity_analysis
     status: completed
-    started_at: '2026-09-04T15:43:22.999732Z'
-    finished_at: '2026-09-04T15:43:23.087078Z'
-    source_hash: 2bd9e19a2517a47eb66fd944346fe315c32b4751c555b59d7c20ad0c3bc9f233
+    started_at: '2026-09-28T08:57:12.040158Z'
+    finished_at: '2026-09-28T08:57:12.151597Z'
+    source_hash: c1ad00a754f1c24219d0c5966ca69304d11e808bcf70768b5b54bec92958a7a7
     config_subset:
       physics.mc_noise_threshold: 0.1
       sensitivity_analysis:
@@ -706,19 +950,22 @@ stages:
         n_synthetic_systems: 400
         random_seed: 38
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/sensitivity_analysis/31bc2f484db8ddbb.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/sensitivity_analysis/31bc2f484db8ddbb.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 0.13157425000099465
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   inference:
     stage_name: inference
     status: completed
-    started_at: '2026-09-04T15:43:23.105322Z'
-    finished_at: '2026-09-04T15:43:24.808353Z'
-    source_hash: 3a6b67ff8961c9f3a0589529780e978b2c46b1834b65edeb6d08417fd902b511
+    started_at: '2026-09-28T08:57:12.193494Z'
+    finished_at: '2026-09-28T08:57:13.872216Z'
+    source_hash: df598104e7e0e21e70e32e1361e02e390bf49373a8f484752fdd85ec402a3f8b
     config_subset:
       inference:
         apply_sensitivity_dimensionality: true
@@ -827,20 +1074,36 @@ stages:
           enabled: false
           path: config/selections/accel_jerk.yaml
           mode: forward_model
+        dust_maps:
+          ebv_cache_dir: dust_maps/ebv_cache
+          maps:
+            green2019:
+              path: dust_maps/green2019/bayestar2019.h5
+              native_to_ebv: 0.884
+              md5: ab815d2fd3068d1b81a1bd61fb18a722
+              provenance: Green et al. 2019, ApJ 887, 93; E(B-V)=0.884 x Bayestar19
+            lallement2019:
+              path: dust_maps/lallement2019/map3D_GAIAdr2_feb2019.h5
+              native_to_ebv: 0.3225806451612903
+              md5: e9262125307831a4a90b394e3b71f213
+              provenance: Lallement et al. 2019; E(B-V)=A0/3.1
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/inference/5fa5cb27ffb7ccd2.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/inference/76eae2d10d2d5a77.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 1.7023643339925911
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432
   diagnostics:
     stage_name: diagnostics
-    status: running
-    started_at: '2026-09-04T15:43:24.829383Z'
-    finished_at: null
-    source_hash: c64e25eb109727963971e5876a26854ce1390b3758c26aebab1c2516f88f1886
+    status: completed
+    started_at: '2026-09-28T08:57:13.917824Z'
+    finished_at: '2026-09-28T08:58:54.822110Z'
+    source_hash: 06417340e7b2c5064ca0a91ba2573aa040c5ba881bc47a82f8e706b0d704ef8e
     config_subset:
       paths.artifact_root: output
       diagnostics:
@@ -1009,10 +1272,13 @@ stages:
             role: comparison_only
             never_as_prior: true
       active_dr_mode: dr3
-    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260904-152655-674c989/diagnostics/99d41d4f6edb2e20.h5
-    code_commit: 674c989
+    artifact_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/tmass-fanout-221/output/20260928-083639-f944c93/diagnostics/99d41d4f6edb2e20.h5
+    code_commit: f944c93
     force_rerun: false
     reason: null
     gaiamock_mod_release: null
     gaiamock_mod_sha256: null
     gaiamock_git_commit: null
+    wall_clock_seconds: 100.96334716700949
+    rss_increase_bytes: 0
+    rss_high_water_bytes: 9544466432

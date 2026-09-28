@@ -2077,6 +2077,13 @@ class DRPathConfig(BaseModel):
     external_mag_err_floor: float = Field(0.05, gt=0)
     external_mag_err_zero_as_missing: bool = True
     impute_external_mag_err: bool = True
+    # Cross-match fan-out resolution (#221, option B; ARCHITECTURE.md §4 "Multi-solution
+    # sources"). Bands (``external_photometry_crossmatches[*].band``) whose value/error
+    # cells are the ONLY cells allowed to differ between rows of one duplicated
+    # ``source_id`` for data_acquisition to collapse that group to one row. Conflicting
+    # bands are masked (value + error), never chosen between. Empty disables the
+    # collapse: every fan-out group is then refused, as before #221.
+    crossmatch_fanout_maskable_bands: list[str] = Field(default_factory=list)
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
@@ -2090,6 +2097,18 @@ class DRPathConfig(BaseModel):
     selection_function_followup: DRSelectionFunctionFollowupPathConfig = Field(
         default_factory=DRSelectionFunctionFollowupPathConfig
     )
+
+    @model_validator(mode="after")
+    def _validate_crossmatch_fanout_maskable_bands(self) -> DRPathConfig:
+        """Every maskable fan-out band must be a configured, enabled cross-match band."""
+        known = {m.band for m in self.external_photometry_crossmatches if m.enabled}
+        unknown = sorted(set(self.crossmatch_fanout_maskable_bands) - known)
+        if unknown:
+            raise ValueError(
+                "crossmatch_fanout_maskable_bands names band(s) with no enabled "
+                f"external_photometry_crossmatches entry: {unknown}"
+            )
+        return self
 
 
 class PipelineConfig(BaseModel):
@@ -2170,6 +2189,7 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "external_mag_err_floor",
         "external_mag_err_zero_as_missing",
         "impute_external_mag_err",
+        "crossmatch_fanout_maskable_bands",
         "nss_table",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",
