@@ -1,11 +1,14 @@
-"""Andrews et al. (2022) ATF-notebook reproduction procedure (#296).
+"""Andrews et al. (2022) ATF-notebook selection procedure (#296, #306).
 
 The notebook (``data/reference/andrews2022_ATF_sample_selection.ipynb``,
 gitignored) is the spec; these tests pin its semantics — covariance built
 without ``bit_index`` and gated by SciPy (no flooring), any-draw root failure
 rejects, strict ``> 0.95`` over all draws, Lick > FLAME > uniform refined M1,
-logg cut skipped for Lick sources, exact CMD line — and that forward_model
-evaluation never sees the reproduction columns.
+logg cut skipped for Lick sources, exact CMD line. Since #306 the forward
+model runs the same chain on its own sidecar, whose pass-2 M1 is the
+pipeline's TAG10 posterior (else uniform); each mode merges only its own
+sidecar. The notebook's VizieR Apsis values are separate ``*_vizier_apsis``
+columns.
 """
 
 from __future__ import annotations
@@ -24,22 +27,28 @@ from darkhunter_pop.andrews2022_atf import (
     COV_FAIL_SINGULAR,
     M1_SOURCE_FLAME,
     M1_SOURCE_LICK,
+    M1_SOURCE_PIPELINE,
     M1_SOURCE_UNIFORM,
+    VIZIER_APSIS_COLUMN_MAP,
     AtfProcedureError,
     AtfSourceInputs,
     build_notebook_covariance,
     gate_covariance,
+    load_vizier_apsis,
     m2_threshold_msun,
     merge_reproduction_columns,
     notebook_cmd_quantities,
     notebook_float,
     procedure_fingerprint,
     read_sidecar,
+    resolve_forward_model_m1,
     resolve_refined_m1,
     run_pass1,
     run_pass2,
+    sidecar_path,
     solve_m2_brentq,
     solve_m2_fixed_m1,
+    uses_vizier_apsis,
     write_sidecar,
 )
 from darkhunter_pop.config_loader import load_config, repo_root
@@ -103,6 +112,8 @@ def _inputs(
     corr_vec: np.ndarray | None = None,
     mass_flame: float = float("nan"),
     logg: float = float("nan"),
+    pipeline_m1_msun: float = float("nan"),
+    pipeline_m1_sigma_msun: float = float("nan"),
 ) -> AtfSourceInputs:
     # Order: ra, dec, parallax, pmra, pmdec, A, B, F, G, e, P, t_peri.
     means = np.array(
@@ -123,6 +134,8 @@ def _inputs(
         g_mag=14.0,
         bp_mag=14.5,
         rp_mag=13.7,
+        pipeline_m1_msun=pipeline_m1_msun,
+        pipeline_m1_sigma_msun=pipeline_m1_sigma_msun,
     )
 
 
@@ -238,6 +251,47 @@ def test_pass2_columns(spec: Any) -> None:
     assert out["andrews_atf_m2_mean_msun"] > 3.0 * out["andrews_atf_m2_std_msun"]
 
 
+def test_forward_model_m1_is_pipeline_posterior_else_uniform(spec: Any) -> None:
+    fm = spec.reproduction_procedure.pass2.forward_model_primary_mass
+    rng = np.random.default_rng(1)
+    label, draws = resolve_forward_model_m1(0.8, 0.05, fm, n_draws=20000, rng=rng)
+    assert label == M1_SOURCE_PIPELINE
+    assert float(np.mean(draws)) == pytest.approx(0.8, abs=0.003)
+    assert float(np.std(draws)) == pytest.approx(0.05, abs=0.003)
+    for mu, sigma in ((float("nan"), 0.1), (0.8, float("nan")), (-1.0, 0.1)):
+        label, draws = resolve_forward_model_m1(mu, sigma, fm, n_draws=1000, rng=rng)
+        assert label == M1_SOURCE_UNIFORM
+        assert draws.min() >= fm.uniform_low_msun and draws.max() <= fm.uniform_high_msun
+
+
+def test_pass2_modes_differ_only_through_m1(spec: Any) -> None:
+    """Same seed / draws: equal M1 gives equal M2; Lick is reproduction-only."""
+    proc = spec.reproduction_procedure
+    lick_id = 1350295047363872512
+    item = _inputs(source_id=lick_id, mass_flame=0.9, pipeline_m1_msun=1.2,
+                   pipeline_m1_sigma_msun=0.1)
+    repro = run_pass2(item, proc, mode=SampleSelectionMode.REPRODUCTION)
+    fm = run_pass2(item, proc, mode=SampleSelectionMode.FORWARD_MODEL)
+    assert repro["andrews_atf_m1_source"] == M1_SOURCE_LICK
+    assert fm["andrews_atf_m1_source"] == M1_SOURCE_PIPELINE
+    assert fm["andrews_atf_m1_mean_msun"] == pytest.approx(1.2, abs=0.01)
+    # A pipeline M1 equal to the Lick mass reproduces the reproduction M2 exactly.
+    same = _inputs(source_id=lick_id, pipeline_m1_msun=1.44, pipeline_m1_sigma_msun=0.1)
+    assert run_pass2(same, proc, mode=SampleSelectionMode.FORWARD_MODEL)[
+        "andrews_atf_m2_mean_msun"
+    ] == run_pass2(same, proc, mode=SampleSelectionMode.REPRODUCTION)["andrews_atf_m2_mean_msun"]
+
+
+def test_forward_model_logg_cut_has_no_lick_exemption(spec: Any) -> None:
+    """In forward_model the m1 source is never ``lick``, so the logg cut applies."""
+    selection = SampleSelection(spec, mode=SampleSelectionMode.FORWARD_MODEL)
+    rows = [
+        _atf_row(1, andrews_atf_logg=3.5, andrews_atf_m1_source=M1_SOURCE_PIPELINE),
+        _atf_row(2, andrews_atf_m1_source=M1_SOURCE_PIPELINE),
+    ]
+    assert selection.evaluate(rows).surviving_source_ids == (2,)
+
+
 def test_notebook_cmd_quantities_and_float32_roundtrip() -> None:
     g_abs, color = notebook_cmd_quantities(14.0, 14.5, 13.7, 10.0)
     assert g_abs == pytest.approx(14.0 - 5.0 * math.log10(10.0))
@@ -250,9 +304,9 @@ def test_notebook_cmd_quantities_and_float32_roundtrip() -> None:
     assert math.isnan(notebook_float(None, float32_decimal_roundtrip=True))
 
 
-def test_andrews2022_v3_frozen_file_carries_the_notebook(spec: Any) -> None:
+def test_andrews2022_v4_frozen_file_carries_the_notebook(spec: Any) -> None:
     raw = load_sample_selection_file(repo_root() / "config/selections/andrews2022.yaml")
-    assert raw.schema_version == 3
+    assert raw.schema_version == 4
     proc = raw.reproduction_procedure
     assert proc is not None and proc.method == "atf_notebook"
     assert "data/reference/andrews2022_ATF_sample_selection.ipynb" in proc.source
@@ -263,13 +317,22 @@ def test_andrews2022_v3_frozen_file_carries_the_notebook(spec: Any) -> None:
     assert proc.pass1.probability_denominator == "all_draws"
     assert proc.pass1.reject_source_on_any_draw_failure is True
     assert proc.pass2.root_bracket_msun == (0.0, 10000.0)
-    assert proc.pass2.giant_logg_column == "logg_gspphot"
+    # #306: the notebook's VizieR columns, not the Gaia-archive ones.
+    assert proc.pass2.giant_logg_column == "logg_vizier_apsis"
+    assert uses_vizier_apsis(proc)
     pm = proc.pass2.primary_mass
+    assert pm.flame_column == "mass_flame_vizier_apsis"
+    fm_pm = proc.pass2.forward_model_primary_mass
+    assert fm_pm.method == "pipeline_tag10_bulk"
+    assert (fm_pm.uniform_low_msun, fm_pm.uniform_high_msun) == (0.63, 1.0)
     assert {r.source_id: r.m1_msun for r in pm.lick_spectroscopic_masses} == _LICK
     assert (pm.lick_sigma_msun, pm.flame_sigma_msun) == (0.1, 0.1)
     assert (pm.uniform_low_msun, pm.uniform_high_msun) == (0.63, 1.0)
     cuts = {c.id: c for c in raw.cuts or []}
-    repro = [c.id for c in raw.cuts or [] if c.applies_to == [SampleSelectionMode.REPRODUCTION]]
+    both = [SampleSelectionMode.REPRODUCTION, SampleSelectionMode.FORWARD_MODEL]
+    # #306: one chain for both modes; the schema_version-2 chain is gone.
+    assert all(c.applies_to == both for c in raw.cuts or [])
+    repro = [c.id for c in raw.cuts or []]
     assert repro == [
         "atf_covariance_valid",
         "atf_pass1_root_found",
@@ -289,25 +352,43 @@ def test_andrews2022_v3_frozen_file_carries_the_notebook(spec: Any) -> None:
     )
     assert slope == (9 + 2) / (3 + 0.5)
     assert float(cmd["cmd_mag_2"]) - float(cmd["cmd_color_2"]) * slope == 9 - 3 * slope
-    # schema_version-2 chain kept verbatim, forward_model only.
-    fm = [c.id for c in raw.cuts or [] if c.applies_to == [SampleSelectionMode.FORWARD_MODEL]]
-    assert fm == [
-        "m2_probability",
-        "goodness_of_fit",
-        "m2_snr",
-        "giant_reject_logg",
-        "giant_reject_cmd",
-    ]
-    assert cuts["giant_reject_cmd"].parameters["cmd_slope"] == 3.14
-    assert cuts["m2_probability"].expression == "P(M2 > m2_threshold_msun) >= m2_probability_min"
 
 
 def test_modified_inherits_procedure(registry: SampleSelectionRegistry, spec: Any) -> None:
     modified = registry.resolved("andrews2022_modified")
-    assert modified.schema_version == 2
+    assert modified.schema_version == 3
     assert modified.reproduction_procedure == spec.reproduction_procedure
-    assert procedure_fingerprint(modified) == procedure_fingerprint(spec)
+    cfg = load_config()
+    for mode in SampleSelectionMode:
+        assert procedure_fingerprint(modified, mode=mode, config=cfg) == procedure_fingerprint(
+            spec, mode=mode, config=cfg
+        )
     assert modified.exclusions == []
+
+
+def test_fingerprint_and_sidecar_path_are_mode_specific(spec: Any, tmp_path: Path) -> None:
+    cfg = load_config()
+    fp_r = procedure_fingerprint(spec, mode=SampleSelectionMode.REPRODUCTION, config=cfg)
+    fp_f = procedure_fingerprint(spec, mode=SampleSelectionMode.FORWARD_MODEL, config=cfg)
+    assert fp_r != fp_f
+    with pytest.raises(AtfProcedureError):
+        procedure_fingerprint(spec, mode=SampleSelectionMode.FORWARD_MODEL)
+    path = sidecar_path(tmp_path, "dr3", spec, mode=SampleSelectionMode.FORWARD_MODEL, config=cfg)
+    assert path.name == f"atf_notebook_forward_model_{fp_f}.h5"
+    # mass_calibration drives the forward-model TAG10 M1 only.
+    changed = cfg.model_copy(
+        update={
+            "mass_calibration": cfg.mass_calibration.model_copy(
+                update={"sigma_logM": cfg.mass_calibration.sigma_logM + 0.01}
+            )
+        }
+    )
+    assert procedure_fingerprint(
+        spec, mode=SampleSelectionMode.FORWARD_MODEL, config=changed
+    ) != fp_f
+    assert procedure_fingerprint(
+        spec, mode=SampleSelectionMode.REPRODUCTION, config=changed
+    ) == fp_r
 
 
 def _atf_row(source_id: int, **overrides: Any) -> dict[str, Any]:
@@ -368,37 +449,71 @@ def test_reproduction_chain_without_columns_is_not_applicable(spec: Any) -> None
     assert first.n_not_applicable == 1
 
 
-def test_forward_model_never_merges_reproduction_columns(
-    registry: SampleSelectionRegistry,
-) -> None:
+def test_each_mode_merges_its_own_sidecar(registry: SampleSelectionRegistry) -> None:
     modified = registry.resolved("andrews2022_modified")
-    calls: list[int] = []
+    calls: list[str] = []
 
-    def loader() -> dict[int, dict[str, Any]]:
-        calls.append(1)
-        return {1: _atf_row(1)}
+    def loader_for(label: str, cols: dict[str, Any]) -> Any:
+        def _load() -> dict[int, dict[str, Any]]:
+            calls.append(label)
+            return {1: _atf_row(1, **cols)}
 
+        return _load
+
+    row = {"source_id": 1, "nss_solution_type": "Orbital"}
     fm = SampleSelection(
-        modified, mode=SampleSelectionMode.FORWARD_MODEL, reproduction_columns_loader=loader
+        modified,
+        mode=SampleSelectionMode.FORWARD_MODEL,
+        reproduction_columns_loader=loader_for(
+            "fm", {"andrews_atf_m1_source": M1_SOURCE_PIPELINE, "andrews_atf_m2_mean_msun": 0.5}
+        ),
     )
-    row = {
-        "source_id": 1,
+    # FM sidecar: M2 = 0.5 +/- 0.2 fails the 3-sigma cut.
+    assert fm.evaluate([row]).surviving_source_ids == ()
+    repro = SampleSelection(
+        modified,
+        mode=SampleSelectionMode.REPRODUCTION,
+        reproduction_columns_loader=loader_for("repro", {}),
+    )
+    assert repro.evaluate([row]).surviving_source_ids == (1,)
+    assert calls == ["fm", "repro"]
+    # The legacy schema_version-2 columns alone no longer select anything.
+    legacy = {
+        "source_id": 2,
         "nss_solution_type": "Orbital",
         "p_m2_above": 0.99,
         "goodness_of_fit": 1.0,
-        "m2_msun": 2.0,
-        "m2_msun_error": 0.1,
         "logg_apsis": 4.5,
-        "abs_g_mag": 5.0,
-        "bp_rp": 1.0,
     }
-    assert fm.evaluate([row]).surviving_source_ids == (1,)
-    assert calls == []
-    repro = SampleSelection(
-        modified, mode=SampleSelectionMode.REPRODUCTION, reproduction_columns_loader=loader
-    )
-    assert repro.evaluate([{"source_id": 1, "nss_solution_type": "Orbital"}]).surviving_source_ids == (1,)
-    assert calls == [1]
+    bare = SampleSelection(modified, mode=SampleSelectionMode.FORWARD_MODEL)
+    assert bare.evaluate([legacy]).surviving_source_ids == ()
+
+
+def test_load_vizier_apsis_snapshot(tmp_path: Path) -> None:
+    from astropy.table import MaskedColumn, Table
+
+    from darkhunter_pop.data_acquisition import save_gaia_snapshot
+
+    table = Table()
+    table["source_id"] = np.array([11, 12], dtype=np.int64)
+    for col in VIZIER_APSIS_COLUMN_MAP.values():
+        if col == "source_id":
+            continue
+        table[col] = MaskedColumn(data=[4.2, 0.0], mask=[False, True])
+    meta = save_gaia_snapshot(table, "test", snapshots_dir=tmp_path)
+    with pytest.raises(AtfProcedureError, match="requested_ids_path"):
+        load_vizier_apsis(meta.meta_path)
+    import yaml
+
+    raw = yaml.safe_load(meta.meta_path.read_text(encoding="utf-8"))
+    raw["requested_ids_path"] = "ids.txt"
+    meta.meta_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    (meta.meta_path.parent / "ids.txt").write_text("11\n12\n13\n", encoding="utf-8")
+    requested, rows = load_vizier_apsis(meta.meta_path)
+    assert requested == frozenset({11, 12, 13})
+    assert rows[11]["logg_vizier_apsis"] == pytest.approx(4.2)
+    assert math.isnan(rows[12]["logg_vizier_apsis"])
+    assert 13 not in rows  # requested, no VizieR row
 
 
 def test_merge_does_not_overwrite_row_keys() -> None:
@@ -409,7 +524,7 @@ def test_merge_does_not_overwrite_row_keys() -> None:
 
 
 def test_sidecar_roundtrip_and_fingerprint_guard(tmp_path: Path, spec: Any) -> None:
-    fp = procedure_fingerprint(spec)
+    fp = procedure_fingerprint(spec, config=load_config())
     cols = {
         5: {**_atf_row(5), "andrews_atf_covariance_failure": None,
             "andrews_atf_pass1_n_root_failed": 0},
