@@ -42,8 +42,37 @@
 #   human escalation. Re-measurement of the m2_probability attrition against
 #   the published 106 is tracked separately (#257 acceptance checklist item,
 #   docs/SELECTION_REPRODUCTION_STATUS.md §3.1).
+#
+# schema_version 3 (2026-09-27, provenance note, issue #296; closes #255):
+#   The PI (Ryan Foley, co-author of Andrews, Taggart & Foley 2022) supplied
+#   the notebook that actually selected the published sample:
+#   data/reference/andrews2022_ATF_sample_selection.ipynb (gitignored, not
+#   committed; sha256 in reproduction_procedure.source_sha256). Supplying the
+#   code is the sanction for this frozen-file change. Its code is now the spec
+#   for REPRODUCTION mode, including its quirks (#296):
+#     pass 1 (find_massive, cell 7): M1 = 1.0 fixed; 10^4 full-covariance
+#       draws built from *_error + corr_vec WITHOUT bit_index; source rejected
+#       when scipy.stats.multivariate_normal refuses the covariance (NaN,
+#       non-PSD, singular -- no eigenvalue flooring) or when brentq on
+#       [0, 1000] fails for ANY draw; pass iff fraction(M2 > 1.4) > 0.95
+#       (strict) over ALL draws.
+#     pass 2 (plot_system, cell 17 / calc_M2, cell 34), on the pass-1
+#       survivors: GoF > 5 rejected; Gaia BH1 removed by hand (the exclusion
+#       below); refined M1 = UCO Lick spectroscopic mass N(m, 0.1) for 8
+#       hardcoded sources, else Apsis FLAME N(mass_flame, 0.1), else
+#       U(0.63, 1.0); Apsis logg < 3.6 rejected only outside the Lick branch;
+#       CMD line through (-0.5, -2) and (3, 9) (slope 11/3.5, intercept
+#       9 - 3*slope, EXACT -- #255), NSS-parallax absolute mags, no
+#       extinction; brentq on [0, 10000] per refined-M1 draw, any failure
+#       rejected; mean(M2) < 3 std(M2) rejected.
+#   The reproduction chain is the atf_* cuts (applies_to: [reproduction]).
+#   The schema_version-2 chain below them is kept VERBATIM with
+#   applies_to: [forward_model] so forward_model evaluation (andrews2022_modified
+#   in the registry) is unchanged; primary_mass (flame_or_uniform_draw) stays
+#   because it still drives the p_m2_above cache columns that chain reads.
+#   The atf_* columns are precomputed by scripts/build_andrews2022_atf_columns.py.
 
-schema_version: 2
+schema_version: 3
 name: andrews2022
 provenance:
   reference: "Andrews et al. (2022)"
@@ -62,6 +91,74 @@ primary_mass:
   # #230/#257: Gaia Apsis FLAME mass with a fixed +/-0.1 Msun Gaussian error
   # when available, else Uniform(0.63, 1.0) Msun. Replaces the earlier fixed
   # M1 = 1.0 Msun first-cut assumption for the m2_probability cut.
+  # schema_version 3 (#296): drives only the p_m2_above MC cache columns read
+  # by the forward_model chain. Reproduction M1 is reproduction_procedure below.
+reproduction_procedure:
+  method: atf_notebook
+  source: "data/reference/andrews2022_ATF_sample_selection.ipynb (supplied by Ryan Foley, 2026-09-27; #296)"
+  source_sha256: 343dc9e1c997d8cfa74af4ee448c92fcc058e601ff39b94fdf68a3b105c5ccad
+  covariance:
+    # Notebook get_random_samples `means` / `var_err` order (cell 7).
+    parameter_order:
+      - ra
+      - dec
+      - parallax
+      - pmra
+      - pmdec
+      - a_thiele_innes
+      - b_thiele_innes
+      - f_thiele_innes
+      - g_thiele_innes
+      - eccentricity
+      - period
+      - t_periastron
+    use_bit_index: false
+    gate: scipy_multivariate_normal_strict
+    # The notebook parsed the archive CSV (float32 printed as shortest decimal).
+    float32_decimal_roundtrip: true
+  pass1:
+    # find_massive(idx, N_samples=10000); M1 = 1.0 * np.ones(N_samples).
+    n_draws: 10000
+    random_seed: 20220701
+    m1_msun: 1.0
+    root_bracket_msun: [0.0, 1000.0]
+    reject_source_on_any_draw_failure: true
+    probability_denominator: all_draws
+    probability_cut_id: atf_m2_probability
+  pass2:
+    # plot_system(idx, apsis_id, N_samples=10000).
+    n_draws: 10000
+    random_seed: 20220702
+    root_bracket_msun: [0.0, 10000.0]
+    reject_source_on_any_draw_failure: true
+    # np.std default (population std).
+    m2_std_ddof: 0
+    # VizieR I/355/paramp `logg` (the notebook's massive_apsis.vot) is the
+    # GSP-Phot logg (Gaia DR3 astrophysical_parameters.logg_gspphot). Switch to
+    # logg_msc1 only on the PI's word (#296 ambiguity report).
+    giant_logg_column: logg_gspphot
+    primary_mass:
+      lick_sigma_msun: 0.1
+      lick_provenance: >-
+        UCO Lick spectroscopic primary masses hardcoded in the ATF notebook
+        (plot_system cell 17 and calc_M2 cell 34; legend "UCO Lick Spectral
+        Masses", cell 35). 4373465352415301632 (Gaia BH1) is listed but is
+        unreachable in the published run (removed by hand first); it applies
+        in andrews2022_modified.
+      lick_spectroscopic_masses:
+        - {source_id: 3649963989549165440, m1_msun: 0.47}
+        - {source_id: 1581117310088807552, m1_msun: 0.70}
+        - {source_id: 1947292821452944896, m1_msun: 0.73}
+        - {source_id: 1350295047363872512, m1_msun: 1.44}
+        - {source_id: 1525829295599805184, m1_msun: 0.64}
+        - {source_id: 4373465352415301632, m1_msun: 0.98}
+        - {source_id: 1854241667792418304, m1_msun: 0.70}
+        - {source_id: 1749013354127453696, m1_msun: 1.00}
+      # VizieR `Mass-Flame` = astrophysical_parameters.mass_flame.
+      flame_column: mass_flame
+      flame_sigma_msun: 0.1
+      uniform_low_msun: 0.63
+      uniform_high_msun: 1.0
 parent_query:
   dr3:
     adql: |
@@ -98,7 +195,81 @@ monte_carlo:
   n_draws: 10000
   covariance: full_12x12
 cuts:
+  # ---- schema_version 3: ATF notebook reproduction chain (#296) ----
+  - id: atf_covariance_valid
+    kind: derived
+    applies_to: [reproduction]
+    # get_random_samples raised (NaN errors, non-PSD, singular) -> rejected.
+    expression: "andrews_atf_covariance_ok == True"
+    requires_defined: [andrews_atf_covariance_ok]
+    expected_n_after: null
+  - id: atf_pass1_root_found
+    kind: derived
+    applies_to: [reproduction]
+    # brentq(func, 0, 1000) raised for ANY draw at M1 = 1.0 -> rejected.
+    expression: "andrews_atf_pass1_root_ok == True"
+    requires_defined: [andrews_atf_pass1_root_ok]
+    expected_n_after: null
+  - id: atf_m2_probability
+    kind: probability
+    applies_to: [reproduction]
+    # len(M2[M2 > 1.4]) / len(m_f) > 0.95 -- strict, all draws.
+    expression: "P(M2 > m2_threshold_msun) > m2_probability_min"
+    expected_n_after: 106
+    parameters:
+      m2_threshold_msun: 1.4
+      m2_probability_min: 0.95
+      probability_column: andrews_atf_p_m2_above
+  - id: atf_goodness_of_fit
+    kind: derived
+    applies_to: [reproduction]
+    # `if sys['goodness_of_fit'] > 5: return` (NaN passes).
+    expression: "not defined(andrews_atf_goodness_of_fit) or not (andrews_atf_goodness_of_fit > goodness_of_fit_max)"
+    expected_n_after: null
+    parameters:
+      goodness_of_fit_max: 5.0
+  - id: atf_giant_reject_logg
+    kind: derived
+    applies_to: [reproduction]
+    # Apsis branch only: `if not np.isnan(logg) and logg < 3.6: return`.
+    expression: "andrews_atf_m1_source == lick_m1_source or not defined(andrews_atf_logg) or not (andrews_atf_logg < logg_dwarf_min)"
+    expected_n_after: null
+    parameters:
+      logg_dwarf_min: 3.6
+      lick_m1_source: lick
+  - id: atf_giant_reject_cmd
+    kind: derived
+    applies_to: [reproduction]
+    # slope = (9+2)/(3+0.5); intercept = 9 - 3*slope (the plotted line from
+    # (-0.5, -2) to (3, 9)); reject if (BP-RP)*slope + intercept > G_abs.
+    # NaN colour / magnitude (missing BP/RP, parallax <= 0) passes.
+    expression: "not defined(andrews_atf_bp_rp) or not defined(andrews_atf_abs_g_mag) or not (andrews_atf_bp_rp * ((cmd_mag_2 - cmd_mag_1) / (cmd_color_2 - cmd_color_1)) + (cmd_mag_2 - cmd_color_2 * ((cmd_mag_2 - cmd_mag_1) / (cmd_color_2 - cmd_color_1))) > andrews_atf_abs_g_mag)"
+    expected_n_after: null
+    parameters:
+      cmd_color_1: -0.5
+      cmd_mag_1: -2.0
+      cmd_color_2: 3.0
+      cmd_mag_2: 9.0
+      extinction_corrected: false
+  - id: atf_pass2_root_found
+    kind: derived
+    applies_to: [reproduction]
+    # brentq(func, 0, 10000) with refined M1 raised for ANY draw -> rejected.
+    expression: "andrews_atf_pass2_root_ok == True"
+    requires_defined: [andrews_atf_pass2_root_ok]
+    expected_n_after: null
+  - id: atf_m2_3sigma
+    kind: derived
+    applies_to: [reproduction]
+    # `if np.mean(M2) < 3*np.std(M2): return`.
+    expression: "not (andrews_atf_m2_mean_msun < m2_sigma_multiple * andrews_atf_m2_std_msun)"
+    requires_defined: [andrews_atf_m2_mean_msun, andrews_atf_m2_std_msun]
+    expected_n_after: null
+    parameters:
+      m2_sigma_multiple: 3.0
+  # ---- schema_version 2 chain, verbatim, forward_model only (#296) ----
   - id: m2_probability
+    applies_to: [forward_model]
     kind: probability
     expression: "P(M2 > m2_threshold_msun) >= m2_probability_min"
     expected_n_after: 106
@@ -106,18 +277,21 @@ cuts:
       m2_threshold_msun: 1.4
       m2_probability_min: 0.95
   - id: goodness_of_fit
+    applies_to: [forward_model]
     kind: column
     expression: "goodness_of_fit < goodness_of_fit_max"
     expected_n_after: null
     parameters:
       goodness_of_fit_max: 5.0
   - id: m2_snr
+    applies_to: [forward_model]
     kind: derived
     expression: "m2_msun / m2_msun_error > m2_snr_min"
     expected_n_after: null
     parameters:
       m2_snr_min: 3.0
   - id: giant_reject_logg
+    applies_to: [forward_model]
     kind: derived
     # Sketch used SQL-ish `null`; evaluator accepts Python `None`.
     expression: "logg_apsis is None or logg_apsis >= logg_dwarf_min"
@@ -125,6 +299,7 @@ cuts:
     parameters:
       logg_dwarf_min: 3.6
   - id: giant_reject_cmd
+    applies_to: [forward_model]
     kind: derived
     expression: "abs_g_mag > cmd_slope * bp_rp + cmd_intercept"
     expected_n_after: null

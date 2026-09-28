@@ -11,7 +11,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    model_serializer,
+    model_validator,
+)
 
 from darkhunter_pop.schemas import ActiveDRMode
 
@@ -524,6 +531,137 @@ class PrimaryMassSpec(BaseModel):
         return self
 
 
+ATF_NOTEBOOK_PROCEDURE_METHOD: str = "atf_notebook"
+ATF_COVARIANCE_GATE_SCIPY_STRICT: str = "scipy_multivariate_normal_strict"
+
+
+class AtfNotebookCovarianceSpec(BaseModel):
+    """How the ATF notebook builds and gates the 12×12 NSS covariance (#296).
+
+    ``parameter_order`` is the notebook's ``means`` / ``var_err`` order;
+    ``corr_vec`` fills the strict lower triangle row-major (the notebook's
+    ``for i: for j < i`` loop). ``use_bit_index: false`` reproduces the
+    notebook, which never reads ``bit_index`` (unfitted parameters carry NaN
+    errors and fail the gate). ``gate`` names the sampler-construction check:
+    ``scipy_multivariate_normal_strict`` rejects every source for which
+    ``scipy.stats.multivariate_normal(mean, cov)`` (``allow_singular=False``)
+    raises — NaN input, non-PSD, or numerically singular — instead of flooring
+    eigenvalues. ``float32_decimal_roundtrip`` re-parses each float32 archive
+    value from its shortest decimal string, as the notebook's CSV read did.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    parameter_order: list[str] = Field(..., min_length=12, max_length=12)
+    use_bit_index: Literal[False]
+    gate: Literal["scipy_multivariate_normal_strict"]
+    float32_decimal_roundtrip: bool
+
+
+class AtfNotebookPass1Spec(BaseModel):
+    """ATF ``find_massive`` (notebook cell 7): fixed-M1 probability pass (#296).
+
+    The probability threshold itself lives on the ``probability_cut_id`` cut
+    (``m2_threshold_msun`` / ``m2_probability_min``), so it is stated once.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(..., ge=1)
+    random_seed: int
+    m1_msun: float = Field(..., gt=0)
+    root_bracket_msun: tuple[float, float]
+    reject_source_on_any_draw_failure: bool
+    probability_denominator: Literal["all_draws", "valid_draws"]
+    probability_cut_id: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _bracket_ordered(self) -> AtfNotebookPass1Spec:
+        lo, hi = self.root_bracket_msun
+        if not (0.0 <= lo < hi):
+            raise ValueError("pass1.root_bracket_msun must satisfy 0 <= lo < hi")
+        return self
+
+
+class AtfLickSpectroscopicMass(BaseModel):
+    """One UCO Lick spectroscopic primary mass hardcoded in the ATF notebook."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: int
+    m1_msun: float = Field(..., gt=0)
+
+
+class AtfNotebookPrimaryMassSpec(BaseModel):
+    """ATF ``plot_system`` refined M1 (notebook cell 17), used only in pass 2 (#296).
+
+    Priority: UCO Lick spectroscopic mass ``N(m1, lick_sigma_msun)`` for the
+    listed sources; else Gaia Apsis FLAME ``N(flame, flame_sigma_msun)``;
+    else ``Uniform(uniform_low_msun, uniform_high_msun)``. Non-positive Gaussian
+    draws are not clipped (the notebook does not clip).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lick_sigma_msun: float = Field(..., gt=0)
+    lick_provenance: str = Field(..., min_length=1)
+    lick_spectroscopic_masses: list[AtfLickSpectroscopicMass] = Field(..., min_length=1)
+    flame_column: str = Field(..., min_length=1)
+    flame_sigma_msun: float = Field(..., gt=0)
+    uniform_low_msun: float = Field(..., gt=0)
+    uniform_high_msun: float = Field(..., gt=0)
+
+    @model_validator(mode="after")
+    def _unique_and_ordered(self) -> AtfNotebookPrimaryMassSpec:
+        ids = [row.source_id for row in self.lick_spectroscopic_masses]
+        if len(ids) != len(set(ids)):
+            raise ValueError("lick_spectroscopic_masses has duplicate source_ids")
+        if self.uniform_high_msun <= self.uniform_low_msun:
+            raise ValueError("uniform_high_msun must exceed uniform_low_msun")
+        return self
+
+
+class AtfNotebookPass2Spec(BaseModel):
+    """ATF ``plot_system`` (notebook cell 17): refined-M1 pass on pass-1 survivors."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(..., ge=1)
+    random_seed: int
+    root_bracket_msun: tuple[float, float]
+    reject_source_on_any_draw_failure: bool
+    m2_std_ddof: int = Field(..., ge=0)
+    giant_logg_column: str = Field(..., min_length=1)
+    primary_mass: AtfNotebookPrimaryMassSpec
+
+    @model_validator(mode="after")
+    def _bracket_ordered(self) -> AtfNotebookPass2Spec:
+        lo, hi = self.root_bracket_msun
+        if not (0.0 <= lo < hi):
+            raise ValueError("pass2.root_bracket_msun must satisfy 0 <= lo < hi")
+        return self
+
+
+class ReproductionProcedureSpec(BaseModel):
+    """Paper-author selection procedure that precomputes reproduction columns (#296).
+
+    Only ``method: atf_notebook`` (the Andrews, Taggart & Foley 2022 selection
+    notebook) exists. Its ``andrews_atf_*`` columns are built by
+    ``scripts/build_andrews2022_atf_columns.py`` into a fingerprint-keyed
+    sidecar and merged only when the sample is evaluated in ``reproduction``
+    mode; ``forward_model`` evaluation never sees them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["atf_notebook"]
+    source: str = Field(..., min_length=1)
+    source_sha256: str = Field(..., min_length=64, max_length=64)
+    covariance: AtfNotebookCovarianceSpec
+    pass1: AtfNotebookPass1Spec
+    pass2: AtfNotebookPass2Spec
+
+
 class MonteCarloSpec(BaseModel):
     """Per-sample Monte Carlo settings (CONTINUATION_PLAN §11)."""
 
@@ -815,6 +953,8 @@ class SampleSelectionFile(BaseModel):
     branches: list[SampleBranch] | None = None
     exclusions: list[SampleExclusion] | None = None
     monte_carlo: MonteCarloSpec | None = None
+    # #296: paper-author procedure that precomputes reproduction-only columns.
+    reproduction_procedure: ReproductionProcedureSpec | None = None
     correction: SampleCorrection | None = None
     extinction: ExtinctionSpec | None = None
     main_sequence_cut: MainSequenceCutSpec | None = None
@@ -924,30 +1064,141 @@ class DustMapFileSpec(BaseModel):
     physics).
 
     ``path`` is resolved relative to ``paths.data_root`` unless absolute.
-    ``native_to_ebv`` multiplies the native integral to give ``E(B-V)``.
+    ``native_quantity`` says what the map integrates (#295):
+
+    * ``reddening`` — a reddening-like unit (e.g. Bayestar19's SFD-like unit);
+      ``native_to_ebv`` is required and multiplies the native integral to give
+      ``E(B-V)``.
+    * ``a0`` — monochromatic extinction ``A0`` (e.g. Lallement 2019 at 5500 Å);
+      ``native_to_ebv`` is *derived* as ``1 / DustMapsConfig.r_v`` (the Gaia
+      convention ``A0 = R_V E(B-V)``), so R_V is the single knob. Setting it
+      explicitly is refused, and the derived value is left out of
+      ``model_dump`` so a dumped config re-validates with a new ``r_v``.
+
     ``md5`` (optional) pins the exact published file; a mismatch refuses to load.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(..., min_length=1)
-    native_to_ebv: float = Field(..., gt=0.0)
+    native_quantity: Literal["reddening", "a0"] = "reddening"
+    native_to_ebv: float | None = Field(default=None, gt=0.0)
     md5: str | None = None
+    provenance: str | None = None
+    _derived_factor: bool = PrivateAttr(default=False)
+
+    @model_serializer(mode="wrap")
+    def _omit_derived_factor(self, handler: Any) -> Any:
+        data = handler(self)
+        if self._derived_factor and isinstance(data, dict):
+            data.pop("native_to_ebv", None)
+        return data
+
+
+class GaiaBandPolynomialCoefficients(BaseModel):
+    """Colour/extinction-dependent Gaia extinction coefficients ``k_X = A_X / A0``.
+
+    Gaia Collaboration, Babusiaux et al. (2018, A&A 616, A10), Eq. 1 / Table 1::
+
+        k_X = c1 + c2 X + c3 X^2 + c4 X^3 + c5 A0 + c6 A0^2 + c7 X A0,
+        X = (G_BP - G_RP)_0
+
+    Each list is ``[c1, ..., c7]`` for band G, BP, RP. The paper's fit covers
+    3500 K < Teff < 10000 K and 0.01 < A0 < 5 mag; outside that range the
+    polynomial is extrapolated, not clipped. ``(G_BP-G_RP)_0`` enters
+    ``k_BP - k_RP`` itself, so it is solved by fixed-point iteration from the
+    observed colour: at most ``max_iterations`` steps, stopping once the colour
+    moves by less than ``tolerance`` mag. A source that does not converge (the
+    iteration diverges for very red, highly extincted sources outside the fitted
+    range) is reported as ``NotApplicable("extinction_gaia_law_nonconvergent")``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    k_g: list[float] = Field(..., min_length=7, max_length=7)
+    k_bp: list[float] = Field(..., min_length=7, max_length=7)
+    k_rp: list[float] = Field(..., min_length=7, max_length=7)
+    max_iterations: int = Field(..., ge=1)
+    tolerance: float = Field(..., gt=0.0)
     provenance: str | None = None
 
 
+class GaiaBandExtinctionConfig(BaseModel):
+    """How ``E(B-V)`` becomes ``A_G`` and ``E(BP-RP)`` for El-Badry 2026 (#295).
+
+    * ``paper_constant`` (default; the reproduction path) — the frozen selection
+      file's ``extinction.coefficients`` (``A_G = 2.66 E(B-V)``,
+      ``E(BP-RP) = 1.33 E(B-V)``, El-Badry et al. 2026 §2).
+    * ``babusiaux2018`` — the Gaia collaboration's colour/A0-dependent law
+      (:class:`GaiaBandPolynomialCoefficients`) with ``A0 = r_v · E(B-V)``. A
+      sensitivity alternative: it overrides what the paper says it used.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    law: Literal["paper_constant", "babusiaux2018"] = "paper_constant"
+    babusiaux2018: GaiaBandPolynomialCoefficients | None = None
+
+
 class DustMapsConfig(BaseModel):
-    """Host-side location + unit conversion of 3D dust maps (#258).
+    """Host-side location + unit conversion of 3D dust maps (#258, #295).
 
     ``ebv_cache_dir`` (relative to ``paths.data_root`` unless absolute) holds the
     per-source native-value cache, so ~440k map queries are paid once per
     map/split fingerprint rather than once per evaluation.
+
+    ``r_v`` is the ratio ``A0 / E(B-V)`` used by every ``a0`` map and by the
+    ``babusiaux2018`` Gaia band law. No schema default (config only); required
+    whenever something consumes it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     ebv_cache_dir: str = "dust_maps/ebv_cache"
+    r_v: float | None = Field(default=None, gt=0.0)
     maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
+    gaia_band_extinction: GaiaBandExtinctionConfig = Field(
+        default_factory=GaiaBandExtinctionConfig
+    )
+
+    @model_validator(mode="after")
+    def _resolve_conversions(self) -> DustMapsConfig:
+        for name, spec in self.maps.items():
+            if spec.native_quantity == "reddening":
+                if spec.native_to_ebv is None:
+                    raise ValueError(
+                        f"sample_selection.dust_maps.maps.{name}: native_quantity "
+                        "'reddening' requires native_to_ebv"
+                    )
+                continue
+            if self.r_v is None:
+                raise ValueError(
+                    f"sample_selection.dust_maps.maps.{name}: native_quantity 'a0' "
+                    "requires sample_selection.dust_maps.r_v"
+                )
+            if spec.native_to_ebv is not None and not spec._derived_factor:
+                raise ValueError(
+                    f"sample_selection.dust_maps.maps.{name}: native_to_ebv must not "
+                    "be set for an 'a0' map — it is derived as 1/r_v; set r_v instead"
+                )
+            # Copy, so a spec instance shared between configs never carries
+            # another config's r_v.
+            resolved = spec.model_copy(update={"native_to_ebv": 1.0 / self.r_v})
+            resolved._derived_factor = True
+            self.maps[name] = resolved
+        band = self.gaia_band_extinction
+        if band.law == "babusiaux2018":
+            if band.babusiaux2018 is None:
+                raise ValueError(
+                    "sample_selection.dust_maps.gaia_band_extinction.law "
+                    "'babusiaux2018' requires the babusiaux2018 coefficient block"
+                )
+            if self.r_v is None:
+                raise ValueError(
+                    "gaia_band_extinction.law 'babusiaux2018' requires "
+                    "sample_selection.dust_maps.r_v (A0 = r_v * E(B-V))"
+                )
+        return self
 
 
 class SampleSelectionConfig(BaseModel):
@@ -964,6 +1215,10 @@ class SampleSelectionConfig(BaseModel):
         default_factory=default_sample_selection_entries
     )
     dust_maps: DustMapsConfig = Field(default_factory=DustMapsConfig)
+    # #296: fingerprint-keyed sidecars of reproduction-procedure columns
+    # (``andrews_atf_*``), relative to ``paths.data_root`` unless absolute; one
+    # subdirectory per ``active_dr_mode``.
+    reproduction_column_cache_dir: str = "reproduction_columns"
 
     @model_validator(mode="after")
     def _unique_names_and_enabled_files(self) -> SampleSelectionConfig:
@@ -1940,6 +2195,13 @@ class DRPathConfig(BaseModel):
     external_mag_err_floor: float = Field(0.05, gt=0)
     external_mag_err_zero_as_missing: bool = True
     impute_external_mag_err: bool = True
+    # Cross-match fan-out resolution (#221, option B; ARCHITECTURE.md §4 "Multi-solution
+    # sources"). Bands (``external_photometry_crossmatches[*].band``) whose value/error
+    # cells are the ONLY cells allowed to differ between rows of one duplicated
+    # ``source_id`` for data_acquisition to collapse that group to one row. Conflicting
+    # bands are masked (value + error), never chosen between. Empty disables the
+    # collapse: every fan-out group is then refused, as before #221.
+    crossmatch_fanout_maskable_bands: list[str] = Field(default_factory=list)
     nss_table: str = "gaiadr3.nss_two_body_orbit"
     gaia_source_table: str = "gaiadr3.gaia_source"
     # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
@@ -1953,6 +2215,18 @@ class DRPathConfig(BaseModel):
     selection_function_followup: DRSelectionFunctionFollowupPathConfig = Field(
         default_factory=DRSelectionFunctionFollowupPathConfig
     )
+
+    @model_validator(mode="after")
+    def _validate_crossmatch_fanout_maskable_bands(self) -> DRPathConfig:
+        """Every maskable fan-out band must be a configured, enabled cross-match band."""
+        known = {m.band for m in self.external_photometry_crossmatches if m.enabled}
+        unknown = sorted(set(self.crossmatch_fanout_maskable_bands) - known)
+        if unknown:
+            raise ValueError(
+                "crossmatch_fanout_maskable_bands names band(s) with no enabled "
+                f"external_photometry_crossmatches entry: {unknown}"
+            )
+        return self
 
 
 class PipelineConfig(BaseModel):
@@ -2033,6 +2307,7 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "external_mag_err_floor",
         "external_mag_err_zero_as_missing",
         "impute_external_mag_err",
+        "crossmatch_fanout_maskable_bands",
         "nss_table",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",

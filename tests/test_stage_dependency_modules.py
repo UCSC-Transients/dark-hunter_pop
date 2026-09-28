@@ -39,9 +39,21 @@ from darkhunter_pop.run_management import STAGE_ORDER, STAGE_REGISTRY
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
 PKG = "darkhunter_pop"
 
-# Cross-cutting infrastructure: imported nearly everywhere, and deliberately
-# outside the per-stage dependency hashes (plotting-only edits never invalidate
-# a stage; CLAUDE.md "Run management").
+# Cross-cutting infrastructure deliberately outside the per-stage dependency
+# hashes. Each exemption must be justified; anything holding science numbers
+# (``constants``: TAG10/Santos tables, M_Ch, ...) is NOT exempt and must be
+# declared wherever reachable (#183, #49 review).
+#
+# - run_management: the registry / cache machinery itself; hashing it would
+#   invalidate every stage on any bookkeeping edit.
+# - schemas, config_schema: data-model definitions. A field/default change that
+#   alters a stage's answer changes the config dump, which the config checksum
+#   and per-stage config fingerprint already catch.
+# - config_loader: YAML loading + checksum; its outputs are covered by the
+#   config checksum refusal.
+# - plotting: figure rendering only (CLAUDE.md "Run management": plotting-only
+#   edits never invalidate a stage).
+# - the package ``__init__`` (docstring only).
 _INFRA = frozenset(
     f"{PKG}.{m}"
     for m in (
@@ -49,7 +61,6 @@ _INFRA = frozenset(
         "schemas",
         "config_schema",
         "config_loader",
-        "constants",
         "plotting",
     )
 ) | {PKG}
@@ -75,6 +86,7 @@ _LAZY_IMPORT_ALLOWLIST: dict[tuple[str, str], str] = {
             "that does execute it hashes it."
         )
         for m in (
+            "andrews2022_atf",
             "data_acquisition",
             "elbadry2026_m2_sigma",
             "elbadry2026_selection",
@@ -305,10 +317,14 @@ def test_only_orchestration_imports_diagnostics_stage_at_module_scope() -> None:
 
 @pytest.mark.unit
 def test_diagnostic_hooks_depends_only_on_infra() -> None:
-    """``diagnostic_hooks`` sits below every stage; it must never import one."""
+    """``diagnostic_hooks`` sits below every stage; it must never import one.
+
+    ``constants`` (a leaf, reached through ``config_loader``) is not a stage.
+    """
     hooks = f"{PKG}.diagnostic_hooks"
-    assert _module_scope_closure({hooks}) - _INFRA == {hooks}
-    assert not (_imports(hooks)[1] - _INFRA)
+    leaf = {hooks, f"{PKG}.constants"}
+    assert _module_scope_closure({hooks}) - _INFRA <= leaf
+    assert not (_imports(hooks)[1] - _INFRA - leaf)
 
 
 @pytest.mark.unit

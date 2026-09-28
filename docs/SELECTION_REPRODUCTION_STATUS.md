@@ -38,6 +38,10 @@ over editing frozen cut thresholds.
 > astrometric-branch enrichment plus the window-only `σ_M̃2` MC. No count in the §3.3 table moved.
 > The Simon row's status changed because of the #281 classifier/fixture fix, not because of a
 > re-measured count.
+>
+> **§3.3.4 (#274) recounts the recorded membership sets** (`a9397ba` #270 and `1058e29` real maps)
+> under the PI's per-solution-type distinct-star rule, using code off `main` @ `c07897e`. It does
+> not re-evaluate anything. Only the El-Badry 2026 union moves: 1119 → 1069 and 1565 → 1507.
 
 That provenance line is the point of this rewrite. Every "Last measured" number in the previous version
 of this document came from the branch `fix/selection-reproduction-binding`, not from `main`, and three
@@ -128,6 +132,115 @@ The "Previous" column is the last value recorded before this baseline: measured 
 `fix/selection-reproduction-binding` @ `5725e54`, whose content reached `main` as merge `03a452a`.
 
 ### 3.1 Andrews et al. (2022)
+
+#### 3.1.4 #296 — reproduction mode is now the ATF selection notebook (current state; supersedes §3.1.1–§3.1.3 for reproduction)
+
+**Provenance.** Measured 2026-09-28 on branch `feat/andrews-atf-notebook-296` (`main` @ `c07897e` + the
+#296 commits, merged with `main` before the PR), in the isolated worktree
+`../dark-hunter_pop-worktrees/andrews-atf-notebook-296` with `PYTHONPATH` → its `src/` and `data/`
+symlinked to the primary checkout. The spec is the notebook that actually selected the published
+sample. Ryan Foley (PI; co-author of Andrews, Taggart & Foley 2022) supplied it:
+`data/reference/andrews2022_ATF_sample_selection.ipynb`, sha256 `343dc9e1…c5ccad`. It is gitignored
+and not committed. The notebook functions used are `get_random_samples` / `find_massive` (cell 7),
+`plot_system` (cell 17) and `calc_M2` (cell 34).
+
+The columns come from `scripts/build_andrews2022_atf_columns.py --workers 8`, which ran in 217 s on a
+warm file cache. It read the raw `nss_enrichment` NSS table, the `flame_enrichment` table and the
+uncut snapshot `20260826T234425Z_3d3f740b080c`, all read-only. It wrote the sidecar
+`data/reproduction_columns/dr3/atf_notebook_4181870cbce6ac8f.h5` (134,598 rows, 28 MB). Neither
+`+enrich+mc*` cache was rewritten.
+
+**Method.** `config/selections/andrews2022.yaml` is now at schema_version 3; `andrews2022_modified`
+is at schema_version 2. The notebook is implemented exactly, including its quirks:
+
+- **Pass 1.**
+  - M1 is fixed at 1.0.
+  - Each source gets 10⁴ draws from the 12×12 covariance, built from `*_error` and `corr_vec`
+    **without `bit_index`**.
+  - The source is **rejected** when `scipy.stats.multivariate_normal` refuses the matrix. Nothing is
+    floored.
+  - It is also rejected when `brentq` on [0, 1000] fails for **any** draw.
+  - The source passes when `fraction(M2 > 1.4) > 0.95`, a strict inequality over **all** draws.
+- **Pass 2.**
+  - Rejected when GoF > 5.
+  - Gaia BH1 is removed by hand. This is the existing exclusion.
+  - The refined M1 is the UCO Lick mass, else FLAME, else U(0.63, 1.0).
+    - Lick: `N(m, 0.1)` for 8 sources. The table is in the selection file with its provenance.
+    - FLAME: `N(mass_flame, 0.1)`.
+  - Rejected when `logg_gspphot < 3.6`, only for sources outside the Lick branch.
+  - CMD cut: the line through (−0.5, −2) and (3, 9), i.e. slope **exactly** 11/3.5 and intercept
+    9 − 3·slope (#255). Absolute magnitudes use the NSS parallax, with no extinction.
+  - `brentq` on [0, 10⁴] per refined-M1 draw; any failure rejects.
+  - Rejected when `mean(M2) < 3·std(M2)`.
+
+These `atf_*` cuts apply **only in reproduction mode**. The schema_version-2 chain is kept verbatim
+as `applies_to: [forward_model]`. As a check, forward_model `andrews2022_modified` still gives **64**
+(1061 → 681 → 408 → 90 → 64), unchanged.
+
+| Check | Target | fixed-M1 baseline (`c905575`) | FLAME at selection (`9f70a53`) | **ATF notebook (#296)** | Gate |
+|-------|--------|------------------|------------------|--------------------------|------|
+| Parent `Orbital` N | 134598 | 134598 | 134598 | **134598** | **OK** |
+| After pass 1 (`atf_m2_probability`) | 106 | 352 | 1061 | **115** | FAIL by 9. All 24 published sources are in the 115; see the boundary note |
+| Final reproduction N | 24 | 33 | 63 | **25** | FAIL by 1. It is a **strict superset** of the published 24 |
+| Source-ID diff vs published 24 | — | +9 | +42 / −6 | **+1 / −0**: extra `6424213726885519744` | — |
+| `andrews2022_modified` N (reproduction mode) | 25 | 34 | 64 | **26** | 25 + the same extra |
+| Q9: `G < 15` among `andrews2022` | 16 | 19 | 55 | **16** | **OK** — exact |
+| El-Badry 2026 `andrews2022_import` | 16 | 19 | 55 | **16** (see note) | **OK** |
+
+Attrition (reproduction):
+
+```
+134598 → 130012 (atf_covariance_valid: 2747 singular, 1839 NaN inputs = bit_index 8179)
+       → 129556 (atf_pass1_root_found: 456, every one m_f > g(1000))
+       → 115 (atf_m2_probability) → 81 (atf_goodness_of_fit) → 49 (atf_giant_reject_logg)
+       → 32 (atf_giant_reject_cmd) → 32 (atf_pass2_root_found) → 26 (atf_m2_3sigma)
+       → 25 (explicit_exclusions, Gaia BH1)
+```
+
+**Implicit-rejection breakdown against our previous path.** The previous path uses
+`propagate_nss_solution` at fixed M1 = 1.0, the cache's per-source seeds and the
+`eig_rel_floor` / `eig_abs_floor` factorization. Re-run here, it reproduces the documented **352**
+exactly. The table sorts those 352 by the reason the notebook removes each one:
+
+| Reason | N of 352 | Note |
+|---|---|---|
+| SciPy covariance gate: "singular" | **235** | Our path factorized all 2747 such matrices by **plain Cholesky**, with no nugget and no clipping. SciPy's `allow_singular=False` check rejects any matrix with `min λ ≤ 1e6·eps·max|λ|` (≈ 2.2e-10). That check is relative, over a mixed-unit 12×12 (mas, days). All 235 sit below it (max ratio 1.3e-10). Only 6 lie within ×3 of the threshold, and 14 accepted sources lie within ×3 above it. **This is the 352-vs-106 driver.** |
+| Any-draw root failure, `m_f > g(1000)` | 2 | No negative-parallax draw occurs in any of the 456 root failures parent-wide |
+| `p` at or below 0.95 under the notebook's draws (MC noise) | 1 | — |
+| Passes the notebook | 114 | Plus 1 source (`6092954989675820416`) that our path had at p = 0.9487 |
+| NaN inputs (`bit_index` 8179) | 0 | Both paths reject the same 1839 sources, so ignoring `bit_index` changes nothing for `Orbital` |
+| Valid-draw-only denominator | 0 | Our `p_m2_above` already used all draws. Only 2 root-failed sources would pass on a valid-draw denominator |
+
+**Boundary sources.** The notebook is unseeded. At N = 10⁴ the binomial σ of p near 0.95 is ≈ 0.0022.
+
+- The one extra final source, `6424213726885519744` (G = 15.15, FLAME-less, uniform M1), has
+  **p = 0.9545**, about 2σ above threshold. The published `1749013354127453696` has **p = 0.9549**.
+  Either could legitimately flip. The notebook run evidently kept the second and dropped the first.
+- Other pass-1 sources with 0.95 < p ≤ 0.96: `1827768657631141248` 0.9564, `1982739530143208192`
+  0.9528, `2010172929375186304` 0.9546, `2174796689377604480` 0.9560, `2231278532962626176` 0.9558,
+  `3076065988396801280` 0.9557, `4509011462269157888` 0.9554, `5843399973710547584` 0.9550,
+  `5866015312999519744` 0.9508, `6047116732165574016` 0.9576, `6092954989675820416` 0.9542. All of
+  them fail a later cut, so they move the pass-1 count but not the final N.
+- Just below threshold: `1987234539838699904` 0.9500 exactly (fails the strict `>`),
+  `4783369128404125952` 0.9462, `276061123196785920` 0.9449, `5531157844139797632` 0.9447.
+- A scratch run of the same pass 1 with an independent seed gave 116 against 115 here. The residual
+  115 vs 106 is therefore not MC noise alone. It stays open and is not tuned.
+
+**Q9 / `andrews2022_import`.** The survivors with `G < 15` are exactly the 16 published sources; the
+extra source is at G = 15.15. The `andrews2022_import` subsample chain is `in_sample('andrews2022')`
+AND `phot_g_mean_mag < 15`, so it evaluates to the same 16 by construction. Measured caveat: this was
+computed from that chain's definition on the `andrews2022` survivor set, not from a full El-Badry 2026
+`evaluate_all`. The full run was skipped because disk was critically low (≈ 4.6 GiB free) and a cold
+E(B-V) run peaks near 12.5 GiB. The full `evaluate_all` should be re-run by #49.
+
+**Ambiguity, flagged for Ryan.** The notebook's Apsis `logg` comes from VizieR `massive_apsis.vot`,
+which has the columns `Teff, logg, [Fe/H], Dist, Mass-Flame`, i.e. I/355/paramp. It is taken to be
+**`logg_gspphot`**, since VizieR paramp's `logg` is the GSP-Phot value. This is a config switch:
+`reproduction_procedure.pass2.giant_logg_column`.
+
+`mode_divergence` is not re-measured here. In the registry, `andrews2022` is reproduction mode, now
+the ATF chain, while `andrews2022_modified` is forward_model mode, still the schema_version-2 chain.
+The pair therefore no longer differs by BH1 alone. In reproduction mode the two differ by exactly BH1. Filed as #306.
 
 | Check | Target | Previous (`5725e54`) | **`main` @ `c905575`** | Gate |
 |-------|--------|----------------------|------------------------|------|
@@ -483,7 +596,7 @@ extinction correction and nothing else.
 
 | Check | Target | `main` @ `c905575` | Undereddened @ `1058e29` | **Real maps @ `1058e29` (#258)** | Gate |
 |-------|--------|--------------------|--------------------------|----------------------------------|------|
-| Published union (`n_surviving`, non-unique) | 227 | 1085 | 1119 (1067 distinct) | **1565** (1504 distinct) | FAIL — driven by `sub_chandrasekhar` |
+| Published union (per-row `n_surviving`; **#274 per-type distinct count in brackets**, §3.3.4) | 227 | 1085 | 1119 (1067 distinct) [**1069**] | **1565** (1504 distinct) [**1507**] | FAIL — driven by `sub_chandrasekhar` |
 | Astrometric branch union | 76 | 913 | 946 | **1356** | FAIL |
 | Spectroscopic branch | 151 | 123 | 123 | **151** | **OK** — exact match |
 | `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
@@ -523,7 +636,7 @@ Spectroscopic branch (real maps): `181534 → 133642 (k1_significance) → 151 (
 
 **Unit-conversion sensitivity (not the landed config).** El-Badry 2026 does not state how it converts
 either map to `E(B-V)`. The landed config uses `E(B-V) = 0.884 × Bayestar19` and `E(B-V) = A0/3.1`,
-both flagged in `config.yaml` as pending PI confirmation. Re-running El-Badry 2026 alone with the
+which **the PI confirmed on 2026-09-27 (#295; §3.3.5)**. Re-running El-Badry 2026 alone with the
 Bayestar factor set to 1.0 (raw Bayestar units as `E(B-V)`, the `mwdust` / #232-diagnostic convention),
 same SHA and membership: `primary_ns_bh` 45, spectroscopic 150, routes 134 / 30 / 14,
 `sub_chandrasekhar` 1313, astrometric union 1403, Simon unchanged. The conversion choice moves the
@@ -601,7 +714,59 @@ spectroscopic branches overlap by 2, so 946 + 123 − 2 = 1067, and 52 IDs appea
 `c905575` presumably includes the same kind of duplication. This looks like the
 cross-match / multi-solution duplicate-`source_id` question already tracked in #221/#237, not
 something new from #270. It is noted so that nobody compares 1119 against the published 227 as if it
-counted unique sources.
+counted unique sources. **Resolved by #274 (§3.3.4):** all 52 are cross-type, and the counting rule
+is now fixed.
+
+### 3.3.4 Counting rule for published-N comparisons (#274)
+
+**Ruling (verbatim, Ryan Foley, 2026-09-27):** "In each solution type, count distinct stars." Every
+reproduction count compared against a published N is now the number of distinct `source_id`s
+within each `nss_solution_type`, summed over types. It is computed from the rows that actually
+passed their own branch chain (`sample_selection.distinct_star_count`,
+`SampleEvaluationResult.*_by_solution_type`, `sample_diagnostics.compare_to_published`;
+`docs/ARCHITECTURE.md` §4 "Multi-solution sources"). The per-row count and the count of distinct
+IDs across all types are still reported, but only as information. This is reporting only: per-row
+emission and the per-row likelihood (Q17 / #244) are unchanged.
+
+**What the 52 duplicated IDs were (#270 membership, `a9397ba`).** Every one of the 52 is a
+**cross-type** multi-solution star. None is a same-type duplicate and none is #221-style
+cross-match fan-out. Row shapes in the parent cache: `Orbital`+`SB1` 49, `EclipsingBinary`+`SB1` 3.
+By branch:
+
+- **2** passed both branches: the `Orbital` row passed astrometric and the `SB1` row passed
+  spectroscopic. These count once in each type.
+- **39** passed astrometric only. Their `SB1` row failed the spectroscopic chain but is still
+  emitted, because `_evaluate_branched` emits every row of a surviving star.
+- **11** passed spectroscopic only. They carry an `Orbital` row (8) or an `EclipsingBinary` row (3)
+  that is emitted the same way.
+
+The 50 emitted rows that passed no chain do not count under the rule. The emission behavior itself
+is tracked in **#299** and is not changed here.
+
+For the real-map membership (`1058e29`, 1565 entries, 1504 distinct), 61 IDs are duplicated, again
+all cross-type: 3 passed both branches, 46 are astrometric survivors with an emitted `SB1` row, and
+12 are spectroscopic survivors with an emitted `Orbital` (9) or `EclipsingBinary` (3) row.
+
+**Re-reported counts.** These are the membership sets recorded at the SHAs shown, recounted with the
+landed rule (branch `feat/distinct-star-counts-274`, off `main` @ `c07897e`). Solution types come
+from `…+enrich+mc10000/selection_parent_rows.h5` (443,211 rows). No selection was re-evaluated and
+no threshold was touched.
+
+| Count | Target | Per-row (old) | **Per-type distinct (#274)** | Distinct across types (info) | Per-type breakdown |
+|---|---:|---:|---:|---:|---|
+| El-Badry 2026 union, #270 (`a9397ba`, undereddened) | 227 | 1119 | **1069** = 946 + 123 | 1067 | `Orbital` 722, `AstroSpectroSB1` 224, `SB1` 122, `SB1C` 1 |
+| El-Badry 2026 union, real maps (`1058e29`) | 227 | 1565 | **1507** = 1356 + 151 | 1504 | astrometric: `Orbital` 1068, `AstroSpectroSB1` 288; spectroscopic 151 |
+| El-Badry 2026 astrometric branch (real maps) | 76 | 1356 | **1356** | 1356 | unchanged: no star has both `Orbital` and `AstroSpectroSB1` rows |
+| El-Badry 2026 spectroscopic branch (real maps) | 151 | 151 | **151** | 151 | unchanged, still exact |
+| El-Badry 2026 subsamples (real maps) | 47 / 5 / 16 / 22 | 46 / 5 / 55 / 1265 | **46 / 5 / 55 / 1265** | same | unchanged |
+| Andrews 2022 (`andrews2022`) | 24 | 63 | **63** | 63 | `Orbital` only (Orbital-only parent) |
+| Andrews 2022 modified | 25 | 64 | **64** | 64 | `Orbital` only |
+| El-Badry 2024 catalog union | 48 | 48 | **48** | 48 | `Orbital` 42, `AstroSpectroSB1` 6 |
+
+Same-type duplicates cannot move any of these numbers. The parent cache has only **6** same-type
+`(source_id, type)` pairs (5 `SB1`, 1 `EclipsingBinary`), and none of them is in any sample's
+membership. Only the El-Badry 2026 **union** moves. It is still a FAIL, driven by
+`sub_chandrasekhar`, as before.
 
 ### 3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix landed (#258)
 
@@ -643,9 +808,13 @@ the maps once disk space allowed. What was done:
   names Lallement 2022 at δ = −30°) and Andrews therefore never deredden; a test pins this.
   `candidate_to_selection_row` is unchanged. Its `mg_0 = abs_g_mag` alias is still what those samples
   see, and El-Badry 2026 overwrites it from the raw columns. Map locations and native→`E(B-V)`
-  conversions (`0.884` for Bayestar19, `1/3.1` for `A0`) are config (`sample_selection.dust_maps`),
-  **not** the frozen file. The conversions are not stated by the paper and are flagged pending PI
-  confirmation; the §3.3 sensitivity run bounds their effect.
+  conversions are config (`sample_selection.dust_maps`), **not** the frozen file. The paper does not
+  state them; **the PI settled them on 2026-09-27 (#295)**: `r_v: 3.1` (Gaia convention
+  `A0 = 3.1 E(B-V)`, Babusiaux et al. 2018 §2; Lallement 2019 App. A also assumes `R = 3.1`), Lallement
+  `A0 → E(B-V) = A0 / r_v` (derived from `r_v`, `native_quantity: a0`), Bayestar19 `0.884` (Green et al.
+  2019 / Argonaut usage page Eq. 1, SF11 `R_V = 3.1`; the page's `E(r−z)` alternative is `0.996`). The
+  `E(B-V) → A_G, E(BP−RP)` step is `gaia_band_extinction.law`: `paper_constant` (default, the frozen
+  2.66 / 1.33) or `babusiaux2018` (the Gaia colour/`A0`-dependent law, coefficients in config). See §3.3.5.
 - **Caching.** Native per-source integrals are cached at
   `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5`. The fingerprint covers the split, the map
   identities (md5), the `READER_VERSION` salt and — since #278 — the SHA-256 of `dust_maps.py`
@@ -883,6 +1052,54 @@ snapshot (443,211 rows; El-Badry 2026 N = 1565; 147,560 ratios persisted) plus
 Forcing the fallback on the same artifact gives 5 / 2 / 1 / 0 (+1). Peak RSS 12.5 GiB, 63 min
 (E(B-V) cache cold). A full 14-stage run could not be used because the dry run currently stops at
 `data_acquisition` on an unrecognized duplicate-`source_id` shape (**#290**).
+
+### 3.3.5 PI decision on the `E(B-V)` conversions (#295) — re-measured, no count moves
+
+PI decision (Ryan Foley, 2026-09-27), verbatim: *"Use the Gaia conversion. Use Rv = 3.1 unless it
+says something else. Make sure these numbers are all in the config and easy to adjust."*
+
+Sources read, for each step:
+
+| Step | What the sources say | Adopted (config key) |
+|---|---|---|
+| `E(B-V) → A_G, E(BP−RP)` | El-Badry 2026 §2 states the constants `E(BP−RP) = 1.33 E(B−V)`, `A_G = 2.66 E(B−V)` ("appropriate for… Teff ≈ 6000 K"). §4 separately uses Cardelli R_V = 3.1 for SED priors | Frozen 2.66 / 1.33, unchanged: `sample_selection.dust_maps.gaia_band_extinction.law: paper_constant` |
+| `A0 ↔ E(B-V)` | Gaia Collaboration, Babusiaux et al. 2018 (A&A 616, A10) §2: "We assume `A_0 = 3.1 E(B-V)`". Lallement et al. 2019 App. A converts Bayestar to `A0` with `0.88 × 3.1`, "assuming R = 3.1". No source states another R_V | `dust_maps.r_v: 3.1`; Lallement `native_quantity: a0` → `E(B-V) = A0 / r_v`, **derived** from `r_v` (no baked 0.3226) |
+| Bayestar19 → `E(B-V)` | Green et al. 2019 / Argonaut usage page: `E(B-V) = 0.884 × Bayestar19` via SF11 Table 6 (R_V = 3.1, F99, 7000 K) `E(B-V) = 0.981 E(g−r)`; the same page gives `0.996` via `E(r−z)` | `dust_maps.maps.green2019.native_to_ebv: 0.884` (tabulated, **not** recomputed from `r_v`) |
+
+**Reading of "the Gaia conversion".** Implemented as the Gaia collaboration's `A0 = 3.1 E(B-V)` (the
+`A0`-to-`E(B-V)` conversion the question was about), which coincides with the R_V = 3.1 instruction.
+A second reading is the Gaia collaboration's colour/`A0`-dependent band law (Babusiaux 2018 Eq. 1 /
+Table 1) *instead of* the paper's constants. That contradicts what the paper says it did, so it is not
+the reproduction default. It is implemented as a one-line switch
+(`gaia_band_extinction.law: babusiaux2018`, coefficients in config). Note: the paper's 2.66 equals
+`3.1 × k_G` of that law at `(BP−RP)_0 ≈ 0.72`, `A0 → 0`, but its 1.33 does not (the law gives ≈ 1.49 there).
+
+Provenance: branch `feat/ebv-conversion-pi` @ `1d54daa` (= `main` @ `c07897e` + #295; the later merge of `main` @ `a5ce757` brings only #274 counting helpers and #221 data-acquisition collapse, neither of which touches cut evaluation or this cache), isolated
+worktree, `PYTHONPATH` → worktree `src/` (verified), cache `…+enrich+mc10000` (443,211 rows, 823,999,664
+bytes, mtime 2026-09-27 02:18:53), warm native `E(B-V)` cache `elbadry2026_30a69867aa069bca.h5` (unchanged:
+`dust_maps.py` was not edited). `andrews2022` first (N = 63), then `elbadry2026` with that membership.
+Peak RSS for both variants in one process: **7.3 GB** (`/usr/bin/time -l`; warm cache).
+
+| Check | Target | `paper_constant` (**landed default**) | `babusiaux2018` (sensitivity) |
+|---|---|---|---|
+| Published union (`n_surviving`, non-unique) | 227 | **1565** (1504 distinct; #274 per-type distinct **1507**, same membership as §3.3.4's real-map set) | 1584 (1522 distinct) |
+| Astrometric branch union | 76 | **1356** | 1372 |
+| Spectroscopic branch | 151 | **151** | 153 |
+| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | **132 / 30 / 11** | 137 / 30 / 14 |
+| `primary_ns_bh` | 47 | **46** | 45 (loses `6037767138131854592`) |
+| `elbadry2023_table_e1` | 5 | **5** | 5 |
+| `andrews2022_import` | 16 | **55** | 55 |
+| `sub_chandrasekhar` | 22 | **1265** | 1282 |
+| Simon breakdown | 5 / 2 / 1 / 1 | **5 / 2 / 1 / 1**, 0 unclassified, `in_sample` 11 | 5 / 2 / 1 / 1 |
+| Extinction outcomes | — | `ok` 318,964 · `beyond_map_limit` 30,446 · `invalid_parallax` 189 | same + `gaia_law_nonconvergent` 60 |
+
+The landed default is numerically identical to the #258 numbers in §3.3: the confirmed factors are the
+ones #258 already used, and it is the same arithmetic. `primary_ns_bh` attrition
+`168065 → 147560 → 1052 → 91 → 82 → 59 → 46`; `sub_chandrasekhar`
+`168065 → 147560 → 3043 → 1687 → 1275 → 1265`; spectroscopic `181534 → 133642 → 151`. Under
+`babusiaux2018`, 60 very red, highly extincted rows fail the law's fixed-point `(BP−RP)_0` solve (outside
+its fitted 3500–10000 K range). They are `NotApplicable("extinction_gaia_law_nonconvergent")` and
+counted, never passed through.
 
 ### 3.4 Simon 2026 exclusion breakdown
 

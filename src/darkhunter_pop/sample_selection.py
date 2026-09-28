@@ -17,7 +17,7 @@ import ast
 import json
 import logging
 import math
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -70,6 +70,9 @@ SCHEMA_VERSION: Final[int] = 1
 EXPLICIT_EXCLUSIONS_CUT_ID: Final[str] = "explicit_exclusions"
 PAPER_MASS_SOURCE: Final[str] = "paper"
 PIPELINE_MASS_SOURCE: Final[str] = "pipeline"
+#: Solution-type key for rows that carry no ``nss_solution_type`` (fixtures,
+#: legacy payloads). Such rows form one group under the #274 counting rule.
+UNSPECIFIED_SOLUTION_TYPE: Final[str] = "unspecified"
 # Sentinel name in declarative predicates: ``column is not_applicable``.
 _NOT_APPLICABLE_NAME: Final[str] = "not_applicable"
 _ALLOWED_CALLS: Final[frozenset[str]] = frozenset(
@@ -198,6 +201,74 @@ def _is_missing(value: Any) -> bool:
     return value is None or _is_nan(value)
 
 
+IdsBySolutionType = dict[str, tuple[int, ...]]
+
+
+def ids_by_solution_type(rows: Sequence[Mapping[str, Any]]) -> IdsBySolutionType:
+    """Group rows' distinct ``source_id`` values by ``nss_solution_type`` (#274).
+
+    Parameters
+    ----------
+    rows
+        Row mappings carrying ``source_id`` and, optionally,
+        ``nss_solution_type``. A missing or empty type is grouped under
+        ``UNSPECIFIED_SOLUTION_TYPE``.
+
+    Returns
+    -------
+    dict
+        ``{solution_type: sorted distinct source_ids}``, keys sorted. Duplicate
+        rows of one star within one type (period aliases, cross-match fan-out)
+        collapse to one entry; a star with rows of two types appears under both.
+    """
+    grouped: dict[str, set[int]] = {}
+    for row in rows:
+        raw_type = row.get("nss_solution_type")
+        key = UNSPECIFIED_SOLUTION_TYPE if raw_type in (None, "") else str(raw_type)
+        grouped.setdefault(key, set()).add(int(row["source_id"]))
+    return {key: tuple(sorted(grouped[key])) for key in sorted(grouped)}
+
+
+def merge_ids_by_solution_type(*maps: Mapping[str, Sequence[int]]) -> IdsBySolutionType:
+    """Per-type set union of several ``ids_by_solution_type`` maps."""
+    grouped: dict[str, set[int]] = {}
+    for mapping in maps:
+        for key, ids in mapping.items():
+            grouped.setdefault(str(key), set()).update(int(s) for s in ids)
+    return {key: tuple(sorted(grouped[key])) for key in sorted(grouped)}
+
+
+def restrict_ids_by_solution_type(
+    mapping: Mapping[str, Sequence[int]], keep: set[int] | frozenset[int]
+) -> IdsBySolutionType:
+    """Drop ids not in ``keep`` from every type; types left empty are removed."""
+    out: IdsBySolutionType = {}
+    for key in sorted(mapping):
+        ids = tuple(sorted({int(s) for s in mapping[key]} & set(keep)))
+        if ids:
+            out[str(key)] = ids
+    return out
+
+
+def distinct_star_count(mapping: Mapping[str, Sequence[int]]) -> int:
+    """The #274 reproduction count: distinct stars per solution type, summed.
+
+    Ryan Foley's ruling (2026-09-27, issue #274): *"In each solution type, count
+    distinct stars."* A star with two rows of one type counts once; a star with
+    an ``Orbital`` row and an ``SB1`` row counts once in each type. This is the
+    number compared against a published N in ``mode: reproduction``. It is a
+    reporting rule only: per-row emission and per-row likelihood counting
+    (CONTINUATION_PLAN §15 Q17, #244) are unchanged.
+    """
+    return sum(len({int(s) for s in ids}) for ids in mapping.values())
+
+
+def _ids_by_type_from_raw(raw: Any) -> IdsBySolutionType:
+    return {
+        str(k): tuple(int(s) for s in v) for k, v in dict(raw or {}).items()
+    }
+
+
 @dataclass
 class CutAttrition:
     """One waterfall row: N in/out plus distinct failed vs not-applicable counts."""
@@ -260,6 +331,35 @@ class SampleEvaluationResult:
     tilde_masses_by_source: dict[int, tuple[float, float]] = field(
         default_factory=dict
     )
+    #: Reporting-only (#274): distinct survivors grouped by the
+    #: ``nss_solution_type`` of the rows that actually passed the chain (for
+    #: branched samples, a branch's own chain; after explicit exclusions).
+    #: ``surviving_source_ids`` stays per-row and is what membership /
+    #: ``forward_model`` / inference consume; these maps feed only the counts
+    #: compared against published N (``distinct_star_count``).
+    surviving_by_solution_type: IdsBySolutionType = field(default_factory=dict)
+    branch_surviving_by_solution_type: dict[str, IdsBySolutionType] = field(
+        default_factory=dict
+    )
+    subsample_surviving_by_solution_type: dict[str, IdsBySolutionType] = field(
+        default_factory=dict
+    )
+
+    @property
+    def n_stars_per_solution_type(self) -> int:
+        """#274 reproduction count: distinct stars per solution type, summed.
+
+        Falls back to the distinct ``surviving_source_ids`` count when the
+        per-type map is absent (payloads that predate #274).
+        """
+        if self.surviving_by_solution_type:
+            return distinct_star_count(self.surviving_by_solution_type)
+        return len(set(self.surviving_source_ids))
+
+    @property
+    def n_distinct_source_ids(self) -> int:
+        """Distinct ``source_id`` count across all solution types (informational)."""
+        return len(set(self.surviving_source_ids))
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -280,6 +380,19 @@ class SampleEvaluationResult:
             "attrition": [row.as_dict() for row in self.attrition],
             "n_parent": self.n_parent,
             "n_surviving": self.n_surviving,
+            "n_stars_per_solution_type": self.n_stars_per_solution_type,
+            "n_distinct_source_ids": self.n_distinct_source_ids,
+            "surviving_by_solution_type": {
+                key: list(ids) for key, ids in self.surviving_by_solution_type.items()
+            },
+            "branch_surviving_by_solution_type": {
+                branch: {key: list(ids) for key, ids in by_type.items()}
+                for branch, by_type in self.branch_surviving_by_solution_type.items()
+            },
+            "subsample_surviving_by_solution_type": {
+                sub: {key: list(ids) for key, ids in by_type.items()}
+                for sub, by_type in self.subsample_surviving_by_solution_type.items()
+            },
         }
 
 
@@ -301,10 +414,19 @@ class SampleSelection:
         mode: SampleSelectionMode,
         dr_mode: ActiveDRMode = ActiveDRMode.DR3,
         extinction_lookup: Any | None = None,
+        reproduction_columns_loader: (
+            Callable[[], Mapping[int, Mapping[str, Any]]] | None
+        ) = None,
     ) -> None:
         """``extinction_lookup`` (``dust_maps.ExtinctionLookup``) supplies
         per-source ``E(B-V)`` for samples whose enrichment dereddens (El-Badry
-        2026). It is only consulted for rows that need enrichment."""
+        2026). It is only consulted for rows that need enrichment.
+
+        ``reproduction_columns_loader`` returns the precomputed
+        ``reproduction_procedure`` columns (``andrews_atf_*``, #296) keyed by
+        ``source_id``. It is called lazily and only when this sample is
+        evaluated in ``reproduction`` mode with a procedure block; the columns
+        are merged without overwriting keys the rows already carry."""
         if spec.branches:
             pass
         elif spec.parent_query is None or spec.cuts is None:
@@ -317,6 +439,7 @@ class SampleSelection:
         self.dr_mode = dr_mode
         self.mass_source = mass_source_for_mode(mode)
         self.extinction_lookup = extinction_lookup
+        self.reproduction_columns_loader = reproduction_columns_loader
         #: Per-outcome counts from the last dereddening pass (funnel report).
         self.extinction_status_counts: dict[str, int] = {}
         #: El-Badry ``(M̃1, M̃2)`` recorded during the last enrichment (#285).
@@ -467,6 +590,31 @@ class SampleSelection:
             out.append(clear_non_elbadry_m2_astrometric_sigma(enriched))
         return out
 
+    def _merge_reproduction_columns(
+        self, rows: Sequence[Mapping[str, Any]]
+    ) -> Sequence[Mapping[str, Any]]:
+        """Merge ``reproduction_procedure`` columns in reproduction mode only (#296).
+
+        ``forward_model`` evaluation, samples without a procedure block, and
+        registries without a loader see the rows unchanged.
+        """
+        if (
+            self.mode is not SampleSelectionMode.REPRODUCTION
+            or self.spec.reproduction_procedure is None
+            or self.reproduction_columns_loader is None
+        ):
+            return rows
+        columns = self.reproduction_columns_loader()
+        if not columns:
+            return rows
+        # Local import keeps andrews2022_atf out of the module-level import
+        # graph every stage reaches through data_acquisition → diagnostics
+        # (tests/test_stage_dependency_modules.py ledger); sample_selection
+        # declares it in its own dependency_modules.
+        from darkhunter_pop.andrews2022_atf import merge_reproduction_columns
+
+        return merge_reproduction_columns(rows, columns)
+
     def _record_tilde_masses(self, row: Mapping[str, Any]) -> None:
         """Keep this row's El-Badry ``(M̃1, M̃2)`` when both are finite (#285).
 
@@ -509,6 +657,7 @@ class SampleSelection:
         if self.spec.branches:
             # Enrich per branch after solution-type filter (not on full NSS).
             return self._evaluate_branched(list(rows), dep_membership)
+        rows = self._merge_reproduction_columns(rows)
         enriched = self._enrich_rows_for_spec(rows)
         parent = parent_query_for_mode(self.spec, self.dr_mode)
         types = set(parent.solution_types)
@@ -553,6 +702,7 @@ class SampleSelection:
             inference_source_ids=surviving,
             extinction_status_counts=dict(self.extinction_status_counts),
             tilde_masses_by_source=dict(self.tilde_masses_by_source),
+            surviving_by_solution_type=ids_by_solution_type(remaining),
         )
 
     def _evaluate_branched(
@@ -568,6 +718,8 @@ class SampleSelection:
         inference_ids: set[int] = set()
         union_ids: set[int] = set()
         route_counts: dict[str, int] = {}
+        branch_by_type: dict[str, IdsBySolutionType] = {}
+        subsample_by_type: dict[str, IdsBySolutionType] = {}
         bound_all = [self.bind_row(row, membership=membership) for row in rows]
         for row in bound_all:
             outcomes.setdefault(int(row["source_id"]), [])
@@ -591,13 +743,16 @@ class SampleSelection:
                 for row in self._enrich_rows_for_spec(branch_rows)
             ]
             if branch.subsamples:
-                ids, sub_map, sub_attr = self._evaluate_subsample_union(
-                    branch, branch_rows, outcomes, membership
+                ids, sub_map, sub_attr, by_type, sub_by_type = (
+                    self._evaluate_subsample_union(
+                        branch, branch_rows, outcomes, membership
+                    )
                 )
                 attrition.extend(sub_attr)
                 subsample_surviving.update(sub_map)
+                subsample_by_type.update(sub_by_type)
             else:
-                ids, chain_attr = self._evaluate_and_chain(
+                ids, chain_attr, by_type = self._evaluate_and_chain(
                     list(branch.cuts or []),
                     branch_rows,
                     outcomes,
@@ -610,6 +765,7 @@ class SampleSelection:
                         self._spectroscopic_route_counts(branch_rows, set(ids))
                     )
             branch_surviving[branch.id] = ids
+            branch_by_type[branch.id] = by_type
             union_ids.update(ids)
             if branch.inference or branch.id in self.spec.inference_branches:
                 inference_ids.update(ids)
@@ -621,6 +777,12 @@ class SampleSelection:
         surviving = tuple(sorted(int(row["source_id"]) for row in remaining))
         inference_kept = tuple(
             sid for sid in surviving if sid in inference_ids
+        )
+        # #274 reporting: per-type survivors come from rows that passed their
+        # own branch chain, not from every row of a surviving star (which is
+        # what ``remaining`` holds), then honour the explicit exclusions.
+        surviving_by_type = restrict_ids_by_solution_type(
+            merge_ids_by_solution_type(*branch_by_type.values()), set(surviving)
         )
         return SampleEvaluationResult(
             name=self.spec.name,
@@ -638,6 +800,9 @@ class SampleSelection:
             route_counts=route_counts,
             extinction_status_counts=dict(self.extinction_status_counts),
             tilde_masses_by_source=dict(self.tilde_masses_by_source),
+            surviving_by_solution_type=surviving_by_type,
+            branch_surviving_by_solution_type=branch_by_type,
+            subsample_surviving_by_solution_type=subsample_by_type,
         )
 
     def _evaluate_and_chain(
@@ -648,7 +813,13 @@ class SampleSelection:
         membership: Mapping[str, frozenset[int]],
         *,
         cut_id_prefix: str = "",
-    ) -> tuple[tuple[int, ...], list[CutAttrition]]:
+    ) -> tuple[tuple[int, ...], list[CutAttrition], IdsBySolutionType]:
+        """AND-chain ``cuts`` over ``rows``.
+
+        Returns the per-row surviving ``source_id`` tuple, the attrition rows,
+        and the survivors grouped by solution type (``ids_by_solution_type``;
+        reporting only, #274).
+        """
         remaining = list(rows)
         attrition: list[CutAttrition] = []
         for cut in cuts:
@@ -665,7 +836,11 @@ class SampleSelection:
                 for row in remaining
                 if outcomes[int(row["source_id"])][-1][1] is CutOutcome.PASSED
             ]
-        return tuple(int(row["source_id"]) for row in remaining), attrition
+        return (
+            tuple(int(row["source_id"]) for row in remaining),
+            attrition,
+            ids_by_solution_type(remaining),
+        )
 
     def _evaluate_subsample_union(
         self,
@@ -673,15 +848,27 @@ class SampleSelection:
         rows: Sequence[Mapping[str, Any]],
         outcomes: dict[int, list[tuple[str, CutOutcome, str | None]]],
         membership: Mapping[str, frozenset[int]],
-    ) -> tuple[tuple[int, ...], dict[str, tuple[int, ...]], list[CutAttrition]]:
+    ) -> tuple[
+        tuple[int, ...],
+        dict[str, tuple[int, ...]],
+        list[CutAttrition],
+        IdsBySolutionType,
+        dict[str, IdsBySolutionType],
+    ]:
+        """OR-union of subsample AND-chains.
+
+        Returns the distinct union ids, per-subsample ids, attrition, and the
+        union and per-subsample survivors grouped by solution type (#274).
+        """
         union: set[int] = set()
         sub_map: dict[str, tuple[int, ...]] = {}
+        sub_by_type: dict[str, IdsBySolutionType] = {}
         attrition: list[CutAttrition] = []
         for sub in branch.subsamples or []:
             extra = dict(membership)
             if sub.external_table:
                 extra[sub.id] = self._source_ids_from_external_table(sub.external_table)
-            ids, chain_attr = self._evaluate_and_chain(
+            ids, chain_attr, by_type = self._evaluate_and_chain(
                 sub.cuts,
                 rows,
                 outcomes,
@@ -690,6 +877,7 @@ class SampleSelection:
             )
             attrition.extend(chain_attr)
             sub_map[sub.id] = ids
+            sub_by_type[sub.id] = by_type
             union.update(ids)
             attrition.append(
                 CutAttrition(
@@ -703,21 +891,37 @@ class SampleSelection:
                     expected_n_after=sub.expected_n,
                 )
             )
-        return tuple(sorted(union)), sub_map, attrition
+        return (
+            tuple(sorted(union)),
+            sub_map,
+            attrition,
+            merge_ids_by_solution_type(*sub_by_type.values()),
+            sub_by_type,
+        )
 
     def _spectroscopic_route_counts(
         self,
         rows: Sequence[Mapping[str, Any]],
         surviving: set[int],
     ) -> dict[str, int]:
-        """136 / 30 / 15 breakdown on SB1 survivors (catalog-level only)."""
+        """136 / 30 / 15 breakdown on SB1 survivors (catalog-level only).
+
+        Counted under the #274 rule: each ``(source_id, nss_solution_type)``
+        pair once, so a same-type duplicate row of one star is not double
+        counted while ``SB1`` and ``SB1C`` rows of one star each count.
+        """
         ms_route = 0
         fm_route = 0
         both = 0
+        seen: set[tuple[int, str]] = set()
         for row in rows:
             sid = int(row["source_id"])
             if sid not in surviving:
                 continue
+            key = (sid, str(row.get("nss_solution_type") or UNSPECIFIED_SOLUTION_TYPE))
+            if key in seen:
+                continue
+            seen.add(key)
             fm = row.get("fm_msun")
             m2 = row.get("m2_min_msun")
             m1 = row.get("m1_tilde_msun", row.get("m1_msun"))
@@ -1282,6 +1486,11 @@ def resolve_inherits(
         if spec.monte_carlo is not None
         else resolved_parent.monte_carlo
     )
+    reproduction_procedure = (
+        spec.reproduction_procedure
+        if spec.reproduction_procedure is not None
+        else resolved_parent.reproduction_procedure
+    )
     depends_on = spec.depends_on or list(resolved_parent.depends_on)
     return spec.model_copy(
         update={
@@ -1290,6 +1499,7 @@ def resolve_inherits(
             "exclusions": exclusions,
             "primary_mass": primary_mass,
             "monte_carlo": monte_carlo,
+            "reproduction_procedure": reproduction_procedure,
             "depends_on": depends_on,
         }
     )
@@ -1402,7 +1612,37 @@ class SampleSelectionRegistry:
             mode=entry.mode,
             dr_mode=self.dr_mode,
             extinction_lookup=self._extinction_lookup(spec),
+            reproduction_columns_loader=self._reproduction_columns_loader(spec),
         )
+
+    def _reproduction_columns_loader(
+        self, spec: SampleSelectionFile
+    ) -> Callable[[], Mapping[int, Mapping[str, Any]]] | None:
+        """Lazy, memoized sidecar reader for ``spec.reproduction_procedure`` (#296).
+
+        ``None`` without a ``PipelineConfig`` (no data paths) or without a
+        procedure block. Variants that inherit the same procedure share one
+        read (keyed by the procedure fingerprint).
+        """
+        if self.pipeline is None or spec.reproduction_procedure is None:
+            return None
+        # Local import: see SampleSelection._merge_reproduction_columns.
+        from darkhunter_pop.andrews2022_atf import (
+            load_reproduction_columns,
+            procedure_fingerprint,
+        )
+
+        pipeline = self.pipeline
+        key = f"reproduction:{procedure_fingerprint(spec)}"
+
+        def _load() -> Mapping[int, Mapping[str, Any]]:
+            cached = self._lookups.get(key)
+            if cached is None:
+                cached = load_reproduction_columns(spec, pipeline, repo=self.repo)
+                self._lookups[key] = cached
+            return cached
+
+        return _load
 
     def _extinction_lookup(self, spec: SampleSelectionFile) -> Any | None:
         """Lazy ``E(B-V)`` provider for samples whose enrichment dereddens.
@@ -1609,6 +1849,19 @@ def sample_evaluation_result_from_dict(raw: Mapping[str, Any]) -> SampleEvaluati
         extinction_status_counts={
             str(k): int(v)
             for k, v in dict(raw.get("extinction_status_counts") or {}).items()
+        },
+        surviving_by_solution_type=_ids_by_type_from_raw(
+            raw.get("surviving_by_solution_type")
+        ),
+        branch_surviving_by_solution_type={
+            str(k): _ids_by_type_from_raw(v)
+            for k, v in dict(raw.get("branch_surviving_by_solution_type") or {}).items()
+        },
+        subsample_surviving_by_solution_type={
+            str(k): _ids_by_type_from_raw(v)
+            for k, v in dict(
+                raw.get("subsample_surviving_by_solution_type") or {}
+            ).items()
         },
     )
 

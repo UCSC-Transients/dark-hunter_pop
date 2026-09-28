@@ -612,9 +612,12 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     chain), sensitivity_analysis (imported by mc_mass_function.py), and
     data_acquisition (imported directly by sample_selection.py). #258 adds
     dust_maps (imported by elbadry2026_selection.py for the frozen
-    extinction policy). #183 adds data_acquisition's own module-scope imports
-    (diagnostic_hooks, nss_covariance, rv_adapter) so the declared set is
-    closed under module-scope imports. All twelve must feed source_hash.
+    extinction policy). #296 adds andrews2022_atf (the ATF-notebook
+    reproduction procedure, imported lazily by sample_selection.py) and
+    constants (imported by andrews2022_atf). #183 adds data_acquisition's own
+    module-scope imports (diagnostic_hooks, nss_covariance, rv_adapter) so the
+    declared set is closed under module-scope imports. All fourteen must feed
+    source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -622,6 +625,8 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     spec = STAGE_REGISTRY["sample_selection"]
     assert set(spec.dependency_modules) == {
         "darkhunter_pop.sample_selection",
+        "darkhunter_pop.andrews2022_atf",
+        "darkhunter_pop.constants",
         "darkhunter_pop.elbadry2026_m2_sigma",
         "darkhunter_pop.janssens_mass",
         "darkhunter_pop.elbadry2026_selection",

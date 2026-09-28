@@ -24,3 +24,15 @@ grep -l '^dry_run: true' runs/*.yaml
 
 Regenerate with `python scripts/run_dry_run.py --host-profile laptop --snapshot <meta.yaml>`;
 see the README's "Labeled dry run" section.
+
+## Artifact retention (2026-09-27)
+
+The HDF5 artifacts of the Wave 0 reference run `runs/20260920-033431-121d6de.yaml` lived under
+`output/` of the `wave0-dry-run-harness` worktree, which the manifest's `artifact_path` entries
+point to by absolute path. On 2026-09-27 the operator (Ryan Foley) decided to delete that worktree
+and its `output/` (~1.0 GB) to recover laptop disk. Once it is removed, those `artifact_path`
+entries are dangling by design; the run file is kept unedited as the record. The run is
+reproducible from what the manifest records — config checksum, `host_profile: laptop`, seeds,
+gaiamock version triple, and the snapshot
+`data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/meta.yaml` — via the regeneration command
+above. The files in this directory are the retained gate evidence.
