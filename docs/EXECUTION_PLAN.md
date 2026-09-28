@@ -13,7 +13,8 @@ what it measured and the handoff note in umbrella issue **#145**.
 **Wave 0 is complete** as of 2026-09-20, `main` @ `13356e5` — roster #28–#32 all landed and
 independently verified. The pipeline ran end to end for the first time
 (`runs/20260920-033431-121d6de.yaml`, all 14 stages terminal, reproducible on three independent
-invocations), producing a labeled `dN/dM`-by-class figure meeting `docs/PLOTS.md` standards. §5.6
+invocations; its HDF5 artifacts were slated for deletion on 2026-09-27 by operator decision and the
+run stays reproducible from the recorded config/snapshot — see `docs/gate0/README.md`), producing a labeled `dN/dM`-by-class figure meeting `docs/PLOTS.md` standards. §5.6
 below carries the measured end-to-end RSS/timing refinement from that run — see its own note on
 why the concurrency cap should move to three heavy sessions once issue #224 (which corrects that
 section's cited provenance) lands. See the handoff note in umbrella issue **#202** for the full
@@ -254,6 +255,12 @@ this correctly needs `PYTHONPATH` shadowing (point it at the worktree's `src/` a
 site-packages) rather than relying on the editable install alone. A spurious mass-failure count that
 disappears on an isolated rerun of the same tests is the signature of this failure mode, not a real
 regression — check for it before escalating or reverting.
+
+**Standing note (added 2026-09-27, from PR #287):** PR #287 was opened with another agent's body
+because both sessions wrote it to a shared scratchpad `pr.md`. Write every PR body to a **unique**
+filename (e.g. `pr-body-<slug>-<issue>.md` in your own worktree or session scratchpad), pass it with
+`gh pr create --body-file`, and immediately confirm with `gh pr view <N>` that the title and body
+are yours. If they are not, fix them with `gh pr edit <N> --body-file` before arming auto-merge.
 
 ```
 1. Read and follow:
