@@ -125,47 +125,47 @@ def gaia_band_extinction_babusiaux2018(
     *,
     r_v: float,
     coeffs: GaiaBandPolynomialCoefficients,
-) -> tuple[np.ndarray, np.ndarray]:
-    """``(A_G, E(BP-RP))`` per source from the Gaia colour/A0-dependent law (#295).
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(A_G, E(BP-RP), converged)`` per source from the Gaia law (#295).
 
     ``A0 = r_v · E(B-V)``; ``(BP-RP)_0`` solves
     ``(BP-RP)_0 = (BP-RP)_obs − (k_BP − k_RP)((BP-RP)_0, A0) · A0`` by
-    fixed-point iteration from ``(BP-RP)_obs``, stopping when every finite
-    source moves by less than ``coeffs.tolerance``; raises ``ValueError`` if
-    ``coeffs.max_iterations`` is reached first. Non-finite inputs give NaN.
+    fixed-point iteration from ``(BP-RP)_obs``. A source converges once its
+    colour moves by less than ``coeffs.tolerance`` mag within
+    ``coeffs.max_iterations`` steps. The iteration only contracts where
+    ``|∂[(k_BP−k_RP)A0]/∂X| < 1``; for very red, highly extincted sources
+    (roughly ``(BP-RP)_0 ≳ 2.5`` with ``A0 ≳ 3``, i.e. outside the law's
+    fitted 3500–10000 K range) it diverges. Those sources get NaN and
+    ``converged = False`` — the caller must report them, never pass them
+    through. Non-finite inputs give NaN with ``converged = False``.
     Coefficients and limits come from config (see
-    :class:`~darkhunter_pop.config_schema.GaiaBandPolynomialCoefficients`);
-    the polynomial is extrapolated, not clipped, outside its fitted range.
+    :class:`~darkhunter_pop.config_schema.GaiaBandPolynomialCoefficients`).
     """
     obs = np.asarray(bp_rp_observed, dtype=np.float64)
     a0 = float(r_v) * np.asarray(ebv, dtype=np.float64)
     a_g = np.full(obs.shape, np.nan)
     e_bp_rp = np.full(obs.shape, np.nan)
-    ok = np.isfinite(obs) & np.isfinite(a0)
-    if not ok.any():
-        return a_g, e_bp_rp
-    x_obs, a0_ok = obs[ok], a0[ok]
-    colour0 = x_obs.copy()
-    for _ in range(coeffs.max_iterations):
-        k_diff = _babusiaux_k(coeffs.k_bp, colour0, a0_ok) - _babusiaux_k(
-            coeffs.k_rp, colour0, a0_ok
-        )
-        updated = x_obs - k_diff * a0_ok
-        converged = bool(np.all(np.abs(updated - colour0) < coeffs.tolerance))
-        colour0 = updated
-        if converged:
-            break
-    else:
-        raise ValueError(
-            "babusiaux2018 (BP-RP)_0 fixed-point iteration did not converge in "
-            f"{coeffs.max_iterations} steps (tolerance {coeffs.tolerance} mag)"
-        )
-    k_diff = _babusiaux_k(coeffs.k_bp, colour0, a0_ok) - _babusiaux_k(
-        coeffs.k_rp, colour0, a0_ok
-    )
-    a_g[ok] = _babusiaux_k(coeffs.k_g, colour0, a0_ok) * a0_ok
-    e_bp_rp[ok] = k_diff * a0_ok
-    return a_g, e_bp_rp
+    converged = np.zeros(obs.shape, dtype=bool)
+    active = np.isfinite(obs) & np.isfinite(a0)
+    colour0 = np.where(active, obs, np.nan)
+    with np.errstate(over="ignore", invalid="ignore"):
+        for _ in range(coeffs.max_iterations):
+            idx = np.flatnonzero(active & ~converged)
+            if idx.size == 0:
+                break
+            x, a = colour0[idx], a0[idx]
+            k_diff = _babusiaux_k(coeffs.k_bp, x, a) - _babusiaux_k(coeffs.k_rp, x, a)
+            updated = obs[idx] - k_diff * a
+            colour0[idx] = updated
+            done = np.abs(updated - x) < coeffs.tolerance
+            converged[idx[done]] = True
+            diverged = ~np.isfinite(updated)
+            active[idx[diverged]] = False
+        ok = np.flatnonzero(converged)
+        x, a = colour0[ok], a0[ok]
+        a_g[ok] = _babusiaux_k(coeffs.k_g, x, a) * a
+        e_bp_rp[ok] = (_babusiaux_k(coeffs.k_bp, x, a) - _babusiaux_k(coeffs.k_rp, x, a)) * a
+    return a_g, e_bp_rp, converged
 
 
 def _finite_or_nan(value: Any) -> float:
@@ -268,17 +268,24 @@ def deredden_elbadry2026_rows(
     if band is not None and band.law == "babusiaux2018":
         assert band.babusiaux2018 is not None and dust_cfg is not None  # schema-validated
         assert dust_cfg.r_v is not None
-        a_g_arr, e_bp_rp_arr = gaia_band_extinction_babusiaux2018(
-            np.array([_finite_or_nan(out[i].get("bp_rp")) for i in usable]),
-            ebv_arr,
-            r_v=dust_cfg.r_v,
-            coeffs=band.babusiaux2018,
+        bp_rp_arr = np.array([_finite_or_nan(out[i].get("bp_rp")) for i in usable])
+        a_g_arr, e_bp_rp_arr, converged = gaia_band_extinction_babusiaux2018(
+            bp_rp_arr, ebv_arr, r_v=dust_cfg.r_v, coeffs=band.babusiaux2018
         )
+        # Finite inputs the law could not solve are reported, never passed through.
+        unsolved = ~converged & np.isfinite(bp_rp_arr) & np.isfinite(ebv_arr)
     else:
         a_g_arr = a_g * ebv_arr
         e_bp_rp_arr = e_bp_rp * ebv_arr
+        unsolved = np.zeros(len(usable), dtype=bool)
     for j, i in enumerate(usable):
         row = out[i]
+        if unsolved[j]:
+            reason = NotApplicable("extinction_gaia_law_nonconvergent")
+            row[EXTINCTION_STATUS_COLUMN] = "gaia_law_nonconvergent"
+            row["mg_0"] = reason
+            row["bp_rp_0"] = reason
+            continue
         row["mg_0"] = _finite_or_nan(row.get("abs_g_mag")) - float(a_g_arr[j])
         row["bp_rp_0"] = _finite_or_nan(row.get("bp_rp")) - float(e_bp_rp_arr[j])
     return out

@@ -16,6 +16,7 @@ from darkhunter_pop.config_schema import (
 )
 from darkhunter_pop.elbadry2026_selection import (
     EBV_COLUMN,
+    EXTINCTION_STATUS_COLUMN,
     deredden_elbadry2026_rows,
     gaia_band_extinction_babusiaux2018,
 )
@@ -24,7 +25,7 @@ from darkhunter_pop.run_management import (
     config_subset_fingerprint,
     config_subset_for_stage,
 )
-from darkhunter_pop.sample_selection import load_sample_selection_file
+from darkhunter_pop.sample_selection import NotApplicable, load_sample_selection_file
 
 ELBADRY2026 = repo_root() / "config" / "selections" / "elbadry2026.yaml"
 
@@ -77,16 +78,26 @@ def test_config_yaml_has_no_pending_marker() -> None:
 def test_a0_map_derives_factor_from_r_v() -> None:
     cfg = DustMapsConfig(r_v=2.5, maps={"l": DustMapFileSpec(path="l.h5", native_quantity="a0")})
     assert cfg.maps["l"].native_to_ebv == pytest.approx(0.4)
-    # model_dump round trip re-validates cleanly.
-    again = DustMapsConfig.model_validate(cfg.model_dump(mode="json"))
+    # The derived factor is not dumped: a dump re-validates, and follows a new r_v.
+    dump = cfg.model_dump(mode="json")
+    assert "native_to_ebv" not in dump["maps"]["l"]
+    again = DustMapsConfig.model_validate(dump)
     assert again.maps["l"].native_to_ebv == cfg.maps["l"].native_to_ebv
+    dump["r_v"] = 4.0
+    assert DustMapsConfig.model_validate(dump).maps["l"].native_to_ebv == pytest.approx(0.25)
+    # A shared spec instance is not mutated by another config's r_v.
+    shared = DustMapFileSpec(path="l.h5", native_quantity="a0")
+    one = DustMapsConfig(r_v=2.0, maps={"l": shared})
+    two = DustMapsConfig(r_v=4.0, maps={"l": shared})
+    assert one.maps["l"].native_to_ebv == 0.5 and two.maps["l"].native_to_ebv == 0.25
+    assert shared.native_to_ebv is None
 
 
 @pytest.mark.unit
 def test_a0_map_refusals() -> None:
     with pytest.raises(ValidationError, match="requires sample_selection.dust_maps.r_v"):
         DustMapsConfig(maps={"l": DustMapFileSpec(path="l.h5", native_quantity="a0")})
-    with pytest.raises(ValidationError, match="conflicts with 1/r_v"):
+    with pytest.raises(ValidationError, match="must not be set for an 'a0' map"):
         DustMapsConfig(
             r_v=3.1,
             maps={"l": DustMapFileSpec(path="l.h5", native_quantity="a0", native_to_ebv=0.5)},
@@ -143,7 +154,7 @@ def test_native_cache_fingerprint_ignores_conversion_knobs() -> None:
 def test_babusiaux_small_a0_limit_matches_table1_polynomial() -> None:
     coeffs = _coeffs()
     ebv = np.array([1e-6])
-    a_g, e_bp_rp = gaia_band_extinction_babusiaux2018(
+    a_g, e_bp_rp, _ = gaia_band_extinction_babusiaux2018(
         np.array([0.72]), ebv, r_v=3.1, coeffs=coeffs
     )
     x = 0.72
@@ -159,7 +170,7 @@ def test_babusiaux_fixed_point_is_self_consistent_and_handles_nan() -> None:
     coeffs = _coeffs()
     obs = np.array([1.2, 0.9, np.nan, 1.0])
     ebv = np.array([0.5, 0.1, 0.2, np.nan])
-    a_g, e_bp_rp = gaia_band_extinction_babusiaux2018(obs, ebv, r_v=3.1, coeffs=coeffs)
+    a_g, e_bp_rp, _ = gaia_band_extinction_babusiaux2018(obs, ebv, r_v=3.1, coeffs=coeffs)
     assert np.isnan(a_g[2:]).all() and np.isnan(e_bp_rp[2:]).all()
     for i in (0, 1):
         colour0 = obs[i] - e_bp_rp[i]
@@ -170,12 +181,32 @@ def test_babusiaux_fixed_point_is_self_consistent_and_handles_nan() -> None:
 
 
 @pytest.mark.unit
-def test_babusiaux_non_convergence_is_an_error() -> None:
-    with pytest.raises(ValueError, match="did not converge"):
-        gaia_band_extinction_babusiaux2018(
-            np.array([1.0]), np.array([1.0]), r_v=3.1,
-            coeffs=_coeffs(max_iterations=1, tolerance=1e-15),
-        )
+def test_babusiaux_non_convergence_is_flagged_not_raised() -> None:
+    a_g, e_bp_rp, converged = gaia_band_extinction_babusiaux2018(
+        np.array([1.0, 4.0]), np.array([0.1, 3.0]), r_v=3.1, coeffs=_coeffs()
+    )
+    # Blue/low-A0 converges; very red with A0 ~ 9 diverges (outside the fit range).
+    assert converged.tolist() == [True, False]
+    assert np.isfinite(a_g[0]) and np.isnan(a_g[1]) and np.isnan(e_bp_rp[1])
+    _, _, few = gaia_band_extinction_babusiaux2018(
+        np.array([1.0]), np.array([1.0]), r_v=3.1,
+        coeffs=_coeffs(max_iterations=1, tolerance=1e-15),
+    )
+    assert not few[0]
+
+
+@pytest.mark.physics
+def test_nonconvergent_rows_are_not_applicable_with_reason() -> None:
+    spec = load_sample_selection_file(ELBADRY2026)
+    base = load_config().sample_selection.dust_maps
+    gaia_cfg = base.model_copy(
+        update={"gaia_band_extinction": base.gaia_band_extinction.model_copy(update={"law": "babusiaux2018"})}
+    )
+    rows = [{"source_id": 1, "abs_g_mag": 5.0, "bp_rp": 4.0, EBV_COLUMN: 3.0}]
+    out = deredden_elbadry2026_rows(rows, spec, None, dust_cfg=gaia_cfg)[0]
+    assert isinstance(out["mg_0"], NotApplicable)
+    assert out["mg_0"].reason == "extinction_gaia_law_nonconvergent"
+    assert out[EXTINCTION_STATUS_COLUMN] == "gaia_law_nonconvergent"
 
 
 @pytest.mark.physics
@@ -190,7 +221,7 @@ def test_dereddening_law_switch() -> None:
         update={"gaia_band_extinction": base.gaia_band_extinction.model_copy(update={"law": "babusiaux2018"})}
     )
     gaia = deredden_elbadry2026_rows(rows, spec, None, dust_cfg=gaia_cfg)[0]
-    a_g, e_bp_rp = gaia_band_extinction_babusiaux2018(
+    a_g, e_bp_rp, _ = gaia_band_extinction_babusiaux2018(
         np.array([1.0]), np.array([0.2]), r_v=3.1, coeffs=_coeffs()
     )
     assert gaia["mg_0"] == pytest.approx(5.0 - a_g[0])

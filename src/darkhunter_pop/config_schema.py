@@ -7,12 +7,18 @@ under ``physics``, ``mass_calibration``, ``classification``, etc.
 
 from __future__ import annotations
 
-import math
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    model_serializer,
+    model_validator,
+)
 
 from darkhunter_pop.schemas import ActiveDRMode
 
@@ -932,8 +938,9 @@ class DustMapFileSpec(BaseModel):
       ``E(B-V)``.
     * ``a0`` — monochromatic extinction ``A0`` (e.g. Lallement 2019 at 5500 Å);
       ``native_to_ebv`` is *derived* as ``1 / DustMapsConfig.r_v`` (the Gaia
-      convention ``A0 = R_V E(B-V)``), so R_V is the single knob. A value given
-      explicitly must equal ``1 / r_v`` (a model-dump round trip), else refused.
+      convention ``A0 = R_V E(B-V)``), so R_V is the single knob. Setting it
+      explicitly is refused, and the derived value is left out of
+      ``model_dump`` so a dumped config re-validates with a new ``r_v``.
 
     ``md5`` (optional) pins the exact published file; a mismatch refuses to load.
     """
@@ -945,6 +952,14 @@ class DustMapFileSpec(BaseModel):
     native_to_ebv: float | None = Field(default=None, gt=0.0)
     md5: str | None = None
     provenance: str | None = None
+    _derived_factor: bool = PrivateAttr(default=False)
+
+    @model_serializer(mode="wrap")
+    def _omit_derived_factor(self, handler: Any) -> Any:
+        data = handler(self)
+        if self._derived_factor and isinstance(data, dict):
+            data.pop("native_to_ebv", None)
+        return data
 
 
 class GaiaBandPolynomialCoefficients(BaseModel):
@@ -960,7 +975,9 @@ class GaiaBandPolynomialCoefficients(BaseModel):
     polynomial is extrapolated, not clipped. ``(G_BP-G_RP)_0`` enters
     ``k_BP - k_RP`` itself, so it is solved by fixed-point iteration from the
     observed colour: at most ``max_iterations`` steps, stopping once the colour
-    moves by less than ``tolerance`` mag; non-convergence is a hard error.
+    moves by less than ``tolerance`` mag. A source that does not converge (the
+    iteration diverges for very red, highly extincted sources outside the fitted
+    range) is reported as ``NotApplicable("extinction_gaia_law_nonconvergent")``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1026,17 +1043,16 @@ class DustMapsConfig(BaseModel):
                     f"sample_selection.dust_maps.maps.{name}: native_quantity 'a0' "
                     "requires sample_selection.dust_maps.r_v"
                 )
-            derived = 1.0 / self.r_v
-            # Round-trip tolerance only (model_dump → re-validate), not physics.
-            if spec.native_to_ebv is not None and not math.isclose(
-                spec.native_to_ebv, derived, rel_tol=1e-12
-            ):
+            if spec.native_to_ebv is not None and not spec._derived_factor:
                 raise ValueError(
-                    f"sample_selection.dust_maps.maps.{name}: native_to_ebv "
-                    f"{spec.native_to_ebv} conflicts with 1/r_v = {derived} for an "
-                    "'a0' map — set r_v instead"
+                    f"sample_selection.dust_maps.maps.{name}: native_to_ebv must not "
+                    "be set for an 'a0' map — it is derived as 1/r_v; set r_v instead"
                 )
-            spec.native_to_ebv = derived
+            # Copy, so a spec instance shared between configs never carries
+            # another config's r_v.
+            resolved = spec.model_copy(update={"native_to_ebv": 1.0 / self.r_v})
+            resolved._derived_factor = True
+            self.maps[name] = resolved
         band = self.gaia_band_extinction
         if band.law == "babusiaux2018":
             if band.babusiaux2018 is None:
