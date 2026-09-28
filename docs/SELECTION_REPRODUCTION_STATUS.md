@@ -1003,9 +1003,10 @@ Same path as §3.3.3: the 168,065 astrometric-branch rows of the `…+enrich+mc1
 `147,560` main-sequence rows, and **3043** in the `m2_range` window, the same as §3.3. It took 70 s at
 2.3 GB peak RSS. `σ_M̃2` was then computed on that window only, and the combinations were evaluated
 from the stored columns. The default configuration was cross-checked through the real
-`SampleSelection.evaluate` on the window rows, and gives the same 49. Measured 2026-09-28, with the
-E(B-V) conversions on `main` at the time (`0.884 × Bayestar19`, `A0/3.1`). A pending conversion change
-would shift these counts by a few (§3.3: factor 1.0 moved the frozen chain 1265 → 1313).
+`SampleSelection.evaluate` on the window rows, and gives the same 49. Measured 2026-09-28. **Re-measured after
+merging #307** (PI `E(B-V)` conversions, §3.3.5), at `6e1d6e1`. Every number in this section is
+identical there: window 3043, every sweep cell, and the real-evaluator 49 / 19. As §3.3.5 records,
+the landed conversions are the ones #258 already used.
 
 **What landed** (`config/selections/elbadry2026.yaml` schema_version 2, sanctioned by Ryan Foley's
 #284 decision):
