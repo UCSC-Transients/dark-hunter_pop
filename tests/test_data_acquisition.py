@@ -938,3 +938,230 @@ def test_write_stage_hdf5_leaves_no_partial_on_failure(tmp_path: Path) -> None:
     assert not artifact.with_name(artifact.name + ".partial").exists()
     loaded, _meta = read_stage_hdf5(artifact)
     assert [c.source_id for c in loaded] == [1001, 1002]
+
+
+# --- cross-match fan-out collapse (#221, option B) -----------------------------------
+#
+# Ryan Foley's decision (2026-09-27): a fan-out group whose rows are identical in every
+# column except the 2MASS J/H/Ks values and errors collapses to one row, the conflicting
+# bands masked (value + error) and the row flagged. Nothing is chosen between rows and
+# nothing is copied from one row into another. Anything else stays refused or kept.
+
+_MASKABLE = ("J", "H", "Ks")
+
+
+def _tmass_fanout_table(*, source_row: int = 1) -> Table:
+    """``_sample_table`` with row ``source_row`` duplicated as a 2MASS fan-out.
+
+    The two copies are identical except J (value + error) and H (value) conflict, and
+    Ks agrees. Mirrors the 5 real SB1 groups measured under #290.
+    """
+    base = _sample_table()
+    base["H_mag"] = [10.5, 11.5, 10.0]
+    base["H_mag_err"] = [0.04, 0.04, 0.04]
+    base["Ks_mag"] = [10.2, 11.2, 9.8]
+    base["Ks_mag_err"] = [0.03, 0.03, 0.03]
+    order = list(range(len(base)))
+    order.insert(source_row + 1, source_row)
+    table = Table(base[order])
+    dup = source_row + 1
+    table["J_mag"][dup] = table["J_mag"][source_row] + 0.28
+    table["J_mag_err"][dup] = table["J_mag_err"][source_row] * 2.0
+    table["H_mag"][dup] = table["H_mag"][source_row] - 0.1
+    return table
+
+
+def test_collapse_crossmatch_fanout_masks_conflicting_tmass_bands() -> None:
+    from darkhunter_pop.data_acquisition import (
+        CROSSMATCH_FANOUT_COLLAPSED_KEY,
+        CROSSMATCH_FANOUT_MASKED_BANDS_KEY,
+        CROSSMATCH_FANOUT_N_MATCHES_KEY,
+        assert_unique_source_ids,
+        attach_crossmatch_fanout_provenance,
+        collapse_crossmatch_fanout,
+    )
+
+    table = _tmass_fanout_table()
+    original = table.copy()
+    result = collapse_crossmatch_fanout(table, _MASKABLE)
+
+    # Input table untouched.
+    assert len(table) == 4
+    assert list(table["J_mag"]) == list(original["J_mag"])
+
+    out = result.table
+    assert list(out["source_id"]) == [1001, 1002, 1003]
+    assert result.counts.groups_collapsed == 1
+    assert result.counts.rows_removed == 1
+    assert result.counts.sources_masked == 1
+    assert result.counts.bands_masked == 2
+    assert result.provenance == {
+        1002: {
+            CROSSMATCH_FANOUT_COLLAPSED_KEY: True,
+            CROSSMATCH_FANOUT_N_MATCHES_KEY: 2,
+            CROSSMATCH_FANOUT_MASKED_BANDS_KEY: ["J", "H"],
+        }
+    }
+
+    kept = out[1]
+    # Conflicting bands: value AND error masked (both J cells, both H cells).
+    for name in ("J_mag", "J_mag_err", "H_mag", "H_mag_err"):
+        assert np.ma.is_masked(kept[name]), name
+    # Agreeing band kept, bit-identical to the first row's own cells.
+    assert kept["Ks_mag"] == original["Ks_mag"][1]
+    assert kept["Ks_mag_err"] == original["Ks_mag_err"][1]
+    # Non-duplicated rows untouched, including their 2MASS cells.
+    assert out["J_mag"][0] == original["J_mag"][0]
+    assert out["J_mag"][2] == original["J_mag"][3]
+    assert not np.ma.is_masked(out["H_mag"][0])
+
+    # Every surviving cell of the collapsed row is its own first row's cell (never the
+    # second row's): no field is copied from one row into another.
+    masked_cols = {"J_mag", "J_mag_err", "H_mag", "H_mag_err"}
+    for name in out.colnames:
+        if name in masked_cols:
+            continue
+        assert kept[name] == original[1][name], name
+
+    dr = _dr_config()
+    candidates = attach_crossmatch_fanout_provenance(
+        table_to_candidates(out, dr), result.provenance
+    )
+    counts = assert_unique_source_ids(candidates)
+    assert counts.total_kept == 0
+    collapsed = next(c for c in candidates if c.source_id == 1002)
+    bands = {p.band for p in collapsed.photometry}
+    assert "J" not in bands and "H" not in bands
+    assert "Ks" in bands
+    assert collapsed.extras[CROSSMATCH_FANOUT_COLLAPSED_KEY] is True
+    assert collapsed.extras[CROSSMATCH_FANOUT_N_MATCHES_KEY] == 2
+    assert collapsed.extras[CROSSMATCH_FANOUT_MASKED_BANDS_KEY] == ["J", "H"]
+    for other in (c for c in candidates if c.source_id != 1002):
+        assert CROSSMATCH_FANOUT_COLLAPSED_KEY not in other.extras
+        assert "J" in {p.band for p in other.photometry}
+
+
+def test_collapse_crossmatch_fanout_keeps_agreeing_tmass_and_still_flags() -> None:
+    from darkhunter_pop.data_acquisition import (
+        CROSSMATCH_FANOUT_MASKED_BANDS_KEY,
+        collapse_crossmatch_fanout,
+    )
+
+    table = Table(_sample_table()[[0, 1, 1, 2]])  # exact duplicate of row 1002
+    result = collapse_crossmatch_fanout(table, _MASKABLE)
+    assert list(result.table["source_id"]) == [1001, 1002, 1003]
+    assert result.counts.groups_collapsed == 1
+    assert result.counts.sources_masked == 0
+    assert result.counts.bands_masked == 0
+    assert result.provenance[1002][CROSSMATCH_FANOUT_MASKED_BANDS_KEY] == []
+    assert result.table["J_mag"][1] == pytest.approx(12.0)
+    assert result.table["J_mag_err"][1] == pytest.approx(0.05)
+
+
+def test_collapse_crossmatch_fanout_refuses_group_differing_outside_tmass() -> None:
+    """Same type + period, 2MASS differs, but so does a non-2MASS column: not collapsed."""
+    from darkhunter_pop.data_acquisition import (
+        DuplicateSourceIdError,
+        assert_unique_source_ids,
+        collapse_crossmatch_fanout,
+    )
+
+    table = _tmass_fanout_table()
+    table["bp_mag"][2] = table["bp_mag"][1] + 0.01  # a non-maskable column differs
+    result = collapse_crossmatch_fanout(table, _MASKABLE)
+    assert result.table is table
+    assert result.provenance == {}
+    assert result.counts.groups_collapsed == 0
+
+    candidates = table_to_candidates(result.table, _dr_config())
+    with pytest.raises(DuplicateSourceIdError) as excinfo:
+        assert_unique_source_ids(candidates)
+    error = excinfo.value
+    assert error.fanout_source_ids == 1
+    assert error.unresolved_source_ids == 0
+    assert "could not be collapsed" in str(error)
+
+
+def test_collapse_crossmatch_fanout_leaves_multi_solution_untouched() -> None:
+    from darkhunter_pop.data_acquisition import collapse_crossmatch_fanout
+
+    for table in (_cross_type_multi_solution_table(), _same_type_period_aliased_table()):
+        result = collapse_crossmatch_fanout(table, _MASKABLE)
+        assert result.table is table
+        assert result.provenance == {}
+        assert list(result.table["source_id"]) == [1001, 1002, 1002, 1003]
+
+
+def test_collapse_crossmatch_fanout_disabled_without_maskable_bands() -> None:
+    from darkhunter_pop.data_acquisition import (
+        DuplicateSourceIdError,
+        assert_unique_source_ids,
+        collapse_crossmatch_fanout,
+    )
+
+    table = _tmass_fanout_table()
+    result = collapse_crossmatch_fanout(table, ())
+    assert result.table is table
+    with pytest.raises(DuplicateSourceIdError):
+        assert_unique_source_ids(table_to_candidates(result.table, _dr_config()))
+
+
+def test_crossmatch_fanout_maskable_bands_must_be_configured_crossmatches() -> None:
+    from pydantic import ValidationError
+
+    dr = _dr_config()
+    assert list(dr.crossmatch_fanout_maskable_bands) == ["J", "H", "Ks"]
+    with pytest.raises(ValidationError, match="crossmatch_fanout_maskable_bands"):
+        type(dr).model_validate(
+            {**dr.model_dump(), "crossmatch_fanout_maskable_bands": ["J", "nope"]}
+        )
+
+
+def test_run_data_acquisition_collapses_tmass_fanout_and_reports_funnel(
+    tmp_path: Path,
+) -> None:
+    """End-to-end through the stage runner: fan-out collapsed, flagged, counted."""
+    import h5py
+
+    from darkhunter_pop.data_acquisition import CROSSMATCH_FANOUT_MASKED_BANDS_KEY
+
+    cfg = load_config()
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    manifest = create_run_manifest(cfg)
+    run_path = runs / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+
+    # Row 1001 is the one that passes the default quality cut; fan it out.
+    table = _tmass_fanout_table(source_row=0)
+    meta = save_gaia_snapshot(table, "SELECT 1", snapshots_dir=tmp_path / "snaps")
+
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.paths = cfg.paths.model_copy(
+        update={
+            "data_root": str(tmp_path / "data"),
+            "artifact_root": str(tmp_path / "output"),
+        }
+    )
+    finished = run_data_acquisition(
+        manifest,
+        tweaked,
+        run_path=run_path,
+        snapshot_meta_path=meta.meta_path,
+    )
+    assert finished.stages["data_acquisition"].status is StageStatus.COMPLETED
+    artifact = stage_artifact_path(
+        tweaked, STAGE_REGISTRY["data_acquisition"], run_id=finished.run_id
+    )
+    assert not artifact.with_name(artifact.name + ".partial").exists()
+    loaded, _ = read_stage_hdf5(artifact)
+    assert [c.source_id for c in loaded] == [1001]
+    assert loaded[0].extras[CROSSMATCH_FANOUT_MASKED_BANDS_KEY] == ["J", "H"]
+    assert {p.band for p in loaded[0].photometry} >= {"Ks"}
+    assert not {"J", "H"} & {p.band for p in loaded[0].photometry}
+    with h5py.File(artifact, "r") as handle:
+        attrs = handle["diagnostics"].attrs
+        assert attrs["crossmatch_fanout_groups_collapsed"] == 1
+        assert attrs["crossmatch_fanout_rows_removed"] == 1
+        assert attrs["crossmatch_fanout_sources_masked"] == 1
+        assert attrs["crossmatch_fanout_bands_masked"] == 2
