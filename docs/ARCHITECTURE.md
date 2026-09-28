@@ -299,6 +299,21 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   ``*_error`` columns; store as ``CandidateRecord.nss_solution`` and under
   ``data_acquisition/nss_covariance/`` in the stage HDF5. Failures are counted in the funnel
   (``covariance_health``); no diagonal-only fallback.
+- **NSS enrichment join (#308).** The documented uncut snapshot `20260826T234425Z_3d3f740b080c`
+  was queried with an ADQL that predates ``corr_vec`` / ``bit_index`` / the NSS-native
+  ``ra/dec/pmra/pmdec_error`` / K1 columns, so replaying it alone reconstructs **0** covariances
+  (every row ``missing_corr``). After the fan-out collapse and before rows become
+  ``CandidateRecord``\ s, ``data_acquisition`` overlays the frozen ``nss_enrichment`` snapshot
+  (``scripts/fetch_nss_enrichment.py``; never re-run) with the same
+  ``merge_nss_enrichment_into_row`` / ``_enrichment_join_key`` join the literature-sample parent path
+  uses, keyed on ``(source_id, nss_solution_type)`` so each row of a multi-solution source gets
+  **its own** solution's covariance. The source is ``dr3.nss_enrichment_snapshot`` (directory under
+  ``{data_root}/dr3/gaia_snapshots/``; ``dr4``: ``null``), a path-specific key in the stage
+  fingerprint. Configured-but-missing and duplicate enrichment join keys raise. The funnel reports
+  ``nss_enrichment_{enabled,rows_matched,rows_unmatched}``; the HDF5 ``meta`` records the enrichment
+  ``snapshot_id`` and checksum. Measured on the laptop: 351,268 / 351,268 rows matched,
+  covariance ``ok`` 338,141, ``unsupported_solution_type`` 11,287 (all ``EclipsingBinary``, Q4),
+  ``unpack_failed`` 1,840 (1,703 ``Orbital``, 137 ``AstroSpectroSB1``).
 - **Diagnostics:** funnel table (incl. covariance health), sky-coverage map, RUWE/period/eccentricity
   histograms.
 
