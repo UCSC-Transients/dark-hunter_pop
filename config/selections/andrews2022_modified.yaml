@@ -18,8 +18,17 @@
 # notebook's own UCO Lick M1 = 0.98 +/- 0.1, which the published run never
 # reached because it removed BH1 first); its registry mode (forward_model) is
 # unchanged. No threshold is edited here.
+#
+# schema_version 3 (2026-09-28, provenance note, issue #306): Ryan Foley's
+# decision on #296/#306 ("Use the Andrews notebook procedure for the forward
+# model. For Andrews, follow the notebook exactly.") The inherited andrews2022
+# file (schema_version 4) now runs the ATF notebook chain in BOTH modes, so
+# this variant's registry mode (forward_model) is the notebook procedure with
+# the pipeline's own pass-2 M1 posterior (andrews2022.yaml
+# reproduction_procedure.pass2.forward_model_primary_mass) and no UCO Lick
+# branch. It still only drops the exclusion. No threshold is edited here.
 
-schema_version: 2
+schema_version: 3
 name: andrews2022_modified
 provenance:
   reference: "Andrews et al. (2022), with one documented correction"
