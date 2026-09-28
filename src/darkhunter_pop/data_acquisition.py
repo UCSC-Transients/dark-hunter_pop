@@ -209,6 +209,14 @@ class DuplicateSourceIdError(ValueError):
     example_source_id, example_multiplicity:
         One offending ``source_id`` and how many records carry it, so an operator can
         go straight to a concrete row.
+    fanout_source_ids, unresolved_source_ids:
+        How many of the refused ``source_id`` values are the cross-match fan-out
+        signature vs. an unrecognized shape (#290). They sum to
+        ``duplicate_source_ids`` when supplied. The message names each shape
+        separately — before #290 it described every refused group as "neither
+        fan-out nor multi-solution", which misreported the 5 known #221 fan-out groups
+        surviving the quality cut as a new, uncharacterized shape. When both are left
+        at the default ``None`` the message falls back to a combined wording.
     """
 
     def __init__(
@@ -219,19 +227,37 @@ class DuplicateSourceIdError(ValueError):
         duplicate_records: int,
         example_source_id: int,
         example_multiplicity: int,
+        fanout_source_ids: int | None = None,
+        unresolved_source_ids: int | None = None,
     ) -> None:
         self.stage = stage
         self.duplicate_source_ids = duplicate_source_ids
         self.duplicate_records = duplicate_records
         self.example_source_id = example_source_id
         self.example_multiplicity = example_multiplicity
+        self.fanout_source_ids = fanout_source_ids
+        self.unresolved_source_ids = unresolved_source_ids
+        if fanout_source_ids is None and unresolved_source_ids is None:
+            breakdown = (
+                "each is either the cross-match fan-out signature (identical "
+                "nss_solution_type and period, differing only in cross-matched "
+                "photometry, #221) or a duplicate shape that is not a recognized "
+                "genuine multi-solution shape (#241/#242)"
+            )
+        else:
+            breakdown = (
+                f"{fanout_source_ids or 0} in the cross-match fan-out shape "
+                "(identical nss_solution_type and period, differing only in "
+                "cross-matched photometry, #221) and "
+                f"{unresolved_source_ids or 0} in an unrecognized shape (neither "
+                "fan-out nor a genuine multi-solution shape: distinct "
+                "nss_solution_type families, or multiple period-aliased Orbital "
+                "solutions, #241/#242)"
+            )
         super().__init__(
             f"stage {stage!r}: refusing to write — {duplicate_source_ids} source_id(s) "
-            f"appear on more than one record ({duplicate_records} redundant record(s)) "
-            "in a duplicate shape that is neither the cross-match fan-out signature "
-            "(identical nss_solution_type and period, #221) nor a recognized genuine "
-            "multi-solution shape (distinct nss_solution_type families, or multiple "
-            "period-aliased Orbital solutions, #241/#242); "
+            f"appear on more than one record ({duplicate_records} redundant record(s)): "
+            f"{breakdown}; "
             f"example source_id {example_source_id} appears {example_multiplicity} "
             "times. source_id is unique per object, so these records cannot all be "
             "written as-is. Fan-out resolution has no logic yet; an unrecognized shape "
@@ -385,6 +411,8 @@ def assert_unique_source_ids(
         groups.setdefault(candidate.source_id, []).append(candidate)
 
     refused: dict[int, int] = {}
+    refused_fanout = 0
+    refused_unresolved = 0
     cross_type = 0
     same_type_period_aliased = 0
     both = 0
@@ -394,6 +422,10 @@ def assert_unique_source_ids(
         classification = classify_duplicate_source_id_group(records)
         if classification in ("fanout", "unresolved"):
             refused[source_id] = len(records)
+            if classification == "fanout":
+                refused_fanout += 1
+            else:
+                refused_unresolved += 1
         elif classification == "cross_type":
             cross_type += 1
         elif classification == "same_type_period_aliased":
@@ -409,6 +441,8 @@ def assert_unique_source_ids(
             duplicate_records=sum(refused.values()) - len(refused),
             example_source_id=example_source_id,
             example_multiplicity=refused[example_source_id],
+            fanout_source_ids=refused_fanout,
+            unresolved_source_ids=refused_unresolved,
         )
     return MultiSolutionCounts(
         cross_type=cross_type,

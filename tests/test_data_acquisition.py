@@ -761,11 +761,41 @@ def test_assert_unique_source_ids_still_refuses_genuine_fanout() -> None:
     message = str(error)
     assert "data_acquisition" in message
     assert "1002" in message
+    # #290: a fan-out group must be reported as fan-out, never as "neither fan-out
+    # nor multi-solution" (that wording sent #290 hunting for a new duplicate shape
+    # that turned out to be the known #221 fan-out groups).
+    assert error.fanout_source_ids == 1
+    assert error.unresolved_source_ids == 0
+    assert "1 in the cross-match fan-out shape" in message
+    assert "0 in an unrecognized shape" in message
 
     # A unique table passes silently, and so does an empty one.
     empty_counts = assert_unique_source_ids(table_to_candidates(_sample_table(), dr))
     assert empty_counts.total_kept == 0
     assert assert_unique_source_ids([]).total_kept == 0
+
+
+def test_duplicate_source_id_error_separates_fanout_from_unresolved() -> None:
+    """#290: an unrecognized shape is counted and named apart from fan-out."""
+    from darkhunter_pop.data_acquisition import (
+        DuplicateSourceIdError,
+        assert_unique_source_ids,
+    )
+    from darkhunter_pop.schemas import CandidateRecord
+
+    # Same non-periodic solution type twice with no period: neither fan-out (fan-out
+    # requires a shared, present period) nor either multi-solution sub-case.
+    candidates = [
+        CandidateRecord(source_id=7, nss_solution_type="Acceleration7"),
+        CandidateRecord(source_id=7, nss_solution_type="Acceleration7"),
+    ]
+    with pytest.raises(DuplicateSourceIdError) as excinfo:
+        assert_unique_source_ids(candidates)
+    error = excinfo.value
+    assert error.fanout_source_ids == 0
+    assert error.unresolved_source_ids == 1
+    assert "0 in the cross-match fan-out shape" in str(error)
+    assert "1 in an unrecognized shape" in str(error)
 
 
 def test_write_stage_hdf5_refuses_genuine_fanout_before_writing_bytes(
