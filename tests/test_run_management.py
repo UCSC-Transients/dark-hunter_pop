@@ -614,7 +614,10 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     dust_maps (imported by elbadry2026_selection.py for the frozen
     extinction policy). #296 adds andrews2022_atf (the ATF-notebook
     reproduction procedure, imported lazily by sample_selection.py) and
-    constants (imported by andrews2022_atf). All eleven must feed source_hash.
+    constants (imported by andrews2022_atf). #183 adds data_acquisition's own
+    module-scope imports (diagnostic_hooks, nss_covariance, rv_adapter) so the
+    declared set is closed under module-scope imports. All fourteen must feed
+    source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -632,6 +635,9 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
         "darkhunter_pop.physics_utils",
         "darkhunter_pop.sensitivity_analysis",
         "darkhunter_pop.data_acquisition",
+        "darkhunter_pop.diagnostic_hooks",
+        "darkhunter_pop.nss_covariance",
+        "darkhunter_pop.rv_adapter",
     }
     assert "darkhunter_pop.elbadry2024_selection" not in spec.dependency_modules
     # Every declared dependency must actually resolve to a source file.

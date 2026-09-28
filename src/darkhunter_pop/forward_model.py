@@ -43,6 +43,7 @@ from darkhunter_pop.config_schema import (
     SelectionFunctionFollowupConfig,
     SurveyTier,
 )
+from darkhunter_pop.diagnostic_hooks import SIX_PANEL_NAMES, SOLUTION_TYPE_LABELS
 from darkhunter_pop.gaiamock_vendor import (
     GaiamockModVersions,
     assert_versions_match,
@@ -51,24 +52,9 @@ from darkhunter_pop.gaiamock_vendor import (
 )
 from darkhunter_pop.schemas import ActiveDRMode, FollowUpRecord
 
-# Six El-Badry et al. (2024) comparison panels (ARCHITECTURE.md §4).
-SIX_PANEL_NAMES: tuple[str, ...] = (
-    "P_orb_days",
-    "G_mag",
-    "inv_parallax_mas_inv",
-    "eccentricity",
-    "f_m_msun",
-    "cos_inclination",
-)
-
-SOLUTION_TYPE_LABELS: tuple[str, ...] = (
-    "insufficient_visibility",
-    "five_parameter",
-    "seven_parameter",
-    "nine_parameter",
-    "twelve_parameter_orbital",
-    "orbital_failed_cuts",
-)
+# ``SIX_PANEL_NAMES`` / ``SOLUTION_TYPE_LABELS`` live in ``diagnostic_hooks`` (#182) so
+# ``data_acquisition`` can use them without importing this gaiamock-backed module;
+# they are re-exported here unchanged.
 
 
 class SolutionType(str, Enum):
