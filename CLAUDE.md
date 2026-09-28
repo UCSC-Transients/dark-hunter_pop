@@ -83,6 +83,7 @@ functions → `forward_model.py`; `rv_astrometry_gate` + `joint_orbit_fit` → `
 | `sensitivity_analysis.py` | Dimensionality + per-class covariate selection; MC-noise gate |
 | `inference.py` | Poisson × SF × dynesty; `inference.multi_sample` |
 | `sbc.py`, `benchmarks.py`, `diagnostics.py`, `plotting.py` | SBC recovery, known-truth/comparison catalogs, diagnostics, shared figure primitives |
+| `diagnostic_hooks.py` | Infra-only diagnostic primitives (dirs, reports, `funnel_sky` / `gate_pass_rate` hooks, panel/solution-type labels) used by early stages; `diagnostics` re-exports them. Stage modules never import `diagnostics` itself (#182) |
 | `triples/` | Stub subpackage (`tess_variability.py`, `rotation_check.py`), off by default |
 
 ### Data flow
