@@ -636,7 +636,7 @@ Spectroscopic branch (real maps): `181534 → 133642 (k1_significance) → 151 (
 
 **Unit-conversion sensitivity (not the landed config).** El-Badry 2026 does not state how it converts
 either map to `E(B-V)`. The landed config uses `E(B-V) = 0.884 × Bayestar19` and `E(B-V) = A0/3.1`,
-both flagged in `config.yaml` as pending PI confirmation. Re-running El-Badry 2026 alone with the
+which **the PI confirmed on 2026-09-27 (#295; §3.3.5)**. Re-running El-Badry 2026 alone with the
 Bayestar factor set to 1.0 (raw Bayestar units as `E(B-V)`, the `mwdust` / #232-diagnostic convention),
 same SHA and membership: `primary_ns_bh` 45, spectroscopic 150, routes 134 / 30 / 14,
 `sub_chandrasekhar` 1313, astrometric union 1403, Simon unchanged. The conversion choice moves the
@@ -808,9 +808,13 @@ the maps once disk space allowed. What was done:
   names Lallement 2022 at δ = −30°) and Andrews therefore never deredden; a test pins this.
   `candidate_to_selection_row` is unchanged. Its `mg_0 = abs_g_mag` alias is still what those samples
   see, and El-Badry 2026 overwrites it from the raw columns. Map locations and native→`E(B-V)`
-  conversions (`0.884` for Bayestar19, `1/3.1` for `A0`) are config (`sample_selection.dust_maps`),
-  **not** the frozen file. The conversions are not stated by the paper and are flagged pending PI
-  confirmation; the §3.3 sensitivity run bounds their effect.
+  conversions are config (`sample_selection.dust_maps`), **not** the frozen file. The paper does not
+  state them; **the PI settled them on 2026-09-27 (#295)**: `r_v: 3.1` (Gaia convention
+  `A0 = 3.1 E(B-V)`, Babusiaux et al. 2018 §2; Lallement 2019 App. A also assumes `R = 3.1`), Lallement
+  `A0 → E(B-V) = A0 / r_v` (derived from `r_v`, `native_quantity: a0`), Bayestar19 `0.884` (Green et al.
+  2019 / Argonaut usage page Eq. 1, SF11 `R_V = 3.1`; the page's `E(r−z)` alternative is `0.996`). The
+  `E(B-V) → A_G, E(BP−RP)` step is `gaia_band_extinction.law`: `paper_constant` (default, the frozen
+  2.66 / 1.33) or `babusiaux2018` (the Gaia colour/`A0`-dependent law, coefficients in config). See §3.3.5.
 - **Caching.** Native per-source integrals are cached at
   `data/dust_maps/ebv_cache/elbadry2026_<fingerprint>.h5`. The fingerprint covers the split, the map
   identities (md5), the `READER_VERSION` salt and — since #278 — the SHA-256 of `dust_maps.py`
@@ -1048,6 +1052,54 @@ snapshot (443,211 rows; El-Badry 2026 N = 1565; 147,560 ratios persisted) plus
 Forcing the fallback on the same artifact gives 5 / 2 / 1 / 0 (+1). Peak RSS 12.5 GiB, 63 min
 (E(B-V) cache cold). A full 14-stage run could not be used because the dry run currently stops at
 `data_acquisition` on an unrecognized duplicate-`source_id` shape (**#290**).
+
+### 3.3.5 PI decision on the `E(B-V)` conversions (#295) — re-measured, no count moves
+
+PI decision (Ryan Foley, 2026-09-27), verbatim: *"Use the Gaia conversion. Use Rv = 3.1 unless it
+says something else. Make sure these numbers are all in the config and easy to adjust."*
+
+Sources read, for each step:
+
+| Step | What the sources say | Adopted (config key) |
+|---|---|---|
+| `E(B-V) → A_G, E(BP−RP)` | El-Badry 2026 §2 states the constants `E(BP−RP) = 1.33 E(B−V)`, `A_G = 2.66 E(B−V)` ("appropriate for… Teff ≈ 6000 K"). §4 separately uses Cardelli R_V = 3.1 for SED priors | Frozen 2.66 / 1.33, unchanged: `sample_selection.dust_maps.gaia_band_extinction.law: paper_constant` |
+| `A0 ↔ E(B-V)` | Gaia Collaboration, Babusiaux et al. 2018 (A&A 616, A10) §2: "We assume `A_0 = 3.1 E(B-V)`". Lallement et al. 2019 App. A converts Bayestar to `A0` with `0.88 × 3.1`, "assuming R = 3.1". No source states another R_V | `dust_maps.r_v: 3.1`; Lallement `native_quantity: a0` → `E(B-V) = A0 / r_v`, **derived** from `r_v` (no baked 0.3226) |
+| Bayestar19 → `E(B-V)` | Green et al. 2019 / Argonaut usage page: `E(B-V) = 0.884 × Bayestar19` via SF11 Table 6 (R_V = 3.1, F99, 7000 K) `E(B-V) = 0.981 E(g−r)`; the same page gives `0.996` via `E(r−z)` | `dust_maps.maps.green2019.native_to_ebv: 0.884` (tabulated, **not** recomputed from `r_v`) |
+
+**Reading of "the Gaia conversion".** Implemented as the Gaia collaboration's `A0 = 3.1 E(B-V)` (the
+`A0`-to-`E(B-V)` conversion the question was about), which coincides with the R_V = 3.1 instruction.
+A second reading is the Gaia collaboration's colour/`A0`-dependent band law (Babusiaux 2018 Eq. 1 /
+Table 1) *instead of* the paper's constants. That contradicts what the paper says it did, so it is not
+the reproduction default. It is implemented as a one-line switch
+(`gaia_band_extinction.law: babusiaux2018`, coefficients in config). Note: the paper's 2.66 equals
+`3.1 × k_G` of that law at `(BP−RP)_0 ≈ 0.72`, `A0 → 0`, but its 1.33 does not (the law gives ≈ 1.49 there).
+
+Provenance: branch `feat/ebv-conversion-pi` @ `1d54daa` (= `main` @ `c07897e` + #295; the later merge of `main` @ `a5ce757` brings only #274 counting helpers and #221 data-acquisition collapse, neither of which touches cut evaluation or this cache), isolated
+worktree, `PYTHONPATH` → worktree `src/` (verified), cache `…+enrich+mc10000` (443,211 rows, 823,999,664
+bytes, mtime 2026-09-27 02:18:53), warm native `E(B-V)` cache `elbadry2026_30a69867aa069bca.h5` (unchanged:
+`dust_maps.py` was not edited). `andrews2022` first (N = 63), then `elbadry2026` with that membership.
+Peak RSS for both variants in one process: **7.3 GB** (`/usr/bin/time -l`; warm cache).
+
+| Check | Target | `paper_constant` (**landed default**) | `babusiaux2018` (sensitivity) |
+|---|---|---|---|
+| Published union (`n_surviving`, non-unique) | 227 | **1565** (1504 distinct; #274 per-type distinct **1507**, same membership as §3.3.4's real-map set) | 1584 (1522 distinct) |
+| Astrometric branch union | 76 | **1356** | 1372 |
+| Spectroscopic branch | 151 | **151** | 153 |
+| Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | **132 / 30 / 11** | 137 / 30 / 14 |
+| `primary_ns_bh` | 47 | **46** | 45 (loses `6037767138131854592`) |
+| `elbadry2023_table_e1` | 5 | **5** | 5 |
+| `andrews2022_import` | 16 | **55** | 55 |
+| `sub_chandrasekhar` | 22 | **1265** | 1282 |
+| Simon breakdown | 5 / 2 / 1 / 1 | **5 / 2 / 1 / 1**, 0 unclassified, `in_sample` 11 | 5 / 2 / 1 / 1 |
+| Extinction outcomes | — | `ok` 318,964 · `beyond_map_limit` 30,446 · `invalid_parallax` 189 | same + `gaia_law_nonconvergent` 60 |
+
+The landed default is numerically identical to the #258 numbers in §3.3: the confirmed factors are the
+ones #258 already used, and it is the same arithmetic. `primary_ns_bh` attrition
+`168065 → 147560 → 1052 → 91 → 82 → 59 → 46`; `sub_chandrasekhar`
+`168065 → 147560 → 3043 → 1687 → 1275 → 1265`; spectroscopic `181534 → 133642 → 151`. Under
+`babusiaux2018`, 60 very red, highly extincted rows fail the law's fixed-point `(BP−RP)_0` solve (outside
+its fitted 3500–10000 K range). They are `NotApplicable("extinction_gaia_law_nonconvergent")` and
+counted, never passed through.
 
 ### 3.4 Simon 2026 exclusion breakdown
 
