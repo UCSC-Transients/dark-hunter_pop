@@ -468,8 +468,11 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   only the Andrews-owned `andrews_atf_*` columns (ATF notebook, #296), built by
   `scripts/build_andrews2022_atf_columns.py` into `data/reproduction_columns/dr3/atf_notebook_<fp>.h5`;
   without that sidecar every `atf_*` cut is N/A. The forward_model chain still reads `p_m2_above`.
-- `σ_M̃2` is a lazy full-covariance NSS MC at the `m2_error` cut with **fixed** Janssens `M̃1`
-  (`propagate_fit_uncertainty: false`, Q12), provenance `elbadry2026_m1_tilde_fixed`.
+- `σ_M̃2` is computed lazily at the `m2_error` cut with **fixed** Janssens `M̃1`
+  (`propagate_fit_uncertainty: false`, Q12). Since #284 the reproduction path uses **analytic**
+  (first-order, nsstools-style) propagation (`sigma_m2_tilde.method` in `elbadry2026.yaml`; the
+  full-covariance MC is the alternative). The provenance names the method, e.g.
+  `elbadry2026_analytic_full_m1_tilde_fixed`; the legacy `elbadry2026_m1_tilde_fixed` is still read.
 - The NSS enrichment job is **COMPLETED** — do not re-run `--poll-job` unless
   `nss_enrichment/meta.yaml` is missing.
 - `bins="auto"` on heavy-tailed NSS distributions (RUWE, period) produces thousands of sub-pixel

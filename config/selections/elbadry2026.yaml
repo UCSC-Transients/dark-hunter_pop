@@ -9,8 +9,27 @@
 #
 # Catalog-level only: follow-up outcomes live under inclusion_operator, never here.
 # Quoted ~40%/~50% rates live under validation_targets and MUST NOT be read as inputs.
+#
+# schema_version 2 (2026-09-27, provenance note, issue #284):
+#   Ryan Foley's decision on #284 (escalated from #275's finding that every
+#   paper member of subsample 4 has M2/M1 >= 1.10 and A >= 0.669, while the
+#   paper's written criteria admit 1265 sources): "We should require M2 > M1.
+#   I think the AMRF cut is also good. ... It looks like we should use the
+#   analytic sigma_M2 — we definitely want to get all of the stars in the
+#   sample." Changes, all to `sub_chandrasekhar` and its sigma_M2 method:
+#     - new cut `m2_over_m1`: M2~/M1~ > 1.0;
+#     - new cut `amrf`: amrf > amrf_threshold_elbadry2026, the threshold set
+#       by the `amrf_cut` block (flat constant, or the Shahaf et al. 2019
+#       class-II/III boundary);
+#     - `sigma_m2_tilde.method: analytic` (first-order Jacobian, nsstools-style;
+#       #199) replaces the full-covariance MC on the reproduction path; the MC
+#       path stays available by flipping the switch.
+#   Unchanged: m2_range [1.05, 1.40], m2_error 0.105, period 900 d, G < 15.
+#   Neither new criterion is stated in the paper's section 2.1. They are PI
+#   modeling decisions recorded here, not transcriptions. This is the one
+#   frozen-file edit #284 authorizes; Ryan's decision is the human escalation.
 
-schema_version: 1
+schema_version: 2
 name: elbadry2026
 provenance:
   reference: "El-Badry et al. (2026)"
@@ -42,6 +61,21 @@ main_sequence_cut:
 monte_carlo:
   n_draws: 10000
   covariance: full_12x12
+# sigma_M2~ for the sub_chandrasekhar `m2_error` cut (#284). analytic | monte_carlo.
+# analytic_covariance: full (6x6 A,B,F,G,parallax,P block, cross terms kept) |
+# nsstools_blocks (nsstools sigma_a0 from the A,B,F,G block, then parallax and P
+# in quadrature). Janssens M1~ fit uncertainty: primary_mass.propagate_fit_uncertainty.
+sigma_m2_tilde:
+  method: analytic
+  analytic_covariance: full
+# AMRF threshold for the sub_chandrasekhar `amrf` cut (#284).
+# criterion: flat (amrf > flat_min) | shahaf2019_class3 (amrf above the Shahaf et
+# al. 2019 max A_triple(q; M1~) boundary, mass_luminosity shahaf2019_hp |
+# janssens2022_g | power_law).
+amrf_cut:
+  criterion: flat
+  flat_min: 0.65
+  mass_luminosity: janssens2022_g
 open_items:
   - id: Q7
     status: escalated
@@ -60,6 +94,12 @@ open_items:
     summary: >-
       Janssens a–b covariance unpublished; ab_correlation defaults to 0.0
       and is reported as a default. Bound the effect; do not invent a covariance.
+  - id: "284"
+    status: resolved
+    summary: >-
+      sub_chandrasekhar gains M2~/M1~ > 1 and an AMRF cut, and sigma_M2~ uses
+      analytic propagation (PI decision, 2026-09-27). Neither cut is stated in
+      the paper; see the schema_version 2 note at the top of this file.
 inclusion_operator:
   catalog_level_only: true
   notes: >-
@@ -226,6 +266,17 @@ branches:
             undefined_when: "m2_tilde_msun is not_applicable"
             requires_defined: [m2_tilde_msun]
             parameters: {m2_msun_min: 1.05, m2_msun_max: 1.40}
+          - id: m2_over_m1
+            kind: derived
+            expression: "m2_tilde_msun / m1_tilde_msun > m2_over_m1_min"
+            undefined_when: "m2_tilde_msun is not_applicable or m1_tilde_msun is not_applicable"
+            requires_defined: [m2_tilde_msun, m1_tilde_msun]
+            parameters: {m2_over_m1_min: 1.0}
+          - id: amrf
+            kind: derived
+            expression: "amrf > amrf_threshold_elbadry2026"
+            undefined_when: "amrf is not_applicable or amrf_threshold_elbadry2026 is not_applicable"
+            requires_defined: [amrf, amrf_threshold_elbadry2026]
           - id: m2_error
             kind: derived
             expression: "sigma_m2_astrometric_msun <= m2_msun_error_max"

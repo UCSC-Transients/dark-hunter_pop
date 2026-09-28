@@ -207,6 +207,36 @@ def invert_mg_to_mass(
     )
 
 
+def sigma_log10_mass_from_fit(
+    mg: float,
+    *,
+    table: Mapping[str, Any] | None = None,
+    ab_correlation: float = 0.0,
+) -> float | None:
+    """Janssens Table 1 fit uncertainty on ``log10 M̃1`` at ``M_G = mg`` (Q11/Q12).
+
+    With ``log10 M = (M_G − b)/a`` on the chosen segment,
+
+    ``σ²_log10M = (σ_b/a)² + (log10 M · σ_a/a)² + 2ρ σ_a σ_b log10 M / a²``
+
+    where ``ρ = ab_correlation`` (unpublished; the frozen default is 0). The
+    photometric ``M_G`` itself is treated as exact, as in the paper's
+    point-estimate chain. ``None`` when the inversion is not applicable.
+    """
+    segs = segments_from_table(table)
+    result = invert_mg_to_mass(float(mg), table=table, segments=segs)
+    if result.mass_msun is None or result.segment_index is None:
+        return None
+    seg = segs[result.segment_index]
+    log_m = float(np.log10(result.mass_msun))
+    var = (
+        (seg.b_err / seg.a) ** 2
+        + (log_m * seg.a_err / seg.a) ** 2
+        + 2.0 * float(ab_correlation) * seg.a_err * seg.b_err * log_m / seg.a**2
+    )
+    return float(np.sqrt(max(var, 0.0)))
+
+
 def invert_mg_to_mass_array(
     mg: ArrayLike,
     **kwargs: Any,

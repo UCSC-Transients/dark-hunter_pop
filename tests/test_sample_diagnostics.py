@@ -164,6 +164,9 @@ def _catalog_rows() -> list[dict]:
             _astro_row(
                 sid,
                 m2_tilde_msun=1.20,
+                # Dark-companion AMRF at q = 1.2 (A = q/(1+q)^(2/3) = 0.709):
+                # passes the #284 m2_over_m1 and amrf cuts.
+                amrf=0.709,
                 period_day=400.0,
                 sigma_m2_astrometric_msun=0.05,
             )
