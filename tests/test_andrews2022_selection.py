@@ -73,13 +73,33 @@ def test_andrews2022_parent_is_orbital_only_and_verified() -> None:
 def test_andrews2022_cut_chain_matches_section_6_4() -> None:
     spec = load_sample_selection_file(_ANDREWS)
     cuts = {cut.id: cut for cut in spec.cuts or []}
+    # schema_version 3 (#296): the ATF-notebook reproduction chain (atf_*,
+    # pinned in tests/test_andrews2022_atf.py) precedes the schema_version-2
+    # chain, which is kept verbatim for forward_model only.
+    assert spec.schema_version == 3
     assert list(cuts) == [
+        "atf_covariance_valid",
+        "atf_pass1_root_found",
+        "atf_m2_probability",
+        "atf_goodness_of_fit",
+        "atf_giant_reject_logg",
+        "atf_giant_reject_cmd",
+        "atf_pass2_root_found",
+        "atf_m2_3sigma",
         "m2_probability",
         "goodness_of_fit",
         "m2_snr",
         "giant_reject_logg",
         "giant_reject_cmd",
     ]
+    for cut_id in (
+        "m2_probability",
+        "goodness_of_fit",
+        "m2_snr",
+        "giant_reject_logg",
+        "giant_reject_cmd",
+    ):
+        assert cuts[cut_id].applies_to == [SampleSelectionMode.FORWARD_MODEL]
     assert cuts["m2_probability"].kind.value == "probability"
     assert cuts["m2_probability"].expected_n_after == 106
     assert cuts["m2_probability"].parameters["m2_threshold_msun"] == 1.4

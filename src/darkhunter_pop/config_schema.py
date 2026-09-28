@@ -531,6 +531,137 @@ class PrimaryMassSpec(BaseModel):
         return self
 
 
+ATF_NOTEBOOK_PROCEDURE_METHOD: str = "atf_notebook"
+ATF_COVARIANCE_GATE_SCIPY_STRICT: str = "scipy_multivariate_normal_strict"
+
+
+class AtfNotebookCovarianceSpec(BaseModel):
+    """How the ATF notebook builds and gates the 12×12 NSS covariance (#296).
+
+    ``parameter_order`` is the notebook's ``means`` / ``var_err`` order;
+    ``corr_vec`` fills the strict lower triangle row-major (the notebook's
+    ``for i: for j < i`` loop). ``use_bit_index: false`` reproduces the
+    notebook, which never reads ``bit_index`` (unfitted parameters carry NaN
+    errors and fail the gate). ``gate`` names the sampler-construction check:
+    ``scipy_multivariate_normal_strict`` rejects every source for which
+    ``scipy.stats.multivariate_normal(mean, cov)`` (``allow_singular=False``)
+    raises — NaN input, non-PSD, or numerically singular — instead of flooring
+    eigenvalues. ``float32_decimal_roundtrip`` re-parses each float32 archive
+    value from its shortest decimal string, as the notebook's CSV read did.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    parameter_order: list[str] = Field(..., min_length=12, max_length=12)
+    use_bit_index: Literal[False]
+    gate: Literal["scipy_multivariate_normal_strict"]
+    float32_decimal_roundtrip: bool
+
+
+class AtfNotebookPass1Spec(BaseModel):
+    """ATF ``find_massive`` (notebook cell 7): fixed-M1 probability pass (#296).
+
+    The probability threshold itself lives on the ``probability_cut_id`` cut
+    (``m2_threshold_msun`` / ``m2_probability_min``), so it is stated once.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(..., ge=1)
+    random_seed: int
+    m1_msun: float = Field(..., gt=0)
+    root_bracket_msun: tuple[float, float]
+    reject_source_on_any_draw_failure: bool
+    probability_denominator: Literal["all_draws", "valid_draws"]
+    probability_cut_id: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _bracket_ordered(self) -> AtfNotebookPass1Spec:
+        lo, hi = self.root_bracket_msun
+        if not (0.0 <= lo < hi):
+            raise ValueError("pass1.root_bracket_msun must satisfy 0 <= lo < hi")
+        return self
+
+
+class AtfLickSpectroscopicMass(BaseModel):
+    """One UCO Lick spectroscopic primary mass hardcoded in the ATF notebook."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: int
+    m1_msun: float = Field(..., gt=0)
+
+
+class AtfNotebookPrimaryMassSpec(BaseModel):
+    """ATF ``plot_system`` refined M1 (notebook cell 17), used only in pass 2 (#296).
+
+    Priority: UCO Lick spectroscopic mass ``N(m1, lick_sigma_msun)`` for the
+    listed sources; else Gaia Apsis FLAME ``N(flame, flame_sigma_msun)``;
+    else ``Uniform(uniform_low_msun, uniform_high_msun)``. Non-positive Gaussian
+    draws are not clipped (the notebook does not clip).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lick_sigma_msun: float = Field(..., gt=0)
+    lick_provenance: str = Field(..., min_length=1)
+    lick_spectroscopic_masses: list[AtfLickSpectroscopicMass] = Field(..., min_length=1)
+    flame_column: str = Field(..., min_length=1)
+    flame_sigma_msun: float = Field(..., gt=0)
+    uniform_low_msun: float = Field(..., gt=0)
+    uniform_high_msun: float = Field(..., gt=0)
+
+    @model_validator(mode="after")
+    def _unique_and_ordered(self) -> AtfNotebookPrimaryMassSpec:
+        ids = [row.source_id for row in self.lick_spectroscopic_masses]
+        if len(ids) != len(set(ids)):
+            raise ValueError("lick_spectroscopic_masses has duplicate source_ids")
+        if self.uniform_high_msun <= self.uniform_low_msun:
+            raise ValueError("uniform_high_msun must exceed uniform_low_msun")
+        return self
+
+
+class AtfNotebookPass2Spec(BaseModel):
+    """ATF ``plot_system`` (notebook cell 17): refined-M1 pass on pass-1 survivors."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_draws: int = Field(..., ge=1)
+    random_seed: int
+    root_bracket_msun: tuple[float, float]
+    reject_source_on_any_draw_failure: bool
+    m2_std_ddof: int = Field(..., ge=0)
+    giant_logg_column: str = Field(..., min_length=1)
+    primary_mass: AtfNotebookPrimaryMassSpec
+
+    @model_validator(mode="after")
+    def _bracket_ordered(self) -> AtfNotebookPass2Spec:
+        lo, hi = self.root_bracket_msun
+        if not (0.0 <= lo < hi):
+            raise ValueError("pass2.root_bracket_msun must satisfy 0 <= lo < hi")
+        return self
+
+
+class ReproductionProcedureSpec(BaseModel):
+    """Paper-author selection procedure that precomputes reproduction columns (#296).
+
+    Only ``method: atf_notebook`` (the Andrews, Taggart & Foley 2022 selection
+    notebook) exists. Its ``andrews_atf_*`` columns are built by
+    ``scripts/build_andrews2022_atf_columns.py`` into a fingerprint-keyed
+    sidecar and merged only when the sample is evaluated in ``reproduction``
+    mode; ``forward_model`` evaluation never sees them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["atf_notebook"]
+    source: str = Field(..., min_length=1)
+    source_sha256: str = Field(..., min_length=64, max_length=64)
+    covariance: AtfNotebookCovarianceSpec
+    pass1: AtfNotebookPass1Spec
+    pass2: AtfNotebookPass2Spec
+
+
 class MonteCarloSpec(BaseModel):
     """Per-sample Monte Carlo settings (CONTINUATION_PLAN §11)."""
 
@@ -822,6 +953,8 @@ class SampleSelectionFile(BaseModel):
     branches: list[SampleBranch] | None = None
     exclusions: list[SampleExclusion] | None = None
     monte_carlo: MonteCarloSpec | None = None
+    # #296: paper-author procedure that precomputes reproduction-only columns.
+    reproduction_procedure: ReproductionProcedureSpec | None = None
     correction: SampleCorrection | None = None
     extinction: ExtinctionSpec | None = None
     main_sequence_cut: MainSequenceCutSpec | None = None
@@ -1082,6 +1215,10 @@ class SampleSelectionConfig(BaseModel):
         default_factory=default_sample_selection_entries
     )
     dust_maps: DustMapsConfig = Field(default_factory=DustMapsConfig)
+    # #296: fingerprint-keyed sidecars of reproduction-procedure columns
+    # (``andrews_atf_*``), relative to ``paths.data_root`` unless absolute; one
+    # subdirectory per ``active_dr_mode``.
+    reproduction_column_cache_dir: str = "reproduction_columns"
 
     @model_validator(mode="after")
     def _unique_names_and_enabled_files(self) -> SampleSelectionConfig:

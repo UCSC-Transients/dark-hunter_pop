@@ -132,6 +132,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             inputs_from=("mass_derivation_bulk",),
             deps=(
                 "darkhunter_pop.sample_selection",
+                "darkhunter_pop.andrews2022_atf",
+                "darkhunter_pop.constants",
                 "darkhunter_pop.elbadry2026_m2_sigma",
                 "darkhunter_pop.janssens_mass",
                 "darkhunter_pop.elbadry2026_selection",

@@ -7,8 +7,19 @@
 # cut: (1) it would discard genuine systems — Gaia BH1 is the proof; (2) whether
 # proximity to a scanning-law harmonic predicts spuriousness belongs to the
 # shared spuriousness model, not a selection-file threshold.
+#
+# schema_version 2 (2026-09-27, provenance note, issue #296): the inherited
+# andrews2022 file (schema_version 3) now carries the ATF notebook procedure
+# (data/reference/andrews2022_ATF_sample_selection.ipynb) as its
+# reproduction-mode chain (atf_* cuts, applies_to: [reproduction]) and keeps
+# its schema_version-2 chain verbatim for forward_model. This variant inherits
+# both unchanged and still only drops the exclusion: evaluated in reproduction
+# mode it is the notebook selection with Gaia BH1 kept (BH1 then takes the
+# notebook's own UCO Lick M1 = 0.98 +/- 0.1, which the published run never
+# reached because it removed BH1 first); its registry mode (forward_model) is
+# unchanged. No threshold is edited here.
 
-schema_version: 1
+schema_version: 2
 name: andrews2022_modified
 provenance:
   reference: "Andrews et al. (2022), with one documented correction"
