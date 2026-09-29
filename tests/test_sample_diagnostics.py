@@ -165,7 +165,8 @@ def _catalog_rows() -> list[dict]:
                 sid,
                 m2_tilde_msun=1.20,
                 # Dark-companion AMRF at q = 1.2 (A = q/(1+q)^(2/3) = 0.709):
-                # passes the #284 m2_over_m1 and amrf cuts.
+                # passes the #284 m2_over_m1 and amrf cuts (forward_model chain);
+                # reproduction mode reads the Shahaf fixture catalog (#315).
                 amrf=0.709,
                 period_day=400.0,
                 sigma_m2_astrometric_msun=0.05,
@@ -191,6 +192,13 @@ def _catalog_rows() -> list[dict]:
 def _elbadry_registry() -> SampleSelectionRegistry:
     cfg = load_config().model_copy(deep=True)
     fixtures = Path(__file__).resolve().parent / "fixtures" / "selections"
+    # Reproduction-mode sub_chandrasekhar is a Shahaf 2023b Table 2 cross-match
+    # (#315); the fixture catalog holds the 22 sub_chandrasekhar rows below.
+    cfg.dr3 = cfg.dr3.model_copy(
+        update={
+            "shahaf2023b_class3_snapshot": str(fixtures / "shahaf2023b_class3_fixture")
+        }
+    )
     cfg.sample_selection.samples = [
         SampleSelectionEntry(
             name="andrews2022",

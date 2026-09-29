@@ -310,7 +310,11 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   uses, keyed on ``(source_id, nss_solution_type)`` so each row of a multi-solution source gets
   **its own** solution's covariance. The source is ``dr3.nss_enrichment_snapshot`` (directory under
   ``{data_root}/dr3/gaia_snapshots/``; ``dr4``: ``null``), a path-specific key in the stage
-  fingerprint. Configured-but-missing and duplicate enrichment join keys raise. The funnel reports
+  fingerprint. (``sample_selection`` has a sibling key, ``dr3.shahaf2023b_class3_snapshot``. It names
+  a frozen Shahaf et al. 2023b Table 2 snapshot under ``{data_root}/dr3/external_catalogs/``, written
+  by ``scripts/fetch_shahaf2023b_class3.py`` with a ``meta.yaml`` SHA-256 that is verified on load.
+  Only reproduction-mode subsamples declaring ``external_catalog: shahaf2023b_class3`` read it:
+  El-Badry 2026 ``sub_chandrasekhar``, #315. ``dr4``: ``null``. Configured-but-missing raises.) Configured-but-missing and duplicate enrichment join keys raise. The funnel reports
   ``nss_enrichment_{enabled,rows_matched,rows_unmatched}``; the HDF5 ``meta`` records the enrichment
   ``snapshot_id`` and checksum. Measured on the laptop: 351,268 / 351,268 rows matched,
   covariance ``ok`` 338,141, ``unsupported_solution_type`` 11,287 (all ``EclipsingBinary``, Q4),

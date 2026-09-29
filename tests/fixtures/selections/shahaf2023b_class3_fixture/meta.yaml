@@ -1,0 +1,15 @@
+snapshot_id: shahaf2023b_class3_fixture
+catalog_id: shahaf2023b_class3
+source: 'synthetic test fixture (not VizieR): the 22 sub_chandrasekhar fixture rows
+  of tests/test_elbadry2026.py'
+vizier_table: J/MNRAS/518/2991/table2
+row_count: 22
+columns:
+- GaiaDR3
+- M2min
+- e_M2min
+- M1
+- P
+- Class
+sha256: 134023122126dbad01fce1db7defb82d481168e08024d57dace267d49600fb0b
+result_path: table2.ecsv

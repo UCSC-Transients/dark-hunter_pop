@@ -61,7 +61,7 @@ Related issues: **#132** (NSS enrichment / K1 — largely unblocked), **#133** (
 extinction / `a0` / nsstools, Q7), **#258** (extinction root cause was a dead `ExtinctionSpec`; now fixed with the
 real Green2019/Lallement2019 maps — spectroscopic branch 151 exact, `primary_ns_bh` 46; see §3.3 /
 §3.3.1). **#275** (the `M̃2` chain reproduces El-Badry 2026 Table 7; `sub_chandrasekhar` is a
-selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage wiring **#285**; §3.3.3). **#315** (`sub_chandrasekhar` is exactly Shahaf 2023b class III + Eq. 5 on Shahaf's masses; §3.3.7; PI decision pending).
+selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage wiring **#285**; §3.3.3). **#315** (landed: reproduction-mode `sub_chandrasekhar` is the Shahaf 2023b class-III cross-match with Eq. 5 on Shahaf's masses, which gives **exactly the paper's 22**; forward model unchanged; §3.3.7).
 
 ---
 
@@ -604,7 +604,7 @@ extinction correction and nothing else.
 | `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
 | `elbadry2023_table_e1` | 5 | 5 | 5 | **5** | **OK** — unchanged |
 | `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
-| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1). **After #284 (schema_version 2: `M̃2/M̃1 > 1`, `A > 0.65`, analytic σ): 49, containing 19 of the paper's 22 — §3.3.6.** Still FAIL; no defensible combination reaches the paper's set. **§3.3.7: Shahaf et al. (2023b) Table 2 with Eq. 5 applied to Shahaf's `M2min`/`e_M2min` gives exactly the paper's 22 IDs — PI decision #315** |
+| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1). **After #284 (schema_version 2: `M̃2/M̃1 > 1`, `A > 0.65`, analytic σ): 49, containing 19 of the paper's 22 — §3.3.6.** Still FAIL; no defensible combination reaches the paper's set. **Schema_version 3 (#315, §3.3.7): the reproduction mode is the Shahaf et al. (2023b) Table 2 cross-match with Eq. 5 on Shahaf's `M2min`/`e_M2min`, giving 22, the exact paper IDs — OK.** The forward model stays at 49 (the v2 chain) |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK: 5 / 2 / 1 / 1, 0 unclassified, `in_sample` 11** from the real `sample_selection` stage + `diagnostics` hydration (#285, `main` @ `7c40198` + #285 branch, uncut snapshot; §3.3.3). Artifacts without the `tilde_masses` group still fall back to 5 / 2 / 1 / 0 (+1) |
 
@@ -996,6 +996,11 @@ cut. They enter through subsamples 2 and 3, which need no MS cut.
 Extinction is the only lever that moves the window materially, and it moves it the wrong way
 (§3.3.1). No input in the chain can shrink 3043 → ~20.
 
+**Correction (§3.3.7, #315).** The paper's actual subsample 4 is **not** the 22 Table 7 rows in the
+`M̃2` window used below. `1581117310088807552` and `747174436620510976` are Andrews imports
+(subsample 3). In their place the true 22 include `2080945469200565248` and `3494029910469026432`,
+whose Table 7 `M̃2` is above 1.40. The paragraph below is kept as measured.
+
 **3. Where the 1265 differ from the paper's subsample 4.** The Table 7 rows with
 `1.05 ≤ M̃2 ≤ 1.40` number 22. Two of them (`1581117310088807552` at P = 927 d, `747174436620510976`
 at P = 999 d) fail the paper's own `P ≤ 900 d`. They are El-Badry 2024 Table 3 (Andrews/Shahaf) NS
@@ -1144,6 +1149,11 @@ the landed conversions are the ones #258 already used.
 
 Frozen window / σ / period / G thresholds are unchanged.
 
+**Correction (§3.3.7, #315).** The "22" in this section is the set of Table 7 rows in the `M̃2`
+window. The paper's actual subsample 4, found by removing subsamples 1–3 from Table 7, swaps the
+two P > 900 d Andrews imports below for `2080945469200565248` and `3494029910469026432`. The same 19
+are in both sets. Schema_version 3 replaces this chain in reproduction mode.
+
 **(1) The two MC-σ failures are recovered.** With the analytic method:
 
 - `3389767036738482432`: MC σ 0.140 → analytic 0.062.
@@ -1222,7 +1232,72 @@ paper-formula boundary instead, set `amrf_cut.criterion: shahaf2019_class3` with
 choice. The σ default is analytic, full covariance, `M̃1` fixed. Flipping any switch is a config
 edit, with the counts above.
 
-### 3.3.7 `sub_chandrasekhar`'s 30 extras vs its 19 members: Shahaf et al. (2023b) class III reproduces the paper's 22 exactly (#284 follow-up, #315)
+### 3.3.7 `sub_chandrasekhar` = Shahaf et al. (2023b) class III + Eq. 5 on Shahaf's masses: exactly the paper's 22 (#284, #315; schema_version 3 landed)
+
+**Landed (schema_version 3).**
+
+**PI decision (Ryan Foley, 2026-09-29), verbatim:** *"We should always try to match the papers when
+trying to reproduce their samples. Let's use the Shahaf criterion for the El-Badry sample."* This
+was resolved to the reading that matches the paper: a cross-match to Shahaf et al. (2023b) Table 2.
+
+- **Snapshot.** VizieR `J/MNRAS/518/2991/table2`, 177 rows, queried 2026-09-29, SHA-256
+  `7b6d287e…52ec0`. It is stored at
+  `data/dr3/external_catalogs/shahaf2023b_class3_20260929T195047Z_7b6d287e/` (`table2.ecsv` +
+  `meta.yaml`) and was written by `scripts/fetch_shahaf2023b_class3.py`.
+  - Config key: `dr3.shahaf2023b_class3_snapshot`, with `dr4: null`. The key is path-specific, is in
+    `PATH_SPECIFIC_LEAF_KEYS`, and is part of the `sample_selection` stage fingerprint. The DR3/DR4
+    audit reports no violation.
+  - The checksum is verified on load.
+- **Reproduction chain.** `sub_chandrasekhar` declares `external_catalog: shahaf2023b_class3`. In
+  reproduction mode its cuts are:
+  - `in_sample('shahaf2023b_class3')`;
+  - `main_sequence`;
+  - `1.05 ≤ shahaf2023b_m2min_msun ≤ 1.40`;
+  - `shahaf2023b_m2min_error_msun ≤ 0.105`;
+  - `P ≤ 900 d`;
+  - `G < 15`.
+
+  These are the paper's published thresholds, and no value changed.
+- **Which mass the cuts use.**
+  - The text points both ways. Eq. 5's `M̃2` / `σ_M̃2` notation is defined in §2 through the
+    Janssens `M̃1`, but the paper also says "These cuts yielded 22 sources, none of which were
+    included in the three subsamples listed above". Only Shahaf's own `M2min` / `e_M2min`
+    reproduce that stated result.
+  - On the Janssens `M̃2`, two members (`2080945469200565248`, `3494029910469026432`) sit above 1.44
+    at every `E(B-V)` ≥ 0.
+  - Applying the Janssens chain to catalog members instead gives **19**, all of them paper members,
+    missing those two and `6037767138131854592`.
+  - Reproduction mode therefore uses Shahaf's columns. This is flagged for Ryan: if the notation
+    reading is preferred, it is a two-cut edit (19 of 22).
+- **Forward model.** Unchanged. The schema-v2 Janssens chain (`m2_range`, `m2_over_m1`, `amrf`,
+  `m2_error`) now carries `applies_to: [forward_model]`, and the catalog is never read in that mode.
+  A catalog cannot be applied to mocks; that is §15 **Q2**.
+
+**Re-measurement.**
+
+- Setup: branch `docs/subchandra-extras-284` @ `13b14b6` plus the schema-v3 changes, an isolated
+  worktree with `PYTHONPATH` → worktree `src/` (verified), and the 168,065 astrometric-branch rows of
+  the `…+enrich+mc10000` cache with the real maps and the warm `ebv_cache`.
+- The run used the real `SampleSelectionRegistry(load_config()).selection("elbadry2026").evaluate`
+  on the 147,560 main-sequence rows. It took 332 s at 5.1 GB peak RSS.
+
+```
+147560 (MS) → 177 (shahaf2023b_class3_membership) → 177 (main_sequence) → 33 (m2_range_shahaf2023b)
+       → 29 (m2_error_shahaf2023b) → 25 (period ≤ 900 d) → 22 (G < 15)
+```
+
+- **N = 22, the same 22 source IDs as the paper's subsample 4**, with no misses and no extras. All
+  177 Table 2 sources are in our parent and on our main sequence.
+- Forward model on the 3043-row Janssens window: schema v2 gives 49 and schema v3 gives 49, the
+  **identical set**.
+- There are no extras left, so there is no extras table for the new sample. The investigation below
+  is on the schema-v2 sample (49), which is still the forward-model set.
+- Not re-measured here: the published union (227) and the astrometric union (76). They need the full
+  `evaluate_all` (~12 GB).
+
+---
+
+The investigation that led to the decision (measured on schema v2, 2026-09-28) follows.
 
 **Question (Ryan Foley, 2026-09-28, on #284).** *"We should still try to figure out the El-Badry
 sub-Chandra sample — is there something else like the RUWE that is different? Period?"*
@@ -1386,8 +1461,9 @@ This also explains every earlier puzzle:
   orbits. That is consistent with no quality column separating the extras here.
 
 Adopting Shahaf's catalog is therefore a cited-but-unstated criterion. It needs a PI decision.
+**Ryan decided on 2026-09-29, and the change landed as schema_version 3 (top of this section).**
 
-**5. Recommendation (for Ryan; not applied).**
+**5. Recommendation as written before the decision.**
 
 - **Reproduction mode.** Redefine `sub_chandrasekhar` as membership in Shahaf 2023b Table 2, with
   `1.05 ≤ M2min ≤ 1.40`, `e_M2min ≤ 0.105`, `P ≤ 900 d` and `G < 15` applied to Shahaf's columns.
@@ -1399,9 +1475,9 @@ Adopting Shahaf's catalog is therefore a cited-but-unstated criterion. It needs 
   Shahaf's probabilistic triage: `PIII` from the AMRF and its uncertainty, with the `binary_masses`
   `M1` and a threshold ≈ 0.9998. This is §15 **Q2**, and it is the same parent the El-Badry 2024
   path uses.
-- **Keep schema v2** until that decision. Do not tune A, q, σ or distance to remove the extras.
+- **Keep schema v2** until that decision (it was made; see above). Do not tune A, q, σ or distance to remove the extras.
 
-Tracked as **#315**. The 49 rows follow, with members first and each group sorted by significance.
+Tracked as **#315**. The schema-v2 49 rows follow, with members first and each group sorted by significance.
 Distances are 1/ϖ with no zero point. σ is analytic, full covariance, with `M̃1` fixed.
 
 | source_id | in paper | type | P (d) | e | signif. | F2 | RUWE | ϖ/σϖ | d (pc) | E(B-V) | G | A | q | σ_M̃2 | S23 `PIII` | S23 Table 2 |

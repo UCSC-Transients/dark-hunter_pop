@@ -28,8 +28,42 @@
 #   Neither new criterion is stated in the paper's section 2.1. They are PI
 #   modeling decisions recorded here, not transcriptions. This is the one
 #   frozen-file edit #284 authorizes; Ryan's decision is the human escalation.
+#
+# schema_version 3 (2026-09-29, provenance note, issues #284 / #315):
+#   Ryan Foley's decision (2026-09-29): "We should always try to match the
+#   papers when trying to reproduce their samples. Let's use the Shahaf
+#   criterion for the El-Badry sample." — resolved to the reading that matches
+#   the paper: cross-match to Shahaf et al. (2023b) Table 2 (VizieR
+#   J/MNRAS/518/2991/table2, the 177 "highly probable class-III systems").
+#   Why: removing subsamples 1-3 from Table 7 leaves exactly 22 rows (the
+#   paper's subsample 4), and Shahaf Table 2 with Eq. 5's cuts applied to
+#   Shahaf's own M2min / e_M2min returns exactly those 22 IDs
+#   (177 -> 33 -> 29 -> 25 -> 22; SELECTION_REPRODUCTION_STATUS.md §3.3.7).
+#   Paper wording: §2.1 item 4 lists only "MS = true, 1.05 <= M2~ <= 1.40,
+#   sigma_M2~ <= 0.105, Porb <= 900 d, G < 15" and "These cuts yielded 22
+#   sources, none of which were included in the three subsamples listed
+#   above"; §5.1.2: "most sources in the sample are 'class III' sources for
+#   which the astrometric triage algorithm (Shahaf et al. 2019, 2023) requires
+#   the companion to be dark"; §6.4 names "the AMRF sample of Shahaf et al.
+#   (2023)" as El-Badry et al. (2024a)'s parent. The M2~ notation of Eq. 5 is
+#   defined in §2 through the Janssens M1~, but the Janssens M2~ cannot reach
+#   the stated 22: two members (2080945469200565248, 3494029910469026432) sit
+#   above 1.44 on it at any E(B-V) >= 0 (Shahaf M2min 1.381 / 1.318). The
+#   paper's stated result is therefore reproduced only on Shahaf's columns,
+#   which is what reproduction mode now uses.
+#   Changes, all to `sub_chandrasekhar`:
+#     - `external_catalog: shahaf2023b_class3` (snapshot = DR-path key
+#       dr3.shahaf2023b_class3_snapshot; dr4 null);
+#     - reproduction-only cuts: `shahaf2023b_class3_membership`, and
+#       `m2_range_shahaf2023b` / `m2_error_shahaf2023b` on Shahaf's M2min /
+#       e_M2min with the paper's published thresholds (1.05, 1.40, 0.105);
+#     - the schema-v2 Janssens cuts (`m2_range`, `m2_over_m1`, `amrf`,
+#       `m2_error`) now apply to forward_model only, so forward-model
+#       behaviour is unchanged. A catalog cannot be applied to mocks (§15 Q2).
+#   No threshold value changed. `main_sequence`, `period` and `g_mag` apply in
+#   both modes as before.
 
-schema_version: 2
+schema_version: 3
 name: elbadry2026
 provenance:
   reference: "El-Badry et al. (2026)"
@@ -99,7 +133,15 @@ open_items:
     summary: >-
       sub_chandrasekhar gains M2~/M1~ > 1 and an AMRF cut, and sigma_M2~ uses
       analytic propagation (PI decision, 2026-09-27). Neither cut is stated in
-      the paper; see the schema_version 2 note at the top of this file.
+      the paper; see the schema_version 2 note at the top of this file. Since
+      schema_version 3 these apply to forward_model only (#315).
+  - id: "315"
+    status: resolved
+    summary: >-
+      Reproduction-mode sub_chandrasekhar is the Shahaf et al. (2023b) Table 2
+      class-III cross-match with Eq. 5 on Shahaf's M2min / e_M2min (PI
+      decision, 2026-09-29); exactly the paper's 22. Forward model unchanged:
+      a catalog cannot be applied to mocks (§15 Q2).
 inclusion_operator:
   catalog_level_only: true
   notes: >-
@@ -253,35 +295,59 @@ branches:
             expression: "phot_g_mean_mag < g_mag_faint_limit"
             parameters: {g_mag_faint_limit: 15.0}
       - id: sub_chandrasekhar
+        # Reproduction: Shahaf et al. (2023b) Table 2 class-III membership, with
+        # Eq. 5's companion-mass cuts on Shahaf's own M2min / e_M2min (#315).
+        # Forward model: the schema-v2 Janssens M2~ chain (unchanged; §15 Q2).
+        external_catalog: shahaf2023b_class3
         require_main_sequence: true
         expected_n: 22
         expected_n_new: 22
         cuts:
+          - id: shahaf2023b_class3_membership
+            kind: derived
+            expression: "in_sample('shahaf2023b_class3')"
+            applies_to: [reproduction]
           - id: main_sequence
             kind: derived
             expression: "main_sequence == True"
+          - id: m2_range_shahaf2023b
+            kind: derived
+            expression: "shahaf2023b_m2min_msun >= m2_msun_min and shahaf2023b_m2min_msun <= m2_msun_max"
+            requires_defined: [shahaf2023b_m2min_msun]
+            applies_to: [reproduction]
+            parameters: {m2_msun_min: 1.05, m2_msun_max: 1.40}
+          - id: m2_error_shahaf2023b
+            kind: derived
+            expression: "shahaf2023b_m2min_error_msun <= m2_msun_error_max"
+            requires_defined: [shahaf2023b_m2min_error_msun]
+            applies_to: [reproduction]
+            parameters: {m2_msun_error_max: 0.105}
           - id: m2_range
             kind: derived
             expression: "m2_tilde_msun >= m2_msun_min and m2_tilde_msun <= m2_msun_max"
             undefined_when: "m2_tilde_msun is not_applicable"
             requires_defined: [m2_tilde_msun]
+            applies_to: [forward_model]
             parameters: {m2_msun_min: 1.05, m2_msun_max: 1.40}
           - id: m2_over_m1
             kind: derived
             expression: "m2_tilde_msun / m1_tilde_msun > m2_over_m1_min"
             undefined_when: "m2_tilde_msun is not_applicable or m1_tilde_msun is not_applicable"
             requires_defined: [m2_tilde_msun, m1_tilde_msun]
+            applies_to: [forward_model]
             parameters: {m2_over_m1_min: 1.0}
           - id: amrf
             kind: derived
             expression: "amrf > amrf_threshold_elbadry2026"
             undefined_when: "amrf is not_applicable or amrf_threshold_elbadry2026 is not_applicable"
             requires_defined: [amrf, amrf_threshold_elbadry2026]
+            applies_to: [forward_model]
           - id: m2_error
             kind: derived
             expression: "sigma_m2_astrometric_msun <= m2_msun_error_max"
             undefined_when: "sigma_m2_astrometric_msun is not_applicable"
             requires_defined: [sigma_m2_astrometric_msun]
+            applies_to: [forward_model]
             parameters: {m2_msun_error_max: 0.105}
           - id: period
             kind: column

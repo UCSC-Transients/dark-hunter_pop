@@ -1220,6 +1220,18 @@ Notes to carry in the file:
 - Subsample 4 targets dark companions *below* the Chandrasekhar-adjacent threshold — massive WDs or
   low-mass NSs — and contributes 22 sources found by no other route. It is the reason this sample
   reaches down to `1.05 M☉` where §6 and §7 stop at `1.4` and `1.25 M☉` respectively.
+- **Subsample 4 is a Shahaf et al. (2023b) class-III cross-match in reproduction mode (#315,
+  `elbadry2026.yaml` schema_version 3; PI decision 2026-09-29).**
+  - What reproduces the published 22 exactly, by source ID, is the 177-row Table 2 of Shahaf et
+    al. (2023b) (VizieR `J/MNRAS/518/2991/table2`) with the Eq. 5 cuts applied to Shahaf's own
+    `M2min` / `e_M2min`. The Janssens `M̃2` chain does not.
+  - The paper's §2.1 does not state this. It cites the Shahaf triage for the sample's "class III"
+    nature in §5.1.2, and as El-Badry 2024a's parent in §6.4.
+  - The catalog is a frozen snapshot under `{data_root}/dr3/external_catalogs/`, named by
+    `dr3.shahaf2023b_class3_snapshot` (`dr4: null`). It is read only in `reproduction` mode.
+  - `forward_model` keeps the schema-v2 Janssens chain (`M̃2/M̃1 > 1`, AMRF, analytic `σ_M̃2`)
+    unchanged, because a catalog cannot be applied to mocks (§15 Q2).
+  - Measurement: `SELECTION_REPRODUCTION_STATUS.md` §3.3.7.
 
 ### 8.4 Spectroscopic (SB1) branch (paper §2.2)
 
@@ -2326,7 +2338,7 @@ Prefer review plus small integration PRs. Docs-first before any freeze break.
 | Q | Question | Blocks | Owner |
 |---|---|---|---|
 | Q1 | Samples overlap **three ways, not pairwise**: El-Badry 2024 drew candidates from Andrews, and El-Badry 2026's astrometric subsample 3 *is* the Andrews selection restricted to `G < 15` (§8.7). Separate Poisson processes per sample, or one unified inclusion-indicator formulation? Naive summation double-counts. | #23 | #23 subagent, with human sign-off |
-| Q2 | Shahaf et al. (2023b) triage: cross-match the published 177-candidate catalog, or reimplement the AMRF algorithm? Catalog is fine for reproduction; the forward-model and DR4 paths need the algorithm, since a catalog cannot be applied to mocks. **Partially eased by §8.3**, which computes the AMRF directly and so supplies the algorithm side; the remaining question is whether §7's triage can be re-expressed in those terms or genuinely needs the catalog. | #21, DR4 | #21 subagent, with human sign-off |
+| Q2 | Shahaf et al. (2023b) triage: cross-match the published 177-candidate catalog, or reimplement the AMRF algorithm? Catalog is fine for reproduction; the forward-model and DR4 paths need the algorithm, since a catalog cannot be applied to mocks. **Partially eased by §8.3**, which computes the AMRF directly and so supplies the algorithm side; the remaining question is whether §7's triage can be re-expressed in those terms or genuinely needs the catalog. **#315 (2026-09-29):** El-Badry 2026 subsample 4 now uses the catalog in reproduction mode (exact 22). Its forward-model path still uses the point-estimate AMRF chain, which admits 49 against 22 on real data. A faithful forward model needs Shahaf's probabilistic `PIII`, whose Table 2 floor is `PIII ≥ 0.99984`. | #21, DR4 | #21 subagent, with human sign-off |
 | Q4 | Whether `nss.corr_vec` / `nss.bit_index` as published are sufficient to reconstruct the full 12×12 covariance for every solution type, or whether matrices must be staged from a local file (§10). | #18 | #18 subagent |
 | Q5 | **Partially answered.** The user's working hypothesis is that Andrews' parent is **all 12-parameter (orbital) astrometric solutions that are not SB1/SB2**, excluding `AstroSpectroSB1` — recorded in §6.1 and in `andrews2022.yaml`. Expressed with explicit uncertainty ("I think"), so archive verification still gates it: the query must return **exactly 134,598** as a *blocking* acceptance test before any downstream cut is trusted, and the verified set plus the confirming query must be frozen into the selection file. | #20 | #20 subagent |
 | Q7 | `nsstools` (Halbwachs et al. 2023) is what El-Badry 2026 uses for `ã0` and `σ_ã0`. Do we vendor it as a pinned dependency alongside `gaiamock`, or use our existing `thiele_innes_to_campbell` (§5.1)? Either is defensible, but the reproduction path must match the paper's numbers, so any difference between the two must be measured before choosing. | #25 | #25 subagent, with human sign-off |

@@ -160,8 +160,14 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.nss_covariance",
                 "darkhunter_pop.rv_adapter",
+                "darkhunter_pop.shahaf2023b_catalog",
             ),
-            config_keys=("sample_selection", "mc_mass_function"),
+            config_keys=(
+                "sample_selection",
+                "mc_mass_function",
+                "dr3.shahaf2023b_class3_snapshot",
+                "dr4.shahaf2023b_class3_snapshot",
+            ),
         ),
         _spec(
             "mass_derivation_refined",
@@ -372,6 +378,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.sbc",
                 "darkhunter_pop.constants",
                 "darkhunter_pop.andrews2022_atf",
+                "darkhunter_pop.shahaf2023b_catalog",
                 # Terminal stage: everything it reaches at module scope plus its
                 # lazy helpers (age_bin_diagnostic, information_gain_stub, the
                 # upstream artifact readers) and their closures (#183).

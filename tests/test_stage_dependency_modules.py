@@ -92,6 +92,7 @@ _LAZY_IMPORT_ALLOWLIST: dict[tuple[str, str], str] = {
             "elbadry2026_selection",
             "janssens_mass",
             "mc_mass_function",
+            "shahaf2023b_catalog",
         )
     },
 }
