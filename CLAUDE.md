@@ -465,10 +465,14 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   Pass `membership['andrews2022']` when evaluating El-Badry 2026 so `andrews2022_import` binds.
 - Column ownership is strict: Andrews owns `p_m2_above` / `m2_msun` / `m2_msun_error` at fixed
   `M1 = 1.0`; El-Badry 2026 owns `m1_tilde_msun` / `m2_tilde_msun` / `sigma_m2_astrometric_msun` at
-  fixed Janssens `M̃1`. **Never alias Andrews' σ into El-Badry's.** Andrews reproduction mode reads
-  only the Andrews-owned `andrews_atf_*` columns (ATF notebook, #296), built by
-  `scripts/build_andrews2022_atf_columns.py` into `data/reproduction_columns/dr3/atf_notebook_<fp>.h5`;
-  without that sidecar every `atf_*` cut is N/A. The forward_model chain still reads `p_m2_above`.
+  fixed Janssens `M̃1`. **Never alias Andrews' σ into El-Badry's.** Both Andrews modes read only the
+  Andrews-owned `andrews_atf_*` columns (ATF notebook, #296 / #306), built by
+  `scripts/build_andrews2022_atf_columns.py` into one sidecar per mode,
+  `data/reproduction_columns/dr3/atf_notebook_<mode>_<fp>.h5`; without it every `atf_*` cut is N/A.
+  The modes differ only in pass-2 M1 (reproduction: Lick → FLAME → uniform; forward_model: pipeline
+  TAG10 → uniform). The giant cut / FLAME M1 read the notebook's VizieR I/355/paramp values
+  (`logg_vizier_apsis`, `mass_flame_vizier_apsis`, snapshot via `scripts/fetch_vizier_apsis.py` at
+  `dr3.vizier_apsis_snapshot_meta`), kept beside the Gaia-archive `logg_gspphot` / `mass_flame`.
 - `σ_M̃2` is computed lazily at the `m2_error` cut with **fixed** Janssens `M̃1`
   (`propagate_fit_uncertainty: false`, Q12). Since #284 the reproduction path uses **analytic**
   (first-order, nsstools-style) propagation (`sigma_m2_tilde.method` in `elbadry2026.yaml`; the
