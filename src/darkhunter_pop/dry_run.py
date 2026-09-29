@@ -300,10 +300,20 @@ def declare_stand_ins(
                     "snapshot's query date, so this run says nothing about the "
                     "current archive contents, and the funnel counts it reports are "
                     "the snapshot's. Replay also makes the run reproducible, which a "
-                    "live query is not."
+                    "live query is not. The snapshot's ADQL predates corr_vec / "
+                    "bit_index / NSS errors / K1, so those come from the frozen "
+                    "nss_enrichment snapshot, joined per (source_id, "
+                    "nss_solution_type) (#308)."
                 ),
-                config_keys=["dr3.nss_table", "paths.data_root"],
-                values={"snapshot_meta": _relative_to_repo(snapshot_meta)},
+                config_keys=[
+                    "dr3.nss_table",
+                    "dr3.nss_enrichment_snapshot",
+                    "paths.data_root",
+                ],
+                values={
+                    "snapshot_meta": _relative_to_repo(snapshot_meta),
+                    "nss_enrichment_snapshot": config.active_dr().nss_enrichment_snapshot,
+                },
             )
         )
 
