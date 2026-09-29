@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from pathlib import Path
 
 import pytest
@@ -379,10 +381,19 @@ def test_mode_divergence_andrews_gaia_bh1(tmp_path: Path) -> None:
         update={"paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path)})}
     )
     dirs = resolve_diagnostic_dirs(cfg, run_id="mode")
+    # #306: config also expects two published sources only in the reproduction
+    # (left) set -- the forward-model TAG10 M1 drops them at the 3-sigma cut.
+    expected_left = cfg.diagnostics.sample_reproduction.mode_divergence_pairs[0]
+    left_cfg = dataclasses.replace(
+        left,
+        surviving_source_ids=tuple(
+            sorted(set(left.surviving_source_ids) | set(expected_left.expected_only_in_left))
+        ),
+    )
     emission = emit_mode_divergence(
         cfg,
         dirs,
-        results={"andrews2022": left, "andrews2022_modified": right},
+        results={"andrews2022": left_cfg, "andrews2022_modified": right},
     )
     assert emission.payload["all_match"] is True
     text = emission.reports[0].read_text(encoding="utf-8")
