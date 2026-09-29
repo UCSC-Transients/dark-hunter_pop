@@ -514,6 +514,8 @@ def test_run_data_acquisition_writes_manifest_and_artifact(tmp_path: Path) -> No
     tweaked.paths = cfg.paths.model_copy(
         update={"data_root": str(data_root), "artifact_root": str(artifact_root)}
     )
+    # No enrichment snapshot is staged under the tmp data_root (#308).
+    tweaked.dr3 = cfg.dr3.model_copy(update={"nss_enrichment_snapshot": None})
 
     finished = run_data_acquisition(
         manifest,
@@ -555,6 +557,8 @@ def test_run_data_acquisition_from_snapshot_skips_query(tmp_path: Path) -> None:
     tweaked.paths = cfg.paths.model_copy(
         update={"data_root": str(data_root), "artifact_root": str(artifact_root)}
     )
+    # No enrichment snapshot is staged under the tmp data_root (#308).
+    tweaked.dr3 = cfg.dr3.model_copy(update={"nss_enrichment_snapshot": None})
 
     def boom(adql: str, dr) -> Table:  # noqa: ARG001
         raise AssertionError("archive query must not run when snapshot is provided")
@@ -1143,6 +1147,7 @@ def test_run_data_acquisition_collapses_tmass_fanout_and_reports_funnel(
             "artifact_root": str(tmp_path / "output"),
         }
     )
+    tweaked.dr3 = cfg.dr3.model_copy(update={"nss_enrichment_snapshot": None})
     finished = run_data_acquisition(
         manifest,
         tweaked,

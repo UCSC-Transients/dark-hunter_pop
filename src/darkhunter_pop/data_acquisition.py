@@ -191,6 +191,9 @@ class FunnelCounts:
     crossmatch_fanout: CrossmatchFanoutCounts = field(
         default_factory=CrossmatchFanoutCounts
     )
+    nss_enrichment: NssEnrichmentCounts = field(
+        default_factory=lambda: NssEnrichmentCounts()
+    )
 
     def as_dict(self) -> dict[str, int]:
         counts = {
@@ -202,6 +205,7 @@ class FunnelCounts:
         }
         counts.update(self.multi_solution.as_dict())
         counts.update(self.crossmatch_fanout.as_dict())
+        counts.update(self.nss_enrichment.as_dict())
         return counts
 
 
@@ -1009,6 +1013,146 @@ def _enrichment_join_key(mapping: Mapping[str, Any]) -> tuple[int, str]:
     sid_raw = mapping.get("source_id", mapping.get("SOURCE_ID"))
     sol_raw = mapping.get("nss_solution_type", "")
     return int(sid_raw), str(sol_raw).strip('"')
+
+
+class NssEnrichmentError(ValueError):
+    """The configured NSS enrichment snapshot is missing or not a safe join target."""
+
+
+@dataclass(frozen=True)
+class NssEnrichmentCounts:
+    """Funnel counts for the ``data_acquisition`` NSS enrichment join (#308).
+
+    ``rows_matched`` rows found their own ``(source_id, nss_solution_type)`` row in
+    the enrichment snapshot; ``rows_unmatched`` did not and keep only the replayed
+    snapshot's columns (their covariance then fails with a counted reason, never a
+    diagonal substitute). ``enabled`` is 0 when no enrichment is configured.
+    """
+
+    enabled: int = 0
+    rows_matched: int = 0
+    rows_unmatched: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "nss_enrichment_enabled": self.enabled,
+            "nss_enrichment_rows_matched": self.rows_matched,
+            "nss_enrichment_rows_unmatched": self.rows_unmatched,
+        }
+
+
+@dataclass(frozen=True)
+class NssEnrichmentIndex:
+    """A loaded NSS enrichment snapshot keyed by ``(source_id, nss_solution_type)``.
+
+    ``row_by_key`` maps each join key to its row index in ``table``; keys are
+    guaranteed unique (:func:`load_nss_enrichment_index` refuses otherwise), so a
+    lookup can never hand one row another row's solution.
+    """
+
+    meta: SnapshotMeta
+    table: Table
+    row_by_key: dict[tuple[int, str], int]
+
+    def lookup(self, key: tuple[int, str]) -> dict[str, Any] | None:
+        """The enrichment row for ``key`` as a plain mapping, or ``None``."""
+        index = self.row_by_key.get(key)
+        if index is None:
+            return None
+        row = self.table[index]
+        return {name: row[name] for name in self.table.colnames}
+
+
+def resolve_nss_enrichment_meta(config: PipelineConfig) -> Path | None:
+    """``meta.yaml`` of the active DR's configured NSS enrichment snapshot.
+
+    Resolved as ``{gaia_snapshots_dir}/{dr.nss_enrichment_snapshot}/meta.yaml``.
+    Returns ``None`` only when ``nss_enrichment_snapshot`` is null (merge disabled).
+
+    Raises
+    ------
+    NssEnrichmentError
+        When an enrichment snapshot is configured but its ``meta.yaml`` is absent.
+        A configured-but-missing enrichment is refused rather than skipped: skipping
+        it silently is exactly how every covariance went missing in #308.
+    """
+    name = config.active_dr().nss_enrichment_snapshot
+    if name is None:
+        return None
+    meta = gaia_snapshots_dir(config) / name / "meta.yaml"
+    if not meta.is_file():
+        raise NssEnrichmentError(
+            f"{config.active_dr_mode.value}.nss_enrichment_snapshot={name!r} is "
+            f"configured but {meta} does not exist. Stage the frozen enrichment "
+            "snapshot (do not re-run the job) or set the key to null explicitly."
+        )
+    return meta
+
+
+def load_nss_enrichment_index(meta_path: Path) -> NssEnrichmentIndex:
+    """Load an NSS enrichment snapshot and index it by its join key.
+
+    Parameters
+    ----------
+    meta_path:
+        ``meta.yaml`` written by ``scripts/fetch_nss_enrichment.py``.
+
+    Raises
+    ------
+    NssEnrichmentError
+        When two enrichment rows share one ``(source_id, nss_solution_type)`` key:
+        the join would then have to choose between them, and it never guesses.
+
+    Limitations
+    -----------
+    Loads the whole ECSV (~560 MB on disk for DR3) into memory once; the checksum
+    is not re-verified (same trade-off as the snapshot replay path).
+    """
+    meta, table = load_gaia_snapshot(meta_path, verify_checksum=False)
+    sid_col = "source_id" if "source_id" in table.colnames else "SOURCE_ID"
+    sids = np.asarray(table[sid_col], dtype=np.int64)
+    sols = table["nss_solution_type"]
+    row_by_key: dict[tuple[int, str], int] = {}
+    for index in range(len(table)):
+        key = (int(sids[index]), str(sols[index]).strip('"'))
+        if key in row_by_key:
+            raise NssEnrichmentError(
+                f"NSS enrichment {meta_path} has duplicate join key {key}; "
+                "refusing to pick one row's covariance for another"
+            )
+        row_by_key[key] = index
+    return NssEnrichmentIndex(meta=meta, table=table, row_by_key=row_by_key)
+
+
+def merge_nss_enrichment_into_rows(
+    table: Table,
+    enrichment: NssEnrichmentIndex | None,
+) -> tuple[list[Mapping[str, Any]], NssEnrichmentCounts]:
+    """Overlay each row's own enrichment row onto a snapshot table (#308).
+
+    Join key is ``(source_id, nss_solution_type)`` (:func:`_enrichment_join_key`),
+    so each solution of a genuine multi-solution source receives its **own**
+    solution's ``corr_vec`` / ``bit_index`` / errors, never another row's. The
+    overlay itself is :func:`merge_nss_enrichment_into_row`, the same one the
+    literature-sample parent path uses. Unmatched rows pass through unchanged.
+
+    Returns the per-row mappings (input order preserved) and funnel counts.
+    """
+    rows = [_row_as_mapping(row) for row in table]
+    if enrichment is None:
+        return rows, NssEnrichmentCounts()
+    merged: list[Mapping[str, Any]] = []
+    matched = 0
+    for mapping in rows:
+        extra = enrichment.lookup(_enrichment_join_key(mapping))
+        if extra is None:
+            merged.append(mapping)
+            continue
+        matched += 1
+        merged.append(merge_nss_enrichment_into_row(mapping, extra))
+    return merged, NssEnrichmentCounts(
+        enabled=1, rows_matched=matched, rows_unmatched=len(rows) - matched
+    )
 
 
 def build_nss_adql(dr: DRPathConfig) -> str:
@@ -1862,8 +2006,12 @@ def write_stage_hdf5(
     snapshot: SnapshotMeta,
     diagnostics: StageDiagnostics,
     spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+    enrichment_snapshot: SnapshotMeta | None = None,
 ) -> None:
     """Write one stage HDF5 under ``paths.artifact_root``.
+
+    ``enrichment_snapshot`` (#308) is the NSS enrichment snapshot merged into the
+    rows, recorded as ``meta`` provenance attrs (empty strings when none).
 
     Classifies duplicated ``source_id``\\ s and refuses unsafe shapes **before**
     opening any file (``assert_unique_source_ids``, #241/#242); genuine multi-solution
@@ -1901,6 +2049,7 @@ def write_stage_hdf5(
             snapshot=snapshot,
             diagnostics=diagnostics,
             spectroscopic=spectroscopic,
+            enrichment_snapshot=enrichment_snapshot,
         )
     except BaseException:
         partial.unlink(missing_ok=True)
@@ -1916,6 +2065,7 @@ def _write_stage_hdf5_body(
     snapshot: SnapshotMeta,
     diagnostics: StageDiagnostics,
     spectroscopic: SpectroscopicMassFunctionConfig | None = None,
+    enrichment_snapshot: SnapshotMeta | None = None,
 ) -> None:
     """Write the artifact contents to ``path``; the caller owns atomicity.
 
@@ -1930,6 +2080,12 @@ def _write_stage_hdf5_body(
         meta.attrs["snapshot_checksum"] = snapshot.checksum
         meta.attrs["adql"] = snapshot.adql
         meta.attrs["n_candidates"] = len(candidates)
+        meta.attrs["nss_enrichment_snapshot_id"] = (
+            enrichment_snapshot.snapshot_id if enrichment_snapshot is not None else ""
+        )
+        meta.attrs["nss_enrichment_checksum"] = (
+            enrichment_snapshot.checksum if enrichment_snapshot is not None else ""
+        )
 
         funnel = handle.create_group("diagnostics")
         for key, value in diagnostics.funnel.as_dict().items():
@@ -2148,9 +2304,26 @@ def run_data_acquisition(
     # duplicate guard below sees them. Genuine multi-solution groups and any group
     # differing elsewhere pass through untouched.
     fanout = collapse_crossmatch_fanout(filtered, dr.crossmatch_fanout_maskable_bands)
-    candidates = table_to_candidates(
-        fanout.table, dr, spectroscopic=config.spectroscopic_mass_function
+    # #308: the replayed snapshot's ADQL predates corr_vec / bit_index / NSS errors /
+    # K1, so overlay the frozen nss_enrichment snapshot per (source_id,
+    # nss_solution_type) — the same join the literature-sample parent path uses.
+    # Configured-but-missing raises; null disables it.
+    enrichment_meta = resolve_nss_enrichment_meta(config)
+    enrichment = (
+        load_nss_enrichment_index(enrichment_meta)
+        if enrichment_meta is not None
+        else None
     )
+    rows, enrichment_counts = merge_nss_enrichment_into_rows(fanout.table, enrichment)
+    enrichment_snapshot = enrichment.meta if enrichment is not None else None
+    del enrichment
+    candidates = [
+        table_row_to_candidate(
+            mapping, dr, spectroscopic=config.spectroscopic_mass_function
+        )
+        for mapping in rows
+    ]
+    del rows
     candidates = attach_crossmatch_fanout_provenance(candidates, fanout.provenance)
     candidates, _rv_stats = attach_rv_summaries(candidates, config)
     # Classifies duplicate source_ids (#241/#242) and refuses any unsafe shape here,
@@ -2167,6 +2340,7 @@ def run_data_acquisition(
         covariance_failed=cov_health.failed,
         multi_solution=multi_solution,
         crossmatch_fanout=fanout.counts,
+        nss_enrichment=enrichment_counts,
     )
     diagnostics = compute_stage_diagnostics(
         candidates,
@@ -2180,6 +2354,7 @@ def run_data_acquisition(
         snapshot=snapshot,
         diagnostics=diagnostics,
         spectroscopic=config.spectroscopic_mass_function,
+        enrichment_snapshot=enrichment_snapshot,
     )
     write_diagnostic_artifacts(diagnostics, artifact, config=config)
 
