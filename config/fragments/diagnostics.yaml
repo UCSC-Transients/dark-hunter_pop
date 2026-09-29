@@ -80,7 +80,9 @@ diagnostics:
       - left: andrews2022
         right: andrews2022_modified
         expected_only_in_right: [4373465352415301632]
-        expected_only_in_left: []
+        # #306: forward-model TAG10 pass-2 M1 drops these two published sources
+        # at the 3-sigma M2 cut (reproduction uses their UCO Lick M1).
+        expected_only_in_left: [1749013354127453696, 3649963989549165440]
   sbc:
     enabled: true
     # Stage stays fast by default; tests call run_sbc_suite directly.

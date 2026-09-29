@@ -621,8 +621,48 @@ class AtfNotebookPrimaryMassSpec(BaseModel):
         return self
 
 
+class AtfForwardModelPrimaryMassSpec(BaseModel):
+    """Pass-2 refined M1 in ``forward_model`` mode (#306).
+
+    Ryan Foley (2026-09-28): the forward model follows the ATF notebook
+    procedure, with the pipeline's own mass posterior in place of the paper's
+    M1 assumption. Only the pass-2 M1 (the ``M2`` recomputation and the 3σ
+    cut) changes; pass 1 stays at the notebook's fixed ``M1``.
+
+    ``method: pipeline_tag10_bulk`` draws ``N(M1, σ_M1)`` from the pipeline's
+    bulk-tier M1 (``mass_derivation.derive_tag10_m1_r1`` under the run's
+    ``mass_calibration``, MSC then GSP-Phot atmosphere) — the M1 posterior
+    ``sample_selection`` sees, since it runs before ``mass_derivation_refined``.
+    A source with no TAG10 M1 (no usable atmosphere) takes the notebook's own
+    no-mass fallback ``Uniform(uniform_low_msun, uniform_high_msun)``. There is
+    no UCO Lick branch in this mode, so the giant ``logg`` cut applies to every
+    source.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["pipeline_tag10_bulk"]
+    fallback: Literal["uniform"]
+    uniform_low_msun: float = Field(..., gt=0)
+    uniform_high_msun: float = Field(..., gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> AtfForwardModelPrimaryMassSpec:
+        if self.uniform_high_msun <= self.uniform_low_msun:
+            raise ValueError("uniform_high_msun must exceed uniform_low_msun")
+        return self
+
+
 class AtfNotebookPass2Spec(BaseModel):
-    """ATF ``plot_system`` (notebook cell 17): refined-M1 pass on pass-1 survivors."""
+    """ATF ``plot_system`` (notebook cell 17): refined-M1 pass on pass-1 survivors.
+
+    ``giant_logg_column`` and ``primary_mass.flame_column`` name the row
+    column the notebook value comes from; ``*_vizier_apsis`` columns come from
+    the VizieR I/355/paramp snapshot (``dr3.vizier_apsis_snapshot_meta``,
+    #306), anything else from the Gaia-archive snapshot / FLAME enrichment.
+    ``primary_mass`` is the reproduction-mode M1; ``forward_model_primary_mass``
+    the forward-model one.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -633,6 +673,7 @@ class AtfNotebookPass2Spec(BaseModel):
     m2_std_ddof: int = Field(..., ge=0)
     giant_logg_column: str = Field(..., min_length=1)
     primary_mass: AtfNotebookPrimaryMassSpec
+    forward_model_primary_mass: AtfForwardModelPrimaryMassSpec
 
     @model_validator(mode="after")
     def _bracket_ordered(self) -> AtfNotebookPass2Spec:
@@ -647,9 +688,11 @@ class ReproductionProcedureSpec(BaseModel):
 
     Only ``method: atf_notebook`` (the Andrews, Taggart & Foley 2022 selection
     notebook) exists. Its ``andrews_atf_*`` columns are built by
-    ``scripts/build_andrews2022_atf_columns.py`` into a fingerprint-keyed
-    sidecar and merged only when the sample is evaluated in ``reproduction``
-    mode; ``forward_model`` evaluation never sees them.
+    ``scripts/build_andrews2022_atf_columns.py`` into one fingerprint-keyed
+    sidecar per evaluation mode (#306): the ``reproduction`` sidecar uses the
+    paper's pass-2 M1 (``pass2.primary_mass``), the ``forward_model`` sidecar
+    the pipeline's (``pass2.forward_model_primary_mass``). Each mode merges
+    only its own sidecar.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1283,7 +1326,7 @@ class SampleSelectionConfig(BaseModel):
     dust_maps: DustMapsConfig = Field(default_factory=DustMapsConfig)
     # #296: fingerprint-keyed sidecars of reproduction-procedure columns
     # (``andrews_atf_*``), relative to ``paths.data_root`` unless absolute; one
-    # subdirectory per ``active_dr_mode``.
+    # subdirectory per ``active_dr_mode``, one sidecar per evaluation mode (#306).
     reproduction_column_cache_dir: str = "reproduction_columns"
 
     @model_validator(mode="after")
@@ -2279,6 +2322,10 @@ class DRPathConfig(BaseModel):
     # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
     rv_summary_root: str | None = None
     rv_summary_filename_template: str = "Gaia_DR3_{source_id}_summary.json"
+    # VizieR Apsis snapshot (``scripts/fetch_vizier_apsis.py``, #306): meta.yaml
+    # of the I/355/paramp columns the Andrews ATF notebook read, relative to the
+    # repo root unless absolute. Null = none.
+    vizier_apsis_snapshot_meta: str | None = None
     # Reserved for DR4 epoch capabilities; ignored when inactive.
     allow_astrometric_epoch_outliers: bool = False
     selection_function_astrometric: DRSelectionFunctionPathConfig = Field(
