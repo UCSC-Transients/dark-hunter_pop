@@ -1369,8 +1369,10 @@ was resolved to the reading that matches the paper: a cross-match to Shahaf et a
     at every `E(B-V)` ≥ 0.
   - Applying the Janssens chain to catalog members instead gives **19**, all of them paper members,
     missing those two and `6037767138131854592`.
-  - Reproduction mode therefore uses Shahaf's columns. This is flagged for Ryan: if the notation
-    reading is preferred, it is a two-cut edit (19 of 22).
+  - **PI decision (Ryan Foley, 2026-09-29), verbatim:** *"It is sufficient to have the Shahaf mass
+    as a way to get their final sample. The goal of these checks is to make sure we can reproduce the
+    published results. If we don't know where the mass came from, we will have to place it ad hoc."*
+    Reproduction mode therefore uses Shahaf's `M2min` / `e_M2min`.
 - **Forward model.** Unchanged. The schema-v2 Janssens chain (`m2_range`, `m2_over_m1`, `amrf`,
   `m2_error`) now carries `applies_to: [forward_model]`, and the catalog is never read in that mode.
   A catalog cannot be applied to mocks; that is §15 **Q2**.

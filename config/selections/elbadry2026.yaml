@@ -49,8 +49,12 @@
 #   defined in §2 through the Janssens M1~, but the Janssens M2~ cannot reach
 #   the stated 22: two members (2080945469200565248, 3494029910469026432) sit
 #   above 1.44 on it at any E(B-V) >= 0 (Shahaf M2min 1.381 / 1.318). The
-#   paper's stated result is therefore reproduced only on Shahaf's columns,
-#   which is what reproduction mode now uses.
+#   paper's stated result is reproduced only on Shahaf's columns, and the cuts
+#   use them by a second PI decision (Ryan Foley, 2026-09-29): "It is
+#   sufficient to have the Shahaf mass as a way to get their final sample. The
+#   goal of these checks is to make sure we can reproduce the published
+#   results. If we don't know where the mass came from, we will have to place
+#   it ad hoc."
 #   Changes, all to `sub_chandrasekhar`:
 #     - `external_catalog: shahaf2023b_class3` (snapshot = DR-path key
 #       dr3.shahaf2023b_class3_snapshot; dr4 null);
