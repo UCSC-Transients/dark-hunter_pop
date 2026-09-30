@@ -135,7 +135,109 @@ The "Previous" column is the last value recorded before this baseline: measured 
 
 ### 3.1 Andrews et al. (2022)
 
-#### 3.1.4 #296 — reproduction mode is now the ATF selection notebook (current state; supersedes §3.1.1–§3.1.3 for reproduction)
+#### 3.1.5 #306 — forward model is the ATF notebook too; VizieR Apsis columns (current state)
+
+**Provenance.** Measured 2026-09-28 on branch `feat/andrews-fm-306` (`main` @ `774abcd` + the #306
+commits), in the isolated worktree `../dark-hunter_pop-worktrees/andrews-fm-306` with `PYTHONPATH` →
+its `src/` and `data/` symlinked to the primary checkout. The ruling is Ryan Foley's, 2026-09-28 (#296 /
+#306), verbatim: "Use the Andrews notebook procedure for the forward model. For Andrews, follow the
+notebook exactly. If Gaia provides a separate logg_gspphot, then we should have two columns, one Gaia
+and one Vizier. The Andrews pass 1 isn't critical if we end up with the correct sample in the end."
+`andrews2022.yaml` is now schema_version 4 and `andrews2022_modified.yaml` schema_version 3. No
+threshold changed.
+
+**VizieR Apsis columns.** The notebook's giant cut and FLAME M1 read `logg` / `Mass-Flame` from
+VizieR I/355/paramp (`massive_apsis.vot`, cells 13–17). `scripts/fetch_vizier_apsis.py` now snapshots
+those columns as `*_vizier_apsis` (`logg_vizier_apsis`, `teff_vizier_apsis`,
+`mass_flame_vizier_apsis`, plus bounds). The Gaia-archive columns (`logg_gspphot`, `mass_flame`) are
+untouched. The snapshot is `data/dr3/vizier_apsis/20260928T184758Z_cb5ebfebe7bc/`: 6107 sources
+requested and 6107 rows returned, checksum `cb5ebfeb…`, pointed to by
+`dr3.vizier_apsis_snapshot_meta`. It holds every `Orbital` source with notebook pass-1
+`p ≥ 0.1`, which covers all 115 pass-1 survivors. The builder refuses to run if a pass-1 survivor was
+never requested. The fetch ran once and its result is read offline.
+
+Comparison with the Gaia archive on those 6107 sources (4959 with values, 0 NaN-pattern mismatches):
+
+| VizieR column | Gaia-archive column | max \|Δ\| | Note |
+|---|---|---|---|
+| `logg` | `logg_gspphot` | 2.4e-7 | Identical (VizieR prints 4 decimals). It is GSP-Phot, **not** `logg_msc1` (4944 of 4959 differ from that by more than 1e-3) |
+| `Teff` | `teff_gspphot` | 4.8e-4 K | Identical. No cut reads Teff; the notebook plots it only |
+| `Mass-Flame` | `mass_flame` | 5.0e-4 | Identical to 3-decimal rounding; 4061 with values |
+
+Among the 115 pass-1 survivors, the logg cut flips for no source and FLAME availability differs for
+none. The two logg sources give the same selection.
+
+**Forward-model chain.** The `atf_*` chain now `applies_to: [reproduction, forward_model]`. The
+schema_version-2 chain is removed: FLAME/uniform `p_m2_above ≥ 0.95`, `m2_snr`, `logg_apsis` and the
+3.14/−0.43 CMD line. One sidecar is built per mode (`atf_notebook_<mode>_<fp>.h5`). The two differ
+**only** in the pass-2 refined M1:
+
+| | reproduction | forward_model |
+|---|---|---|
+| Pass 1 | fixed M1 = 1.0 (notebook) | same |
+| Covariance gate, GoF, CMD, root checks, 3σ | notebook | same |
+| Pass-2 M1 | UCO Lick `N(m, 0.1)` (8 sources) → VizieR FLAME `N(m, 0.1)` → U(0.63, 1.0) | pipeline bulk-tier TAG10 `N(M1, σ_M1)` (`derive_tag10_m1_r1`, run `mass_calibration`, MSC then GSP-Phot atmosphere) → U(0.63, 1.0) |
+| logg < 3.6 cut | skipped for Lick sources | every source (there is no Lick branch) |
+| NSS draws | seeded per source | identical draws, same seed |
+
+TAG10 gives an M1 for 112 of the 115 pass-1 survivors; the other 3 take the uniform fallback. The
+forward-model fingerprint also covers `mass_calibration`. Both fingerprints cover the VizieR snapshot
+path.
+
+**Re-measured** (parent rows are the uncut snapshot's 134,598 `Orbital` sources; sidecars
+`atf_notebook_reproduction_be3ee5f2648bd3bd.h5` and `atf_notebook_forward_model_f3162aea292c9f1e.h5`,
+built in 591 s):
+
+| Check | Target | #296 (§3.1.4) | **#306** | Gate |
+|---|---|---|---|---|
+| `andrews2022` reproduction N | 24 | 25 | **25** (published 24 + `6424213726885519744`) | FAIL by 1, unchanged |
+| `andrews2022_modified` reproduction N | 25 | 26 | **26** | 25 + the same extra |
+| Q9 `G < 15` in `andrews2022` (reproduction) | 16 | 16 | **16** | **OK** |
+| `andrews2022` forward_model N | — | 33 (v2 chain) | **23** | — |
+| `andrews2022_modified` forward_model N (registry, feeds inference) | 25 | 64 (v2 chain) | **24** | see mode_divergence |
+| `andrews2022_modified` forward_model `G < 15` | — | — | 15 | — |
+
+The waterfall is the same for both modes through the CMD cut:
+
+```
+134598 → 130012 (atf_covariance_valid) → 129556 (atf_pass1_root_found) → 115 (atf_m2_probability)
+       → 81 (atf_goodness_of_fit) → 49 (atf_giant_reject_logg) → 32 (atf_giant_reject_cmd)
+       → 32 (atf_pass2_root_found)
+reproduction:  → 26 (atf_m2_3sigma) → 25 (explicit_exclusions)
+forward_model: → 24 (atf_m2_3sigma) → 23 (explicit_exclusions; andrews2022_modified keeps 24)
+```
+
+The VizieR logg changes nothing: the 81 → 49 logg step and the 49 → 32 CMD step are unchanged. The
+boundary extra `6424213726885519744` stays, since it is set by pass-1 p = 0.9545, not by logg.
+Removing the Lick logg exemption in forward_model also removes no source, because every Lick source
+passes logg < 3.6 anyway.
+
+**mode_divergence** (registry pair: `andrews2022` reproduction vs `andrews2022_modified`
+forward_model): only-right `[4373465352415301632]` (Gaia BH1); only-left `[1749013354127453696,
+3649963989549165440]`. Both only-left sources are published members that fail the forward-model 3σ
+cut. The cause is the M1 posterior, not the chain:
+
+| source | reproduction M1 → M2 (mean/std) | forward-model TAG10 M1 → M2 (mean/std) |
+|---|---|---|
+| `1749013354127453696` | Lick 1.00 → 1.97 ± 0.38 (5.2σ) | 0.88 → 1.78 ± 0.71 (2.5σ): TAG10 σ_M1 is broad |
+| `3649963989549165440` | Lick 0.47 → 1.44 ± 0.24 (6.0σ) | 1.56 → 2.20 ± 0.82 (2.7σ): Teff ≈ 22.7 kK, well outside the FGK range TAG10 is calibrated on |
+
+These are recorded as `expected_only_in_left` in `config/config.yaml`
+(`diagnostics.sample_reproduction.mode_divergence_pairs`), so the check matches: all other members
+agree. The expectation depends on `mass_calibration`. BH1 in forward_model takes TAG10 M1 = 0.82 and
+M2 = 13.4 ± 2.7, and survives.
+
+**El-Badry 2026 `andrews2022_import`** resolves against `andrews2022` in the registry, which is
+reproduction mode. That membership is unchanged (25, of which 16 have `G < 15`), so El-Badry 2026 is
+unaffected and a full `evaluate_all` was not re-run.
+
+**Not done / known limits.**
+- Pass-1 115 vs 106 is not chased (Ryan: not critical).
+- The `sample_selection_function` sweep evaluates template mock rows. Those rows carry no
+  `andrews_atf_*` columns, so the Andrews forward-model curve is empty until the ATF columns are
+  forward-modeled for mocks. Filed as #316.
+
+#### 3.1.4 #296 — reproduction mode is now the ATF selection notebook (supersedes §3.1.1–§3.1.3 for reproduction; forward model and logg column superseded by §3.1.5)
 
 **Provenance.** Measured 2026-09-28 on branch `feat/andrews-atf-notebook-296` (`main` @ `c07897e` + the
 #296 commits, merged with `main` before the PR), in the isolated worktree

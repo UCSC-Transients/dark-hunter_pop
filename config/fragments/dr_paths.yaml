@@ -9,6 +9,8 @@ dr3:
   # Independent DR key even when value matches dr4.
   rv_summary_root: data/dr3/rv_summaries
   rv_summary_filename_template: "Gaia_DR3_{source_id}_summary.json"
+  # #306: VizieR I/355/paramp snapshot (scripts/fetch_vizier_apsis.py).
+  vizier_apsis_snapshot_meta: data/dr3/vizier_apsis/20260928T184758Z_cb5ebfebe7bc/meta.yaml
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0
@@ -23,6 +25,7 @@ dr4:
   sed_filters: [G, BP, RP, J, H, Ks, W1, W2]
   rv_summary_root: data/dr4/rv_summaries
   rv_summary_filename_template: "Gaia_DR3_{source_id}_summary.json"
+  vizier_apsis_snapshot_meta: null
   quality_cut_bins:
     - g_max: 13.0
       gof_max: 10.0

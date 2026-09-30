@@ -71,8 +71,38 @@
 #   in the registry) is unchanged; primary_mass (flame_or_uniform_draw) stays
 #   because it still drives the p_m2_above cache columns that chain reads.
 #   The atf_* columns are precomputed by scripts/build_andrews2022_atf_columns.py.
+#
+# schema_version 4 (2026-09-28, provenance note, issue #306; Ryan Foley's
+# decision on #296/#306, verbatim: "Use the Andrews notebook procedure for the
+# forward model. For Andrews, follow the notebook exactly. If Gaia provides a
+# separate logg_gspphot, then we should have two columns, one Gaia and one
+# Vizier. The Andrews pass 1 isn't critical if we end up with the correct
+# sample in the end." That decision is the sanction for this frozen-file edit.
+# No threshold changes.
+#   * forward_model now runs the SAME atf_* chain (applies_to: [reproduction,
+#     forward_model]). The schema_version-2 chain (m2_probability >= 0.95 on
+#     the FLAME/uniform p_m2_above MC columns, goodness_of_fit, m2_snr,
+#     giant_reject_logg on logg_apsis, CMD 3.14/-0.43) is removed; see
+#     schema_version 2/3 above for its history.
+#   * The only forward-model difference is the pass-2 refined M1
+#     (reproduction_procedure.pass2.forward_model_primary_mass): the
+#     pipeline's own bulk-tier TAG10 M1 posterior N(M1, sigma_M1), else the
+#     notebook's U(0.63, 1.0) no-mass fallback, instead of the paper's UCO
+#     Lick -> FLAME -> uniform rule. Pass 1 stays at the notebook's fixed
+#     M1 = 1.0. With no Lick branch, atf_giant_reject_logg applies to every
+#     source in forward_model. Each mode has its own sidecar.
+#   * Two logg columns: the notebook's giant cut and FLAME M1 read VizieR
+#     I/355/paramp (massive_apsis.vot), now carried as logg_vizier_apsis /
+#     mass_flame_vizier_apsis beside the Gaia-archive logg_gspphot /
+#     mass_flame (scripts/fetch_vizier_apsis.py snapshot,
+#     dr3.vizier_apsis_snapshot_meta). Measured on the 6107-source snapshot:
+#     VizieR logg == archive logg_gspphot to 2.4e-7 (4-decimal rounding), and
+#     VizieR Mass-Flame == archive mass_flame to 5e-4 (3-decimal rounding).
+#   * The top-level primary_mass block (flame_or_uniform_draw) no longer feeds
+#     any Andrews cut; it is kept only because it still defines the legacy
+#     p_m2_above MC cache columns (scripts/attach_mc_to_selection_cache.py).
 
-schema_version: 3
+schema_version: 4
 name: andrews2022
 provenance:
   reference: "Andrews et al. (2022)"
@@ -91,8 +121,9 @@ primary_mass:
   # #230/#257: Gaia Apsis FLAME mass with a fixed +/-0.1 Msun Gaussian error
   # when available, else Uniform(0.63, 1.0) Msun. Replaces the earlier fixed
   # M1 = 1.0 Msun first-cut assumption for the m2_probability cut.
-  # schema_version 3 (#296): drives only the p_m2_above MC cache columns read
-  # by the forward_model chain. Reproduction M1 is reproduction_procedure below.
+  # schema_version 4 (#306): read by no Andrews cut in either mode; defines
+  # only the legacy p_m2_above MC cache columns. The selection M1 is
+  # reproduction_procedure below.
 reproduction_procedure:
   method: atf_notebook
   source: "data/reference/andrews2022_ATF_sample_selection.ipynb (supplied by Ryan Foley, 2026-09-27; #296)"
@@ -133,10 +164,11 @@ reproduction_procedure:
     reject_source_on_any_draw_failure: true
     # np.std default (population std).
     m2_std_ddof: 0
-    # VizieR I/355/paramp `logg` (the notebook's massive_apsis.vot) is the
-    # GSP-Phot logg (Gaia DR3 astrophysical_parameters.logg_gspphot). Switch to
-    # logg_msc1 only on the PI's word (#296 ambiguity report).
-    giant_logg_column: logg_gspphot
+    # schema_version 4 (#306): the notebook's VizieR I/355/paramp `logg`
+    # (massive_apsis.vot), as its own column. It is the GSP-Phot logg
+    # (== astrophysical_parameters.logg_gspphot to 4-decimal rounding), not
+    # logg_msc1. Was logg_gspphot at schema_version 3.
+    giant_logg_column: logg_vizier_apsis
     primary_mass:
       lick_sigma_msun: 0.1
       lick_provenance: >-
@@ -154,9 +186,19 @@ reproduction_procedure:
         - {source_id: 4373465352415301632, m1_msun: 0.98}
         - {source_id: 1854241667792418304, m1_msun: 0.70}
         - {source_id: 1749013354127453696, m1_msun: 1.00}
-      # VizieR `Mass-Flame` = astrophysical_parameters.mass_flame.
-      flame_column: mass_flame
+      # schema_version 4 (#306): the notebook's VizieR `Mass-Flame`
+      # (== astrophysical_parameters.mass_flame to 3-decimal rounding). Was
+      # mass_flame at schema_version 3.
+      flame_column: mass_flame_vizier_apsis
       flame_sigma_msun: 0.1
+      uniform_low_msun: 0.63
+      uniform_high_msun: 1.0
+    # schema_version 4 (#306): forward_model pass-2 M1 = the pipeline's own
+    # bulk-tier M1 posterior (TAG10, run config mass_calibration), else the
+    # notebook's own no-mass fallback U(0.63, 1.0). No Lick branch.
+    forward_model_primary_mass:
+      method: pipeline_tag10_bulk
+      fallback: uniform
       uniform_low_msun: 0.63
       uniform_high_msun: 1.0
 parent_query:
@@ -195,24 +237,24 @@ monte_carlo:
   n_draws: 10000
   covariance: full_12x12
 cuts:
-  # ---- schema_version 3: ATF notebook reproduction chain (#296) ----
+  # ---- ATF notebook chain (#296); both modes since schema_version 4 (#306) ----
   - id: atf_covariance_valid
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # get_random_samples raised (NaN errors, non-PSD, singular) -> rejected.
     expression: "andrews_atf_covariance_ok == True"
     requires_defined: [andrews_atf_covariance_ok]
     expected_n_after: null
   - id: atf_pass1_root_found
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # brentq(func, 0, 1000) raised for ANY draw at M1 = 1.0 -> rejected.
     expression: "andrews_atf_pass1_root_ok == True"
     requires_defined: [andrews_atf_pass1_root_ok]
     expected_n_after: null
   - id: atf_m2_probability
     kind: probability
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # len(M2[M2 > 1.4]) / len(m_f) > 0.95 -- strict, all draws.
     expression: "P(M2 > m2_threshold_msun) > m2_probability_min"
     expected_n_after: 106
@@ -222,7 +264,7 @@ cuts:
       probability_column: andrews_atf_p_m2_above
   - id: atf_goodness_of_fit
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # `if sys['goodness_of_fit'] > 5: return` (NaN passes).
     expression: "not defined(andrews_atf_goodness_of_fit) or not (andrews_atf_goodness_of_fit > goodness_of_fit_max)"
     expected_n_after: null
@@ -230,8 +272,9 @@ cuts:
       goodness_of_fit_max: 5.0
   - id: atf_giant_reject_logg
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # Apsis branch only: `if not np.isnan(logg) and logg < 3.6: return`.
+    # forward_model has no Lick branch, so it applies to every source (#306).
     expression: "andrews_atf_m1_source == lick_m1_source or not defined(andrews_atf_logg) or not (andrews_atf_logg < logg_dwarf_min)"
     expected_n_after: null
     parameters:
@@ -239,7 +282,7 @@ cuts:
       lick_m1_source: lick
   - id: atf_giant_reject_cmd
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # slope = (9+2)/(3+0.5); intercept = 9 - 3*slope (the plotted line from
     # (-0.5, -2) to (3, 9)); reject if (BP-RP)*slope + intercept > G_abs.
     # NaN colour / magnitude (missing BP/RP, parallax <= 0) passes.
@@ -253,60 +296,20 @@ cuts:
       extinction_corrected: false
   - id: atf_pass2_root_found
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # brentq(func, 0, 10000) with refined M1 raised for ANY draw -> rejected.
     expression: "andrews_atf_pass2_root_ok == True"
     requires_defined: [andrews_atf_pass2_root_ok]
     expected_n_after: null
   - id: atf_m2_3sigma
     kind: derived
-    applies_to: [reproduction]
+    applies_to: [reproduction, forward_model]
     # `if np.mean(M2) < 3*np.std(M2): return`.
     expression: "not (andrews_atf_m2_mean_msun < m2_sigma_multiple * andrews_atf_m2_std_msun)"
     requires_defined: [andrews_atf_m2_mean_msun, andrews_atf_m2_std_msun]
     expected_n_after: null
     parameters:
       m2_sigma_multiple: 3.0
-  # ---- schema_version 2 chain, verbatim, forward_model only (#296) ----
-  - id: m2_probability
-    applies_to: [forward_model]
-    kind: probability
-    expression: "P(M2 > m2_threshold_msun) >= m2_probability_min"
-    expected_n_after: 106
-    parameters:
-      m2_threshold_msun: 1.4
-      m2_probability_min: 0.95
-  - id: goodness_of_fit
-    applies_to: [forward_model]
-    kind: column
-    expression: "goodness_of_fit < goodness_of_fit_max"
-    expected_n_after: null
-    parameters:
-      goodness_of_fit_max: 5.0
-  - id: m2_snr
-    applies_to: [forward_model]
-    kind: derived
-    expression: "m2_msun / m2_msun_error > m2_snr_min"
-    expected_n_after: null
-    parameters:
-      m2_snr_min: 3.0
-  - id: giant_reject_logg
-    applies_to: [forward_model]
-    kind: derived
-    # Sketch used SQL-ish `null`; evaluator accepts Python `None`.
-    expression: "logg_apsis is None or logg_apsis >= logg_dwarf_min"
-    expected_n_after: null
-    parameters:
-      logg_dwarf_min: 3.6
-  - id: giant_reject_cmd
-    applies_to: [forward_model]
-    kind: derived
-    expression: "abs_g_mag > cmd_slope * bp_rp + cmd_intercept"
-    expected_n_after: null
-    parameters:
-      cmd_slope: 3.14
-      cmd_intercept: -0.43
-      extinction_corrected: false
 exclusions:
   - source_id: 4373465352415301632
     reason: "m_f ~ 11.6 Msun at P_orb = 186 d ~ 3x Gaia scanning period; probable scanning-law harmonic contaminant (Halbwachs et al. 2022)."

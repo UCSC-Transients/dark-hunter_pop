@@ -541,7 +541,13 @@ diagnostics:
       right: andrews2022_modified
       expected_only_in_right:
       - 4373465352415301632
-      expected_only_in_left: []
+      # #306: the forward-model (right) chain is the ATF notebook with the
+      # pipeline's TAG10 pass-2 M1. These two published sources fail its 3-sigma
+      # M2 cut there (reproduction takes their UCO Lick M1 = 1.00 / 0.47); see
+      # docs/SELECTION_REPRODUCTION_STATUS.md §3.1.5. Depends on mass_calibration.
+      expected_only_in_left:
+      - 1749013354127453696
+      - 3649963989549165440
   sbc:
     enabled: true
     # Stage stays fast by default; tests call run_sbc_suite directly.
@@ -658,6 +664,9 @@ dr3:
   - W2
   rv_summary_root: data/dr3/rv_summaries
   rv_summary_filename_template: 'Gaia_DR3_{source_id}_summary.json'
+  # #306: VizieR I/355/paramp snapshot (scripts/fetch_vizier_apsis.py) holding
+  # the Apsis logg / Mass-Flame the Andrews ATF notebook read (massive_apsis.vot).
+  vizier_apsis_snapshot_meta: data/dr3/vizier_apsis/20260928T184758Z_cb5ebfebe7bc/meta.yaml
   quality_cut_bins:
   - g_min: null
     g_max: 13.0
@@ -837,6 +846,8 @@ dr4:
   - W2
   rv_summary_root: data/dr4/rv_summaries
   rv_summary_filename_template: 'Gaia_DR3_{source_id}_summary.json'
+  # #306: DR3-only VizieR table; DR4 has none yet.
+  vizier_apsis_snapshot_meta: null
   quality_cut_bins:
   - g_min: null
     g_max: 13.0
