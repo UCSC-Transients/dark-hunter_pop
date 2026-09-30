@@ -38,3 +38,5 @@ gaiamock version triple, and the snapshot
 above. The files in this directory are the retained gate evidence.
 
 On 2026-09-29, by operator decision (Ryan Foley, #318), the early-September runs `20260904-170748-1a20ee9`, `20260904-184235-0d7c84b`, `20260906-063103-4a3b07a` and `20260908-183807-5a1c609` were purged, along with their primary-checkout `output/` directories (including the shared `output/20260904-152655-674c989/`, ~1.0 GB, which PR #304 had kept).
+
+On 2026-09-29, by operator decision (Ryan Foley, #324), the runs `20260826-233413-a1a20a9`, `20260902-072222-7e661c5`, `20260902-072410-7e661c5` and `20260902-145401-d81cfaf` were purged. Their `output/` directories had already been removed from the primary checkout.
