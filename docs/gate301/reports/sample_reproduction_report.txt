@@ -1,0 +1,140 @@
+=== sample_reproduction_report ===
+A sample's reproduction path is not considered working until recovered N
+matches the published N exactly (CONTINUATION_PLAN §13).
+Counting rule (#274, Ryan Foley 2026-09-27): 'In each solution type, count
+distinct stars.' recovered_n = distinct source_id per nss_solution_type,
+summed over types. recovered_n_rows (per-row emission) and
+recovered_n_distinct_sources (distinct across types) are informational only.
+sample: andrews2022
+  recovered_n: 25
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: Orbital=25
+  recovered_n_rows (informational): 25
+  recovered_n_distinct_sources (informational): 25
+  published_n: 24
+  n_match: False
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=25, published_n=24)
+sample: andrews2022_modified
+  recovered_n: 24
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: Orbital=24
+  recovered_n_rows (informational): 24
+  recovered_n_distinct_sources (informational): 24
+  published_n: 25
+  n_match: False
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=24, published_n=25)
+sample: elbadry2024
+  recovered_n: 48
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=6, Orbital=42
+  recovered_n_rows (informational): 48
+  recovered_n_distinct_sources (informational): 48
+  published_n: 48
+  n_match: True
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=48, published_n=48)
+sample: elbadry2024_published_compact_object_candidate
+  recovered_n: 21
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=3, Orbital=18
+  recovered_n_rows (informational): 21
+  recovered_n_distinct_sources (informational): 21
+  published_n: 21
+  n_match: True
+  id_match: True
+  symmetric_difference: empty
+sample: elbadry2026
+  recovered_n: 225
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=10, Orbital=64, SB1=150, SB1C=1
+  recovered_n_rows (informational): 240
+  recovered_n_distinct_sources (informational): 225
+  published_n: 227
+  n_match: False
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=225, published_n=227)
+sample: elbadry2026_astrometric
+  recovered_n: 74
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=10, Orbital=64
+  recovered_n_rows (informational): 74
+  recovered_n_distinct_sources (informational): 74
+  published_n: 76
+  n_match: False
+  id_match: False
+  only_in_published (2): [6054379247042197504, 6152333294796189568]
+sample: elbadry2026_spectroscopic
+  recovered_n: 151
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: SB1=150, SB1C=1
+  recovered_n_rows (informational): 151
+  recovered_n_distinct_sources (informational): 151
+  published_n: 151
+  n_match: True
+  id_match: False
+  only_in_recovered (8): [1861903644627197696, 2213782863425145984, 2256269710706835712, 3128334022403508352, 4070632598558813824, 5461264982333157888, 5540246407258096896, 5596083868330026624]
+  only_in_published (8): [263578264603666560, 395989834300077184, 497238847877377792, 649099683051543552, 1969720105580531840, 2204345647749753216, 2925811436628649984, 6054043964711290112]
+sample: elbadry2026_subsample_andrews2022_import
+  recovered_n: 16
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: Orbital=16
+  recovered_n_rows (informational): 16
+  recovered_n_distinct_sources (informational): 16
+  published_n: 16
+  n_match: True
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=16, published_n=16)
+sample: elbadry2026_subsample_elbadry2023_table_e1
+  recovered_n: 5
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=2, Orbital=3
+  recovered_n_rows (informational): 5
+  recovered_n_distinct_sources (informational): 5
+  published_n: 5
+  n_match: True
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=5, published_n=5)
+sample: elbadry2026_subsample_primary_ns_bh
+  recovered_n: 46
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=4, Orbital=42
+  recovered_n_rows (informational): 46
+  recovered_n_distinct_sources (informational): 46
+  published_n: 47
+  n_match: False
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=46, published_n=47)
+sample: elbadry2026_subsample_sub_chandrasekhar
+  recovered_n: 22
+  counting_rule: distinct_stars_per_solution_type_summed
+  recovered_n_by_solution_type: AstroSpectroSB1=4, Orbital=18
+  recovered_n_rows (informational): 22
+  recovered_n_distinct_sources (informational): 22
+  published_n: 22
+  n_match: True
+  id_match: None
+  notes: published source-ID table unavailable; N-only comparison (recovered_n=22, published_n=22)
+sample: elbadry2026_route_main_sequence_min_companion_mass
+  recovered_n: 132
+  counting_rule: distinct_stars_per_solution_type_summed
+  published_n: 136
+  n_match: False
+  id_match: None
+  notes: route-count comparison (no source-ID set)
+sample: elbadry2026_route_high_mass_function
+  recovered_n: 30
+  counting_rule: distinct_stars_per_solution_type_summed
+  published_n: 30
+  n_match: True
+  id_match: None
+  notes: route-count comparison (no source-ID set)
+sample: elbadry2026_route_both
+  recovered_n: 11
+  counting_rule: distinct_stars_per_solution_type_summed
+  published_n: 15
+  n_match: False
+  id_match: None
+  notes: route-count comparison (no source-ID set)
+=== end sample_reproduction_report ===

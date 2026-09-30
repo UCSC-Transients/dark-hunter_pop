@@ -1,0 +1,10 @@
+=== sampler multi-run consistency ===
+Single sampler run only (CI smoke / n_robustness_runs=1). Science runs require inference.n_robustness_runs >= 3.
+  n_runs: 1
+  consistent: True
+  max_abs_logz_delta: 0.0
+  max_abs_logz_sigma: 0.0
+  runs:
+    run[0]: logZ=-18318.84316928645 logZ_err=2.2266452734873963
+  note: reproducibility is the multi-run robustness protocol (inference.ROBUSTNESS_PROTOCOL), not bitwise seed identity.
+=== end sampler multi-run consistency ===

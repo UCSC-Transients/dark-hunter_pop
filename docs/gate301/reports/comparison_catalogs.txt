@@ -1,0 +1,74 @@
+=== comparison-only catalogs ===
+hard_rule: external compact-object populations are never inference priors
+n_catalogs: 7
+  - amrf_binary_masses
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/amrf_binary_masses.yaml
+    schema_version: 1
+    n_systems_expected: 3
+    n_systems_in_fixture: 3
+    provenance.citation: Gaia DR3 gaiadr3.binary_masses (AMRF classification)
+    provenance.notes: AMRF class labels for cross-check against companion_nature. Comparison-only.
+  - andrews
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/andrews.yaml
+    schema_version: 1
+    n_systems_expected: 2
+    n_systems_in_fixture: 2
+    provenance.citation: Andrews et al. (ARCHITECTURE.md §4 cross-validation catalogs)
+    provenance.notes: Comparison-only against Andrews literature systems / follow-up target list.
+  - companions_156
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/companions_156.yaml
+    schema_version: 1
+    n_systems_expected: 156
+    n_systems_in_fixture: 2
+    provenance.citation: 156-companions astrometry+RV validation paper (ARCHITECTURE.md §4)
+    provenance.notes: Cross-validation catalog for joint astrometry+RV companions. Comparison-only.
+  - ligo_bh_mf
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/ligo_bh_mf.yaml
+    schema_version: 1
+    n_systems_in_fixture: 0
+    kind: mass_function
+    n_mass_samples: 5
+    caveat: pulsar/LIGO MF comparison-only — forbidden as population prior
+    provenance.citation: LIGO/Virgo/KAGRA black-hole mass function (GWTC literature)
+    provenance.caveats: Different formation channel than wide Gaia dormant BH binaries (though possibly related to the first-formed object in a wide binary's history). Comparison-only — forbidden as a population prior.
+
+  - ns_candidate_21
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/ns_candidate_21.yaml
+    schema_version: 1
+    n_systems_expected: 21
+    n_systems_in_fixture: 2
+    provenance.citation: El-Badry, Rix, Latham, Shahaf, Mazeh et al. (NS-candidate catalog; ~21 systems)
+    provenance.notes: Literature NS candidates reported more eccentric than typical WD+MS binaries — direct support for the SN-kick hypothesis (ARCHITECTURE.md §4). Comparison-only.
+
+  - pulsar_mf
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/pulsar_mf.yaml
+    schema_version: 1
+    n_systems_in_fixture: 0
+    kind: mass_function
+    n_mass_samples: 5
+    caveat: pulsar/LIGO MF comparison-only — forbidden as population prior
+    provenance.citation: Radio pulsar mass function (literature compilation; radio-selection-biased)
+    provenance.caveats: Strongly selection-biased relative to a volume-limited dormant NS population. Comparison-only overlay for diagnostics — forbidden as a population prior.
+
+  - shahaf
+    role: comparison_only
+    never_as_prior: True
+    path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/catalogs/shahaf.yaml
+    schema_version: 1
+    n_systems_expected: 2
+    n_systems_in_fixture: 2
+    provenance.citation: Shahaf et al. (ARCHITECTURE.md §4 cross-validation catalogs)
+    provenance.notes: Comparison-only Shahaf literature systems.
+=== end comparison-only catalogs ===

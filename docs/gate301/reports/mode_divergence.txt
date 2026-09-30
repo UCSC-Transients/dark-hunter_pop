@@ -1,0 +1,13 @@
+=== mode_divergence ===
+Compares recovered sets across modes or named variants.
+andrews2022 vs andrews2022_modified must differ by exactly Gaia BH1 (§6.6).
+pair: andrews2022 vs andrews2022_modified
+  left_n: 25
+  right_n: 24
+  only_in_andrews2022: [1749013354127453696, 3649963989549165440]
+  only_in_andrews2022_modified: [4373465352415301632]
+  expected_only_left: [1749013354127453696, 3649963989549165440]
+  expected_only_right: [4373465352415301632]
+  matches_expectation: True
+  explanation: andrews2022 applies the published harmonic exclusion; andrews2022_modified drops it and restores Gaia BH1 (4373465352415301632). Divergence is the exclusion cut, not the primary-mass assumption.
+=== end mode_divergence ===

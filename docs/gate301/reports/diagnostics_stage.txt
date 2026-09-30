@@ -1,0 +1,132 @@
+=== diagnostics stage (full suite) ===
+schema_version: 2
+root: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics
+figures_dir: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures
+reports_dir: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports
+matplotlib_available: True
+figure_dpi: 120
+helpers_registered (38):
+  - assess_sampler_consistency
+  - count_fit_tiers
+  - emit_age_stratified_wd
+  - emit_comparison_catalogs
+  - emit_covariance_health
+  - emit_elbadry_six_panel
+  - emit_fit_tier_coverage
+  - emit_funnel_sky
+  - emit_gate_pass_rate
+  - emit_info_gain_followup
+  - emit_janssens_segment_occupancy
+  - emit_known_truth_benchmarks
+  - emit_m2_posterior_convergence
+  - emit_mc_noise_convergence
+  - emit_mode_divergence
+  - emit_sample_attrition_waterfall
+  - emit_sample_reproduction_report
+  - emit_sample_selection_function
+  - emit_sampler_consistency
+  - emit_sbc_recovery
+  - emit_simon2026_exclusion_breakdown
+  - emit_solution_type_fractions
+  - emit_triples_robustness
+  - format_age_stratified_wd_report
+  - format_comparison_catalog_report
+  - format_elbadry_panel_report
+  - format_fit_tier_coverage_report
+  - format_funnel_report
+  - format_gate_pass_rate_report
+  - format_info_gain_report
+  - format_known_truth_report
+  - format_m2_posterior_convergence_report
+  - format_mc_noise_convergence_report
+  - format_sampler_consistency_report
+  - format_sbc_report
+  - format_solution_type_fraction_report
+  - format_triples_robustness_report
+  - rank_information_gain
+hooks_run:
+  funnel_sky: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/data_acquisition_funnel.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/funnel_bars.png
+  elbadry_six_panel: figures=2 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/elbadry_six_panel.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/elbadry_six_panel.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/elbadry_panel_P_orb_days.png
+  fit_tier_coverage: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/fit_tier_coverage.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/fit_tier_coverage.png
+  gate_pass_rate: figures=2 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/rv_astrometry_gate_pass_rate.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/rv_astrometry_gate_pass_rate.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/rv_astrometry_gate_chi2_dof.png
+  age_stratified_wd: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/age_stratified_wd.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/age_stratified_wd_mean.png
+  triples_robustness: figures=0 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/triples_robustness.txt
+  info_gain_followup: figures=2 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/info_gain_followup.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/info_gain_scores.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/info_gain_top_n.png
+  sampler_consistency: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sampler_consistency.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sampler_logz.png
+  mc_noise_convergence: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/mc_noise_convergence.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/mc_noise_convergence.png
+  m2_posterior_convergence: skipped (no M2PosteriorConvergenceDiagnostic provided)
+  solution_type_fractions: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/solution_type_fractions.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/solution_type_fractions.png
+  known_truth_benchmarks: figures=0 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/known_truth_gaia_bh.txt
+  comparison_catalogs: figures=0 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/comparison_catalogs.txt
+  sbc_recovery: figures=0 reports=2
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sbc_recovery.txt
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sbc_recovery.h5
+  sample_attrition_waterfall: figures=4 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sample_attrition_waterfall.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_attrition_waterfall_andrews2022.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_attrition_waterfall_andrews2022_modified.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_attrition_waterfall_elbadry2024.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_attrition_waterfall_elbadry2026.png
+  sample_reproduction_report: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sample_reproduction_report.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_reproduction_counts.png
+  simon2026_exclusion_breakdown: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/simon2026_exclusion_breakdown.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/simon2026_exclusion_breakdown.png
+  covariance_health: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/covariance_health.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/covariance_health.png
+  sample_selection_function: figures=12 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/sample_selection_function.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_m2_msun.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_period_day.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_g_mag.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_modified_m2_msun.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_modified_period_day.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_andrews2022_modified_g_mag.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2024_m2_msun.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2024_period_day.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2024_g_mag.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2026_m2_msun.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2026_period_day.png
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/sample_selection_function_elbadry2026_g_mag.png
+  mode_divergence: figures=1 reports=1
+    report: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/reports/mode_divergence.txt
+    figure: /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/diagnostics/figures/mode_divergence_andrews2022_vs_andrews2022_modified.png
+  janssens_segment_occupancy: skipped (no mg_0 values provided)
+sbc_config:
+  enabled: True
+  run_in_stage: True
+  recovery_backend: analytic_binned
+  credible_interval_level: 0.68
+  coverage_abs_tolerance: 0.2
+sbc_payload:
+  overall_empirical_coverage: 0.6953125
+  overall_passed: True
+  n_records: 384
+scope_note: this stage owns the required diagnostic list (#71) plus known-truth / comparison-catalog hooks (#70). SBC recovery (#69) is wired via diagnostics.sbc / emit_sbc_recovery.
+=== end diagnostics stage ===

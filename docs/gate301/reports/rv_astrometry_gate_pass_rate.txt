@@ -1,0 +1,10 @@
+=== rv_astrometry_gate pass-rate diagnostic ===
+  passed: 48
+  failed: 27
+  skipped: 7741
+  total: 7816
+  pass_rate_among_scored: 0.6400
+  chi2_dof_threshold (from rv_consistency config): 5.0
+  chi2_dof: n=75 median=3.0464 p90=22.3040 max=534.1319
+  note: chi2/dof threshold is config-owned by rv_astrometry_gate; this hook records pass/fail counts and optional chi2/dof distribution.
+=== end rv_astrometry_gate pass-rate diagnostic ===

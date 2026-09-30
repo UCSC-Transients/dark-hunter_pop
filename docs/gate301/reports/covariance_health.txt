@@ -1,0 +1,16 @@
+=== covariance_health ===
+Counts of NSS solutions with missing / non-PSD covariance by failure mode.
+Silent diagonal fallback is forbidden; every failure is reported.
+  covariance_ok: 338141
+  covariance_failed: 13127
+  missing_corr: 0
+  unsupported_solution_type: 11287
+  bit_index_mismatch: 0
+  unpack_failed: 1840
+  missing_values: 0
+  missing_errors: 0
+  non_symmetric: 0
+  non_psd: 0
+  by_solution_type:
+    (none)
+=== end covariance_health ===

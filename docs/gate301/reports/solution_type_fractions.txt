@@ -1,0 +1,13 @@
+=== gaiamock solution-type-fraction validation ===
+  passed: False
+  max_abs_delta: 0.392
+  config_max_abs_delta (selection_function_astrometric.validation_gate): 0.05
+  fractions (mock vs real):
+    insufficient_visibility: mock=0.47 real=0.647913 |delta|=0.177913
+    five_parameter: mock=0.392 real=0 |delta|=0.392
+    seven_parameter: mock=0.008 real=0 |delta|=0.008
+    nine_parameter: mock=0.018 real=0 |delta|=0.018
+    twelve_parameter_orbital: mock=0.026 real=0.352087 |delta|=0.326087
+    orbital_failed_cuts: mock=0.086 real=0 |delta|=0.086
+  note: this diagnostic wraps the existing SF validation-gate outputs; KS six-panel science thresholds remain in selection_function_astrometric.
+=== end gaiamock solution-type-fraction validation ===

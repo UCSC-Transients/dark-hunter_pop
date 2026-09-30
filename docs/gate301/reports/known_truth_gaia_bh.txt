@@ -1,0 +1,41 @@
+=== known-truth benchmarks (Gaia BH) ===
+table_id: known_truth_gaia_bh
+schema_version: 1
+active_dr_mode: dr3
+fixture_path: /Users/rfoley/darkhunter/pop/dark-hunter_pop/config/benchmarks/known_truth_gaia_bh.yaml
+ruwe_match_tolerance: 0.25
+provenance:
+  project_authority: docs/ARCHITECTURE.md §4 diagnostics (known-truth benchmarks)
+  notes: Gaia-BH1/BH2 are clean DR3 NSS detections. Gaia-BH3 is a DR3 marginal/non-detection with RUWE≈3.4 and would have appeared in the acceleration catalog for parts of its orbit. Numerical thresholds used by expectation checks are config-owned (benchmarks.ruwe_match_tolerance).
+
+systems:
+  - Gaia-BH1 (source_id=4373465352415301632)
+    dr3_expectation: clean_detection
+    nss_orbital_expected: True
+    ruwe_approx: None
+    acceleration_catalog_parts_of_orbit: False
+    literature.citation: El-Badry et al. 2023a, MNRAS (Gaia BH1)
+    literature.notes: Sun-like star + ~10 Msun dark companion; clean DR3 astrometric orbit.
+    check.passed: True
+    check.details: clean_detection: in_nss_orbital=True (expected True)
+  - Gaia-BH2 (source_id=5870569352746779008)
+    dr3_expectation: clean_detection
+    nss_orbital_expected: True
+    ruwe_approx: None
+    acceleration_catalog_parts_of_orbit: False
+    literature.citation: El-Badry et al. 2023b, MNRAS (Gaia BH2)
+    literature.notes: Red giant + ~9 Msun dark companion; clean DR3 astrometric orbit + RV confirmation.
+    check.passed: True
+    check.details: clean_detection: in_nss_orbital=True (expected True)
+  - Gaia-BH3 (source_id=4318465066420528000)
+    dr3_expectation: marginal_or_non_detection
+    nss_orbital_expected: False
+    ruwe_approx: 3.4
+    acceleration_catalog_parts_of_orbit: True
+    literature.citation: Gaia Collaboration, Panuzzo et al. 2024, A&A 686, L2
+    literature.notes: Long-period (~11.6 yr) system; DR3 single-star RUWE≈3.4 implies marginal/non-detection as a clean NSS orbital solution. Acceleration-catalog appearance expected for parts of the orbit (ARCHITECTURE.md §4).
+
+    check.passed: True
+    check.details: no NSS orbital detection (expected); RUWE=3.4 matches ≈3.4 (tol=0.25); documented: would appear in acceleration catalog for parts of orbit
+summary: passed=3/3
+=== end known-truth benchmarks ===

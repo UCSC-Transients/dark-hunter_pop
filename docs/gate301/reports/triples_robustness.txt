@@ -1,0 +1,6 @@
+=== triples on/off robustness ===
+  triples.enabled: False
+  n_flagged_triples: 0
+  status: stub-safe skip (triples.enabled=false)
+  note: v1 forces P(triple)=0 in population_model. When triples is enabled later, this hook compares population metrics with vs without flagged outer companions.
+=== end triples on/off robustness ===
