@@ -417,6 +417,9 @@ class SampleSelection:
         reproduction_columns_loader: (
             Callable[[], Mapping[int, Mapping[str, Any]]] | None
         ) = None,
+        external_catalog_loader: (
+            Callable[[str], Mapping[int, Mapping[str, Any]] | None] | None
+        ) = None,
     ) -> None:
         """``extinction_lookup`` (``dust_maps.ExtinctionLookup``) supplies
         per-source ``E(B-V)`` for samples whose enrichment dereddens (El-Badry
@@ -427,7 +430,12 @@ class SampleSelection:
         ``source_id``, built for this evaluator's ``mode`` (one sidecar per
         mode, #306). It is called lazily and only when the sample has a
         procedure block; the columns are merged without overwriting keys the
-        rows already carry."""
+        rows already carry.
+
+        ``external_catalog_loader(catalog_id)`` returns a frozen external
+        catalog (``SampleSubsample.external_catalog``, #315) keyed by
+        ``source_id``, or ``None`` when the DR-path snapshot key is null. It is
+        called only for ``reproduction``-mode evaluation of such a subsample."""
         if spec.branches:
             pass
         elif spec.parent_query is None or spec.cuts is None:
@@ -441,6 +449,7 @@ class SampleSelection:
         self.mass_source = mass_source_for_mode(mode)
         self.extinction_lookup = extinction_lookup
         self.reproduction_columns_loader = reproduction_columns_loader
+        self.external_catalog_loader = external_catalog_loader
         #: Per-outcome counts from the last dereddening pass (funnel report).
         self.extinction_status_counts: dict[str, int] = {}
         #: El-Badry ``(M̃1, M̃2)`` recorded during the last enrichment (#285).
@@ -870,9 +879,16 @@ class SampleSelection:
             extra = dict(membership)
             if sub.external_table:
                 extra[sub.id] = self._source_ids_from_external_table(sub.external_table)
+            sub_rows: Sequence[Mapping[str, Any]] = rows
+            if sub.external_catalog and self.mode is SampleSelectionMode.REPRODUCTION:
+                catalog = self._external_catalog(sub.external_catalog)
+                extra[sub.external_catalog] = frozenset(catalog)
+                sub_rows = self._merge_external_catalog(
+                    sub.external_catalog, rows, catalog
+                )
             ids, chain_attr, by_type = self._evaluate_and_chain(
                 sub.cuts,
-                rows,
+                sub_rows,
                 outcomes,
                 extra,
                 cut_id_prefix=f"{branch.id}:{sub.id}:",
@@ -984,6 +1000,48 @@ class SampleSelection:
                         sub.external_table
                     )
         return found
+
+    def _external_catalog(self, catalog_id: str) -> Mapping[int, Mapping[str, Any]]:
+        """Reproduction-mode external catalog (#315); empty when unavailable.
+
+        Unavailable means no loader is wired (a bare ``SampleSelection`` built
+        without a ``PipelineConfig``) or the DR-path snapshot key is null. The
+        subsample then keeps no source: its membership cut fails for every row,
+        which the attrition waterfall shows, and a warning is logged. A
+        configured-but-missing snapshot raises in the registry's loader.
+        """
+        catalog = (
+            None
+            if self.external_catalog_loader is None
+            else self.external_catalog_loader(catalog_id)
+        )
+        if catalog is None:
+            logger.warning(
+                "sample %s: external catalog %s unavailable (no loader, or "
+                "%s.%s_snapshot is null); its subsample keeps no source",
+                self.spec.name,
+                catalog_id,
+                self.dr_mode.value,
+                catalog_id,
+            )
+            return {}
+        return catalog
+
+    @staticmethod
+    def _merge_external_catalog(
+        catalog_id: str,
+        rows: Sequence[Mapping[str, Any]],
+        catalog: Mapping[int, Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        # Local import keeps the catalog module out of the module-level graph.
+        from darkhunter_pop.shahaf2023b_catalog import (
+            SHAHAF2023B_CLASS3_CATALOG_ID,
+            merge_shahaf2023b_columns,
+        )
+
+        if catalog_id != SHAHAF2023B_CLASS3_CATALOG_ID:
+            raise SampleSelectionError(f"unknown external catalog {catalog_id!r}")
+        return merge_shahaf2023b_columns(list(rows), catalog)
 
     def _source_ids_from_external_table(self, relative: str) -> frozenset[int]:
         path = Path(relative)
@@ -1688,7 +1746,60 @@ class SampleSelectionRegistry:
             reproduction_columns_loader=self._reproduction_columns_loader(
                 spec, mode=entry.mode
             ),
+            external_catalog_loader=self._external_catalog_loader(),
         )
+
+    def _external_catalog_loader(
+        self,
+    ) -> Callable[[str], Mapping[int, Mapping[str, Any]] | None] | None:
+        """Lazy, memoized reader of DR-path external catalog snapshots (#315).
+
+        ``None`` without a ``PipelineConfig``. The snapshot directory is the
+        active DR's ``<catalog_id>_snapshot`` key, resolved under
+        ``{data_root}/{dr}/external_catalogs/`` unless absolute; a null key
+        returns ``None`` and a configured-but-missing snapshot raises.
+        """
+        if self.pipeline is None:
+            return None
+        pipeline = self.pipeline
+
+        def _load(catalog_id: str) -> Mapping[int, Mapping[str, Any]] | None:
+            from darkhunter_pop.shahaf2023b_catalog import (
+                SHAHAF2023B_CLASS3_CATALOG_ID,
+                Shahaf2023bCatalogError,
+                load_shahaf2023b_class3,
+            )
+
+            if catalog_id != SHAHAF2023B_CLASS3_CATALOG_ID:
+                raise SampleSelectionError(f"unknown external catalog {catalog_id!r}")
+            name = pipeline.active_dr().shahaf2023b_class3_snapshot
+            if name is None:
+                return None
+            key = f"external_catalog:{catalog_id}:{name}"
+            cached = self._lookups.get(key)
+            if cached is None:
+                path = Path(name)
+                if not path.is_absolute():
+                    data_root = Path(pipeline.paths.data_root)
+                    if not data_root.is_absolute():
+                        data_root = self.repo / data_root
+                    path = (
+                        data_root
+                        / pipeline.active_dr_mode.value
+                        / "external_catalogs"
+                        / name
+                    )
+                if not path.is_dir():
+                    raise Shahaf2023bCatalogError(
+                        f"{pipeline.active_dr_mode.value}.shahaf2023b_class3_snapshot="
+                        f"{name!r} is configured but {path} does not exist "
+                        "(scripts/fetch_shahaf2023b_class3.py), or set it to null"
+                    )
+                cached = load_shahaf2023b_class3(path)
+                self._lookups[key] = cached
+            return cached
+
+        return _load
 
     def _reproduction_columns_loader(
         self, spec: SampleSelectionFile, *, mode: SampleSelectionMode

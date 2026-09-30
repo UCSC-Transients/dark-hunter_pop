@@ -966,6 +966,11 @@ class SampleSubsample(BaseModel):
     expected_n_new: int | None = Field(default=None, ge=0)
     from_sample: str | None = None
     external_table: str | None = None
+    # Frozen external catalog snapshot whose members (``in_sample('<id>')``) and
+    # columns are merged onto this subsample's rows in ``reproduction`` mode only
+    # (#315). Resolved through the DR-path key ``<id>_snapshot``. A catalog cannot
+    # be applied to mocks (§15 Q2), so ``forward_model`` evaluation never reads it.
+    external_catalog: Literal["shahaf2023b_class3"] | None = None
     require_main_sequence: bool | None = None
     apply_goodness_of_fit_cut: bool | None = None
 
@@ -2319,6 +2324,14 @@ class DRPathConfig(BaseModel):
     # written by scripts/fetch_nss_enrichment.py. Null disables the merge; configured
     # but missing is a hard error, never a silent skip.
     nss_enrichment_snapshot: str | None = None
+    # Shahaf et al. (2023b) Table 2 class-III catalog snapshot (#315): directory name
+    # under ``{data_root}/{dr}/external_catalogs/`` (or an absolute path) holding
+    # ``table2.ecsv`` + ``meta.yaml`` from scripts/fetch_shahaf2023b_class3.py. Read
+    # only by reproduction-mode subsamples with ``external_catalog:
+    # shahaf2023b_class3`` (El-Badry 2026 ``sub_chandrasekhar``). Null: the catalog is
+    # unavailable and such a subsample keeps no source; configured but missing is a
+    # hard error.
+    shahaf2023b_class3_snapshot: str | None = None
     # dark-hunter_rv Gaia_DR3_*_summary.json tree (null disables attachment).
     rv_summary_root: str | None = None
     rv_summary_filename_template: str = "Gaia_DR3_{source_id}_summary.json"
@@ -2429,6 +2442,7 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "crossmatch_fanout_maskable_bands",
         "nss_table",
         "nss_enrichment_snapshot",
+        "shahaf2023b_class3_snapshot",
         "gaia_source_table",
         "allow_astrometric_epoch_outliers",
         "accel_jerk_catalog_id",

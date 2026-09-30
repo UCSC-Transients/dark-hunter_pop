@@ -822,6 +822,8 @@ dr3:
   # #308: frozen NSS enrichment (corr_vec / bit_index / NSS errors / K1) merged into
   # data_acquisition rows per (source_id, nss_solution_type). Never re-run the job.
   nss_enrichment_snapshot: nss_enrichment
+  # Shahaf et al. (2023b) Table 2 snapshot (#315; scripts/fetch_shahaf2023b_class3.py).
+  shahaf2023b_class3_snapshot: shahaf2023b_class3_20260929T195047Z_7b6d287e
   gaia_source_table: gaiadr3.gaia_source
   allow_astrometric_epoch_outliers: false
   selection_function_astrometric:
@@ -871,6 +873,7 @@ dr4:
   nss_table: gaiadr4.nss_two_body_orbit
   # DR4 queries are expected to carry corr_vec natively; no enrichment staged.
   nss_enrichment_snapshot: null
+  shahaf2023b_class3_snapshot: null
   gaia_source_table: gaiadr4.gaia_source
   allow_astrometric_epoch_outliers: true
   selection_function_astrometric:

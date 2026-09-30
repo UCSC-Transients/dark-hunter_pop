@@ -616,8 +616,9 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     reproduction procedure, imported lazily by sample_selection.py) and
     constants (imported by andrews2022_atf). #183 adds data_acquisition's own
     module-scope imports (diagnostic_hooks, nss_covariance, rv_adapter) so the
-    declared set is closed under module-scope imports. All fourteen must feed
-    source_hash.
+    declared set is closed under module-scope imports. #315 adds
+    shahaf2023b_catalog (the Shahaf 2023b class-III snapshot reader, imported
+    lazily by sample_selection.py). All fifteen must feed source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -625,6 +626,7 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     spec = STAGE_REGISTRY["sample_selection"]
     assert set(spec.dependency_modules) == {
         "darkhunter_pop.sample_selection",
+        "darkhunter_pop.shahaf2023b_catalog",
         "darkhunter_pop.andrews2022_atf",
         "darkhunter_pop.constants",
         "darkhunter_pop.elbadry2026_m2_sigma",

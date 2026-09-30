@@ -63,12 +63,15 @@ def _sub_chandrasekhar(spec):
 # --- frozen file -----------------------------------------------------------
 
 
-def test_frozen_file_schema_v2_carries_284_cuts_and_switches() -> None:
+def test_frozen_file_carries_284_cuts_and_switches_for_forward_model() -> None:
     spec = _spec()
-    assert spec.schema_version == 2
+    assert spec.schema_version == 3
     sub = _sub_chandrasekhar(spec)
-    ids = [c.id for c in sub.cuts]
-    assert ids == [
+    forward = [
+        c.id for c in sub.cuts if SampleSelectionMode.FORWARD_MODEL in c.applies_to
+    ]
+    # The schema-v2 (#284) chain, unchanged, is the forward_model chain (#315).
+    assert forward == [
         "main_sequence",
         "m2_range",
         "m2_over_m1",
@@ -217,8 +220,10 @@ def _window_row(sid: int, **kw: Any) -> dict[str, Any]:
 
 
 def _sub_chandra_survivors(rows, spec=None) -> set[int]:
+    # The #284 Janssens chain applies to forward_model only since schema v3
+    # (#315); reproduction mode is the Shahaf 2023b catalog cross-match.
     spec = spec or _spec()
-    sel = SampleSelection(spec, mode=SampleSelectionMode.REPRODUCTION)
+    sel = SampleSelection(spec, mode=SampleSelectionMode.FORWARD_MODEL)
     result = sel.evaluate(rows, membership={"andrews2022": frozenset()})
     return set(result.subsample_surviving["sub_chandrasekhar"])
 

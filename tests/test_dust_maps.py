@@ -548,7 +548,11 @@ def test_real_lallement_frame_matches_stilism_xyz() -> None:
 def test_extinction_counts_reach_the_evaluation_result(tmp_path: Path) -> None:
     from darkhunter_pop.sample_selection import sample_evaluation_result_from_dict
 
-    registry = SampleSelectionRegistry(load_config())
+    cfg = load_config()
+    # No real Shahaf 2023b snapshot in CI (#315): these rows never reach the
+    # sub_chandrasekhar membership, so the catalog is explicitly disabled here.
+    cfg.dr3 = cfg.dr3.model_copy(update={"shahaf2023b_class3_snapshot": None})
+    registry = SampleSelectionRegistry(cfg)
     selection = registry.selection("elbadry2026")
     selection.extinction_lookup, _ = _lookup(tmp_path)
     rows = [

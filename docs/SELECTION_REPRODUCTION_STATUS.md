@@ -61,7 +61,7 @@ Related issues: **#132** (NSS enrichment / K1 — largely unblocked), **#133** (
 extinction / `a0` / nsstools, Q7), **#258** (extinction root cause was a dead `ExtinctionSpec`; now fixed with the
 real Green2019/Lallement2019 maps — spectroscopic branch 151 exact, `primary_ns_bh` 46; see §3.3 /
 §3.3.1). **#275** (the `M̃2` chain reproduces El-Badry 2026 Table 7; `sub_chandrasekhar` is a
-selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage wiring **#285**; §3.3.3).
+selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage wiring **#285**; §3.3.3). **#315** (landed: reproduction-mode `sub_chandrasekhar` is the Shahaf 2023b class-III cross-match with Eq. 5 on Shahaf's masses, which gives **exactly the paper's 22**; forward model unchanged; §3.3.7).
 
 ---
 
@@ -706,7 +706,7 @@ extinction correction and nothing else.
 | `primary_ns_bh` | 47 | 42 | 42 | **46** | FAIL by 1 (was 5) |
 | `elbadry2023_table_e1` | 5 | 5 | 5 | **5** | **OK** — unchanged |
 | `andrews2022_import` | 16 | 19 | 55 | **55** | FAIL — Andrews over-count (§3.3.0), insensitive to extinction as expected |
-| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1). **After #284 (schema_version 2: `M̃2/M̃1 > 1`, `A > 0.65`, analytic σ): 49, containing 19 of the paper's 22 — §3.3.6.** Still FAIL; no defensible combination reaches the paper's set |
+| `sub_chandrasekhar` | 22 | 861 | 861 | **1265** | FAIL — **worse**; not the extinction lever (§3.3.1). **After #284 (schema_version 2: `M̃2/M̃1 > 1`, `A > 0.65`, analytic σ): 49, containing 19 of the paper's 22 — §3.3.6.** Still FAIL; no defensible combination reaches the paper's set. **Schema_version 3 (#315, §3.3.7): the reproduction mode is the Shahaf et al. (2023b) Table 2 cross-match with Eq. 5 on Shahaf's `M2min`/`e_M2min`, giving 22, the exact paper IDs — OK.** The forward model stays at 49 (the v2 chain) |
 | Spectro routes (MS min / high `f_m` / both) | 136 / 30 / 15 | 98 / 30 / 5 | 98 / 30 / 5 | **132 / 30 / 11** | FAIL on the split; the branch total is exact |
 | Simon exclusion breakdown | 5 / 2 / 1 / 1 | 5 / 2 / 1 / 0 (+1 unclassified) | 5 / 2 / 1 / 0 (+1) | **5 / 2 / 1 / 0** (+1 unclassified), `in_sample` 11 | **OK: 5 / 2 / 1 / 1, 0 unclassified, `in_sample` 11** from the real `sample_selection` stage + `diagnostics` hydration (#285, `main` @ `7c40198` + #285 branch, uncut snapshot; §3.3.3). Artifacts without the `tilde_masses` group still fall back to 5 / 2 / 1 / 0 (+1) |
 
@@ -1098,6 +1098,11 @@ cut. They enter through subsamples 2 and 3, which need no MS cut.
 Extinction is the only lever that moves the window materially, and it moves it the wrong way
 (§3.3.1). No input in the chain can shrink 3043 → ~20.
 
+**Correction (§3.3.7, #315).** The paper's actual subsample 4 is **not** the 22 Table 7 rows in the
+`M̃2` window used below. `1581117310088807552` and `747174436620510976` are Andrews imports
+(subsample 3). In their place the true 22 include `2080945469200565248` and `3494029910469026432`,
+whose Table 7 `M̃2` is above 1.40. The paragraph below is kept as measured.
+
 **3. Where the 1265 differ from the paper's subsample 4.** The Table 7 rows with
 `1.05 ≤ M̃2 ≤ 1.40` number 22. Two of them (`1581117310088807552` at P = 927 d, `747174436620510976`
 at P = 999 d) fail the paper's own `P ≤ 900 d`. They are El-Badry 2024 Table 3 (Andrews/Shahaf) NS
@@ -1246,6 +1251,11 @@ the landed conversions are the ones #258 already used.
 
 Frozen window / σ / period / G thresholds are unchanged.
 
+**Correction (§3.3.7, #315).** The "22" in this section is the set of Table 7 rows in the `M̃2`
+window. The paper's actual subsample 4, found by removing subsamples 1–3 from Table 7, swaps the
+two P > 900 d Andrews imports below for `2080945469200565248` and `3494029910469026432`. The same 19
+are in both sets. Schema_version 3 replaces this chain in reproduction mode.
+
 **(1) The two MC-σ failures are recovered.** With the analytic method:
 
 - `3389767036738482432`: MC σ 0.140 → analytic 0.062.
@@ -1323,6 +1333,308 @@ in Ryan's decision (the #275 counterfactual) and is the tightest of the tested v
 paper-formula boundary instead, set `amrf_cut.criterion: shahaf2019_class3` with a `mass_luminosity`
 choice. The σ default is analytic, full covariance, `M̃1` fixed. Flipping any switch is a config
 edit, with the counts above.
+
+### 3.3.7 `sub_chandrasekhar` = Shahaf et al. (2023b) class III + Eq. 5 on Shahaf's masses: exactly the paper's 22 (#284, #315; schema_version 3 landed)
+
+**Landed (schema_version 3).**
+
+**PI decision (Ryan Foley, 2026-09-29), verbatim:** *"We should always try to match the papers when
+trying to reproduce their samples. Let's use the Shahaf criterion for the El-Badry sample."* This
+was resolved to the reading that matches the paper: a cross-match to Shahaf et al. (2023b) Table 2.
+
+- **Snapshot.** VizieR `J/MNRAS/518/2991/table2`, 177 rows, queried 2026-09-29, SHA-256
+  `7b6d287e…52ec0`. It is stored at
+  `data/dr3/external_catalogs/shahaf2023b_class3_20260929T195047Z_7b6d287e/` (`table2.ecsv` +
+  `meta.yaml`) and was written by `scripts/fetch_shahaf2023b_class3.py`.
+  - Config key: `dr3.shahaf2023b_class3_snapshot`, with `dr4: null`. The key is path-specific, is in
+    `PATH_SPECIFIC_LEAF_KEYS`, and is part of the `sample_selection` stage fingerprint. The DR3/DR4
+    audit reports no violation.
+  - The checksum is verified on load.
+- **Reproduction chain.** `sub_chandrasekhar` declares `external_catalog: shahaf2023b_class3`. In
+  reproduction mode its cuts are:
+  - `in_sample('shahaf2023b_class3')`;
+  - `main_sequence`;
+  - `1.05 ≤ shahaf2023b_m2min_msun ≤ 1.40`;
+  - `shahaf2023b_m2min_error_msun ≤ 0.105`;
+  - `P ≤ 900 d`;
+  - `G < 15`.
+
+  These are the paper's published thresholds, and no value changed.
+- **Which mass the cuts use.**
+  - The text points both ways. Eq. 5's `M̃2` / `σ_M̃2` notation is defined in §2 through the
+    Janssens `M̃1`, but the paper also says "These cuts yielded 22 sources, none of which were
+    included in the three subsamples listed above". Only Shahaf's own `M2min` / `e_M2min`
+    reproduce that stated result.
+  - On the Janssens `M̃2`, two members (`2080945469200565248`, `3494029910469026432`) sit above 1.44
+    at every `E(B-V)` ≥ 0.
+  - Applying the Janssens chain to catalog members instead gives **19**, all of them paper members,
+    missing those two and `6037767138131854592`.
+  - **PI decision (Ryan Foley, 2026-09-29), verbatim:** *"It is sufficient to have the Shahaf mass
+    as a way to get their final sample. The goal of these checks is to make sure we can reproduce the
+    published results. If we don't know where the mass came from, we will have to place it ad hoc."*
+    Reproduction mode therefore uses Shahaf's `M2min` / `e_M2min`.
+- **Forward model.** Unchanged. The schema-v2 Janssens chain (`m2_range`, `m2_over_m1`, `amrf`,
+  `m2_error`) now carries `applies_to: [forward_model]`, and the catalog is never read in that mode.
+  A catalog cannot be applied to mocks; that is §15 **Q2**.
+
+**Re-measurement.**
+
+- Setup: branch `docs/subchandra-extras-284` @ `13b14b6` plus the schema-v3 changes, an isolated
+  worktree with `PYTHONPATH` → worktree `src/` (verified), and the 168,065 astrometric-branch rows of
+  the `…+enrich+mc10000` cache with the real maps and the warm `ebv_cache`.
+- The run used the real `SampleSelectionRegistry(load_config()).selection("elbadry2026").evaluate`
+  on the 147,560 main-sequence rows. It took 332 s at 5.1 GB peak RSS.
+
+```
+147560 (MS) → 177 (shahaf2023b_class3_membership) → 177 (main_sequence) → 33 (m2_range_shahaf2023b)
+       → 29 (m2_error_shahaf2023b) → 25 (period ≤ 900 d) → 22 (G < 15)
+```
+
+- **N = 22, the same 22 source IDs as the paper's subsample 4**, with no misses and no extras. All
+  177 Table 2 sources are in our parent and on our main sequence.
+- Forward model on the 3043-row Janssens window: schema v2 gives 49 and schema v3 gives 49, the
+  **identical set**.
+- There are no extras left, so there is no extras table for the new sample. The investigation below
+  is on the schema-v2 sample (49), which is still the forward-model set.
+- Not re-measured here: the published union (227) and the astrometric union (76). They need the full
+  `evaluate_all` (~12 GB).
+
+---
+
+The investigation that led to the decision (measured on schema v2, 2026-09-28) follows.
+
+**Question (Ryan Foley, 2026-09-28, on #284).** *"We should still try to figure out the El-Badry
+sub-Chandra sample — is there something else like the RUWE that is different? Period?"*
+
+**Provenance.**
+
+- Code: `main` @ `774abcd`, isolated worktree, `PYTHONPATH` → worktree `src/` (checked with
+  `darkhunter_pop.__file__`).
+- Rows: the 168,065 astrometric-branch rows of the `…+enrich+mc10000` cache, enriched with
+  `SampleSelection._enrich_rows_for_spec` using the real maps and the warm `ebv_cache`.
+- The default schema-v2 `sub_chandrasekhar` was then run through the real `SampleSelection.evaluate`
+  on the 3043-row window: `3043 → 256 → 182 → 101 → 58 → 49`, the same as §3.3.6. That run took
+  571 s at 2.95 GB peak RSS.
+- NSS columns (`significance`, `bit_index`, errors) came from the `nss_enrichment` snapshot.
+- Columns not in any local snapshot came from a **Gaia archive TAP query** on 2026-09-28, covering 238
+  rows (the 182 post-AMRF rows plus the 76 Table 7 rows). These are `flags`, `efficiency`,
+  `astrometric_n_good_obs_al`, `visibility_periods_used`, `ipd_*`, the RV columns,
+  `phot_variable_flag`, and `l`/`b`.
+- The Shahaf et al. (2023b) catalog (MNRAS 518, 2991) came from **VizieR `J/MNRAS/518/2991`** on
+  2026-09-28. Table 1 has the 101,380-row clean sample with `PIII`; Table 2 has the 177 "highly
+  probable class-III" systems.
+- The paper text was re-read from arXiv:2608.06453v1: §2, §2.1, §5.1.2, §6.4, Fig. 8, and the Table 7
+  note.
+- Nothing was written to `config/` or `data/`.
+
+**1. The paper's 22 are identified by elimination, and the identification corrects §3.3.3 / §3.3.6.**
+
+- §2.1 says the four astrometric subsamples are 47 + 5 + 16 + 22, with overlaps of 2 (E1 ∩ primary)
+  and 12 (Andrews ∩ the first two). Subsample 4 overlaps none of the others, which gives the union
+  of 76.
+- Applying subsamples 1–3 to Table 7's own values gives exactly 47 / 5 / 16:
+  - subsample 1 uses our F2, as in §3.3.3 item 4;
+  - subsample 2 is the E1 fixture with `G < 15`;
+  - subsample 3 is the El-Badry 2024 Table 3 `A22` rows with `G < 15`.
+
+  The overlaps are exactly 2 and 12. That leaves **exactly 22** rows, which must be subsample 4.
+- Those 22 are **not** the 22 Table 7 rows with `1.05 ≤ M̃2 ≤ 1.40` that §3.3.3 and §3.3.6 counted.
+  - `1581117310088807552` and `747174436620510976` (P > 900 d) are Andrews imports, as §3.3.6 already
+    argued, so they are not subsample 4.
+  - Their places are taken by `2080945469200565248` (Table 7 `M̃2` = 1.608, `q` = 1.08) and
+    `3494029910469026432` (`M̃2` = 1.472, `q` = 1.14). These fail subsample 1's `M̃2/M̃1 > 1.2` and
+    are in no other subsample.
+- Both of those sources are outside the published window on Table 7's own `M̃2`. Our chain puts them
+  above 1.40 at **every** `E(B-V)` ≥ 0: at `E(B-V)` = 0 it gives `M̃2` = 1.446 and 1.442. So they
+  cannot have been selected by the Janssens-`M̃2` window in Eq. 5.
+- Our schema-v2 49 contains **19 of these 22**. The 19 are the same sources as before. The three we
+  miss are `6037767138131854592` (ours 1.4002), `2080945469200565248` (ours 1.621) and
+  `3494029910469026432` (ours 1.471), all above the window on our values.
+
+**2. No Gaia quality column separates the 30 extras from the 19 members.** The table gives the range
+over each group. The last column counts extras outside the members' range. The members are
+`sub_chandrasekhar` ∩ paper subsample 4 (19); the extras are the other 30.
+
+| Quantity | Members (19): min / median / max | Extras (30): min / median / max | Extras outside members' range |
+|---|---|---|---:|
+| RUWE | 2.53 / 5.48 / 21.9 | 2.00 / 3.93 / 16.6 | 5 |
+| Period (d) | 45 / 575 / 894 | 135 / 685 / 889 | 0 |
+| `period_error` (d) | 0.005 / 2.0 / 12 | 0.33 / 6.2 / 56 | 8 |
+| `e` / `eccentricity_error` | 0.05–0.75 / 0.004–0.082 | 0.007–0.72 / 0.008–0.082 | 1 / 0 |
+| `significance` (a0/σa0) | 23.2 / 64.8 / 157 | 14.9 / 36.7 / 135 | 5 |
+| F2 (`goodness_of_fit`) | −3.0 / 0.41 / 11.3 | −2.6 / 0.61 / 13.6 | 1 |
+| `parallax_over_error` | 37 / 100 / 798 | 27 / 57 / 284 | 5 |
+| `astrometric_n_good_obs_al` | 301 / 396 / 611 | 194 / 389 / 519 | 4 |
+| `visibility_periods_used` | 17 / 23 / 29 | 14 / 22.5 / 31 | 3 |
+| `flags` values | {0, 64, 192} | {0, 64, 8384} | 1 |
+| `bit_index` | {8191, 65535} | {8191, 65535} | 0 |
+| G / BP−RP / M_G,0 | 10.4–15.0 / 0.66–1.34 / 4.00–6.72 | 11.6–15.0 / 0.78–1.57 / 3.62–6.39 | 1 / 2 / 3 |
+| distance 1/ϖ (pc) | 80 / 541 / **750** | 290 / 645 / 1250 | **13** |
+| `E(B-V)` (ours) | 0 / 0.027 / 0.271 | 0 / 0.080 / 0.513 | 5 |
+| A (AMRF) | **0.669** / 0.749 / 0.900 | 0.652 / 0.666 / 0.784 | **17** |
+| `q = M̃2/M̃1` | 1.10 / 1.31 / 1.78 | 1.05 / 1.09 / 1.41 | 17 |
+| analytic `σ_M̃2` | 0.015 / 0.040 / 0.090 | 0.012 / 0.059 / 0.097 | 6 |
+| Dec (deg) / `l` / `b` | −66…+69 / 32…352 / −84…+78 | −71…+76 / 11…358 / −54…+72 | 2 / 2 / 0 |
+| `ipd_frac_multi_peak` / `ipd_gof_harmonic_amplitude` | 0–2 / 0.003–0.074 | 0–2 / 0.005–0.035 | 0 / 0 |
+| NSS type (Orbital / AstroSpectroSB1) | 16 / 3 | 27 / 3 | — |
+
+Other checks on the same rows:
+
+- **Gaia DR3 Orbital validity criteria.** These are the three criteria printed in cell 47 of the
+  Andrews ATF notebook, from Halbwachs et al. 2023:
+  - `ϖ/σϖ > 20000/P`;
+  - `significance > 158/√P`;
+  - `eccentricity_error < 0.079 ln P − 0.244`.
+
+  All 49 pass all three. They are DPAC publication filters, so every published Orbital solution
+  passes them.
+- **Sample-level exclusions.** None of the 30 extras is in El-Badry 2023a E1, El-Badry 2024 Table 3,
+  El-Badry 2026 Table 8, or Simon 2026. One extra, `131940776857845504`, also has an SB1 solution.
+  Having an SB1 solution does not exclude a source.
+- **RUWE.** Every one of the 49 has RUWE > 2, as expected for an astrometric orbit, so RUWE does not
+  separate them.
+- **Period.** The distributions overlap across 135–889 d.
+- **Northern-map sky cut.** `dec > −28` would drop 4 of the 19 members.
+
+Criterion counts. Each row gives the paper members kept (of 19) and the extras removed (of 30).
+Rows marked *tuned* use a number read off the members' range. They are listed only to show how far
+apart the two groups are, and none of them is proposed.
+
+| Criterion | Source | Members kept | Extras removed |
+|---|---|---:|---:|
+| Halbwachs 2023 validity triplet | Gaia DR3 / ATF cell 47 | 19 | 0 |
+| RUWE < 1.4 | common single-star cut | 0 | 30 |
+| significance > 10 / > 20 | paper Fig. 8 discussion, SB1 cut analog | 19 / 19 | 0 / 4 |
+| F2 < 10 / < 5 / < 3 | subsample-1 F2 cut and tighter | 18 / 18 / 15 | 1 / 5 / 7 |
+| ϖ/σϖ > 10 / > 20 | common quality cuts | 19 / 19 | 0 / 0 |
+| `flags == 0` | NSS flags | 1 | 27 |
+| `ipd_frac_multi_peak ≤ 2`, `ipd_gof_harmonic_amplitude < 0.1` | common duplicity cuts | 19 | 0 |
+| `dec > −28` (Bayestar hemisphere) | map boundary | 15 | 7 |
+| P ≤ 700 d | — | 14 | 15 |
+| *tuned* A ≥ 0.669 (members' minimum) | — | 19 | 17 |
+| *tuned* d ≤ 750 pc (members' maximum) | — | 19 | 13 |
+| *tuned* A ≥ 0.669 and d ≤ 750 pc and significance ≥ 23 | — | 19 | 23 |
+| **Shahaf et al. (2023b) Table 2 membership** (class III, `PIII ≥ 0.99984`) | cited by the paper (§5.1.2, §6.4) | **19** | **30** |
+
+Of the 30 extras, 27 are in Shahaf's clean Table 1 sample, with `PIII` from 0.586 to 0.9997. That is
+below Table 2's floor, which is **exactly** `PIII ≥ 0.99984`: those 177 rows are Table 2. The other 3
+extras (`131940776857845504`, `4129918029309568896`, `5728893740393030528`) are not in Shahaf's clean
+sample at all. All 19 members have `PIII ≥ 0.99986`.
+
+The extras sit just above our flat `A > 0.65` cut, at median `q` 1.09 against 1.31 for the members.
+Shahaf's triage asks for `A` to exceed the class-II/III boundary with high probability given
+`σ_A`, and our point-estimate AMRF cut does not reproduce that.
+
+**3. The exact reproduction: Shahaf 2023b Table 2 with Eq. 5 applied to Shahaf's own masses.**
+Eq. 5's cuts, with `M̃2` and `σ_M̃2` replaced by Shahaf's `M2min` and `e_M2min` (which come from the
+`binary_masses` `M1`, not from Janssens), give:
+
+```
+177 (Shahaf 2023b Table 2) → 33 (1.05 ≤ M2min ≤ 1.40) → 29 (e_M2min ≤ 0.105) → 25 (P ≤ 900 d) → 22 (G < 15)
+```
+
+These are **exactly the paper's 22 subsample-4 source IDs**, with no misses and no extras.
+
+- All 22 pass our `MS = true` cut, so that cut is redundant here.
+- None of the 22 is in subsamples 1–3, as the paper states.
+- The window edges are not knife-edge:
+  - Inside the window, the members run from `M2min` 1.061 to 1.393.
+  - The nearest Table 2 sources outside it are 1.042 and 1.429.
+  - The one Table 2 source at 1.051 fails `G < 15` (15.11).
+- The σ cut is binding, but only on sources that also fail G: the 4 it removes have G of 15.45–16.84.
+- The two P > 900 d Andrews imports (`1581117310088807552`, `747174436620510976`) are in Table 2 and
+  inside the window. The `P ≤ 900 d` cut removes them, so they are counted once, through subsample 3.
+
+This also explains every earlier puzzle:
+
+- The two members that no Janssens-`M̃2` window can reach have Shahaf `M2min` 1.381 and 1.318.
+- `6037767138131854592` (our 1.4002) is at 1.393.
+- The 30 extras are the Janssens-window sources that Shahaf's triage does not classify as class III.
+- The Table 7 `M̃2` column was recomputed with the Janssens `M̃1` after selection, which is why it
+  "cannot recover the paper's 22" (§3.3.3).
+
+**4. What the paper states.**
+
+- §2.1 item 4 does **not** name Shahaf 2023b as subsample 4's parent. It defines `M̃2` / `σ_M̃2`
+  through the Janssens `M̃1` for every subsample.
+- The paper does say that most of the astrometric sample are "class III" sources under the Shahaf et
+  al. (2019, 2023) triage (§5.1.2).
+- It also says El-Badry et al. (2024a) drew its NS candidates from "the AMRF sample of Shahaf et al.
+  (2023)" (§6.4).
+- Fig. 8's caption says there is "no simple set of cuts" that separates reliable from spurious
+  orbits. That is consistent with no quality column separating the extras here.
+
+Adopting Shahaf's catalog is therefore a cited-but-unstated criterion. It needs a PI decision.
+**Ryan decided on 2026-09-29, and the change landed as schema_version 3 (top of this section).**
+
+**5. Recommendation as written before the decision.**
+
+- **Reproduction mode.** Redefine `sub_chandrasekhar` as membership in Shahaf 2023b Table 2, with
+  `1.05 ≤ M2min ≤ 1.40`, `e_M2min ≤ 0.105`, `P ≤ 900 d` and `G < 15` applied to Shahaf's columns.
+  - `MS` can stay; it is redundant.
+  - This follows the pattern of `andrews2022_import` / `elbadry2023_table_e1`: a frozen external
+    fixture under `config/selections/external/` plus a `schema_version` 3 bump.
+  - It reproduces 22 exactly, and it would bring the astrometric union to the published structure.
+- **Forward-model mode.** A catalog cannot be applied to mocks. A faithful forward model needs
+  Shahaf's probabilistic triage: `PIII` from the AMRF and its uncertainty, with the `binary_masses`
+  `M1` and a threshold ≈ 0.9998. This is §15 **Q2**, and it is the same parent the El-Badry 2024
+  path uses.
+- **Keep schema v2** until that decision (it was made; see above). Do not tune A, q, σ or distance to remove the extras.
+
+Tracked as **#315**. The schema-v2 49 rows follow, with members first and each group sorted by significance.
+Distances are 1/ϖ with no zero point. σ is analytic, full covariance, with `M̃1` fixed.
+
+| source_id | in paper | type | P (d) | e | signif. | F2 | RUWE | ϖ/σϖ | d (pc) | E(B-V) | G | A | q | σ_M̃2 | S23 `PIII` | S23 Table 2 |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `1522897482203494784` | yes | ASB1 | 46 | 0.05 | 156.6 | 1.9 | 6.4 | 798 | 80 | 0.000 | 11.05 | 0.900 | 1.779 | 0.015 | 1.00000 | yes |
+| `4466767229088016256` | yes | Orb | 777 | 0.15 | 116.1 | -2.4 | 6.9 | 37 | 750 | 0.000 | 13.78 | 0.685 | 1.136 | 0.064 | 0.99993 | yes |
+| `1694708646628402048` | yes | Orb | 632 | 0.26 | 114.9 | 0.8 | 8.0 | 85 | 550 | 0.027 | 13.20 | 0.729 | 1.254 | 0.031 | 1.00000 | yes |
+| `1801110822095134848` | yes | ASB1 | 894 | 0.59 | 92.2 | 3.6 | 21.9 | 225 | 241 | 0.000 | 12.19 | 0.826 | 1.536 | 0.025 | 1.00000 | yes |
+| `3184078579032750464` | yes | Orb | 615 | 0.15 | 87.4 | -0.0 | 5.1 | 81 | 699 | 0.062 | 13.73 | 0.682 | 1.129 | 0.034 | 0.99992 | yes |
+| `4240540718818313984` | yes | Orb | 691 | 0.62 | 85.2 | 0.4 | 7.5 | 66 | 481 | 0.177 | 14.61 | 0.856 | 1.632 | 0.042 | 1.00000 | yes |
+| `5039979680444075392` | yes | Orb | 553 | 0.18 | 83.8 | 3.2 | 9.3 | 135 | 375 | 0.000 | 12.72 | 0.720 | 1.229 | 0.028 | 1.00000 | yes |
+| `1434445448240677376` | yes | Orb | 572 | 0.30 | 82.5 | -3.0 | 6.1 | 110 | 695 | 0.053 | 13.65 | 0.718 | 1.223 | 0.035 | 1.00000 | yes |
+| `5355633933885075328` | yes | Orb | 575 | 0.11 | 76.8 | 0.0 | 6.0 | 100 | 711 | 0.060 | 13.73 | 0.669 | 1.096 | 0.029 | 0.99989 | yes |
+| `1579254496872812032` | yes | Orb | 601 | 0.31 | 64.8 | -0.4 | 5.1 | 94 | 636 | 0.000 | 14.50 | 0.749 | 1.307 | 0.034 | 1.00000 | yes |
+| `2032579979951732736` | yes | Orb | 215 | 0.15 | 63.1 | -1.0 | 3.3 | 133 | 546 | 0.080 | 14.21 | 0.789 | 1.424 | 0.038 | 1.00000 | yes |
+| `3389767036738482432` | yes | Orb | 717 | 0.14 | 55.5 | 1.1 | 4.4 | 42 | 541 | 0.271 | 14.72 | 0.777 | 1.389 | 0.062 | 1.00000 | yes |
+| `1683575679079854848` | yes | Orb | 796 | 0.62 | 49.6 | 0.1 | 5.5 | 79 | 728 | 0.000 | 14.30 | 0.724 | 1.239 | 0.042 | 0.99986 | yes |
+| `6481502062263141504` | yes | Orb | 230 | 0.30 | 48.5 | 2.1 | 3.9 | 89 | 576 | 0.030 | 13.58 | 0.744 | 1.295 | 0.049 | 1.00000 | yes |
+| `5446310318525312768` | yes | ASB1 | 867 | 0.25 | 47.0 | 4.3 | 11.2 | 226 | 187 | 0.004 | 10.37 | 0.692 | 1.155 | 0.040 | 0.99999 | yes |
+| `2995961897685517312` | yes | Orb | 190 | 0.37 | 39.9 | 0.4 | 4.0 | 128 | 399 | 0.062 | 13.00 | 0.750 | 1.310 | 0.062 | 1.00000 | yes |
+| `5283631903842076032` | yes | Orb | 91 | 0.31 | 31.3 | 11.3 | 5.0 | 243 | 296 | 0.009 | 13.31 | 0.774 | 1.380 | 0.056 | 1.00000 | yes |
+| `220012968211559296` | yes | Orb | 196 | 0.41 | 25.3 | 0.1 | 2.5 | 113 | 313 | 0.150 | 13.93 | 0.783 | 1.407 | 0.077 | 1.00000 | yes |
+| `2919995917769953408` | yes | Orb | 457 | 0.75 | 23.2 | -0.3 | 3.6 | 95 | 436 | 0.018 | 14.97 | 0.853 | 1.623 | 0.089 | 1.00000 | yes |
+| `5728893740393030528` | no | ASB1 | 459 | 0.25 | 135.0 | 2.3 | 10.4 | 107 | 300 | 0.230 | 11.61 | 0.654 | 1.058 | 0.037 | — | no |
+| `348572609373952768` | no | ASB1 | 775 | 0.28 | 115.7 | 2.9 | 12.5 | 108 | 328 | 0.053 | 11.77 | 0.662 | 1.077 | 0.031 | 0.99777 | no |
+| `2102252286555969792` | no | Orb | 779 | 0.14 | 104.5 | 3.8 | 7.2 | 86 | 641 | 0.071 | 13.43 | 0.654 | 1.058 | 0.025 | 0.97326 | no |
+| `2208943221256515712` | no | ASB1 | 889 | 0.05 | 99.5 | 2.6 | 13.9 | 284 | 290 | 0.151 | 12.69 | 0.680 | 1.124 | 0.012 | 0.99942 | no |
+| `5929211736672889472` | no | Orb | 442 | 0.01 | 86.0 | -2.6 | 5.7 | 64 | 648 | 0.114 | 13.47 | 0.652 | 1.053 | 0.044 | 0.99972 | no |
+| `471967157230679552` | no | Orb | 545 | 0.48 | 68.8 | 0.2 | 3.5 | 45 | 735 | 0.230 | 14.55 | 0.661 | 1.074 | 0.053 | 0.58630 | no |
+| `426453663677608320` | no | Orb | 455 | 0.21 | 67.1 | 0.0 | 4.1 | 97 | 612 | 0.203 | 13.70 | 0.667 | 1.092 | 0.039 | 0.99553 | no |
+| `611041256286259584` | no | Orb | 804 | 0.40 | 63.6 | -1.3 | 6.1 | 45 | 848 | 0.000 | 14.00 | 0.681 | 1.126 | 0.058 | 0.99563 | no |
+| `1962476183678332672` | no | Orb | 559 | 0.42 | 62.7 | 0.1 | 5.4 | 106 | 573 | 0.221 | 14.44 | 0.702 | 1.180 | 0.034 | 0.99923 | no |
+| `2191969549169214464` | no | Orb | 820 | 0.41 | 57.9 | 8.5 | 7.0 | 64 | 558 | 0.301 | 14.62 | 0.691 | 1.153 | 0.030 | 0.97231 | no |
+| `5807146051670381312` | no | Orb | 854 | 0.22 | 54.7 | 0.8 | 3.2 | 32 | 1248 | 0.063 | 14.48 | 0.679 | 1.121 | 0.097 | 0.99669 | no |
+| `4357622008333542912` | no | Orb | 668 | 0.36 | 54.0 | -0.2 | 4.0 | 47 | 579 | 0.221 | 14.15 | 0.676 | 1.114 | 0.057 | 0.96784 | no |
+| `5528031588984234368` | no | Orb | 135 | 0.15 | 45.8 | 0.6 | 3.2 | 160 | 525 | 0.027 | 13.11 | 0.666 | 1.087 | 0.039 | 0.98815 | no |
+| `131940776857845504` | no | Orb | 814 | 0.18 | 42.4 | 5.0 | 16.6 | 71 | 314 | 0.071 | 11.96 | 0.666 | 1.089 | 0.034 | — | no |
+| `5341695601100252800` | no | Orb | 608 | 0.46 | 38.5 | -1.0 | 2.3 | 38 | 1052 | 0.097 | 14.97 | 0.655 | 1.060 | 0.057 | 0.87918 | no |
+| `2145894170800250624` | no | Orb | 854 | 0.11 | 34.8 | -0.3 | 3.9 | 30 | 940 | 0.027 | 14.46 | 0.664 | 1.083 | 0.050 | 0.96798 | no |
+| `2051443819881554304` | no | Orb | 503 | 0.39 | 33.4 | 5.6 | 3.7 | 55 | 844 | 0.062 | 13.82 | 0.657 | 1.066 | 0.090 | 0.93924 | no |
+| `4845954532847810560` | no | Orb | 543 | 0.37 | 33.3 | -0.2 | 3.1 | 53 | 923 | 0.020 | 14.48 | 0.658 | 1.069 | 0.065 | 0.81640 | no |
+| `2132670722412809856` | no | Orb | 398 | 0.48 | 33.3 | 5.3 | 4.8 | 61 | 387 | 0.013 | 12.86 | 0.686 | 1.140 | 0.060 | 0.89820 | no |
+| `4518143627905286656` | no | Orb | 547 | 0.08 | 30.0 | -0.5 | 2.0 | 39 | 960 | 0.274 | 14.97 | 0.686 | 1.138 | 0.091 | 0.99002 | no |
+| `1503707843203401728` | no | Orb | 643 | 0.56 | 29.3 | 0.5 | 3.5 | 80 | 824 | 0.000 | 13.94 | 0.654 | 1.057 | 0.063 | 0.86439 | no |
+| `548950254119058816` | no | Orb | 702 | 0.50 | 27.1 | -0.4 | 3.0 | 45 | 905 | 0.327 | 14.98 | 0.684 | 1.134 | 0.096 | 0.97134 | no |
+| `4485210127905490304` | no | Orb | 812 | 0.62 | 27.1 | 0.6 | 4.1 | 65 | 584 | 0.177 | 14.39 | 0.701 | 1.178 | 0.076 | 0.89839 | no |
+| `1260782225197846144` | no | Orb | 797 | 0.72 | 25.2 | 3.0 | 4.3 | 55 | 601 | 0.000 | 14.17 | 0.751 | 1.313 | 0.059 | 0.99978 | no |
+| `2131963839514727296` | no | Orb | 611 | 0.58 | 24.3 | 2.0 | 2.1 | 36 | 1250 | 0.053 | 14.81 | 0.660 | 1.073 | 0.096 | 0.90027 | no |
+| `1825002320759122304` | no | Orb | 712 | 0.49 | 23.0 | -0.8 | 2.7 | 34 | 1025 | 0.340 | 14.87 | 0.654 | 1.059 | 0.083 | 0.97422 | no |
+| `4129918029309568896` | no | Orb | 777 | 0.46 | 19.6 | 1.1 | 3.6 | 58 | 572 | 0.513 | 14.65 | 0.661 | 1.074 | 0.073 | — | no |
+| `5396859095870109952` | no | Orb | 609 | 0.59 | 18.9 | -0.9 | 2.5 | 51 | 839 | 0.061 | 14.52 | 0.679 | 1.122 | 0.089 | 0.81758 | no |
+| `5832387540143968512` | no | Orb | 774 | 0.49 | 17.0 | 1.3 | 2.5 | 27 | 946 | 0.090 | 14.78 | 0.655 | 1.061 | 0.073 | 0.83417 | no |
+| `780381641989821312` | no | Orb | 821 | 0.71 | 14.9 | 13.6 | 7.4 | 66 | 333 | 0.000 | 14.00 | 0.784 | 1.410 | 0.074 | 0.99948 | no |
 
 ### 3.4 Simon 2026 exclusion breakdown
 

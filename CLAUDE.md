@@ -478,6 +478,12 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   (first-order, nsstools-style) propagation (`sigma_m2_tilde.method` in `elbadry2026.yaml`; the
   full-covariance MC is the alternative). The provenance names the method, e.g.
   `elbadry2026_analytic_full_m1_tilde_fixed`; the legacy `elbadry2026_m1_tilde_fixed` is still read.
+- El-Badry 2026 `sub_chandrasekhar` in **reproduction** mode (schema_version 3, #315) is the
+  Shahaf et al. (2023b) Table 2 class-III cross-match. The Eq. 5 cuts are applied to Shahaf's
+  `M2min` / `e_M2min`, which gives exactly the paper's 22. The snapshot is at
+  `data/dr3/external_catalogs/<dr3.shahaf2023b_class3_snapshot>/` (fetch with
+  `scripts/fetch_shahaf2023b_class3.py`; the checksum is verified on load). Configured but missing
+  raises. `forward_model` keeps the Janssens chain and never reads the catalog (Q2).
 - The NSS enrichment job is **COMPLETED** — do not re-run `--poll-job` unless
   `nss_enrichment/meta.yaml` is missing.
 - `bins="auto"` on heavy-tailed NSS distributions (RUWE, period) produces thousands of sub-pixel
