@@ -95,7 +95,12 @@ def test_known_truth_checks_pass_on_synthetic_observed() -> None:
         ruwe_match_tolerance=float(cfg.benchmarks.ruwe_match_tolerance),
     )
     assert len(results) == 3
-    assert all(r.passed for r in results)
+    # Synthetic observations carry no pipeline M2 and BH3's RUWE is supplied, so
+    # BH3 passes while the clean detections' mass checks are not_tested (#348).
+    assert not any(r.status == "failed" for r in results)
+    by = {r.name: r for r in results}
+    assert by["Gaia-BH3"].status == "passed"
+    assert by["Gaia-BH1"].status == "not_tested"
     report = format_known_truth_report(
         table,
         results,
@@ -230,3 +235,103 @@ def test_load_single_comparison_catalog() -> None:
     catalog = load_comparison_catalog(path)
     assert catalog.catalog_id == "andrews"
     assert len(catalog.systems) >= 1
+
+
+# --- #348: real observations with masses -----------------------------------
+
+
+def _write_candidate_artifact(path, rows) -> None:
+    import json
+
+    import h5py
+    import numpy as np
+
+    with h5py.File(path, "w") as handle:
+        grp = handle.create_group("candidates")
+        grp.create_dataset(
+            "source_ids", data=np.asarray([r["source_id"] for r in rows], dtype=np.int64)
+        )
+        grp.create_dataset(
+            "records_json",
+            data=np.array([json.dumps(r) for r in rows], dtype=h5py.string_dtype("utf-8")),
+        )
+
+
+def _row(sid, stype, *, m2=None, sig=0.2, ruwe=None):
+    rec = {"source_id": sid, "nss_solution_type": stype, "nss_orbital": {}}
+    if ruwe is not None:
+        rec["nss_orbital"]["ruwe"] = ruwe
+    if m2 is not None:
+        rec["m2"] = {
+            "names": ["M2"],
+            "values": [m2],
+            "covariance": [[sig * sig]],
+            "provenance": "test",
+        }
+    return rec
+
+
+def test_known_truth_from_artifacts_fails_on_wrong_mass(tmp_path) -> None:
+    from darkhunter_pop.benchmarks import observed_benchmarks_from_artifacts
+
+    cfg = load_config()
+    table = load_known_truth_table_from_config(cfg)
+    bh1 = table.by_name()["Gaia-BH1"].source_id
+    bh2 = table.by_name()["Gaia-BH2"].source_id
+    da = tmp_path / "da.h5"
+    _write_candidate_artifact(
+        da,
+        [_row(bh1, "Orbital", ruwe=7.6), _row(bh2, "AstroSpectroSB1", ruwe=9.2), _row(1, "Orbital")],
+    )
+    joint = tmp_path / "joint.h5"
+    _write_candidate_artifact(
+        joint, [_row(bh1, "Orbital", m2=98.4), _row(bh2, "AstroSpectroSB1", m2=8.9)]
+    )
+    observed = observed_benchmarks_from_artifacts(
+        table,
+        data_acquisition_artifact=da,
+        mass_artifacts={"joint_orbit_fit": joint},
+        orbital_solution_types=cfg.benchmarks.nss_orbital_solution_types,
+    )
+    results = {
+        r.name: r
+        for r in check_known_truth_expectations(
+            table,
+            observed,
+            ruwe_match_tolerance=float(cfg.benchmarks.ruwe_match_tolerance),
+            mass_n_sigma=float(cfg.benchmarks.mass_check_n_sigma),
+        )
+    }
+    assert results["Gaia-BH1"].status == "failed"
+    assert results["Gaia-BH1"].mass_checks[0].status == "failed"
+    assert results["Gaia-BH2"].status == "passed"
+    # BH3 is absent from the NSS artifact: no orbit (passes), RUWE unavailable.
+    assert results["Gaia-BH3"].status == "not_tested"
+    report = format_known_truth_report(
+        table,
+        list(results.values()),
+        ruwe_match_tolerance=float(cfg.benchmarks.ruwe_match_tolerance),
+        observed_source="pipeline_artifacts",
+        mass_n_sigma=3.0,
+    )
+    assert "overall: FAILED" in report
+
+
+def test_known_truth_without_data_is_not_tested() -> None:
+    cfg = load_config()
+    table = load_known_truth_table_from_config(cfg)
+    results = check_known_truth_expectations(
+        table, {}, ruwe_match_tolerance=0.25, mass_n_sigma=3.0
+    )
+    assert all(r.status == "not_tested" and not r.passed for r in results)
+
+
+def test_comparison_catalog_report_marks_incomplete_fixtures() -> None:
+    from darkhunter_pop.benchmarks import (
+        format_comparison_catalog_report,
+        load_all_comparison_catalogs,
+    )
+
+    text = format_comparison_catalog_report(load_all_comparison_catalogs(load_config()))
+    assert "FIXTURE LISTING ONLY" in text
+    assert "incomplete (2 of 156 expected systems)" in text

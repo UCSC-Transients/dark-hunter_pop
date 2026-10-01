@@ -33,7 +33,7 @@ def test_benchmarks_config_and_loaders_api_contract(tmp_path) -> None:
         synthetic_observed_from_truth(table),
         ruwe_match_tolerance=float(cfg.benchmarks.ruwe_match_tolerance),
     )
-    assert all(r.passed for r in results)
+    assert not any(r.status == "failed" for r in results)
 
     catalogs = load_all_comparison_catalogs(cfg)
     assert set(REQUIRED_COMPARISON_CATALOG_IDS).issubset(catalogs)
