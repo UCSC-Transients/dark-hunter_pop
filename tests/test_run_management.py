@@ -618,7 +618,8 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     module-scope imports (diagnostic_hooks, nss_covariance, rv_adapter) so the
     declared set is closed under module-scope imports. #315 adds
     shahaf2023b_catalog (the Shahaf 2023b class-III snapshot reader, imported
-    lazily by sample_selection.py). All fifteen must feed source_hash.
+    lazily by sample_selection.py). #354 adds run_validity (imported at module
+    scope by sensitivity_analysis). All sixteen must feed source_hash.
 
     elbadry2024_selection is deliberately excluded: sample_selection.py never
     imports it (only sample_diagnostics.py does, for a different stage).
@@ -627,6 +628,7 @@ def test_sample_selection_dependency_modules_cover_actual_imports() -> None:
     assert set(spec.dependency_modules) == {
         "darkhunter_pop.sample_selection",
         "darkhunter_pop.shahaf2023b_catalog",
+        "darkhunter_pop.run_validity",
         "darkhunter_pop.andrews2022_atf",
         "darkhunter_pop.constants",
         "darkhunter_pop.elbadry2026_m2_sigma",

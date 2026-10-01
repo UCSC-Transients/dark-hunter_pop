@@ -161,6 +161,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.nss_covariance",
                 "darkhunter_pop.rv_adapter",
                 "darkhunter_pop.shahaf2023b_catalog",
+                # sensitivity_analysis's module-scope import (#354).
+                "darkhunter_pop.run_validity",
             ),
             config_keys=(
                 "sample_selection",
@@ -230,6 +232,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             deps=(
                 "darkhunter_pop.companion_nature",
                 "darkhunter_pop.phot_sed_adapter",
+                "darkhunter_pop.run_validity",
                 "darkhunter_pop.constants",
                 "darkhunter_pop.mass_derivation",
                 "darkhunter_pop.data_acquisition",
@@ -269,6 +272,9 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.gaiamock_vendor",
                 "darkhunter_pop.constants",
+                # Stand-ins / calibration status / report are written by the
+                # pipeline wrapper through run_validity (#331, #351, #354).
+                "darkhunter_pop.run_validity",
             ),
             config_keys=(
                 "gaiamock",
@@ -289,6 +295,9 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.gaiamock_vendor",
                 "darkhunter_pop.constants",
+                # Stand-ins / calibration status / report are written by the
+                # pipeline wrapper through run_validity (#331, #351, #354).
+                "darkhunter_pop.run_validity",
             ),
             config_keys=(
                 "active_dr_mode",
@@ -310,6 +319,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.population_model",
                 "darkhunter_pop.constants",
                 "darkhunter_pop.sensitivity_analysis",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.run_validity",
             ),
             config_keys=(
                 "population_model",
@@ -326,6 +337,8 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.sensitivity_analysis",
                 # Reached via config_loader; holds science constants (#183).
                 "darkhunter_pop.constants",
+                "darkhunter_pop.diagnostic_hooks",
+                "darkhunter_pop.run_validity",
             ),
             config_keys=(
                 "physics.mc_noise_threshold",
@@ -344,6 +357,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             ),
             deps=(
                 "darkhunter_pop.inference",
+                "darkhunter_pop.run_validity",
                 "darkhunter_pop.physics_utils",
                 "darkhunter_pop.population_model",
                 "darkhunter_pop.sample_inclusion",
@@ -372,6 +386,7 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
             inputs_from=("inference", "sample_selection"),
             deps=(
                 "darkhunter_pop.diagnostics",
+                "darkhunter_pop.run_validity",
                 "darkhunter_pop.sample_diagnostics",
                 "darkhunter_pop.sample_selection",
                 "darkhunter_pop.benchmarks",
@@ -709,7 +724,7 @@ def new_run_for_force_rerun(
     """
     assert_config_checksum(config, parent.config_checksum)
     seed = copy_stages_before(parent, stage_name)
-    return create_run_manifest(
+    child = create_run_manifest(
         config,
         parent_run_id=parent.run_id,
         stages_seed=seed,
@@ -718,6 +733,16 @@ def new_run_for_force_rerun(
         dry_run_label=parent.dry_run_label,
         synthetic_stand_ins=parent.synthetic_stand_ins,
     )
+    # Science validity is assessed by ``inference`` (#352); it travels with that
+    # stage's record and is re-assessed whenever inference re-runs.
+    if "inference" in seed:
+        child = child.model_copy(
+            update={
+                "science_valid": parent.science_valid,
+                "science_validity_reasons": list(parent.science_validity_reasons),
+            }
+        )
+    return child
 
 
 def resolve_run_file(
@@ -1070,8 +1095,15 @@ def format_run_plan(
             f"git_commit={manifest.gaiamock_git_commit}",
             f"random_seeds: {manifest.random_seeds or '(none recorded)'}",
             f"dry_run: {manifest.dry_run}",
+            (
+                "science_valid: not yet assessed (set by inference, #352)"
+                if manifest.science_valid is None
+                else f"science_valid: {manifest.science_valid}"
+            ),
         ]
     )
+    for reason in manifest.science_validity_reasons:
+        lines.append(f"  not science-valid: {reason}")
     lines.append(
         f"synthetic_stand_ins: {len(manifest.synthetic_stand_ins)} declared"
     )

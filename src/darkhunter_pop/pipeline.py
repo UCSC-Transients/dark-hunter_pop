@@ -9,12 +9,17 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+import h5py
+
 from darkhunter_pop.companion_nature import run_companion_nature_likelihood
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.data_acquisition import run_data_acquisition
 from darkhunter_pop.diagnostics import run_diagnostics_stage
+from darkhunter_pop.diagnostic_hooks import resolve_diagnostic_dirs, write_report
 from darkhunter_pop.forward_model import (
+    format_followup_calibration_report,
+    format_validation_gate_report,
     run_selection_function_astrometric,
     run_selection_function_followup,
 )
@@ -54,6 +59,12 @@ from darkhunter_pop.rv_consistency import (
     run_rv_astrometry_gate,
 )
 from darkhunter_pop.sample_selection import run_sample_selection_stage
+from darkhunter_pop.run_validity import (
+    annotate_followup_artifact,
+    astrometric_stage_stand_ins,
+    followup_report_header,
+    write_stand_ins,
+)
 from darkhunter_pop.schemas import RunManifest, StageStatus
 from darkhunter_pop.sensitivity_analysis import run_sensitivity_analysis_stage
 from darkhunter_pop.triples import run_triples_stage
@@ -68,6 +79,17 @@ def _artifact_from_stage(manifest: RunManifest, stage_name: str) -> Path | None:
         return None
     path = Path(rec.artifact_path)
     return path if path.is_file() else None
+
+
+def _has_nss_panels(path: Path | None) -> bool:
+    """True when a data_acquisition artifact carries real six-panel samples."""
+    if path is None or not path.is_file():
+        return False
+    try:
+        with h5py.File(path, "r") as handle:
+            return "data_acquisition/nss_panels" in handle
+    except OSError:
+        return False
 
 
 def _run_selection_function_astrometric_stage(
@@ -91,9 +113,38 @@ def _run_selection_function_astrometric_stage(
     save_run_manifest(manifest, run_path)
 
     da = _artifact_from_stage(manifest, "data_acquisition")
-    run_selection_function_astrometric(
+    result = run_selection_function_astrometric(
         config, artifact, data_acquisition_artifact=da
     )
+    # Point-of-use stand-ins (#354) and the stage report (#331). Done here rather
+    # than in forward_model.py, which another ticket owns; run_validity is in this
+    # stage's dependency_modules so a change to either invalidates the cache.
+    write_stand_ins(
+        artifact,
+        astrometric_stage_stand_ins(
+            config,
+            n_realizations=len(result.records),
+            n_accepted=sum(1 for r in result.records if r.accepted_orbital),
+            real_panels_from_data_acquisition=_has_nss_panels(da),
+        ),
+    )
+    if config.diagnostics.write_reports:
+        dirs = resolve_diagnostic_dirs(
+            config, run_id=manifest.run_id, beside_artifact=artifact
+        )
+        header = (
+            "*** VALIDATION GATE PASSED ***"
+            if result.validation.passed
+            else (
+                "*** VALIDATION GATE FAILED — detection_fraction below is NOT a "
+                "validated selection function; inference consuming it is not "
+                "science-valid (#352) ***"
+            )
+        )
+        write_report(
+            dirs.reports / "validation_gate_report.txt",
+            header + "\n" + format_validation_gate_report(result),
+        )
 
     manifest = mark_stage_finished(
         manifest,
@@ -126,7 +177,21 @@ def _run_selection_function_followup_stage(
     save_run_manifest(manifest, run_path)
 
     astro = _artifact_from_stage(manifest, "selection_function_astrometric")
-    run_selection_function_followup(config, artifact, astrometric_artifact=astro)
+    result = run_selection_function_followup(
+        config, artifact, astrometric_artifact=astro
+    )
+    # calibration_status + stand-ins (#351, #354) and the stage report (#331).
+    status = annotate_followup_artifact(artifact, config)
+    if config.diagnostics.write_reports:
+        dirs = resolve_diagnostic_dirs(
+            config, run_id=manifest.run_id, beside_artifact=artifact
+        )
+        write_report(
+            dirs.reports / "followup_calibration_report.txt",
+            followup_report_header(status)
+            + "\n"
+            + format_followup_calibration_report(result),
+        )
 
     manifest = mark_stage_finished(
         manifest,

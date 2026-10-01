@@ -41,6 +41,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from darkhunter_pop.config_loader import effective_M_Ch_msun
 from darkhunter_pop.config_schema import PipelineConfig, PopulationModelConfig
+from darkhunter_pop.diagnostic_hooks import resolve_diagnostic_dirs, write_report
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -1028,6 +1029,14 @@ def run_population_model_stage(
         sensitivity_artifact_path=sensitivity_artifact_path,
     )
     write_population_model_artifact(artifact, result)
+    if config.diagnostics.write_reports:
+        dirs = resolve_diagnostic_dirs(
+            config, run_id=manifest.run_id, beside_artifact=artifact
+        )
+        write_report(
+            dirs.reports / "population_model_report.txt",
+            format_population_model_report(result),
+        )
 
     manifest = mark_stage_finished(
         manifest,

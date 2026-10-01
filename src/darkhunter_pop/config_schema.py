@@ -1857,7 +1857,18 @@ class InferenceConfig(BaseModel):
     robustness_seed_stride: int = Field(17, ge=1)
     # Small-N generics.
     posterior_prior_overlap_threshold: float = Field(0.85, gt=0.0, le=2.0)
+    # Collapse floor (#352): any free-height parameter with σ_post/σ_prior below this
+    # is a degenerate (collapsed / identical-sample) posterior — a failure, not a pass.
+    posterior_collapse_width_ratio_floor: float = Field(1e-6, gt=0.0, lt=1.0)
     zero_count_ul_confidence: float = Field(0.95, gt=0.0, lt=1.0)
+    # Consumer-side gate policy (#352). ``refuse``: inference raises and records the
+    # stage failed when an upstream validation gate (astrometric validation gate,
+    # follow-up calibration) did not pass. ``mark_not_science_valid``: inference runs,
+    # but the artifact, report and run file say ``science_valid: False`` with every
+    # reason. Neither value ever yields a science-valid result on a failed gate.
+    upstream_gate_policy: Literal["refuse", "mark_not_science_valid"] = (
+        "mark_not_science_valid"
+    )
     # When True, skip dynesty and evaluate fiducial logL only (unit tests / dry-run).
     skip_sampler: bool = False
 
