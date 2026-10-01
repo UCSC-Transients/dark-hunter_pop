@@ -76,7 +76,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
 | `physics.*` | cooling tracks/atmosphere/path, IMF, `mc_noise_threshold` |
-| `selection_function_astrometric.*` | shared mock/validation; distance windows under `dr3`/`dr4` |
+| `selection_function_astrometric.*` | shared mock/validation; distance windows, `orbital_solution_cuts` and `elbadry2024_comparison_nss_solution_types` under `dr3`/`dr4` (#339) |
 | `selection_function_followup.*` | shared follow-up SF; accel/jerk catalog pins under `dr3`/`dr4` |
 | `sensitivity_analysis.*` | N-D vs 1D / covariates; uses `physics.mc_noise_threshold` for MC gate |
 | `population_model.*` | multiplicity, free-height / GP MF, bin-edge policy, soft `M_TOV` width; shared `M_TOV` / `delta_M_Ch` / IMF stay in their sections |
