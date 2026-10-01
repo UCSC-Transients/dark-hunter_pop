@@ -318,3 +318,36 @@ def test_config_fingerprint_changes_artifact_path() -> None:
     )
     p2 = stage_artifact_path(tweaked, spec, run_id="runA")
     assert p1.name != p2.name
+
+
+def test_age_bin_diagnostic_empty_is_insufficient_data_not_ok() -> None:
+    """#334: zero candidates in every age bin is 'not tested', never a pass."""
+    from darkhunter_pop.companion_nature import AgeBinDiagnostic, age_bin_diagnostic
+    from darkhunter_pop.config_loader import load_config
+
+    diag = age_bin_diagnostic([], load_config().companion_nature)
+    assert diag.status == "insufficient_data"
+    assert diag.age_independence_ok is False
+    assert "NOT TESTED" in diag.message
+    # Pre-#334 artifacts (no status, ok=True on empty bins) re-read honestly.
+    legacy = AgeBinDiagnostic(
+        bin_edges_gyr=[0.0, 1.0, 3.0],
+        bin_counts=[0, 0],
+        mean_weights_by_bin=[{}, {}],
+        global_mean_weights={},
+        max_abs_mean_weight_delta=0.0,
+        age_independence_ok=True,
+        message="Age-bin diagnostic: ... age-independence OK.",
+    )
+    assert legacy.status == "insufficient_data"
+    assert legacy.age_independence_ok is False
+    populated = AgeBinDiagnostic(
+        bin_edges_gyr=[0.0, 1.0, 3.0],
+        bin_counts=[3, 4],
+        mean_weights_by_bin=[{}, {}],
+        global_mean_weights={},
+        max_abs_mean_weight_delta=0.0,
+        age_independence_ok=True,
+        message="ok",
+    )
+    assert populated.status == "ok"
