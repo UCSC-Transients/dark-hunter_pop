@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -123,7 +123,17 @@ from darkhunter_pop.sbc import (
     run_sbc_suite,
     write_sbc_artifact,
 )
-from darkhunter_pop.schemas import CandidateRecord, FitTier, RunManifest, StageStatus
+from darkhunter_pop.run_validity import (
+    format_science_validity_block,
+    write_stand_ins_to_handle,
+)
+from darkhunter_pop.schemas import (
+    CandidateRecord,
+    FitTier,
+    RunManifest,
+    StageStatus,
+    SyntheticStandIn,
+)
 from darkhunter_pop.sensitivity_analysis import (
     MCNoiseConvergenceDiagnostic,
     run_mc_noise_convergence,
@@ -226,10 +236,17 @@ class DiagnosticsStageResult:
     matplotlib_available: bool
     config_snapshot: dict[str, Any]
     sbc_payload: dict[str, Any] | None = None
+    #: Point-of-use stand-ins the suite took (#354): demo placeholders, fixture
+    #: comparisons, analytic SBC, fabricated known-truth observations, ...
+    stand_ins: list[SyntheticStandIn] = field(default_factory=list)
+    #: ``inference``'s science-validity verdict, surfaced in the stage report (#352).
+    upstream_science_validity: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
+            "stand_ins": [si.model_dump(mode="json") for si in self.stand_ins],
+            "upstream_science_validity": self.upstream_science_validity,
             "root": str(self.dirs.root),
             "figures_dir": str(self.dirs.figures),
             "reports_dir": str(self.dirs.reports),
@@ -1224,7 +1241,14 @@ def emit_known_truth_benchmarks(
         obs,
         ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
     )
-    result = HookEmissionResult(hook_name="known_truth_benchmarks")
+    result = HookEmissionResult(
+        hook_name="known_truth_benchmarks",
+        payload={
+            "observed_source": (
+                "supplied" if observed is not None else "synthetic_observed_from_truth"
+            )
+        },
+    )
     if diag.write_reports:
         result.reports.append(
             write_report(
@@ -1813,6 +1837,92 @@ def _ensure_builtin_helpers_registered() -> None:
             register_diagnostic_helper(name, fn)
 
 
+def diagnostics_suite_stand_ins(
+    config: PipelineConfig,
+    hooks: Sequence[HookEmissionResult],
+    *,
+    demo_fed_hooks: Sequence[str],
+) -> list[SyntheticStandIn]:
+    """Stand-ins the diagnostic suite actually took, read off the hooks that ran (#354)."""
+    by_name = {h.hook_name: h for h in hooks}
+    out: list[SyntheticStandIn] = []
+    if demo_fed_hooks:
+        out.append(
+            SyntheticStandIn(
+                name="diagnostics_demo_placeholders",
+                stage="diagnostics",
+                kind="synthetic_data",
+                replaces="upstream stage outputs for these diagnostic hooks",
+                description=(
+                    "demo_missing was in effect, so these hooks were fed "
+                    "placeholder inputs (zeros, linspace panels, uniform fractions, "
+                    "a synthetic NSS solution) instead of this run's outputs. Their "
+                    "reports describe the placeholders: "
+                    + ", ".join(demo_fed_hooks)
+                    + "."
+                ),
+                config_keys=[],
+                values={"hooks": list(demo_fed_hooks)},
+            )
+        )
+    kt = by_name.get("known_truth_benchmarks")
+    if kt is not None and kt.payload.get("observed_source") == "synthetic_observed_from_truth":
+        out.append(
+            SyntheticStandIn(
+                name="fabricated_known_truth_observations",
+                stage="diagnostics",
+                kind="synthetic_data",
+                replaces="this run's pipeline outputs for Gaia BH1/BH2/BH3",
+                description=(
+                    "The known-truth check compared the benchmark expectations "
+                    "against observations synthesized from those same expectations "
+                    "(synthetic_observed_from_truth), so it cannot fail (#348)."
+                ),
+                config_keys=["benchmarks"],
+            )
+        )
+    sbc = by_name.get("sbc_recovery")
+    if (
+        sbc is not None
+        and sbc.skipped_reason is None
+        and sbc.payload.get("recovery_backend") == "analytic_binned"
+    ):
+        out.append(
+            SyntheticStandIn(
+                name="sbc_analytic_binned_backend",
+                stage="diagnostics",
+                kind="analytic_identity",
+                replaces="simulation-based calibration through run_inference",
+                description=(
+                    "SBC drew conjugate Gamma posteriors for independent Poisson "
+                    "bins with SF = 1; coverage is correct by construction and "
+                    "exercises no part of inference, the forward-model SF or the "
+                    "population model (#356)."
+                ),
+                config_keys=["diagnostics.sbc.recovery_backend"],
+                values={"recovery_backend": "analytic_binned"},
+            )
+        )
+    ssf = by_name.get("sample_selection_function")
+    if ssf is not None and ssf.skipped_reason is None:
+        out.append(
+            SyntheticStandIn(
+                name="single_template_sample_sf_scan",
+                stage="diagnostics",
+                kind="config_placeholder",
+                replaces="per-sample selection functions marginalized over the population",
+                description=(
+                    "The sample selection-function curves sweep one axis at a time "
+                    "through a single configured template row and record 0/1 "
+                    "survival; they are not selection probabilities over any "
+                    "population."
+                ),
+                config_keys=["diagnostics.sample_reproduction.selection_function.template"],
+            )
+        )
+    return out
+
+
 def run_diagnostic_suite(
     config: PipelineConfig,
     *,
@@ -2071,6 +2181,9 @@ def run_diagnostic_suite(
             "benchmarks": config.benchmarks.model_dump(mode="json"),
         },
         sbc_payload=sbc_payload,
+        stand_ins=diagnostics_suite_stand_ins(
+            config, hooks, demo_fed_hooks=sorted(demo_used)
+        ),
     )
 
 
@@ -2126,6 +2239,11 @@ def write_diagnostics_artifact(path: Path, result: DiagnosticsStageResult) -> No
         handle.attrs["schema_version"] = result.schema_version
         handle.attrs["matplotlib_available"] = result.matplotlib_available
         handle.attrs["root"] = str(result.dirs.root)
+        write_stand_ins_to_handle(handle, result.stand_ins)
+        if result.upstream_science_validity is not None:
+            handle.attrs["upstream_science_valid"] = bool(
+                result.upstream_science_validity.get("science_valid", False)
+            )
         handle.create_dataset(
             "payload_json",
             data=np.array(
@@ -2184,6 +2302,14 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
     """Fully legible diagnostics-stage summary (exempt from caveman compression)."""
     lines = [
         "=== diagnostics stage (full suite) ===",
+        (
+            format_science_validity_block(result.upstream_science_validity)
+            if result.upstream_science_validity
+            else "upstream science validity: NOT ASSESSED (no inference verdict on "
+            "this run) — nothing here is a science-valid result"
+        ),
+        f"stand-ins taken by this suite ({len(result.stand_ins)}):",
+        *[f"  - {si.one_line()}" for si in result.stand_ins],
         f"schema_version: {result.schema_version}",
         f"root: {result.dirs.root}",
         f"figures_dir: {result.dirs.figures}",
@@ -2395,6 +2521,9 @@ def _hydrate_diagnostics_from_manifest(
         runs = payload.get("sampler_run_summaries")
         if runs:
             hydrated["sampler_runs"] = runs
+        validity = payload.get("science_validity")
+        if validity:
+            hydrated["science_validity"] = dict(validity)
 
     sa_path = _optional_artifact_path(manifest, "sensitivity_analysis")
     if sa_path is not None:
@@ -2550,6 +2679,15 @@ def run_diagnostics_stage(
         and resolved_candidates is None
         and resolved_sampler_runs is None,
     )
+    if hydrated.get("science_validity") is not None:
+        result.upstream_science_validity = hydrated["science_validity"]
+    elif manifest.science_valid is not None:
+        result.upstream_science_validity = {
+            "science_valid": manifest.science_valid,
+            "policy": config.inference.upstream_gate_policy,
+            "gates": [],
+            "reasons": list(manifest.science_validity_reasons),
+        }
     write_diagnostics_artifact(artifact, result)
     write_report(
         result.dirs.reports / "diagnostics_stage.txt",

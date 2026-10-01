@@ -446,6 +446,10 @@ inference:
   robustness_nlive_scale: 1.5
   robustness_seed_stride: 17
   posterior_prior_overlap_threshold: 0.85
+  # σ_post/σ_prior below this on any parameter = collapsed posterior (#352).
+  posterior_collapse_width_ratio_floor: 1.0e-06
+  # refuse | mark_not_science_valid — never science-valid on a failed gate (#352).
+  upstream_gate_policy: mark_not_science_valid
   zero_count_ul_confidence: 0.95
   skip_sampler: false
 diagnostics:

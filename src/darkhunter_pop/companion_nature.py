@@ -40,6 +40,7 @@ from darkhunter_pop.phot_sed_adapter import (
     phot_sed_root,
 )
 from darkhunter_pop.plotting import plot_histogram
+from darkhunter_pop.run_validity import write_stand_ins
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -54,6 +55,7 @@ from darkhunter_pop.schemas import (
     PhotometryPoint,
     RunManifest,
     StageStatus,
+    SyntheticStandIn,
 )
 
 SCHEMA_VERSION = 1
@@ -1191,6 +1193,67 @@ def write_diagnostic_artifacts(
     return written
 
 
+def companion_nature_stand_ins(
+    diagnostics: CompanionNatureDiagnostics,
+) -> list[SyntheticStandIn]:
+    """Point-of-use stand-ins for this stage's evidence paths (#354).
+
+    Registered from what the run actually did: the number of candidates whose
+    evidence fell back to the analytic magnitude-mass relations, and whether the
+    Bédard cooling tracks were loaded or the analytic WD ``M_G`` fallback ran.
+    Returns an empty list when every candidate used real evidence and tracks.
+    """
+    out: list[SyntheticStandIn] = []
+    by_prov = dict(diagnostics.n_by_evidence_provenance)
+    n_fallback = int(by_prov.get(PROVENANCE_ANALYTIC_FALLBACK, 0))
+    if n_fallback:
+        out.append(
+            SyntheticStandIn(
+                name="analytic_companion_nature_evidence",
+                stage=STAGE_NAME,
+                kind="analytic_surrogate",
+                replaces=(
+                    "per-star SED / XP model comparison evidence (dark vs WD vs other)"
+                ),
+                description=(
+                    f"{n_fallback} of {diagnostics.n_input} candidates took the "
+                    "analytic magnitude-mass fallback instead of real phot_sed "
+                    "dynesty evidence, so their five-class responsibilities are a "
+                    "smooth function of absolute magnitude, not a model comparison, "
+                    "and carry no uncertainty model."
+                ),
+                config_keys=[
+                    "companion_nature.wd_mg_zero_point",
+                    "companion_nature.wd_mg_mass_slope",
+                    "companion_nature.other_mg_zero_point",
+                    "companion_nature.other_mg_mass_slope",
+                    "mass_derivation.phot_sed_root",
+                ],
+                values={"n_by_evidence_provenance": by_prov},
+            )
+        )
+    if diagnostics.track_source is None:
+        out.append(
+            SyntheticStandIn(
+                name="analytic_wd_cooling_fallback",
+                stage=STAGE_NAME,
+                kind="analytic_surrogate",
+                replaces="Bédard et al. WD cooling tracks",
+                description=(
+                    "No cooling-track file was loaded (track_source: null), so the "
+                    "WD hypothesis uses the analytic M_G fallback "
+                    "(analytic_wd_mg_fallback) instead of Bédard cooling tracks."
+                ),
+                config_keys=[
+                    "physics.cooling_tracks",
+                    "physics.cooling_tracks_path",
+                ],
+                values={"track_source": None},
+            )
+        )
+    return out
+
+
 def run_companion_nature_likelihood(
     manifest: RunManifest,
     config: PipelineConfig,
@@ -1221,6 +1284,7 @@ def run_companion_nature_likelihood(
         candidates, config, tracks=tracks
     )
     write_stage_hdf5(artifact, updated, diagnostics=diagnostics.as_dict())
+    write_stand_ins(artifact, companion_nature_stand_ins(diagnostics))
     write_diagnostic_artifacts(diagnostics, artifact, config)
 
     manifest = mark_stage_finished(
