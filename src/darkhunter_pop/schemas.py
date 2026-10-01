@@ -295,6 +295,14 @@ class FollowUpRecord(BaseModel):
 #:     Sampler settings deliberately kept at CI smoke scale.
 #: ``disabled_path``
 #:     A pipeline path deliberately left off, so its contribution is absent.
+#: ``synthetic_data``
+#:     Draws from a hand-written generator standing in for real data or for the
+#:     population being inferred (#354).
+#: ``reference_fixture``
+#:     A bundled fixture file standing in for a model output or real data (#354).
+#: ``analytic_identity``
+#:     A check evaluated as a closed-form identity, so it measures nothing about
+#:     this run and passes by construction (#349, #356).
 STAND_IN_KINDS: Final[frozenset[str]] = frozenset(
     {
         "analytic_surrogate",
@@ -302,6 +310,9 @@ STAND_IN_KINDS: Final[frozenset[str]] = frozenset(
         "offline_replay",
         "ci_scale_sampler",
         "disabled_path",
+        "synthetic_data",
+        "reference_fixture",
+        "analytic_identity",
     }
 )
 
@@ -434,6 +445,13 @@ class RunManifest(BaseModel):
     #: when ``dry_run`` is true — a dry run with nothing declared is a dry run
     #: whose stand-ins were not enumerated.
     synthetic_stand_ins: list[SyntheticStandIn] = Field(default_factory=list)
+    #: Whether this run's result may be presented as science (#352). ``None`` until
+    #: a consumer stage (``inference``) has assessed it; ``False`` whenever an
+    #: upstream validation gate failed / was not run, a stand-in fed the result, or
+    #: an in-stage check failed. Never ``True`` on a failed gate, under any policy.
+    science_valid: bool | None = None
+    #: Every reason ``science_valid`` is not True, in plain language.
+    science_validity_reasons: list[str] = Field(default_factory=list)
     stages: dict[str, StageRecord] = Field(default_factory=dict)
 
     @model_validator(mode="after")

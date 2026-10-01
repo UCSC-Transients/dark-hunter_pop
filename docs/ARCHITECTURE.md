@@ -433,6 +433,18 @@ later without restructuring anything else.
   six-panel comparison (P_orb, G, 1/parallax, eccentricity, astrometric mass function f_m, cos i)
   between real DR3 NSS and mock population, plus a new diagnostic comparing the fraction of mock
   sources landing in each Gaia solution-type bin against real fractions.
+  - **Real side (#339)**: exactly the paper's §4 sample, `nss_solution_type` in
+    `dr3.selection_function_astrometric.elbadry2024_comparison_nss_solution_types`
+    (`Orbital`, `AstroSpectroSB1`; 168,065 rows), read from the **uncut** Gaia snapshot recorded
+    on the `data_acquisition` artifact. No pipeline quality cut. One row set feeds all six panels.
+  - **Mock side (#339)**: only realizations passing every
+    `<dr>.selection_function_astrometric.orbital_solution_cuts` cut (paper Eq. 18, including
+    `F2 < 25`, and Eqs. 20-22) contribute to any panel. Panel values are fitted (catalog-like),
+    and mock `f_m` is `physics_utils.astrometric_mass_function(a0, parallax, P)`, the same
+    function as the real side. The companion mass from
+    `gaiamock.get_companion_mass_from_mass_function` is stored separately.
+  - The stage artifact persists both samples (`six_panel_samples/{mock,real}`); `diagnostics`
+    plots exactly those arrays. There is no reference-fixture fallback on the science path.
 - No emulator in v1 — call `gaiamock` directly, profile, add an emulator only if profiling shows
   it's needed.
 - **DR4 dual mode**: (a) fast — Gaia's own DR4 NSS catalog directly; (b) complete — `gaiamock`'s
@@ -564,6 +576,24 @@ convergence diagnostic.
 - Diagnostic reports and plot captions are full-detail (exempted from caveman-mode compression per
   the project skill).
 
+#### Per-stage reports (issue #331)
+
+Every stage below writes a human-readable report beside its HDF5 artifact, under
+`{artifact_stem}_diagnostics/{diagnostics.reports_subdir}/`, behind `diagnostics.write_reports`.
+Before #331 these five formatters existed but were never called, so their results lived only in
+HDF5 attrs (which is how a failed astrometric validation gate went unnoticed).
+
+| Stage | Report | Notes |
+|---|---|---|
+| `selection_function_astrometric` | `validation_gate_report.txt` | Header states `VALIDATION GATE PASSED` / `FAILED`; written by the `pipeline` wrapper |
+| `selection_function_followup` | `followup_calibration_report.txt` | Header states `calibration_status` (`not_calibrated` with no real follow-up catalog, #351) |
+| `population_model` | `population_model_report.txt` | |
+| `sensitivity_analysis` | `sensitivity_analysis_report.txt` | |
+| `inference` | `inference_report.txt` | Leads with the science-validity verdict (§5 "Science validity") and the SF values used, with their source |
+
+The `diagnostics` stage's own `diagnostics_stage.txt` leads with the same science-validity verdict
+and lists the stand-ins the suite itself took.
+
 ## 5. Run management
 
 Every stage above is registered under its canonical name (the names used in §4's headers —
@@ -683,6 +713,38 @@ substitutions can never be mistaken for a science result:
 | `dry_run` | `true` when the run used documented substitutions instead of real inputs. Present in every run file, so a dry run is distinguishable by grepping rather than by reading. |
 | `dry_run_label` | The banner carried by every report and figure caption built from the run. |
 | `synthetic_stand_ins` | One `SyntheticStandIn` per substitution: `name`, `stage`, `kind`, `replaces`, `description`, the `config_keys` holding the placeholder values, and those values as resolved at run time. |
+
+**Point-of-use stand-ins** (issue #354). The pre-execution `synthetic_stand_ins` list above is a
+hand-maintained declaration (the run plan must name stand-ins before anything runs). It is **not**
+the inventory. Each stage that takes a synthetic or placeholder path registers it in its own HDF5
+artifact at the point of use, as a JSON list in the root attribute `stand_ins_json`
+(`run_validity.write_stand_ins`), with the values it actually used. Registering stages
+(`run_validity.STAND_IN_REGISTERING_STAGES`) always write the attribute, possibly empty;
+an artifact of one of them without it predates registration and is reported as unregistered, never as
+clean. After a dry run, `dry_run.resolve_run_stand_ins` collects every artifact's registrations
+(`run_validity.collect_stand_ins`); they replace any same-named declaration, and the merged list is
+written back to the run file, the dry-run report and the dN/dM caption.
+
+**Science validity** (issue #352). Two further manifest fields, `science_valid` (`null` until
+assessed) and `science_validity_reasons`, are set by `inference`. It reads every upstream
+validation gate before consuming what that gate guards: `selection_function_astrometric`'s
+`validation_gate_passed` and `selection_function_followup`'s `calibration_status` (`passed` /
+`failed` / `not_calibrated`; a missing artifact is `not_run`, an unreadable one `unreadable`).
+`inference.upstream_gate_policy` decides what a gate that did not pass does:
+
+| Policy | Effect |
+|---|---|
+| `mark_not_science_valid` (default) | Inference runs; artifact attr `science_valid`, the report header and the run file all say `science_valid: False` with every reason. |
+| `refuse` | Inference raises `UpstreamGateFailedError` before computing anything, records the stage `failed` with the reason, and sets `science_valid: False`. |
+
+Neither policy, and no other configuration, yields `science_valid: True` on a failed, missing or
+unreadable gate. `science_valid` is True only when every gate passed, **no** stand-in was
+registered by any stage up to and including `inference`, and in-stage checks passed (the
+posterior-vs-prior overlap must be `passed`: `prior_dominated` and `collapsed`, a posterior whose
+width ratio falls below `inference.posterior_collapse_width_ratio_floor` on any parameter, are
+failures). The Q1 sample-overlap matrix is built from each sample's `inference_source_ids` in the
+`sample_selection` artifact; with none available it is reported `not_computed` — there is no toy
+default.
 
 `RunManifest` **refuses** `dry_run: true` without both a label and at least one declared
 stand-in, so the label is applied at birth or not at all. `format_run_plan` leads with the banner

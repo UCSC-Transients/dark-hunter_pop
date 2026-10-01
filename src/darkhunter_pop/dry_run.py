@@ -58,6 +58,11 @@ from darkhunter_pop.run_management import (
     runs_dir,
     save_run_manifest,
 )
+from darkhunter_pop.run_validity import (
+    CollectedStandIns,
+    collect_stand_ins,
+    merge_stand_ins,
+)
 from darkhunter_pop.schemas import (
     COMPANION_NATURE_WEIGHT_KEYS,
     RunManifest,
@@ -277,9 +282,11 @@ def declare_stand_ins(
 
     Limitations
     -----------
-    This is a hand-maintained enumeration, not a derivation: a placeholder added
-    to ``config.yaml`` later will not appear here until someone adds it. It is
-    the declaration the Wave 0 gate asks for, not a proof of exhaustiveness.
+    This is the *pre-execution* declaration only (the run plan must name stand-ins
+    before anything runs). It is hand-maintained and is not the inventory: after
+    the run, :func:`resolve_run_stand_ins` collects what each stage registered in
+    its own artifact at the point of use (#354), and those records — with the
+    values actually used — replace any same-named declaration here.
     """
     icfg = config.inference
     cncfg = config.companion_nature
@@ -407,17 +414,16 @@ def declare_stand_ins(
                 "weight chosen to make the output look plausible would be worse than "
                 "an obviously crude one. No inference conclusion survives this."
             ),
+            # The astrometric / follow-up SF scalars are NOT declared here: the
+            # values inference actually used are registered by inference itself
+            # (``scalar_selection_functions``, #354), read back from its artifact.
             config_keys=[
                 "inference.multi_sample.default_catalog_sf",
                 "inference.multi_sample.default_p_spurious",
-                "inference.default_astrometric_sf",
-                "inference.default_followup_sf",
             ],
             values={
                 "default_catalog_sf": dict(icfg.multi_sample.default_catalog_sf),
                 "default_p_spurious": icfg.multi_sample.default_p_spurious,
-                "default_astrometric_sf": icfg.default_astrometric_sf,
-                "default_followup_sf": icfg.default_followup_sf,
             },
         )
     )
@@ -521,6 +527,19 @@ def declare_stand_ins(
         )
     )
     return stand_ins
+
+
+def resolve_run_stand_ins(manifest: RunManifest) -> tuple[RunManifest, CollectedStandIns]:
+    """Replace the declared stand-ins with what the stages registered (#354).
+
+    Stage-registered entries (read back from each artifact, carrying run-time
+    values) win over a same-named pre-execution declaration; declarations no stage
+    registered are kept, since some (``ci_scale_dynesty``,
+    ``offline_gaia_snapshot_replay``) describe the harness rather than a branch.
+    """
+    collected = collect_stand_ins(manifest)
+    merged = merge_stand_ins(manifest.synthetic_stand_ins, collected.stand_ins)
+    return manifest.model_copy(update={"synthetic_stand_ins": merged}), collected
 
 
 def dry_run_seeds(config: PipelineConfig) -> dict[str, Any]:
@@ -738,7 +757,14 @@ def caption_text(manifest: RunManifest) -> str:
             "tier-2 species-classified with M_TOV marginalized for NS. Axis values "
             "are NOT a measurement of the mass function and must not be quoted."
         ),
-        "Stand-ins in force for this run:",
+        (
+            "science_valid: not assessed."
+            if manifest.science_valid is None
+            else f"science_valid: {manifest.science_valid}"
+            + ("" if manifest.science_valid else " — NOT a science-valid result.")
+        ),
+        "Stand-ins in force for this run (registered by the stages that used them, "
+        "plus pre-execution declarations):",
     ]
     for stand_in in manifest.synthetic_stand_ins:
         lines.append(
@@ -942,6 +968,7 @@ def format_dry_run_report(
     inputs: DnDmFigureInputs | None,
     figure_path: Path | None,
     total_wall_clock_seconds: float,
+    collected: CollectedStandIns | None = None,
 ) -> str:
     """Full-detail dry-run report, banner first (exempt from caveman compression).
 
@@ -976,8 +1003,23 @@ def format_dry_run_report(
         f"gaiamock triple (installed): {_installed_gaiamock_triple()}",
         f"random_seeds:         {manifest.random_seeds}",
         "",
+        "--- science validity (#352) ---",
+        (
+            "science_valid: not assessed (inference did not run)"
+            if manifest.science_valid is None
+            else f"science_valid: {manifest.science_valid}"
+        ),
+        *[f"  - {r}" for r in manifest.science_validity_reasons],
+        "",
         f"--- synthetic stand-ins in force ({len(manifest.synthetic_stand_ins)}) ---",
+        "(collected from each stage artifact at the point of use, #354; "
+        "pre-execution declarations no stage registered are kept)",
     ]
+    if collected is not None and collected.unregistered_stages:
+        lines.append(
+            "WARNING: these stages' artifacts carry no stand-in registration "
+            "(written before #354?): " + ", ".join(collected.unregistered_stages)
+        )
     for stand_in in manifest.synthetic_stand_ins:
         lines.append("")
         lines.append(f"* {stand_in.one_line()}")
@@ -1193,6 +1235,9 @@ def run_dry_run(
     )
     total = time.monotonic() - start
 
+    manifest, collected = resolve_run_stand_ins(manifest)
+    save_run_manifest(manifest, run_path)
+
     pop_record = manifest.stages.get("population_model")
     inputs: DnDmFigureInputs | None = None
     figure_path: Path | None = None
@@ -1219,6 +1264,7 @@ def run_dry_run(
         inputs=inputs,
         figure_path=figure_path,
         total_wall_clock_seconds=total,
+        collected=collected,
     )
     reports = dry_run_dirs(config, manifest.run_id)[1]
     reports.mkdir(parents=True, exist_ok=True)
@@ -1258,5 +1304,6 @@ __all__ = [
     "instrumented_runners",
     "latest_gaia_snapshot_meta",
     "resolve_dndm_inputs",
+    "resolve_run_stand_ins",
     "run_dry_run",
 ]

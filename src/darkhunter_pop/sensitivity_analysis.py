@@ -20,6 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from darkhunter_pop.config_schema import PipelineConfig, SensitivityAnalysisConfig
+from darkhunter_pop.diagnostic_hooks import resolve_diagnostic_dirs, write_report
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -28,7 +29,8 @@ from darkhunter_pop.run_management import (
     save_run_manifest,
     stage_artifact_path,
 )
-from darkhunter_pop.schemas import RunManifest, StageStatus
+from darkhunter_pop.run_validity import write_stand_ins_to_handle
+from darkhunter_pop.schemas import RunManifest, StageStatus, SyntheticStandIn
 
 PopulationClass = Literal["BH", "NS", "WD", "other", "outlier"]
 DimensionalityChoice = Literal["1d_dndm", "joint_nd"]
@@ -138,12 +140,18 @@ class SensitivityAnalysisResult:
     class_covariates: list[ClassCovariateRecommendation] = field(default_factory=list)
     mc_noise_threshold: float = 0.1
     config_snapshot: dict[str, Any] = field(default_factory=dict)
+    #: ``synthetic_fiducial`` when ``generate_fiducial_catalog`` supplied the
+    #: catalog (#350), ``supplied`` when the caller passed one.
+    catalog_source: Literal["synthetic_fiducial", "supplied"] = "supplied"
+    #: Point-of-use stand-ins this invocation took (#354).
+    stand_ins: list[SyntheticStandIn] = field(default_factory=list)
 
     def recommendation_payload(self) -> dict[str, Any]:
         """Stable JSON-serializable record for downstream stages (read-only contract)."""
         return {
             "schema_version": 1,
             "stage": "sensitivity_analysis",
+            "catalog_source": self.catalog_source,
             "mc_noise_threshold": self.mc_noise_threshold,
             "mc_noise_convergence": self.mc_noise.as_dict(),
             "dimensionality": self.dimensionality.as_dict(),
@@ -782,6 +790,7 @@ def run_sensitivity_analysis(
     if require_mc_pass and not mc.all_bins_passed:
         raise RuntimeError(mc.message)
 
+    catalog_source: Literal["synthetic_fiducial", "supplied"] = "supplied"
     if catalog is None or class_labels is None:
         catalog, class_labels = generate_fiducial_catalog(
             sa,
@@ -789,6 +798,7 @@ def run_sensitivity_analysis(
             nd_signal=nd_signal,
             covariate_signals=covariate_signals,
         )
+        catalog_source = "synthetic_fiducial"
 
     dimensionality = recommend_dimensionality(catalog, sa)
     class_cov = recommend_class_covariates(catalog, class_labels, sa)
@@ -799,7 +809,85 @@ def run_sensitivity_analysis(
         class_covariates=class_cov,
         mc_noise_threshold=threshold,
         config_snapshot=sa.model_dump(mode="json"),
+        catalog_source=catalog_source,
+        stand_ins=sensitivity_stand_ins(
+            sa,
+            catalog_source=catalog_source,
+            n_catalog=int(np.asarray(catalog["mass_msun"]).size),
+            mc_ratio=(mc.per_bin[0].ratio if mc.per_bin else None),
+            n_mock_final=mc.n_mock_final,
+        ),
     )
+
+
+def sensitivity_stand_ins(
+    sa: SensitivityAnalysisConfig,
+    *,
+    catalog_source: str,
+    n_catalog: int,
+    mc_ratio: float | None,
+    n_mock_final: int,
+) -> list[SyntheticStandIn]:
+    """Point-of-use stand-ins for one sensitivity-analysis invocation (#349, #350, #354).
+
+    The MC-noise convergence check is always registered: ``sigma_mc_poisson_ratio``
+    is ``1/sqrt(n_mock)`` for every bin whatever the expected count, evaluated on the
+    configured ``fiducial_expected_counts`` — an identity, not a measurement of any
+    mock-injection noise. The synthetic catalog is registered whenever
+    :func:`generate_fiducial_catalog` supplied the catalog.
+    """
+    out = [
+        SyntheticStandIn(
+            name="analytic_mc_noise_identity",
+            stage="sensitivity_analysis",
+            kind="analytic_identity",
+            replaces=(
+                "sigma_MC / sigma_Poisson measured from the forward model's mock "
+                "injections"
+            ),
+            description=(
+                "The MC-noise convergence ratio is 1/sqrt(n_mock) in every bin, "
+                "whatever the expected count, evaluated on configured expected "
+                "counts rather than on any mock-injection selection-function "
+                "estimate. It passes for any forward model, including a broken "
+                "one, and measures nothing about this run (#349)."
+            ),
+            config_keys=[
+                "sensitivity_analysis.fiducial_expected_counts",
+                "sensitivity_analysis.n_mock_start",
+                "sensitivity_analysis.n_mock_max",
+                "physics.mc_noise_threshold",
+            ],
+            values={
+                "fiducial_expected_counts": list(sa.fiducial_expected_counts),
+                "n_mock_final": int(n_mock_final),
+                "ratio_every_bin": mc_ratio,
+            },
+        )
+    ]
+    if catalog_source == "synthetic_fiducial":
+        out.append(
+            SyntheticStandIn(
+                name="synthetic_fiducial_sensitivity_catalog",
+                stage="sensitivity_analysis",
+                kind="synthetic_data",
+                replaces="the real candidate catalog (masses, periods, e, RUWE, classes)",
+                description=(
+                    f"Dimensionality and per-class covariates were selected on "
+                    f"{n_catalog} synthetic systems from generate_fiducial_catalog "
+                    "(log-uniform masses, hand-written period / eccentricity / RUWE "
+                    "draws and class logits), not on this run's candidates. Any "
+                    "recommendation inference applies from this artifact is "
+                    "derived from synthetic data (#350)."
+                ),
+                config_keys=[
+                    "sensitivity_analysis.n_synthetic_systems",
+                    "sensitivity_analysis.random_seed",
+                ],
+                values={"n_synthetic_systems": int(n_catalog)},
+            )
+        )
+    return out
 
 
 def write_sensitivity_analysis_artifact(
@@ -817,6 +905,8 @@ def write_sensitivity_analysis_artifact(
         handle.attrs["n_mock_final"] = result.mc_noise.n_mock_final
         handle.attrs["preferred_model"] = result.dimensionality.preferred_model
         handle.attrs["preferred_likelihood"] = result.dimensionality.preferred_likelihood
+        handle.attrs["catalog_source"] = result.catalog_source
+        write_stand_ins_to_handle(handle, result.stand_ins)
 
         rec = handle.create_group("recommendations")
         rec.create_dataset(
@@ -957,6 +1047,14 @@ def run_sensitivity_analysis_stage(
 
     result = run_sensitivity_analysis(config, require_mc_pass=require_mc_pass)
     write_sensitivity_analysis_artifact(artifact, result)
+    if config.diagnostics.write_reports:
+        dirs = resolve_diagnostic_dirs(
+            config, run_id=manifest.run_id, beside_artifact=artifact
+        )
+        write_report(
+            dirs.reports / "sensitivity_analysis_report.txt",
+            format_sensitivity_report(result),
+        )
 
     manifest = mark_stage_finished(
         manifest,
