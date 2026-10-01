@@ -1260,3 +1260,19 @@ def test_real_comparison_sample_count_matches_elbadry2024() -> None:
     assert n_rows == 168065
     for name in SIX_PANEL_NAMES:
         assert 0 < panels[name].size <= n_rows
+
+
+@pytest.mark.unit
+def test_comparison_panels_accept_astropy_table() -> None:
+    """The stage passes an astropy Table (whose ``in`` iterates rows, not names)."""
+    from astropy.table import Table
+
+    from darkhunter_pop.forward_model import build_elbadry2024_comparison_panels
+
+    cols = _comparison_columns()
+    cols["phot_g_mean_mag"] = cols.pop("g_mag")
+    panels, n_rows = build_elbadry2024_comparison_panels(
+        Table(cols), nss_solution_types=("Orbital", "AstroSpectroSB1"), gaiamock=_FakeGaiamock()
+    )
+    assert n_rows == 2
+    assert panels["G_mag"].size == 2

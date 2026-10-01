@@ -892,7 +892,9 @@ def build_elbadry2024_comparison_panels(
         keys = np.char.add(source_id[idx].astype(str), np.char.add("|", stype[idx]))
         _uniq, first = np.unique(keys, return_index=True)
         idx = idx[np.sort(first)]
-    g_name = "g_mag" if "g_mag" in columns else "phot_g_mean_mag"
+    # ``in`` on an astropy Table iterates rows, so test the column names explicitly.
+    names = set(getattr(columns, "colnames", None) or columns.keys())
+    g_name = "g_mag" if "g_mag" in names else "phot_g_mean_mag"
 
     def col(name: str) -> NDArray[np.float64]:
         return _column_array(columns, name)[idx]
