@@ -362,6 +362,33 @@ class PlottingStyleConfig(BaseModel):
     #: Line-spacing multiple applied when a product figure reserves a caption
     #: band beneath the axes, so wrapped caption text cannot overlap the x label.
     caption_line_spacing: float = Field(1.45, gt=0)
+    #: Dynamic range, in decades, above which a primitive left on ``"auto"``
+    #: switches an axis to log (strictly positive data: ``log10(max / min)``) or
+    #: symlog (data with zeros or both signs: ``log10(max|x| / median|x|)``,
+    #: over non-zero ``|x|``). Heavy-tailed NSS quantities (RUWE, period,
+    #: chi2/dof, ΔBIC) otherwise leave the signal in the first few bins
+    #: (``docs/PLOTS.md``, "Aspect ratio and dynamic range"; #333).
+    auto_log_min_decades: float = Field(2.0, gt=0)
+    #: Categorical bar charts with more categories than this are drawn as
+    #: horizontal bars so category labels never overlap (#333). Fewer
+    #: categories still go horizontal when any label is wider than its slot.
+    categorical_max_vertical_labels: int = Field(8, ge=1)
+    #: Height per bar (inches) on a horizontal bar chart; the figure grows with
+    #: the number of bars so labels stay at ``tick_label_fontsize``.
+    categorical_row_height_inches: float = Field(0.32, gt=0)
+    #: Colours and linestyles for labelled reference lines (``M_Ch``, ``M_TOV``,
+    #: cuts). Both cycle together so two reference lines never share a style
+    #: (#333). Defaults avoid the first six ``color_cycle`` entries, which the
+    #: data series use.
+    reference_line_colors: list[str] = Field(
+        default_factory=lambda: ["#D55E00", "#CC79A7", "#000000"]
+    )
+    reference_linestyle_cycle: list[str] = Field(
+        default_factory=lambda: ["--", ":", "-."]
+    )
+    #: Hatch patterns cycled with colour on grouped bar charts, so series stay
+    #: distinguishable in greyscale (``docs/PLOTS.md``, series discrimination).
+    bar_hatch_cycle: list[str] = Field(default_factory=lambda: ["", "//", "..", "xx"])
 
 
 class BenchmarkCatalogEntry(BaseModel):
