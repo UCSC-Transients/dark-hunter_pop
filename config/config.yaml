@@ -60,11 +60,21 @@ rv_consistency:
   sb2_period_frac_tol: 0.1
   sb2_ecc_abs_tol: 0.15
   joker_seed_variant: full
-  joint_prior_period_frac: 0.05
-  joint_prior_ecc_abs: 0.05
-  joint_prior_omega_rad: 0.2
-  joint_prior_t_peri_day: 5.0
-  joint_fit_max_nfev: 200
+  # #347: reject placeholder RV epochs (mjd 0.0) before any fit.
+  rv_epoch_min_mjd: 40000.0
+  jitter_min_kms: 1.0e-3
+  # #347 joint astrometry+RV fit: NSS solution vector + full covariance + RVs;
+  # K derived from a0/parallax. Optima on a box edge are flagged bound hits.
+  joint_m1_bounds_msun: [0.05, 100.0]
+  joint_m2_bounds_msun: [1.0e-3, 1.0e3]
+  joint_ecc_max: 0.99
+  joint_fit_max_nfev: 20000
+  joint_fit_decrement_tol: 1.0e-4
+  joint_fisher_min_eig_ratio: 1.0e-12
+  joint_lbfgsb_restarts: 5
+  joint_polish_steps: 20
+  joint_derivative_step: 1.0e-3
+  joint_bound_tol: 1.0e-3
   prefer_recent_summary_mtime: true
   priority_source_ids:
   - 4373465352415301632

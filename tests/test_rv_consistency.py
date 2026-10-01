@@ -12,6 +12,9 @@ from darkhunter_pop.config_schema import SHARED_CHECKSUM_SECTIONS
 from darkhunter_pop.rv_consistency import (
     JOINT_ORBIT_SKIP_REASON,
     collect_rv_epochs,
+    k_from_primary_orbit_kms,
+    primary_orbit_au,
+    thiele_innes_from_campbell,
     extract_astrometric_orbit,
     predicted_k_kms,
     read_stage_hdf5,
@@ -102,6 +105,38 @@ def _synthetic_epochs(
     ]
 
 
+def _synthetic_nss_solution(
+    *,
+    period: float,
+    ecc: float,
+    t_gaia: float,
+    omega: float,
+    node: float,
+    inc_rad: float,
+    m1: float,
+    m2: float,
+    parallax: float,
+) -> ParameterSet:
+    """FIXTURE: Orbital-type NSS vector consistent with the given orbit + masses.
+
+    Synthetic (diagonal) uncertainties; the pipeline itself never invents a
+    covariance — this is test input standing in for a real NSS solution.
+    """
+    a0 = primary_orbit_au(m1, m2, period) * parallax
+    abfg = thiele_innes_from_campbell(a0, omega, node, inc_rad)
+    values = [parallax, *abfg, ecc, period, t_gaia]
+    sig = [0.02, 0.02 * a0, 0.02 * a0, 0.02 * a0, 0.02 * a0, 0.02, 0.5, 2.0]
+    return ParameterSet(
+        names=[
+            "parallax", "a_thiele_innes", "b_thiele_innes", "f_thiele_innes",
+            "g_thiele_innes", "eccentricity", "period", "t_periastron",
+        ],
+        values=[float(v) for v in values],
+        covariance=np.diag(np.square(sig)).tolist(),
+        provenance="FIXTURE:synthetic_nss_solution",
+    )
+
+
 def _candidate_consistent(*, source_id: int = 1001, sb2: bool = False) -> CandidateRecord:
     period = 200.0
     ecc = 0.2
@@ -111,13 +146,20 @@ def _candidate_consistent(*, source_id: int = 1001, sb2: bool = False) -> Candid
     k = 15.0
     gamma = 30.0
     m1, m2 = _m1_m2()
+    # Inclination chosen so the Keplerian K of (M1=1.2, M2=1.5, P, e) equals k.
+    k_edge_on = k_from_primary_orbit_kms(primary_orbit_au(1.2, 1.5, period), period, ecc, np.pi / 2)
+    inc_rad = float(np.arcsin(k / k_edge_on))
+    nss_solution = _synthetic_nss_solution(
+        period=period, ecc=ecc, t_gaia=t_gaia, omega=omega, node=1.0,
+        inc_rad=inc_rad, m1=1.2, m2=1.5, parallax=5.0,
+    )
     nss = {
         "period_day": period,
         "eccentricity": ecc,
         "t_periastron_day": t_gaia,
         "semi_amp_primary_kms": k,
         "arg_periastron_deg": float(np.rad2deg(omega)),
-        "inclination_deg": 60.0,
+        "inclination_deg": float(np.rad2deg(inc_rad)),
     }
     if sb2:
         nss["semi_amp_secondary_kms"] = 20.0
@@ -164,6 +206,7 @@ def _candidate_consistent(*, source_id: int = 1001, sb2: bool = False) -> Candid
         source_id=source_id,
         nss_solution_type="SB2" if sb2 else "Orbital",
         nss_orbital={"period": period, "eccentricity": ecc, "parallax": 5.0},
+        nss_solution=nss_solution,
         rv_summary=rv_summary,
         m1=m1,
         m2=m2,
@@ -337,6 +380,9 @@ def test_joint_fit_passers_and_gate_failure_skip() -> None:
     assert "joint_orbit" in passer.extras
     assert passer.m2 is not None
     assert passer.m2.provenance == "joint_astrometry_rv"
+    # Fixture truth M2 = 1.5 Msun; the old RV-only fit drifted to bounds (#347).
+    assert passer.m2.marginal("M2").value == pytest.approx(1.5, rel=0.1)
+    assert passer.extras["joint_orbit_fit_status"]["converged"] is True
     assert failer.orbit_tier is OrbitTier.ASTROMETRY_ONLY
     assert failer.extras.get("joint_orbit_fit_skip_reason") == JOINT_ORBIT_SKIP_REASON
 
@@ -401,6 +447,12 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     tiers = {c.source_id: c.orbit_tier for c in joint_cands}
     assert tiers[1001] is OrbitTier.JOINT_ASTROMETRY_RV
     assert tiers[9] is OrbitTier.ASTROMETRY_ONLY
+    joint_diag = Path(joint_rec.artifact_path).parent / (
+        f"{Path(joint_rec.artifact_path).stem}_diagnostics"
+    )
+    report = (joint_diag / "reports" / "joint_orbit_fit_report.txt").read_text()
+    assert "bound_hits: 0" in report
+    assert "converged (Fisher identified" in report
 
 
 def test_joint_stage_skipped_when_all_gate_failed(
