@@ -353,6 +353,39 @@ def plot_overlay_histograms(
     return save_figure(fig, path, dpi=dpi)
 
 
+def watermark_png(path: Path, text: str) -> Path:
+    """Stamp ``text`` diagonally across an existing PNG, in place (#355 demo marking).
+
+    The image is re-rendered at its native pixel size; the stamp is large,
+    semi-transparent and centred so it cannot be mistaken for data.
+    """
+    plt = require_pyplot()
+    path = Path(path)
+    img = plt.imread(path)
+    height, width = img.shape[0], img.shape[1]
+    dpi = 100.0
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    axis = fig.add_axes((0.0, 0.0, 1.0, 1.0))
+    axis.imshow(img)
+    axis.axis("off")
+    axis.text(
+        0.5,
+        0.5,
+        text,
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        rotation=25,
+        fontsize=max(12.0, width / dpi * 9.0),
+        color="#D55E00",
+        alpha=0.45,
+        fontweight="bold",
+    )
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)
+    return path
+
+
 def six_panel_bin_edges(
     xmin: float,
     xmax: float,
@@ -381,6 +414,7 @@ def plot_six_panel_grid(
     title: str = "El-Badry-style six-panel comparison",
     panel_xlabels: Mapping[str, str] | None = None,
     panel_axes: Mapping[str, tuple[str, float, float]] | None = None,
+    panel_ylabels: Mapping[str, str] | None = None,
     bins: int | str = "auto",
     max_bins: int | None = None,
     density: bool = True,
@@ -397,9 +431,11 @@ def plot_six_panel_grid(
     (``max_bins`` or 40 bins, log-spaced on a log axis); values outside it are not
     drawn, so the caller should report out-of-range counts. Other panels keep
     ``bins`` (capped by ``max_bins``) over their finite data. ``density=True``
-    normalises each series to unit area over the drawn range, so samples of very
-    different size compare by shape. ``caption`` is wrapped into its own reserved
-    band beneath the axes at tick-label size (docs/PLOTS.md).
+    normalises each drawn series to unit area **in the plotted coordinate** — per
+    unit x on a linear axis, per dex on a log axis — so samples of very different
+    size compare by shape and a log panel is not skewed toward wide bins.
+    ``caption`` is wrapped into its own reserved band beneath the axes at
+    tick-label size (docs/PLOTS.md).
     """
     if not panel_order:
         return None
@@ -446,11 +482,18 @@ def plot_six_panel_grid(
             if axis_spec is None:
                 resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             sty = series_style(series_index, cfg)
-            axis.hist(
-                finite,
-                bins=resolved,
-                density=density,
-                histtype="step",
+            counts, edges = np.histogram(finite, bins=resolved)
+            heights = counts.astype(np.float64)
+            if density and counts.sum() > 0:
+                coord = (
+                    np.log10(edges)
+                    if axis_spec is not None and axis_spec[0] == "log"
+                    else edges
+                )
+                heights = heights / (counts.sum() * np.diff(coord))
+            axis.stairs(
+                heights,
+                edges,
                 linewidth=sty["linewidth"],
                 label=label,
                 color=sty["color"],
@@ -468,7 +511,16 @@ def plot_six_panel_grid(
             axis,
             cfg,
             xlabel=(panel_xlabels or {}).get(panel_name, panel_name),
-            ylabel="probability density" if density and index % ncols == 0 else None,
+            ylabel=(panel_ylabels or {}).get(
+                panel_name,
+                (
+                    "density (dex$^{-1}$)"
+                    if axis_spec is not None and axis_spec[0] == "log"
+                    else "density"
+                )
+                if density
+                else "count",
+            ),
         )
         if drawn:
             axis.legend(

@@ -1196,6 +1196,10 @@ def test_artifact_persists_gated_mock_and_real_six_panel_samples(tmp_path: Path)
         validation=_gate_result_for(records),
         data_release="dr3",
         real_comparison=comparison,
+        injected_truth={
+            "m1_msun": np.array([1.0, 1.2, 0.9]),
+            "period_days": np.array([600.0, 50.0, 9000.0]),
+        },
     )
     path = tmp_path / "sf.h5"
     g_mag = np.array([12.5, 14.0, 9.0])
@@ -1213,6 +1217,10 @@ def test_artifact_persists_gated_mock_and_real_six_panel_samples(tmp_path: Path)
     with h5py.File(path, "r") as handle:
         cos_col = handle["mock_catalog/cos_inclination"][()]
         assert np.isfinite(cos_col[0]) and np.all(np.isnan(cos_col[1:]))
+        np.testing.assert_allclose(handle["mock_catalog/truth/m1_msun"][()], [1.0, 1.2, 0.9])
+        np.testing.assert_allclose(
+            handle["mock_catalog/truth/period_days"][()], [600.0, 50.0, 9000.0]
+        )
 
 
 @pytest.mark.unit

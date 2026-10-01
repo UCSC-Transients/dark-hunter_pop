@@ -211,6 +211,9 @@ class SelectionFunctionAstrometricResult:
     validation: ValidationGateResult
     data_release: str
     real_comparison: ElBadryComparisonSample | None = None
+    # Injected truth per realization (same order as ``records``), see
+    # ``run_mock_injections_with_truth``. Persisted under ``mock_catalog/truth``.
+    injected_truth: dict[str, NDArray[np.float64]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1116,7 +1119,27 @@ def run_mock_injections(
     config: PipelineConfig,
     gaiamock: ModuleType,
 ) -> tuple[list[MockRealizationRecord], NDArray[np.float64]]:
-    """Monte Carlo mock binaries through the gaiamock DR3 cascade."""
+    """Monte Carlo mock binaries through the gaiamock DR3 cascade.
+
+    Thin wrapper over :func:`run_mock_injections_with_truth` that drops the
+    injected-truth table.
+    """
+    records, phot_g, _truth = run_mock_injections_with_truth(config, gaiamock)
+    return records, phot_g
+
+
+def run_mock_injections_with_truth(
+    config: PipelineConfig,
+    gaiamock: ModuleType,
+) -> tuple[list[MockRealizationRecord], NDArray[np.float64], dict[str, NDArray[np.float64]]]:
+    """Mock binaries through the gaiamock DR3 cascade, plus the injected truth.
+
+    Returns ``(records, phot_g_mean_mag, truth)``; ``truth`` maps each injected
+    parameter to a per-realization array in ``records`` order: sky position,
+    distance, ``A_G``, apparent and absolute G, masses, period, eccentricity,
+    flux ratio, inclination, periastron time, Ω, ω and the ``faint_draw`` flag.
+    Persisting it lets every step (truth → fitted → accepted) be checked (#339).
+    """
     require_dr3_active_for_v1(config)
     if config.active_dr_mode is not ActiveDRMode.DR3:
         raise ValueError("selection_function_astrometric: DR4 execution not enabled in v1")
@@ -1166,6 +1189,25 @@ def run_mock_injections(
         config.selection_function_astrometric.multi_solution.random_seed
     )
 
+    truth: dict[str, NDArray[np.float64]] = {
+        "ra_deg": np.asarray(ra, dtype=np.float64),
+        "dec_deg": np.asarray(dec, dtype=np.float64),
+        "distance_pc": np.asarray(d_pc, dtype=np.float64),
+        "A_G_mag": np.asarray(a_g, dtype=np.float64),
+        "phot_g_mean_mag": phot_g,
+        "Mg_tot": np.array([d.Mg_tot for d in draws], dtype=np.float64),
+        "m1_msun": np.array([d.m1_msun for d in draws], dtype=np.float64),
+        "m2_msun": np.array([d.m2_msun for d in draws], dtype=np.float64),
+        "period_days": np.array([d.period_days for d in draws], dtype=np.float64),
+        "eccentricity": np.array([d.eccentricity for d in draws], dtype=np.float64),
+        "flux_ratio": np.array([d.flux_ratio for d in draws], dtype=np.float64),
+        "inc_deg": np.array([d.inc_deg for d in draws], dtype=np.float64),
+        "Tp_days": np.array([d.Tp for d in draws], dtype=np.float64),
+        "Omega_rad": np.array([d.omega_rad for d in draws], dtype=np.float64),
+        "omega_rad": np.array([d.w_rad for d in draws], dtype=np.float64),
+        "faint_draw": np.array([d.faint_draw for d in draws], dtype=np.float64),
+    }
+
     records: list[MockRealizationRecord] = []
     for i in range(pop.N_realizations):
         records.append(
@@ -1182,7 +1224,7 @@ def run_mock_injections(
                 multi_solution_rng=multi_solution_rng,
             )
         )
-    return records, phot_g
+    return records, phot_g, truth
 
 
 def run_validation_gate(
@@ -1348,6 +1390,14 @@ def write_selection_function_artifact(
             mock_grp.create_dataset(
                 "phot_g_mean_mag", data=np.asarray(g_mag, dtype=np.float64)
             )
+        if result.injected_truth is not None:
+            truth_grp = mock_grp.create_group("truth")
+            truth_grp.attrs["note"] = (
+                "injected parameters per realization, same order as mock_catalog rows; "
+                "Omega_rad = longitude of ascending node, omega_rad = argument of periastron"
+            )
+            for key, values in result.injected_truth.items():
+                truth_grp.create_dataset(key, data=np.asarray(values, dtype=np.float64))
 
         if result.real_comparison is not None:
             comp = result.real_comparison
@@ -1443,7 +1493,7 @@ def run_selection_function_astrometric(
             data_acquisition_artifact, config, gaiamock
         )
 
-    mock_records, g_mag = run_mock_injections(config, gaiamock)
+    mock_records, g_mag, truth = run_mock_injections_with_truth(config, gaiamock)
     validation = run_validation_gate(
         config,
         mock_records,
@@ -1458,6 +1508,7 @@ def run_selection_function_astrometric(
         validation=validation,
         data_release=config.active_dr_mode.value,
         real_comparison=comparison,
+        injected_truth=truth,
     )
     write_selection_function_artifact(artifact_path, result, g_mag=g_mag)
     return result

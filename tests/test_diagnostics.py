@@ -1162,3 +1162,81 @@ def test_read_elbadry_panels_from_sf_artifact_not_fixture(
     assert meta["real_n_rows"] == 3
     np.testing.assert_allclose(panels["cos_inclination"]["mock"], 1.0)
     np.testing.assert_allclose(panels["cos_inclination"]["real"], 2.0)
+
+
+def _cfg_only_hooks(tmp_path: Path, keep: set[str]):
+    """Config with every diagnostics hook off except ``keep`` (keeps suite tests fast)."""
+    cfg = load_config()
+    hooks = cfg.diagnostics.hooks
+    off = {name: (name in keep) for name in type(hooks).model_fields}
+    return cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path)}),
+            "diagnostics": cfg.diagnostics.model_copy(
+                update={"hooks": hooks.model_copy(update=off)}
+            ),
+        }
+    )
+
+
+@pytest.mark.unit
+def test_stage_default_does_not_fabricate_demo_inputs() -> None:
+    """#355: ``run_diagnostics_stage`` defaults ``demo_hooks=False``."""
+    import inspect
+
+    from darkhunter_pop.diagnostics import run_diagnostics_stage
+
+    default = inspect.signature(run_diagnostics_stage).parameters["demo_hooks"].default
+    assert default is False
+
+
+@pytest.mark.unit
+def test_demo_emissions_are_watermarked(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import DEMO_WATERMARK, run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel", "solution_type_fractions"})
+    result = run_diagnostic_suite(cfg, run_id="demo355", demo_missing=True, run_sbc=False)
+    by_name = {h.hook_name: h for h in result.hooks_run}
+    six = by_name["elbadry_six_panel"]
+    assert six.payload.get("demo") is True
+    report = next(p for p in six.reports if p.suffix == ".txt")
+    assert report.read_text(encoding="utf-8").startswith(f"*** {DEMO_WATERMARK}")
+    st = by_name["solution_type_fractions"]
+    assert st.payload.get("demo") is True
+    text = format_diagnostics_stage_report(result)
+    assert f"elbadry_six_panel [{DEMO_WATERMARK}]" in text
+
+
+@pytest.mark.unit
+def test_real_inputs_are_not_watermarked(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel"})
+    panels = {
+        name: {"mock": np.linspace(0.1, 0.9, 10), "real": np.linspace(0.2, 0.8, 10)}
+        for name in DEFAULT_ELBADRY_PANEL_ORDER
+    }
+    result = run_diagnostic_suite(
+        cfg, run_id="real355", elbadry_panels=panels, demo_missing=False, run_sbc=False
+    )
+    six = next(h for h in result.hooks_run if h.hook_name == "elbadry_six_panel")
+    assert "demo" not in six.payload
+
+
+@pytest.mark.unit
+def test_hydration_error_recorded_as_skip(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel"})
+    result = run_diagnostic_suite(
+        cfg,
+        run_id="hyd355",
+        demo_missing=True,
+        run_sbc=False,
+        hydration_errors={"elbadry_six_panel": "KeyError: no six_panel_samples"},
+    )
+    six = next(h for h in result.hooks_run if h.hook_name == "elbadry_six_panel")
+    assert six.skipped_reason == "hydration failed: KeyError: no six_panel_samples"
+    assert "elbadry_six_panel: skipped (hydration failed" in format_diagnostics_stage_report(
+        result
+    )
