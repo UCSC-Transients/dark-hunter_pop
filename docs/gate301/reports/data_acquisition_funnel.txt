@@ -1,0 +1,18 @@
+=== data_acquisition funnel ===
+  after_quality_cut: 351273
+  candidates_written: 351268
+  covariance_failed: 13127
+  covariance_ok: 338141
+  crossmatch_fanout_bands_masked: 15
+  crossmatch_fanout_groups_collapsed: 5
+  crossmatch_fanout_rows_removed: 5
+  crossmatch_fanout_sources_masked: 5
+  multi_solution_both: 0
+  multi_solution_cross_type: 3841
+  multi_solution_kept_total: 3841
+  multi_solution_same_type_period_aliased: 0
+  nss_enrichment_enabled: 1
+  nss_enrichment_rows_matched: 351268
+  nss_enrichment_rows_unmatched: 0
+  queried: 443211
+=== end data_acquisition funnel ===

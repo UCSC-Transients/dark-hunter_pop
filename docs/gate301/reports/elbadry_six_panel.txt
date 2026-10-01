@@ -1,0 +1,9 @@
+=== El-Badry-style six-panel comparison ===
+note: science KS thresholds live in selection_function_astrometric.validation_gate; this report only summarizes series lengths for plotting hooks.
+  P_orb_days: mock=n=500, real=n=351268
+  G_mag: mock=n=500, real=n=351268
+  inv_parallax_mas_inv: mock=n=500, real=n=349398
+  eccentricity: mock=n=500, real=n=350770
+  f_m_msun: mock=n=500, real=n=123677
+  cos_inclination: mock=n=500, real=n=123677
+=== end El-Badry-style six-panel comparison ===

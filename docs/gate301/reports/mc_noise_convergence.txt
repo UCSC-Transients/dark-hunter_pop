@@ -1,0 +1,19 @@
+=== mock-injection Poisson-negligibility convergence ===
+MC noise budget met: all 8 bins have sigma_MC/sigma_Poisson < 0.1 at n_mock=200 (max_ratio=0.0707107).
+  threshold (physics.mc_noise_threshold): 0.1
+  n_mock_final: 200
+  all_bins_passed: True
+  schedule (n_mock, max_ratio):
+    n_mock=50 max_ratio=0.141421
+    n_mock=100 max_ratio=0.1
+    n_mock=200 max_ratio=0.0707107
+  per_bin at final n_mock:
+    bin[0] mu=5 ratio=0.0707107 passed=True
+    bin[1] mu=8 ratio=0.0707107 passed=True
+    bin[2] mu=12 ratio=0.0707107 passed=True
+    bin[3] mu=10 ratio=0.0707107 passed=True
+    bin[4] mu=6 ratio=0.0707107 passed=True
+    bin[5] mu=4 ratio=0.0707107 passed=True
+    bin[6] mu=2 ratio=0.0707107 passed=True
+    bin[7] mu=1 ratio=0.0707107 passed=True
+=== end mock-injection Poisson-negligibility convergence ===

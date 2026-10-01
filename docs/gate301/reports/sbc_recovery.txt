@@ -1,0 +1,55 @@
+=== simulation-based calibration (SBC) ===
+schema_version: 1
+recovery_backend: analytic_binned
+credible_interval_level: 0.68
+coverage_abs_tolerance: 0.2
+n_repeats: 24
+n_mass_bins: 4
+astrometric_sf: 1.0
+followup_sf: 1.0
+overall_empirical_coverage: 0.695312
+overall_passed: True
+n_records: 384
+profile_summaries:
+  - flat: empirical_coverage=0.718750 target=0.680000 abs_error=0.038750 n_covered=69/96 passed=True
+  - rising: empirical_coverage=0.697917 target=0.680000 abs_error=0.017917 n_covered=67/96 passed=True
+  - falling: empirical_coverage=0.718750 target=0.680000 abs_error=0.038750 n_covered=69/96 passed=True
+  - peaked: empirical_coverage=0.645833 target=0.680000 abs_error=0.034167 n_covered=62/96 passed=True
+coverage_detail (first 32 records):
+  profile=flat repeat=0 bin=0 truth=10 CI=[8.48091, 15.3733] median=11.6885 covered=True
+  profile=flat repeat=0 bin=1 truth=10 CI=[7.47861, 14.1666] median=10.6952 covered=True
+  profile=flat repeat=0 bin=2 truth=10 CI=[7.83397, 14.3044] median=10.7422 covered=True
+  profile=flat repeat=0 bin=3 truth=10 CI=[10.1487, 17.5106] median=13.5061 covered=False
+  profile=flat repeat=1 bin=0 truth=10 CI=[8.67588, 15.6713] median=11.6911 covered=True
+  profile=flat repeat=1 bin=1 truth=10 CI=[8.64572, 15.3365] median=11.772 covered=True
+  profile=flat repeat=1 bin=2 truth=10 CI=[6.92239, 13.1374] median=9.72347 covered=True
+  profile=flat repeat=1 bin=3 truth=10 CI=[14.7712, 23.4465] median=18.6652 covered=False
+  profile=flat repeat=2 bin=0 truth=10 CI=[6.16715, 12.0544] median=8.70484 covered=True
+  profile=flat repeat=2 bin=1 truth=10 CI=[5.107, 10.5285] median=7.48954 covered=True
+  profile=flat repeat=2 bin=2 truth=10 CI=[11.3254, 18.6502] median=14.6469 covered=False
+  profile=flat repeat=2 bin=3 truth=10 CI=[6.06532, 12.0201] median=8.67814 covered=True
+  profile=flat repeat=3 bin=0 truth=10 CI=[11.1185, 18.8985] median=14.6989 covered=False
+  profile=flat repeat=3 bin=1 truth=10 CI=[5.19988, 10.7324] median=7.63306 covered=True
+  profile=flat repeat=3 bin=2 truth=10 CI=[8.6025, 15.1979] median=11.6361 covered=True
+  profile=flat repeat=3 bin=3 truth=10 CI=[7.8685, 14.0455] median=10.7606 covered=True
+  profile=flat repeat=4 bin=0 truth=10 CI=[11.0747, 18.7277] median=14.531 covered=False
+  profile=flat repeat=4 bin=1 truth=10 CI=[6.82322, 13.0424] median=9.68014 covered=True
+  profile=flat repeat=4 bin=2 truth=10 CI=[7.77, 14.1181] median=10.6021 covered=True
+  profile=flat repeat=4 bin=3 truth=10 CI=[8.67463, 15.5043] median=11.5279 covered=True
+  profile=flat repeat=5 bin=0 truth=10 CI=[8.65471, 15.4507] median=11.753 covered=True
+  profile=flat repeat=5 bin=1 truth=10 CI=[5.24623, 10.5952] median=7.54229 covered=True
+  profile=flat repeat=5 bin=2 truth=10 CI=[12.2889, 19.9108] median=15.6851 covered=False
+  profile=flat repeat=5 bin=3 truth=10 CI=[7.79493, 14.3039] median=10.61 covered=True
+  profile=flat repeat=6 bin=0 truth=10 CI=[7.72663, 14.3812] median=10.7598 covered=True
+  profile=flat repeat=6 bin=1 truth=10 CI=[10.3301, 17.7722] median=13.7331 covered=False
+  profile=flat repeat=6 bin=2 truth=10 CI=[6.77141, 12.9086] median=9.59616 covered=True
+  profile=flat repeat=6 bin=3 truth=10 CI=[12.0236, 19.9134] median=15.5314 covered=False
+  profile=flat repeat=7 bin=0 truth=10 CI=[3.62836, 8.21455] median=5.67966 covered=False
+  profile=flat repeat=7 bin=1 truth=10 CI=[9.58166, 16.4832] median=12.6866 covered=True
+  profile=flat repeat=7 bin=2 truth=10 CI=[9.55317, 16.4981] median=12.8162 covered=True
+  profile=flat repeat=7 bin=3 truth=10 CI=[8.51242, 15.4531] median=11.615 covered=True
+  ... (352 additional records omitted)
+notes:
+  SBC uses config-driven injected profiles, SF scalars, credible-interval level=0.68, and coverage_abs_tolerance=0.2. Backend=analytic_binned: analytic_binned matches the binned Poisson×SF mean; dynesty calls staged run_inference with fixed plug-in event weights.
+interpretation: empirical coverage should match the configured credible-interval level within coverage_abs_tolerance across distinct injected mass functions. Failures indicate miscalibrated recovery or too-small Monte Carlo / nested-sampling budgets for the chosen tolerance.
+=== end SBC report ===

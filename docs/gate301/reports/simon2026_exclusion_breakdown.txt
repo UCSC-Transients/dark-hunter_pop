@@ -1,0 +1,10 @@
+=== simon2026_exclusion_breakdown ===
+Acceptance target: 5 / 2 / 1 / 1 for the four exclusion reasons,
+plus 11 overlapping sources in sample (CONTINUATION_PLAN §8.9).
+  in_sample: 11 expected=None match=n/a
+  sb1_fails_significance: 5 expected=5 match=yes
+  astrometric_f2_above_max: 2 expected=2 match=yes
+  fainter_than_g_limit: 1 expected=1 match=yes
+  fails_m2_over_m1: 1 expected=1 match=yes
+  unclassified: 0 expected=None match=n/a
+=== end simon2026_exclusion_breakdown ===

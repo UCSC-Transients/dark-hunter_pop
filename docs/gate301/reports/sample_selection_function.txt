@@ -1,0 +1,92 @@
+=== sample_selection_function ===
+Forward-model path: survival probability vs M2, P_orb, G.
+Expect smooth, monotonic behaviour where physically expected (§13).
+sample: andrews2022  axis: m2_msun
+  m2_msun=0.5 -> survival=0
+  m2_msun=1 -> survival=0
+  m2_msun=1.4 -> survival=0
+  m2_msun=2 -> survival=0
+  m2_msun=5 -> survival=0
+  m2_msun=10 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0, 0.0]
+sample: andrews2022  axis: period_day
+  period_day=10 -> survival=0
+  period_day=100 -> survival=0
+  period_day=365 -> survival=0
+  period_day=900 -> survival=0
+  period_day=1200 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: andrews2022  axis: g_mag
+  g_mag=10 -> survival=0
+  g_mag=12 -> survival=0
+  g_mag=14 -> survival=0
+  g_mag=15 -> survival=0
+  g_mag=16 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: andrews2022_modified  axis: m2_msun
+  m2_msun=0.5 -> survival=0
+  m2_msun=1 -> survival=0
+  m2_msun=1.4 -> survival=0
+  m2_msun=2 -> survival=0
+  m2_msun=5 -> survival=0
+  m2_msun=10 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0, 0.0]
+sample: andrews2022_modified  axis: period_day
+  period_day=10 -> survival=0
+  period_day=100 -> survival=0
+  period_day=365 -> survival=0
+  period_day=900 -> survival=0
+  period_day=1200 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: andrews2022_modified  axis: g_mag
+  g_mag=10 -> survival=0
+  g_mag=12 -> survival=0
+  g_mag=14 -> survival=0
+  g_mag=15 -> survival=0
+  g_mag=16 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: elbadry2024  axis: m2_msun
+  m2_msun=0.5 -> survival=0
+  m2_msun=1 -> survival=0
+  m2_msun=1.4 -> survival=0
+  m2_msun=2 -> survival=0
+  m2_msun=5 -> survival=0
+  m2_msun=10 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0, 0.0]
+sample: elbadry2024  axis: period_day
+  period_day=10 -> survival=0
+  period_day=100 -> survival=0
+  period_day=365 -> survival=0
+  period_day=900 -> survival=0
+  period_day=1200 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: elbadry2024  axis: g_mag
+  g_mag=10 -> survival=0
+  g_mag=12 -> survival=0
+  g_mag=14 -> survival=0
+  g_mag=15 -> survival=0
+  g_mag=16 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, 0.0]
+sample: elbadry2026  axis: m2_msun
+  m2_msun=0.5 -> survival=0
+  m2_msun=1 -> survival=0
+  m2_msun=1.4 -> survival=0
+  m2_msun=2 -> survival=1
+  m2_msun=5 -> survival=1
+  m2_msun=10 -> survival=1
+  successive_deltas: [0.0, 0.0, 1.0, 0.0, 0.0]
+sample: elbadry2026  axis: period_day
+  period_day=10 -> survival=1
+  period_day=100 -> survival=1
+  period_day=365 -> survival=1
+  period_day=900 -> survival=1
+  period_day=1200 -> survival=0
+  successive_deltas: [0.0, 0.0, 0.0, -1.0]
+sample: elbadry2026  axis: g_mag
+  g_mag=10 -> survival=1
+  g_mag=12 -> survival=1
+  g_mag=14 -> survival=1
+  g_mag=15 -> survival=0
+  g_mag=16 -> survival=0
+  successive_deltas: [0.0, 0.0, -1.0, 0.0]
+=== end sample_selection_function ===

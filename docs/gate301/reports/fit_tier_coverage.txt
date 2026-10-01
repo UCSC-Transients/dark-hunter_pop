@@ -1,0 +1,6 @@
+=== fit-tier coverage ===
+  total_candidates: 7816
+  bulk_estimate: count=7816 fraction=1.0000
+  full_uberMS: count=0 fraction=0.0000
+  unset: count=0 fraction=0.0000
+=== end fit-tier coverage ===

@@ -1,0 +1,27 @@
+=== information-gain / follow-up priority ===
+  n_systems: 7816
+  top_n_listed: 20
+  score_summary: min=0.00184345 median=0.591292 max=3.11225 mean=0.685717
+  population_note: higher score = larger bulk M1 relative uncertainty (priority for refined uberMS / RV follow-up queue).
+  top_priority_systems:
+    rank=1 source_id=4467818190412104448 score=3.11225 fit_tier=bulk_estimate
+    rank=2 source_id=5464545066035130496 score=3.10564 fit_tier=bulk_estimate
+    rank=3 source_id=4642741178894231808 score=3.05864 fit_tier=bulk_estimate
+    rank=4 source_id=39626987477782912 score=3.04672 fit_tier=bulk_estimate
+    rank=5 source_id=6072512667657185280 score=3.02467 fit_tier=bulk_estimate
+    rank=6 source_id=4756597875699224576 score=2.98272 fit_tier=bulk_estimate
+    rank=7 source_id=5243072599222340992 score=2.92435 fit_tier=bulk_estimate
+    rank=8 source_id=5583878327174384512 score=2.908 fit_tier=bulk_estimate
+    rank=9 source_id=5878410107581096960 score=2.82673 fit_tier=bulk_estimate
+    rank=10 source_id=4938126175990976000 score=2.80949 fit_tier=bulk_estimate
+    rank=11 source_id=2339411515822087552 score=2.79077 fit_tier=bulk_estimate
+    rank=12 source_id=5255714478997060480 score=2.77522 fit_tier=bulk_estimate
+    rank=13 source_id=4944637659946014208 score=2.74371 fit_tier=bulk_estimate
+    rank=14 source_id=1592480590963469952 score=2.71918 fit_tier=bulk_estimate
+    rank=15 source_id=4530490765510478336 score=2.71398 fit_tier=bulk_estimate
+    rank=16 source_id=2273738304771923200 score=2.70877 fit_tier=bulk_estimate
+    rank=17 source_id=738450361610218240 score=2.70788 fit_tier=bulk_estimate
+    rank=18 source_id=2015817444115481344 score=2.70557 fit_tier=bulk_estimate
+    rank=19 source_id=388272568341113984 score=2.70058 fit_tier=bulk_estimate
+    rank=20 source_id=5391967196841702784 score=2.69941 fit_tier=bulk_estimate
+=== end information-gain / follow-up priority ===

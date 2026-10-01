@@ -1,0 +1,18 @@
+=== age-stratified WD-debiasing check ===
+Age-bin diagnostic: max |Δmean weight|=0 (tol=0.1); bins=[0, 0, 0, 0]; age-independence OK.
+  age_independence_ok: True
+  max_abs_mean_weight_delta: 0
+  bin_edges_gyr: [0.0, 1.0, 3.0, 10.0, 14.0]
+  bin_counts: [0, 0, 0, 0]
+  global_mean_weights:
+    BH: 0.00991707
+    NS: 0.00991707
+    WD: 0.00736265
+    other: 0.177718
+    outlier: 0.795085
+  mean_weights_by_bin (WD emphasis):
+    bin[0] n=0 WD=nan full={'BH': nan, 'NS': nan, 'WD': nan, 'other': nan, 'outlier': nan}
+    bin[1] n=0 WD=nan full={'BH': nan, 'NS': nan, 'WD': nan, 'other': nan, 'outlier': nan}
+    bin[2] n=0 WD=nan full={'BH': nan, 'NS': nan, 'WD': nan, 'other': nan, 'outlier': nan}
+    bin[3] n=0 WD=nan full={'BH': nan, 'NS': nan, 'WD': nan, 'other': nan, 'outlier': nan}
+=== end age-stratified WD-debiasing check ===

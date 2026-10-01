@@ -1,0 +1,101 @@
+=== sample_attrition_waterfall ===
+Columns: cut_id | n_in | n_passed | n_failed | n_not_applicable | n_out |
+         expected_n_after | match
+Note: n_not_applicable is distinct from n_failed (CONTINUATION_PLAN §15 Q10).
+Collapsing them makes El-Badry 2026 subsample counts irreproducible.
+sample: andrews2022
+  mode: reproduction
+  mass_source: paper
+  n_parent: 134598
+  n_surviving: 25
+  n_stars (distinct per solution type, summed; #274 rule, compared to published N): 25
+  n_stars_by_solution_type: Orbital=25
+  n_distinct_source_ids (across types; informational): 25
+  attrition:
+    atf_covariance_valid: n_in=134598 n_passed=130012 n_failed=4586 n_not_applicable=0 n_out=130012 expected_n_after=None match=n/a
+    atf_pass1_root_found: n_in=130012 n_passed=129556 n_failed=456 n_not_applicable=0 n_out=129556 expected_n_after=None match=n/a
+    atf_m2_probability: n_in=129556 n_passed=115 n_failed=129441 n_not_applicable=0 n_out=115 expected_n_after=106 match=NO
+    atf_goodness_of_fit: n_in=115 n_passed=81 n_failed=34 n_not_applicable=0 n_out=81 expected_n_after=None match=n/a
+    atf_giant_reject_logg: n_in=81 n_passed=49 n_failed=32 n_not_applicable=0 n_out=49 expected_n_after=None match=n/a
+    atf_giant_reject_cmd: n_in=49 n_passed=32 n_failed=17 n_not_applicable=0 n_out=32 expected_n_after=None match=n/a
+    atf_pass2_root_found: n_in=32 n_passed=32 n_failed=0 n_not_applicable=0 n_out=32 expected_n_after=None match=n/a
+    atf_m2_3sigma: n_in=32 n_passed=26 n_failed=6 n_not_applicable=0 n_out=26 expected_n_after=None match=n/a
+    explicit_exclusions: n_in=26 n_passed=25 n_failed=1 n_not_applicable=0 n_out=25 expected_n_after=24 match=NO
+sample: andrews2022_modified
+  mode: forward_model
+  mass_source: pipeline
+  n_parent: 134598
+  n_surviving: 24
+  n_stars (distinct per solution type, summed; #274 rule, compared to published N): 24
+  n_stars_by_solution_type: Orbital=24
+  n_distinct_source_ids (across types; informational): 24
+  attrition:
+    atf_covariance_valid: n_in=134598 n_passed=130012 n_failed=4586 n_not_applicable=0 n_out=130012 expected_n_after=None match=n/a
+    atf_pass1_root_found: n_in=130012 n_passed=129556 n_failed=456 n_not_applicable=0 n_out=129556 expected_n_after=None match=n/a
+    atf_m2_probability: n_in=129556 n_passed=115 n_failed=129441 n_not_applicable=0 n_out=115 expected_n_after=106 match=NO
+    atf_goodness_of_fit: n_in=115 n_passed=81 n_failed=34 n_not_applicable=0 n_out=81 expected_n_after=None match=n/a
+    atf_giant_reject_logg: n_in=81 n_passed=49 n_failed=32 n_not_applicable=0 n_out=49 expected_n_after=None match=n/a
+    atf_giant_reject_cmd: n_in=49 n_passed=32 n_failed=17 n_not_applicable=0 n_out=32 expected_n_after=None match=n/a
+    atf_pass2_root_found: n_in=32 n_passed=32 n_failed=0 n_not_applicable=0 n_out=32 expected_n_after=None match=n/a
+    atf_m2_3sigma: n_in=32 n_passed=24 n_failed=8 n_not_applicable=0 n_out=24 expected_n_after=None match=n/a
+sample: elbadry2024
+  mode: reproduction
+  mass_source: paper
+  n_parent: 443211
+  n_surviving: 48
+  n_stars (distinct per solution type, summed; #274 rule, compared to published N): 48
+  n_stars_by_solution_type: AstroSpectroSB1=6, Orbital=42
+  n_distinct_source_ids (across types; informational): 48
+  branch[astrometric].n: 48
+  branch[astrometric].n_stars: 48 (AstroSpectroSB1=6, Orbital=42)
+  subsample[elbadry2024_table3].n: 48
+  subsample_union_arithmetic: 48 (unique survivors may be fewer than sum; unique=48)
+  attrition:
+    astrometric:elbadry2024_table3:ns_candidate_pool: n_in=168065 n_passed=60 n_failed=168005 n_not_applicable=0 n_out=60 expected_n_after=None match=n/a
+    astrometric:elbadry2024_table3:g_mag_limit: n_in=60 n_passed=48 n_failed=12 n_not_applicable=0 n_out=48 expected_n_after=None match=n/a
+    astrometric:union:elbadry2024_table3: n_in=168065 n_passed=48 n_failed=168017 n_not_applicable=0 n_out=48 expected_n_after=48 match=yes
+sample: elbadry2026
+  mode: reproduction
+  mass_source: paper
+  n_parent: 443211
+  n_surviving: 240
+  n_stars (distinct per solution type, summed; #274 rule, compared to published N): 225
+  n_stars_by_solution_type: AstroSpectroSB1=10, Orbital=64, SB1=150, SB1C=1
+  n_distinct_source_ids (across types; informational): 225
+  branch[astrometric].n: 74
+  branch[astrometric].n_stars: 74 (AstroSpectroSB1=10, Orbital=64)
+  branch[spectroscopic].n: 151
+  branch[spectroscopic].n_stars: 151 (SB1=150, SB1C=1)
+  subsample[andrews2022_import].n: 16
+  subsample[elbadry2023_table_e1].n: 5
+  subsample[primary_ns_bh].n: 46
+  subsample[sub_chandrasekhar].n: 22
+  subsample_union_arithmetic: 46 + 5 + 16 + 22 (unique survivors may be fewer than sum; unique=240)
+  route[both]: 11
+  route[high_mass_function]: 30
+  route[main_sequence_min_companion_mass]: 132
+  attrition:
+    astrometric:primary_ns_bh:main_sequence: n_in=168065 n_passed=147560 n_failed=20505 n_not_applicable=0 n_out=147560 expected_n_after=None match=n/a
+    astrometric:primary_ns_bh:m2_floor: n_in=147560 n_passed=1052 n_failed=146508 n_not_applicable=0 n_out=1052 expected_n_after=None match=n/a
+    astrometric:primary_ns_bh:m2_over_m1: n_in=1052 n_passed=91 n_failed=961 n_not_applicable=0 n_out=91 expected_n_after=None match=n/a
+    astrometric:primary_ns_bh:goodness_of_fit: n_in=91 n_passed=82 n_failed=9 n_not_applicable=0 n_out=82 expected_n_after=None match=n/a
+    astrometric:primary_ns_bh:period: n_in=82 n_passed=59 n_failed=23 n_not_applicable=0 n_out=59 expected_n_after=None match=n/a
+    astrometric:primary_ns_bh:g_mag: n_in=59 n_passed=46 n_failed=13 n_not_applicable=0 n_out=46 expected_n_after=None match=n/a
+    astrometric:union:primary_ns_bh: n_in=168065 n_passed=46 n_failed=168019 n_not_applicable=0 n_out=46 expected_n_after=47 match=NO
+    astrometric:elbadry2023_table_e1:table_e1_membership: n_in=168065 n_passed=6 n_failed=168059 n_not_applicable=0 n_out=6 expected_n_after=None match=n/a
+    astrometric:elbadry2023_table_e1:g_mag: n_in=6 n_passed=5 n_failed=1 n_not_applicable=0 n_out=5 expected_n_after=None match=n/a
+    astrometric:union:elbadry2023_table_e1: n_in=168065 n_passed=5 n_failed=168060 n_not_applicable=0 n_out=5 expected_n_after=5 match=yes
+    astrometric:andrews2022_import:andrews2022_membership: n_in=168065 n_passed=25 n_failed=168040 n_not_applicable=0 n_out=25 expected_n_after=None match=n/a
+    astrometric:andrews2022_import:g_mag: n_in=25 n_passed=16 n_failed=9 n_not_applicable=0 n_out=16 expected_n_after=None match=n/a
+    astrometric:union:andrews2022_import: n_in=168065 n_passed=16 n_failed=168049 n_not_applicable=0 n_out=16 expected_n_after=16 match=yes
+    astrometric:sub_chandrasekhar:shahaf2023b_class3_membership: n_in=168065 n_passed=177 n_failed=167888 n_not_applicable=0 n_out=177 expected_n_after=None match=n/a
+    astrometric:sub_chandrasekhar:main_sequence: n_in=177 n_passed=177 n_failed=0 n_not_applicable=0 n_out=177 expected_n_after=None match=n/a
+    astrometric:sub_chandrasekhar:m2_range_shahaf2023b: n_in=177 n_passed=33 n_failed=144 n_not_applicable=0 n_out=33 expected_n_after=None match=n/a
+    astrometric:sub_chandrasekhar:m2_error_shahaf2023b: n_in=33 n_passed=29 n_failed=4 n_not_applicable=0 n_out=29 expected_n_after=None match=n/a
+    astrometric:sub_chandrasekhar:period: n_in=29 n_passed=25 n_failed=4 n_not_applicable=0 n_out=25 expected_n_after=None match=n/a
+    astrometric:sub_chandrasekhar:g_mag: n_in=25 n_passed=22 n_failed=3 n_not_applicable=0 n_out=22 expected_n_after=None match=n/a
+    astrometric:union:sub_chandrasekhar: n_in=168065 n_passed=22 n_failed=168043 n_not_applicable=0 n_out=22 expected_n_after=22 match=yes
+    spectroscopic:k1_significance: n_in=181534 n_passed=133642 n_failed=47892 n_not_applicable=0 n_out=133642 expected_n_after=None match=n/a
+    spectroscopic:mass_route: n_in=133642 n_passed=151 n_failed=54652 n_not_applicable=78839 n_out=151 expected_n_after=None match=n/a
+      not_applicable_reasons: undefined_when=78839
+=== end sample_attrition_waterfall ===
