@@ -158,9 +158,22 @@ class NatureEvidence:
         }
 
 
+#: Minimum number of populated age bins for the age-independence comparison to
+#: test anything: one bin has nothing to be compared against (#334). A structural
+#: property of the comparison, not a tunable threshold.
+MIN_POPULATED_AGE_BINS: int = 2
+
 @dataclass
 class AgeBinDiagnostic:
-    """Required age-independence diagnostic (ARCHITECTURE.md §4)."""
+    """Required age-independence diagnostic (ARCHITECTURE.md §4).
+
+    ``status`` is ``ok`` / ``flag`` only when at least
+    :data:`MIN_POPULATED_AGE_BINS` age bins hold candidates; otherwise it is
+    ``insufficient_data`` and ``age_independence_ok`` is False — an empty check is
+    never a pass (#334). Artifacts written before #334 carry no ``status``; it is
+    derived on load from ``bin_counts``, so a zero-candidate run re-reads as
+    ``insufficient_data``.
+    """
 
     bin_edges_gyr: list[float]
     bin_counts: list[int]
@@ -169,9 +182,31 @@ class AgeBinDiagnostic:
     max_abs_mean_weight_delta: float
     age_independence_ok: bool
     message: str
+    #: ``ok`` | ``flag`` | ``insufficient_data`` (derived when left empty).
+    status: str = ""
+
+    def __post_init__(self) -> None:
+        populated = sum(1 for c in self.bin_counts if int(c) > 0)
+        if populated < MIN_POPULATED_AGE_BINS:
+            self.status = "insufficient_data"
+            self.age_independence_ok = False
+            if "insufficient_data" not in self.message:
+                self.message = (
+                    f"Age-bin diagnostic: NOT TESTED (insufficient_data) — "
+                    f"{populated} populated age bin(s), need "
+                    f">= {MIN_POPULATED_AGE_BINS}; bins={list(self.bin_counts)}. "
+                    "No candidate carried a usable primary age."
+                    if populated == 0
+                    else f"Age-bin diagnostic: NOT TESTED (insufficient_data) — "
+                    f"{populated} populated age bin(s), need "
+                    f">= {MIN_POPULATED_AGE_BINS}; bins={list(self.bin_counts)}."
+                )
+        elif not self.status:
+            self.status = "ok" if self.age_independence_ok else "flag"
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "status": self.status,
             "bin_edges_gyr": list(self.bin_edges_gyr),
             "bin_counts": list(self.bin_counts),
             "mean_weights_by_bin": [dict(w) for w in self.mean_weights_by_bin],
@@ -947,7 +982,7 @@ def age_bin_diagnostic(
         for k in NATURE_CLASSES:
             max_delta = max(max_delta, abs(mean[k] - global_mean[k]))
 
-    ok = max_delta <= tol or n_global == 0
+    ok = max_delta <= tol
     msg = (
         f"Age-bin diagnostic: max |Δmean weight|={max_delta:.4g} "
         f"(tol={tol:.4g}); bins={counts}; "
