@@ -85,7 +85,9 @@ from darkhunter_pop.population_model import (
     read_population_model_artifact,
     run_population_model,
 )
+from darkhunter_pop.diagnostic_hooks import resolve_diagnostic_dirs, write_report
 from darkhunter_pop.run_management import (
+    STAGE_ORDER,
     STAGE_REGISTRY,
     mark_stage_finished,
     mark_stage_started,
@@ -102,7 +104,18 @@ from darkhunter_pop.sample_inclusion import (
     intercept_only_spurious_model,
     mean_sample_selection_multiplier,
 )
-from darkhunter_pop.schemas import RunManifest, StageStatus
+from darkhunter_pop.run_validity import (
+    UpstreamGateFailedError,
+    assess_science_validity,
+    astrometric_gate_status,
+    collect_stand_ins,
+    enforce_upstream_gates,
+    followup_gate_status,
+    format_science_validity_block,
+    merge_stand_ins,
+    write_stand_ins_to_handle,
+)
+from darkhunter_pop.schemas import RunManifest, StageStatus, SyntheticStandIn
 from darkhunter_pop.sensitivity_analysis import read_sensitivity_analysis_artifact
 from darkhunter_pop.spuriousness_model import FittedSpuriousnessModel
 
@@ -181,6 +194,111 @@ def read_followup_sf_scalar(
             if probs.size:
                 return float(np.mean(probs))
     return float(default)
+
+
+def sf_scalar_source(path: Path | None, *, stage: str, default_key: str) -> str:
+    """Where a selection-function scalar came from: the stage artifact or the default."""
+    if path is None or not Path(path).is_file():
+        return f"config default inference.{default_key} (no {stage} artifact)"
+    return f"{stage} artifact {Path(path).name}"
+
+
+def inference_stand_ins(
+    config: PipelineConfig,
+    *,
+    astrometric_sf: float,
+    astrometric_sf_source: str,
+    followup_sf: float,
+    followup_sf_source: str,
+    used_flat_catalog_sf: bool,
+    used_intercept_only_spurious: bool,
+    overlap_computed: bool,
+) -> list[SyntheticStandIn]:
+    """Point-of-use stand-ins for this ``inference`` invocation (#354).
+
+    Values are the ones actually used, never the config defaults unless the default
+    is what was used.
+    """
+    icfg = config.inference
+    out = [
+        SyntheticStandIn(
+            name="scalar_selection_functions",
+            stage="inference",
+            kind="config_placeholder",
+            replaces=(
+                "mass-dependent astrometric and follow-up selection functions "
+                "SF(M, ...) forward-modeled on the population being inferred"
+            ),
+            description=(
+                "The Poisson intensity is scaled by two scalars, not by "
+                "mass-dependent selection functions. The values below are the ones "
+                "this run used, with where each came from. Upstream, the astrometric "
+                "scalar is the accepted fraction of a box-prior mock population, "
+                "and the follow-up scalar is the mean of a synthetic catalog; see "
+                "those stages' own stand-ins and gate status."
+            ),
+            config_keys=[
+                "inference.default_astrometric_sf",
+                "inference.default_followup_sf",
+            ],
+            values={
+                "astrometric_sf": float(astrometric_sf),
+                "astrometric_sf_source": astrometric_sf_source,
+                "followup_sf": float(followup_sf),
+                "followup_sf_source": followup_sf_source,
+            },
+        )
+    ]
+    if used_flat_catalog_sf or used_intercept_only_spurious:
+        out.append(
+            SyntheticStandIn(
+                name="per_sample_selection_weights",
+                stage="inference",
+                kind="config_placeholder",
+                replaces=(
+                    "forward-modeled per-sample selection functions SF_sample_s(theta)"
+                ),
+                description=(
+                    "No inclusion mocks were supplied, so the multi-sample "
+                    "inclusion operator runs on flat per-sample catalog weights"
+                    + (
+                        " and one intercept-only spurious rate shared by every "
+                        "sample"
+                        if used_intercept_only_spurious
+                        else ""
+                    )
+                    + ". No literature sample reproduces its published N yet, so "
+                    "none may be forward-modeled here."
+                ),
+                config_keys=[
+                    "inference.multi_sample.default_catalog_sf",
+                    "inference.multi_sample.default_p_spurious",
+                ],
+                values={
+                    "default_catalog_sf": dict(icfg.multi_sample.default_catalog_sf),
+                    "default_p_spurious": (
+                        icfg.multi_sample.default_p_spurious
+                        if used_intercept_only_spurious
+                        else None
+                    ),
+                },
+            )
+        )
+    if not overlap_computed:
+        out.append(
+            SyntheticStandIn(
+                name="sample_overlap_not_computed",
+                stage="inference",
+                kind="disabled_path",
+                replaces="the Q1 sample-overlap matrix from real survivor IDs",
+                description=(
+                    "No per-sample survivor IDs reached inference, so the Q1 "
+                    "overlap matrix was not computed (there is no toy default)."
+                ),
+                config_keys=["inference.multi_sample.sample_names"],
+            )
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -570,19 +688,40 @@ def posterior_vs_prior_overlap(
     prior_low: NDArray[np.floating],
     prior_high: NDArray[np.floating],
     threshold: float,
+    collapse_floor: float,
 ) -> dict[str, Any]:
     """Small-N diagnostic: posterior width vs uniform-prior width.
 
     Uniform prior on ``[low, high]`` has ``σ_prior = width / √12``. The per-parameter
     ratio ``σ_post / σ_prior`` near 1 means the posterior did not beat the prior
-    (prior-dominated / high overlap). Flag when the mean ratio exceeds ``threshold``.
+    (prior-dominated / high overlap): flagged when the mean ratio exceeds
+    ``threshold``. A ratio near **zero** on any parameter means the samples are
+    (numerically) identical — a collapsed / degenerate posterior, e.g. a CI-scale
+    dynesty run that never moved (#352). That is flagged when the smallest ratio is
+    below ``collapse_floor`` and is a failure, never a pass.
+
+    Returns
+    -------
+    dict
+        ``status`` is one of ``passed`` / ``prior_dominated`` / ``collapsed`` /
+        ``not_tested`` (no samples); ``passed`` is True only for ``passed``.
+
+    Limitations
+    -----------
+    Compares widths only, and to a uniform-in-height σ even though the sampler's
+    prior is log-uniform; it is a coarse overlap screen, not a KL divergence.
     """
     if samples.size == 0:
         return {
             "per_param_width_ratio": [],
             "mean_width_ratio": float("nan"),
+            "min_width_ratio": float("nan"),
             "prior_dominated": True,
+            "collapsed": False,
+            "status": "not_tested",
+            "passed": False,
             "threshold": threshold,
+            "collapse_floor": collapse_floor,
         }
     width = np.asarray(prior_high, dtype=np.float64) - np.asarray(
         prior_low, dtype=np.float64
@@ -591,11 +730,25 @@ def posterior_vs_prior_overlap(
     post_std = np.std(samples, axis=0)
     ratio = post_std / np.maximum(prior_std, 1e-30)
     mean_ratio = float(np.mean(ratio))
+    min_ratio = float(np.min(ratio))
+    prior_dominated = bool(mean_ratio > threshold)
+    collapsed = bool(min_ratio < collapse_floor)
+    if collapsed:
+        status = "collapsed"
+    elif prior_dominated:
+        status = "prior_dominated"
+    else:
+        status = "passed"
     return {
         "per_param_width_ratio": ratio.tolist(),
         "mean_width_ratio": mean_ratio,
-        "prior_dominated": bool(mean_ratio > threshold),
+        "min_width_ratio": min_ratio,
+        "prior_dominated": prior_dominated,
+        "collapsed": collapsed,
+        "status": status,
+        "passed": status == "passed",
         "threshold": threshold,
+        "collapse_floor": collapse_floor,
     }
 
 
@@ -729,6 +882,14 @@ class InferenceResult:
     robustness_protocol: str = ROBUSTNESS_PROTOCOL
     notes: str = ""
     config_snapshot: dict[str, Any] = field(default_factory=dict)
+    #: Where each SF scalar came from (artifact vs config default), #354.
+    astrometric_sf_source: str = ""
+    followup_sf_source: str = ""
+    #: Stand-ins this invocation took at the point of use (#354).
+    stand_ins: list[SyntheticStandIn] = field(default_factory=list)
+    #: ``ScienceValidity.as_dict()`` set by the stage runner (#352); empty when
+    #: ``run_inference`` is called outside a run (not assessed).
+    science_validity: dict[str, Any] = field(default_factory=dict)
 
     def recommendation_payload(self) -> dict[str, Any]:
         """Stable consumer contract for diagnostics / Review."""
@@ -740,8 +901,12 @@ class InferenceResult:
             "eccentricity_hypothesis": self.eccentricity_hypothesis,
             "circular_implies_wd": self.circular_implies_wd,
             "astrometric_sf": self.astrometric_sf,
+            "astrometric_sf_source": self.astrometric_sf_source,
             "followup_sf": self.followup_sf,
+            "followup_sf_source": self.followup_sf_source,
             "sample_selection_sf": self.sample_selection_sf,
+            "stand_ins": [si.model_dump(mode="json") for si in self.stand_ins],
+            "science_validity": dict(self.science_validity),
             "multi_sample_formulation": self.multi_sample_formulation,
             "multi_sample_names": list(self.multi_sample_names),
             "sample_overlap_matrix": dict(self.sample_overlap_matrix),
@@ -842,6 +1007,16 @@ def run_inference(
     follow_sf = read_followup_sf_scalar(
         followup_sf_artifact_path, default=icfg.default_followup_sf
     )
+    astro_sf_source = sf_scalar_source(
+        astrometric_sf_artifact_path,
+        stage="selection_function_astrometric",
+        default_key="default_astrometric_sf",
+    )
+    follow_sf_source = sf_scalar_source(
+        followup_sf_artifact_path,
+        stage="selection_function_followup",
+        default_key="default_followup_sf",
+    )
 
     spur = spurious_model
     if spur is None:
@@ -862,19 +1037,39 @@ def run_inference(
         mocks=list(inclusion_mocks or ()),
         spurious_model=spur,
     )
+    overlap_payload: dict[str, Any]
     if sample_membership is None:
-        sample_membership = {
-            "andrews2022_modified": [1, 2, 3, 4, 5],
-            "elbadry2024": [1, 2, 6],
-            "elbadry2026": [1, 3, 7, 8],
+        # No survivors supplied: the overlap is NOT computed. There is no toy
+        # default (#352) — a matrix of invented IDs is not a measurement.
+        overlap = None
+        overlap_payload = {
+            "diagnostic": "sample_overlap_matrix",
+            "status": "not_computed",
+            "reason": (
+                "no per-sample survivor IDs were supplied (no sample_selection "
+                "artifact on this run, or run_inference called without "
+                "sample_membership)"
+            ),
         }
-    overlap = build_sample_overlap_matrix(sample_membership)
+    else:
+        overlap = build_sample_overlap_matrix(sample_membership)
+        overlap_payload = overlap.as_dict()
+        overlap_payload["status"] = "computed"
+        missing = sorted(
+            set(inclusion_ctx.sample_names) - set(sample_membership.keys())
+        )
+        overlap_payload["missing_inference_samples"] = missing
     q1_report = format_q1_justification_report(
         formulation=inclusion_ctx.formulation,
         overlap=overlap,
         unified_sf=sample_sf,
         separate_sf=separate_sf,
     )
+    if overlap is None:
+        q1_report += (
+            "sample_overlap_matrix: NOT COMPUTED — "
+            f"{overlap_payload['reason']}\n"
+        )
 
     if events is not None:
         obs = list(events)
@@ -943,8 +1138,13 @@ def run_inference(
     post_overlap: dict[str, Any] = {
         "per_param_width_ratio": [],
         "mean_width_ratio": float("nan"),
+        "min_width_ratio": float("nan"),
         "prior_dominated": False,
+        "collapsed": False,
+        "status": "not_tested",
+        "passed": False,
         "threshold": icfg.posterior_prior_overlap_threshold,
+        "collapse_floor": icfg.posterior_collapse_width_ratio_floor,
         "skipped": True,
     }
     post_median: list[float] = []
@@ -969,6 +1169,7 @@ def run_inference(
             prior_low=prior_low,
             prior_high=prior_high,
             threshold=icfg.posterior_prior_overlap_threshold,
+            collapse_floor=icfg.posterior_collapse_width_ratio_floor,
         )
         primary_compact = {k: v for k, v in primary.items() if k != "samples"}
         primary_compact["sample_median"] = post_median
@@ -988,7 +1189,7 @@ def run_inference(
         sample_selection_sf=sample_sf,
         multi_sample_formulation=inclusion_ctx.formulation,
         multi_sample_names=list(inclusion_ctx.sample_names),
-        sample_overlap_matrix=overlap.as_dict(),
+        sample_overlap_matrix=overlap_payload,
         q1_justification_report=q1_report,
         bin_edges_msun=bin_edges,
         fiducial_heights=fiducial_heights,
@@ -1002,6 +1203,18 @@ def run_inference(
         logz=logz,
         logz_err=logz_err,
         config_snapshot=icfg.model_dump(mode="json"),
+        astrometric_sf_source=astro_sf_source,
+        followup_sf_source=follow_sf_source,
+        stand_ins=inference_stand_ins(
+            config,
+            astrometric_sf=astro_sf,
+            astrometric_sf_source=astro_sf_source,
+            followup_sf=follow_sf,
+            followup_sf_source=follow_sf_source,
+            used_flat_catalog_sf=not inclusion_mocks,
+            used_intercept_only_spurious=spurious_model is None,
+            overlap_computed=overlap is not None,
+        ),
         notes=(
             "v1 staged-but-connected: fixed companion_nature / gate plug-in weights. "
             "rate = population_model × astrometric_SF × followup_SF × p_any "
@@ -1025,6 +1238,19 @@ def write_inference_artifact(path: Path, result: InferenceResult) -> None:
         handle.attrs["multi_sample_formulation"] = result.multi_sample_formulation
         handle.attrs["n_events"] = result.n_events
         handle.attrs["v1_staged_but_connected"] = True
+        handle.attrs["astrometric_sf_source"] = result.astrometric_sf_source
+        handle.attrs["followup_sf_source"] = result.followup_sf_source
+        handle.attrs["posterior_prior_overlap_status"] = str(
+            result.posterior_prior_overlap.get("status", "not_tested")
+        )
+        if result.science_validity:
+            handle.attrs["science_valid"] = bool(
+                result.science_validity.get("science_valid", False)
+            )
+            handle.attrs["science_validity_json"] = json.dumps(
+                result.science_validity, sort_keys=True
+            )
+        write_stand_ins_to_handle(handle, result.stand_ins)
         if result.logz is not None:
             handle.attrs["logz"] = result.logz
         if result.logz_err is not None:
@@ -1082,24 +1308,46 @@ def read_inference_artifact(path: Path) -> dict[str, Any]:
 
 
 def format_inference_report(result: InferenceResult) -> str:
-    """Fully legible diagnostic report (exempt from caveman compression)."""
+    """Fully legible diagnostic report (exempt from caveman compression).
+
+    Leads with the science-validity verdict (#352) so a reader who stops at the
+    top has still been told whether anything below may be read as a result.
+    """
+    ppo = result.posterior_prior_overlap
+    overlap = result.sample_overlap_matrix
     lines = [
         "=== inference report ===",
+        (
+            format_science_validity_block(result.science_validity)
+            if result.science_validity
+            else "science_validity: NOT ASSESSED (run_inference called outside a "
+            "stage run) — not a science-valid result"
+        ),
         f"likelihood_form: {result.likelihood_form}",
         f"sensitivity_dimensionality_applied: {result.sensitivity_dimensionality_applied}",
         f"eccentricity_hypothesis: {result.eccentricity_hypothesis}",
         f"circular_implies_wd: {result.circular_implies_wd}",
-        f"astrometric_sf: {result.astrometric_sf}",
-        f"followup_sf: {result.followup_sf}",
+        f"astrometric_sf: {result.astrometric_sf} (source: {result.astrometric_sf_source})",
+        f"followup_sf: {result.followup_sf} (source: {result.followup_sf_source})",
         f"sample_selection_sf: {result.sample_selection_sf}",
         f"multi_sample_formulation: {result.multi_sample_formulation}",
         f"multi_sample_names: {result.multi_sample_names}",
+        f"sample_overlap_matrix status: {overlap.get('status', 'unknown')}",
         f"n_events: {result.n_events}",
         f"fiducial_log_likelihood: {result.fiducial_log_likelihood:.6g}",
         f"logz: {result.logz}",
         f"logz_err: {result.logz_err}",
         f"n_sampler_runs: {len(result.sampler_runs)}",
-        f"posterior_prior_overlap: {result.posterior_prior_overlap}",
+        (
+            f"posterior_prior_overlap: status={ppo.get('status', 'not_tested')} "
+            f"passed={ppo.get('passed', False)} "
+            f"mean_width_ratio={ppo.get('mean_width_ratio')} "
+            f"min_width_ratio={ppo.get('min_width_ratio')} "
+            f"(prior_dominated if mean > {ppo.get('threshold')}; "
+            f"collapsed if min < {ppo.get('collapse_floor')})"
+        ),
+        f"stand-ins taken at point of use ({len(result.stand_ins)}):",
+        *[f"  - {si.one_line()} values={si.values}" for si in result.stand_ins],
         f"n_zero_count_bins: {len(result.zero_count_upper_limits)}",
         (
             "row_multiplicity_diagnostic (issue #244, diagnostic-only): "
@@ -1113,6 +1361,33 @@ def format_inference_report(result: InferenceResult) -> str:
         "=== end inference report ===",
     ]
     return "\n".join(lines)
+
+
+def load_sample_membership(
+    sample_selection_artifact: Path | None,
+    *,
+    sample_names: Sequence[str],
+) -> dict[str, list[int]] | None:
+    """Per-sample inference survivor IDs from the ``sample_selection`` artifact (#352).
+
+    Reads each named sample's ``inference_source_ids`` (the sample's designated
+    inference subset; for most samples identical to its survivors). Samples absent
+    from the artifact are omitted, and the caller records them as missing.
+
+    Returns ``None`` when there is no artifact or none of ``sample_names`` is in it,
+    so the overlap matrix is reported ``not_computed`` instead of invented.
+    """
+    if sample_selection_artifact is None or not Path(sample_selection_artifact).is_file():
+        return None
+    from darkhunter_pop.sample_selection import load_evaluation_results_from_artifact
+
+    results = load_evaluation_results_from_artifact(Path(sample_selection_artifact))
+    membership = {
+        name: sorted({int(s) for s in results[name].inference_source_ids})
+        for name in sample_names
+        if name in results
+    }
+    return membership or None
 
 
 def run_inference_stage(
@@ -1148,24 +1423,78 @@ def run_inference_stage(
     sa_path = _resolved("sensitivity_analysis", sensitivity_artifact_path)
     astro_path = _resolved("selection_function_astrometric", astrometric_sf_artifact_path)
     follow_path = _resolved("selection_function_followup", followup_sf_artifact_path)
+    ss_path = _resolved("sample_selection", None)
 
     manifest = mark_stage_started(manifest, spec, config, force_rerun=force_rerun)
     save_run_manifest(manifest, run_path)
 
+    # Consumer side of the upstream validation gates (#352): read them before
+    # consuming anything they gate.
+    icfg = config.inference
+    gates = [astrometric_gate_status(astro_path), followup_gate_status(follow_path)]
+    try:
+        enforce_upstream_gates(
+            gates, policy=icfg.upstream_gate_policy, consumer_stage="inference"
+        )
+    except UpstreamGateFailedError as exc:
+        manifest = mark_stage_finished(
+            manifest, spec, status=StageStatus.FAILED, reason=str(exc)
+        )
+        reasons = [f"upstream gate not passed: {g.one_line()}" for g in gates if not g.passed]
+        manifest = manifest.model_copy(
+            update={"science_valid": False, "science_validity_reasons": reasons}
+        )
+        save_run_manifest(manifest, run_path)
+        raise
+
+    membership = load_sample_membership(
+        ss_path, sample_names=list(icfg.multi_sample.sample_names)
+    )
     result = run_inference(
         config,
         population_artifact_path=pop_path,
         sensitivity_artifact_path=sa_path,
         astrometric_sf_artifact_path=astro_path,
         followup_sf_artifact_path=follow_path,
+        sample_membership=membership,
     )
+
+    upstream = collect_stand_ins(
+        manifest, stages=list(STAGE_ORDER[: STAGE_ORDER.index("inference")])
+    )
+    failed_checks: list[str] = []
+    ppo_status = str(result.posterior_prior_overlap.get("status", "not_tested"))
+    if ppo_status != "passed":
+        failed_checks.append(f"posterior_vs_prior_overlap: {ppo_status}")
+    validity = assess_science_validity(
+        policy=icfg.upstream_gate_policy,
+        gates=gates,
+        stand_ins=merge_stand_ins(upstream.stand_ins, result.stand_ins),
+        failed_checks=failed_checks,
+        unregistered_stages=upstream.unregistered_stages,
+    )
+    result.science_validity = validity.as_dict()
     write_inference_artifact(artifact, result)
+    if config.diagnostics.write_reports:
+        dirs = resolve_diagnostic_dirs(config, run_id=manifest.run_id, beside_artifact=artifact)
+        write_report(dirs.reports / "inference_report.txt", format_inference_report(result))
 
     manifest = mark_stage_finished(
         manifest,
         spec,
         status=StageStatus.COMPLETED,
         artifact_path=artifact,
+        reason=(
+            None
+            if validity.science_valid
+            else f"not science-valid ({len(validity.reasons())} reasons; see run file)"
+        ),
+    )
+    manifest = manifest.model_copy(
+        update={
+            "science_valid": validity.science_valid,
+            "science_validity_reasons": validity.reasons(),
+        }
     )
     save_run_manifest(manifest, run_path)
     return manifest

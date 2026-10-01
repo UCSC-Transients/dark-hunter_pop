@@ -266,6 +266,41 @@ class SBCConfig(BaseModel):
         return self
 
 
+class SixPanelAxisConfig(BaseModel):
+    """Display axis for one El-Badry six-panel histogram (presentation only, #339).
+
+    Values outside ``[xmin, xmax]`` are not drawn (the report counts them); KS
+    statistics in ``selection_function_astrometric`` always use the full samples.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    scale: Literal["linear", "log"] = "linear"
+    xmin: float
+    xmax: float
+
+    @model_validator(mode="after")
+    def _range(self) -> SixPanelAxisConfig:
+        if self.xmin >= self.xmax:
+            raise ValueError("xmin must be < xmax")
+        if self.scale == "log" and self.xmin <= 0:
+            raise ValueError("log-scale six-panel axis needs xmin > 0")
+        return self
+
+
+def _default_six_panel_axes() -> dict[str, SixPanelAxisConfig]:
+    # Panel quantities and scales follow El-Badry et al. (2024) Fig. 5: log P_orb,
+    # linear G, linear 1/parallax (kpc), linear e, log f_m,ast, linear cos i.
+    return {
+        "P_orb_days": SixPanelAxisConfig(scale="log", xmin=10.0, xmax=1.0e4),
+        "G_mag": SixPanelAxisConfig(scale="linear", xmin=4.0, xmax=20.0),
+        "inv_parallax_mas_inv": SixPanelAxisConfig(scale="linear", xmin=0.0, xmax=2.0),
+        "eccentricity": SixPanelAxisConfig(scale="linear", xmin=0.0, xmax=1.0),
+        "f_m_msun": SixPanelAxisConfig(scale="log", xmin=1.0e-4, xmax=3.0),
+        "cos_inclination": SixPanelAxisConfig(scale="linear", xmin=-1.0, xmax=1.0),
+    }
+
+
 class DiagnosticsConfig(BaseModel):
     """Rendering / report layout for ``plotting`` + ``diagnostics`` (issues #39, #69–#71).
 
@@ -292,6 +327,10 @@ class DiagnosticsConfig(BaseModel):
     info_gain_top_n: int = Field(20, ge=1)
     # Max |ΔlogZ| / combined_err allowed across robustness runs (layout-side check).
     sampler_logz_sigma_tol: float = Field(3.0, gt=0)
+    # El-Badry six-panel display axes, keyed by SIX_PANEL_NAMES (#339 / #333).
+    elbadry_six_panel_axes: dict[str, SixPanelAxisConfig] = Field(
+        default_factory=_default_six_panel_axes
+    )
     hooks: DiagnosticsHooksConfig = Field(default_factory=DiagnosticsHooksConfig)
     sbc: SBCConfig = Field(default_factory=SBCConfig)
     # Phase 8 sample-reproduction diagnostic knobs (CONTINUATION_PLAN §13).
@@ -1885,7 +1924,18 @@ class InferenceConfig(BaseModel):
     robustness_seed_stride: int = Field(17, ge=1)
     # Small-N generics.
     posterior_prior_overlap_threshold: float = Field(0.85, gt=0.0, le=2.0)
+    # Collapse floor (#352): any free-height parameter with σ_post/σ_prior below this
+    # is a degenerate (collapsed / identical-sample) posterior — a failure, not a pass.
+    posterior_collapse_width_ratio_floor: float = Field(1e-6, gt=0.0, lt=1.0)
     zero_count_ul_confidence: float = Field(0.95, gt=0.0, lt=1.0)
+    # Consumer-side gate policy (#352). ``refuse``: inference raises and records the
+    # stage failed when an upstream validation gate (astrometric validation gate,
+    # follow-up calibration) did not pass. ``mark_not_science_valid``: inference runs,
+    # but the artifact, report and run file say ``science_valid: False`` with every
+    # reason. Neither value ever yields a science-valid result on a failed gate.
+    upstream_gate_policy: Literal["refuse", "mark_not_science_valid"] = (
+        "mark_not_science_valid"
+    )
     # When True, skip dynesty and evaluate fiducial logL only (unit tests / dry-run).
     skip_sampler: bool = False
 
@@ -1986,7 +2036,6 @@ class ValidationGateConfig(BaseModel):
 
     ks_pvalue_min: float = Field(0.01, gt=0, le=1)
     solution_type_fraction_max_abs_delta: float = Field(0.05, gt=0, le=1)
-    reference_path: str | None = None
     # Real-vs-mock multi-solution rate comparison (issue #243). Diagnostic-only in v1:
     # not folded into ValidationGateResult.passed because the empirical rate is ~1%, so a
     # mock_population.N_realizations-scale run is noisy relative to this tolerance — see
@@ -2216,13 +2265,43 @@ class SelectionFunctionFollowupConfig(BaseModel):
         return self
 
 
+class OrbitalSolutionCutsConfig(BaseModel):
+    """Gaia orbital-solution acceptance cuts applied to mock cascade outputs.
+
+    DR3 values are Halbwachs et al. (2023) as restated in El-Badry et al. (2024,
+    OJAp 7, 100; arXiv:2411.00088) Eq. 18 (``a0/sigma_a0 > 5``, ``F2 < 25``) and
+    Eqs. 20-22 (``parallax_over_error > 20000 d / P``,
+    ``sigma_e < 0.079 ln(P/d) - 0.244``, ``a0/sigma_a0 > 158 / sqrt(P/d)``).
+    Mission-specific, so configured independently per DR path (#339).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    a0_over_err_min: float = Field(5.0, gt=0)
+    goodness_of_fit_f2_max: float = Field(25.0, gt=0)
+    parallax_over_error_times_period_min_days: float = Field(20000.0, gt=0)
+    a0_over_err_times_sqrt_period_min: float = Field(158.0, gt=0)
+    sigma_e_ln_period_slope: float = 0.079
+    sigma_e_intercept: float = -0.244
+
+
 class DRSelectionFunctionPathConfig(BaseModel):
-    """Path-specific distance window for mock injection."""
+    """Path-specific mock-injection window, orbital cuts and real comparison sample."""
 
     model_config = ConfigDict(extra="forbid")
 
     d_min_pc: float = Field(100.0, gt=0)
     d_max_pc: float = Field(500.0, gt=0)
+    orbital_solution_cuts: OrbitalSolutionCutsConfig = Field(
+        default_factory=OrbitalSolutionCutsConfig
+    )
+    # Real side of the El-Badry et al. (2024) six-panel comparison: the published
+    # ``nss_two_body_orbit`` rows whose ``nss_solution_type`` is in this list, taken
+    # from the uncut Gaia snapshot (no pipeline quality cut). DR3: the paper's §4
+    # "nss_solution_type = Orbital or AstroSpectroSB1" (168,065 rows; footnote 6).
+    elbadry2024_comparison_nss_solution_types: list[str] = Field(
+        default_factory=lambda: ["Orbital", "AstroSpectroSB1"], min_length=1
+    )
 
     @model_validator(mode="after")
     def _distance_order(self) -> DRSelectionFunctionPathConfig:
@@ -2476,6 +2555,13 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "accel_jerk_catalog_id",
         "d_min_pc",
         "d_max_pc",
+        "a0_over_err_min",
+        "goodness_of_fit_f2_max",
+        "parallax_over_error_times_period_min_days",
+        "a0_over_err_times_sqrt_period_min",
+        "sigma_e_ln_period_slope",
+        "sigma_e_intercept",
+        "elbadry2024_comparison_nss_solution_types",
     }
 )
 

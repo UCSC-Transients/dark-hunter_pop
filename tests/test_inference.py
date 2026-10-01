@@ -201,9 +201,93 @@ def test_zero_count_upper_limits_and_overlap() -> None:
         prior_low=prior_low,
         prior_high=prior_high,
         threshold=0.5,
+        collapse_floor=1e-6,
     )
     assert ov["mean_width_ratio"] > 0.5
     assert ov["prior_dominated"] is True
+    assert ov["status"] == "prior_dominated"
+    assert ov["passed"] is False
+
+
+def test_posterior_overlap_flags_collapsed_posterior() -> None:
+    """#352: identical samples (width ratio ~1e-16) are a failure, never a pass."""
+    samples = np.tile(np.array([[1.5, 2.5, 3.5]]), (200, 1))
+    samples = samples + 1e-15 * np.random.default_rng(1).standard_normal(samples.shape)
+    ov = posterior_vs_prior_overlap(
+        samples,
+        prior_low=np.zeros(3),
+        prior_high=np.full(3, 12.0),
+        threshold=0.85,
+        collapse_floor=1e-6,
+    )
+    assert ov["collapsed"] is True
+    assert ov["status"] == "collapsed"
+    assert ov["passed"] is False
+    # The pre-#352 criterion alone would have called this a pass.
+    assert ov["prior_dominated"] is False
+
+
+def test_posterior_overlap_passes_informative_posterior() -> None:
+    samples = np.random.default_rng(2).normal(5.0, 0.3, size=(500, 2))
+    ov = posterior_vs_prior_overlap(
+        samples,
+        prior_low=np.zeros(2),
+        prior_high=np.full(2, 12.0),
+        threshold=0.85,
+        collapse_floor=1e-6,
+    )
+    assert ov["status"] == "passed"
+    assert ov["passed"] is True
+
+
+def test_posterior_overlap_empty_is_not_tested() -> None:
+    ov = posterior_vs_prior_overlap(
+        np.empty((0, 2)),
+        prior_low=np.zeros(2),
+        prior_high=np.ones(2),
+        threshold=0.85,
+        collapse_floor=1e-6,
+    )
+    assert ov["status"] == "not_tested"
+    assert ov["passed"] is False
+
+
+def test_run_inference_without_membership_does_not_invent_overlap() -> None:
+    """#352: no toy source IDs; the overlap is reported not_computed."""
+    cfg = load_config().model_copy(deep=True)
+    cfg.inference.skip_sampler = True
+    result = run_inference(cfg, events=[])
+    assert result.sample_overlap_matrix["status"] == "not_computed"
+    assert "pairwise_counts" not in result.sample_overlap_matrix
+    assert "NOT COMPUTED" in result.q1_justification_report
+    assert "sample_overlap_not_computed" in {s.name for s in result.stand_ins}
+
+
+def test_run_inference_uses_supplied_membership() -> None:
+    cfg = load_config().model_copy(deep=True)
+    cfg.inference.skip_sampler = True
+    membership = {
+        "andrews2022_modified": [10, 11, 12],
+        "elbadry2024": [11, 12, 13],
+        "elbadry2026": [12, 14],
+    }
+    result = run_inference(cfg, events=[], sample_membership=membership)
+    ov = result.sample_overlap_matrix
+    assert ov["status"] == "computed"
+    assert ov["three_way_count"] == 1
+    assert ov["three_way_source_ids"] == [12]
+    assert ov["missing_inference_samples"] == []
+
+
+def test_run_inference_records_sf_sources_and_used_values() -> None:
+    """#354: the registered SF values are the ones used, with their source."""
+    cfg = load_config().model_copy(deep=True)
+    cfg.inference.skip_sampler = True
+    result = run_inference(cfg, events=[])
+    entry = {s.name: s for s in result.stand_ins}["scalar_selection_functions"]
+    assert entry.values["astrometric_sf"] == result.astrometric_sf
+    assert entry.values["followup_sf"] == result.followup_sf
+    assert "config default" in entry.values["astrometric_sf_source"]
 
 
 def test_model_comparison_switches_change_weights() -> None:
