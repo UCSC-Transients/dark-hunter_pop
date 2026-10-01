@@ -908,3 +908,59 @@ def test_degraded_sed_path_is_declared_when_it_applies() -> None:
     names = {s.name for s in declare_stand_ins(config, snapshot_meta=None)}
     degraded = sed_unavailable_plan_note(config) is not None
     assert ("unrefined_primary_masses" in names) is degraded
+
+
+def test_declared_selection_weights_do_not_report_sf_defaults() -> None:
+    """#354: the SF scalars inference used are registered by inference, not declared."""
+    config = load_config()
+    entry = {
+        s.name: s for s in declare_stand_ins(config, snapshot_meta=None)
+    }["per_sample_selection_weights"]
+    assert "default_astrometric_sf" not in entry.values
+    assert "default_followup_sf" not in entry.values
+
+
+def test_resolve_run_stand_ins_prefers_artifact_registrations(tmp_path: Path) -> None:
+    """#354: point-of-use registrations replace same-named declarations."""
+    import h5py
+
+    from darkhunter_pop.dry_run import resolve_run_stand_ins
+    from darkhunter_pop.run_management import (
+        STAGE_REGISTRY,
+        mark_stage_finished,
+        mark_stage_started,
+    )
+    from darkhunter_pop.run_validity import write_stand_ins
+
+    config = load_config()
+    declared = SyntheticStandIn(
+        name="scalar_selection_functions",
+        stage="inference",
+        kind="config_placeholder",
+        replaces="x",
+        description="declared",
+        values={"astrometric_sf": 1.0},
+    )
+    manifest = create_run_manifest(
+        config,
+        dry_run=True,
+        dry_run_label="label",
+        synthetic_stand_ins=[_stand_in("harness_only"), declared],
+    )
+    artifact = tmp_path / "inf.h5"
+    with h5py.File(artifact, "w") as handle:
+        handle.attrs["stage"] = "inference"
+    write_stand_ins(
+        artifact,
+        [declared.model_copy(update={"values": {"astrometric_sf": 0.026}})],
+    )
+    spec = STAGE_REGISTRY["inference"]
+    manifest = mark_stage_started(manifest, spec, config)
+    manifest = mark_stage_finished(
+        manifest, spec, status=StageStatus.COMPLETED, artifact_path=artifact
+    )
+    resolved, collected = resolve_run_stand_ins(manifest)
+    by_name = {s.name: s for s in resolved.synthetic_stand_ins}
+    assert by_name["scalar_selection_functions"].values == {"astrometric_sf": 0.026}
+    assert "harness_only" in by_name
+    assert collected.unregistered_stages == []

@@ -128,7 +128,12 @@ def test_inference_rate_includes_sample_sf() -> None:
     cfg.inference.skip_sampler = True
     cfg.population_model.n_mass_bins = 4
     cfg.population_model.fiducial_expected_counts = [5.0, 8.0, 4.0, 2.0]
-    result = run_inference(cfg, events=[])
+    membership = {
+        "andrews2022_modified": [1, 2, 3, 4, 5],
+        "elbadry2024": [1, 2, 6],
+        "elbadry2026": [1, 3, 7, 8],
+    }
+    result = run_inference(cfg, events=[], sample_membership=membership)
     assert result.multi_sample_formulation == "unified_inclusion_indicator"
     assert result.sample_selection_sf > 0.0
     assert result.sample_overlap_matrix["three_way_count"] == 1
