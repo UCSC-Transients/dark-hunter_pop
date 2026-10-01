@@ -210,11 +210,10 @@ def astrometric_stage_stand_ins(
     *,
     n_realizations: int,
     n_accepted: int,
-    real_panels_from_data_acquisition: bool,
 ) -> list[SyntheticStandIn]:
     """Synthetic paths ``selection_function_astrometric`` takes on this config."""
     pop = config.selection_function_astrometric.mock_population
-    out = [
+    return [
         SyntheticStandIn(
             name="box_prior_mock_population",
             stage="selection_function_astrometric",
@@ -258,25 +257,6 @@ def astrometric_stage_stand_ins(
             values={"faint_draw_fraction": float(pop.faint_draw_fraction)},
         ),
     ]
-    if not real_panels_from_data_acquisition:
-        out.append(
-            SyntheticStandIn(
-                name="astrometric_gate_real_side_reference_fixture",
-                stage="selection_function_astrometric",
-                kind="reference_fixture",
-                replaces="the real DR3 NSS six-panel samples from data_acquisition",
-                description=(
-                    "No data_acquisition artifact with nss_panels was available, so "
-                    "the validation gate's 'real' side is the bundled El-Badry "
-                    "reference file (or validation_gate.reference_path), not this "
-                    "run's catalog."
-                ),
-                config_keys=[
-                    "selection_function_astrometric.validation_gate.reference_path"
-                ],
-            )
-        )
-    return out
 
 
 def followup_calibration_status(

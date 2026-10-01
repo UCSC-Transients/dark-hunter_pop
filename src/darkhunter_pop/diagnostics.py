@@ -74,6 +74,7 @@ from darkhunter_pop.plotting import (
     plot_m2_posterior_convergence,
     plot_overlay_histograms,
     plot_six_panel_grid,
+    watermark_png,
 )
 from darkhunter_pop.mc_mass_function import (
     M2PosteriorConvergenceDiagnostic,
@@ -158,12 +159,25 @@ DEFAULT_ELBADRY_PANEL_ORDER: tuple[str, ...] = (
 )
 
 # Axis labels with units (docs/PLOTS.md); keys match ``DEFAULT_ELBADRY_PANEL_ORDER``.
+# Quantities as in El-Badry et al. (2024) Fig. 5: 1/parallax in mas^-1 is 1/ϖ in kpc;
+# f_m is the astrometric mass function (their Eq. 19), not a mass fraction (#333).
+# Unit-area densities in the plotted coordinate (plot_six_panel_grid): per dex on the
+# log panels, per x unit on the linear ones.
+ELBADRY_PANEL_YLABELS: dict[str, str] = {
+    "P_orb_days": r"density (dex$^{-1}$)",
+    "G_mag": r"density (mag$^{-1}$)",
+    "inv_parallax_mas_inv": r"density (kpc$^{-1}$)",
+    "eccentricity": "density",
+    "f_m_msun": r"density (dex$^{-1}$)",
+    "cos_inclination": "density",
+}
+
 ELBADRY_PANEL_XLABELS: dict[str, str] = {
-    "P_orb_days": "orbital period (day)",
-    "G_mag": r"$G$ magnitude (mag)",
-    "inv_parallax_mas_inv": r"inverse parallax (mas$^{-1}$)",
+    "P_orb_days": r"$P_{\rm orb}$ (day)",
+    "G_mag": r"$G$ (mag)",
+    "inv_parallax_mas_inv": r"$1/\varpi$ (kpc)",
     "eccentricity": "eccentricity",
-    "f_m_msun": r"companion mass fraction ($M_\odot$)",
+    "f_m_msun": r"$f_{m,\rm ast}$ (M$_\odot$)",
     "cos_inclination": r"$\cos i$",
 }
 
@@ -389,22 +403,49 @@ def format_elbadry_panel_report(
     *,
     panel_order: Sequence[str] = DEFAULT_ELBADRY_PANEL_ORDER,
     title: str = "El-Badry-style six-panel comparison",
+    panel_axes: Mapping[str, tuple[str, float, float]] | None = None,
+    meta: Mapping[str, Any] | None = None,
 ) -> str:
-    """Full-detail caption/summary for a six-panel emission (no KS thresholds here)."""
+    """Full-detail caption/summary for a six-panel emission.
+
+    Lists each series' length and, when ``panel_axes`` is given, how many finite
+    values fall outside the drawn range (not drawn, but still in the KS test).
+    For mock/real pairs it also prints the two-sample KS statistic recomputed on
+    the full samples (the blocking gate's thresholds live in
+    ``selection_function_astrometric.validation_gate``). ``meta`` carries the
+    ``six_panel_samples`` provenance attributes.
+    """
+    from scipy import stats as _stats
+
     lines = [
         f"=== {title} ===",
         "note: science KS thresholds live in selection_function_astrometric.validation_gate; "
-        "this report only summarizes series lengths for plotting hooks.",
+        "KS values below are recomputed on the full (unclipped) samples.",
     ]
+    for key, value in sorted((meta or {}).items()):
+        lines.append(f"  {key}: {value}")
     for name in panel_order:
         series = panels.get(name, {})
         if not series:
             lines.append(f"  {name}: (no series)")
             continue
         parts = []
+        spec = (panel_axes or {}).get(name)
         for label, values in series.items():
-            n = int(np.asarray(values).size)
-            parts.append(f"{label}=n={n}")
+            arr = np.asarray(values, dtype=np.float64)
+            finite = arr[np.isfinite(arr)]
+            part = f"{label}=n={int(arr.size)}"
+            if spec is not None:
+                _scale, lo, hi = spec
+                n_out = int(np.sum((finite < lo) | (finite > hi)))
+                part += f" (outside [{lo:g}, {hi:g}]: {n_out})"
+            parts.append(part)
+        mock = np.asarray(series.get("mock", []), dtype=np.float64)
+        real = np.asarray(series.get("real", []), dtype=np.float64)
+        mock, real = mock[np.isfinite(mock)], real[np.isfinite(real)]
+        if mock.size >= 2 and real.size >= 2:
+            ks = _stats.ks_2samp(mock, real)
+            parts.append(f"KS_D={ks.statistic:.4f} KS_p={ks.pvalue:.3g}")
         lines.append(f"  {name}: " + ", ".join(parts))
     lines.append(f"=== end {title} ===")
     return "\n".join(lines)
@@ -619,6 +660,34 @@ def format_solution_type_fraction_report(
     return "\n".join(lines)
 
 
+def _elbadry_panel_axes(
+    config: PipelineConfig,
+) -> dict[str, tuple[str, float, float]]:
+    return {
+        name: (ax.scale, float(ax.xmin), float(ax.xmax))
+        for name, ax in config.diagnostics.elbadry_six_panel_axes.items()
+    }
+
+
+def _elbadry_six_panel_caption(meta: Mapping[str, Any] | None) -> str | None:
+    if not meta:
+        return None
+    types = meta.get("real_nss_solution_types", [])
+    types_text = " + ".join(str(t) for t in types) if types else "?"
+    return (
+        f"Real: Gaia DR3 nss_solution_type = {types_text} "
+        f"(N = {meta.get('real_n_rows', '?')}, uncut snapshot "
+        f"{meta.get('real_snapshot_id', '?')}), as in "
+        f"{meta.get('real_sample_citation', 'El-Badry et al. 2024')}. "
+        f"Mock: selection_function_astrometric gaiamock_mod realizations passing all "
+        f"orbital-solution cuts ({meta.get('mock_n_accepted', '?')} of "
+        f"{meta.get('mock_n_realizations', '?')}), drawn from the configured "
+        "mock_population, a stand-in box prior, NOT the El-Badry et al. (2024) "
+        "generative population. Histograms are unit-area over the drawn range "
+        "(per dex on log axes); KS statistics use the full samples."
+    )
+
+
 def emit_elbadry_six_panel(
     config: PipelineConfig,
     dirs: DiagnosticDirs,
@@ -626,8 +695,13 @@ def emit_elbadry_six_panel(
     panels: Mapping[str, Mapping[str, Sequence[float] | NDArray[np.floating]]],
     panel_order: Sequence[str] = DEFAULT_ELBADRY_PANEL_ORDER,
     title: str = "El-Badry-style six-panel comparison",
+    meta: Mapping[str, Any] | None = None,
 ) -> HookEmissionResult:
-    """Hook: El-Badry-style six-panel overlay figure + length report (SF validation)."""
+    """Hook: El-Badry-style six-panel overlay figure + report (SF validation).
+
+    Axes (scale and drawn range) come from ``diagnostics.elbadry_six_panel_axes``;
+    ``meta`` (``six_panel_samples`` attributes) supplies the provenance caption.
+    """
     diag = config.diagnostics
     if not diag.hooks.elbadry_six_panel:
         return HookEmissionResult(
@@ -635,12 +709,17 @@ def emit_elbadry_six_panel(
             skipped_reason="diagnostics.hooks.elbadry_six_panel=false",
         )
     result = HookEmissionResult(hook_name="elbadry_six_panel")
+    axes = _elbadry_panel_axes(config)
     if diag.write_reports:
         result.reports.append(
             write_report(
                 dirs.reports / "elbadry_six_panel.txt",
                 format_elbadry_panel_report(
-                    panels, panel_order=panel_order, title=title
+                    panels,
+                    panel_order=panel_order,
+                    title=title,
+                    panel_axes=axes,
+                    meta=meta,
                 ),
             )
         )
@@ -652,9 +731,12 @@ def emit_elbadry_six_panel(
                 dirs.figures / "elbadry_six_panel.png",
                 panel_order=panel_order,
                 panel_xlabels=ELBADRY_PANEL_XLABELS,
+                panel_ylabels=ELBADRY_PANEL_YLABELS,
+                panel_axes=axes,
                 dpi=diag.figure_dpi,
                 max_bins=int(diag.histogram_max_bins),
                 title=title,
+                caption=_elbadry_six_panel_caption(meta),
                 style=config.plotting,
             ),
         )
@@ -679,7 +761,6 @@ def emit_elbadry_six_panel(
                 if single is not None:
                     result.figures.append(single)
     return result
-
 
 def emit_fit_tier_coverage(
     config: PipelineConfig,
@@ -1886,6 +1967,7 @@ def run_diagnostic_suite(
         str, Mapping[str, Sequence[float] | NDArray[np.floating]]
     ]
     | None = None,
+    elbadry_panels_meta: Mapping[str, Any] | None = None,
     gate_counts: Mapping[str, int] | None = None,
     chi2_dof_values: Sequence[float] | None = None,
     age_diagnostic: Any | None = None,
@@ -1900,35 +1982,29 @@ def run_diagnostic_suite(
     known_truth_observed: Mapping[int, Any] | None = None,
     demo_missing: bool = False,
     run_sbc: bool | None = None,
+    hydration_errors: Mapping[str, str] | None = None,
 ) -> DiagnosticsStageResult:
     """Run the full required diagnostic suite against provided stage outputs.
 
-    When ``demo_missing`` is True, empty/synthetic stand-ins fill hooks that lack
-    upstream data so the on-disk layout is exercised without science artifacts.
-    Known-truth and comparison-catalog hooks also run from fixtures when enabled.
+    When ``demo_missing`` is True, synthetic stand-ins fill hooks that lack upstream
+    data so the on-disk layout is exercised without science artifacts. Every hook
+    that used a stand-in is watermarked ``DEMO / NOT DATA`` in its report and
+    figures and flagged ``demo=True`` in its payload (#355). Known-truth and
+    comparison-catalog hooks also run from fixtures when enabled.
+
+    ``hydration_errors`` maps a hook name to the reason its upstream input could
+    not be read; such a hook is recorded as ``skipped (hydration failed: ...)``
+    instead of disappearing (#355).
     """
     _ensure_builtin_helpers_registered()
     dirs = resolve_diagnostic_dirs(config, run_id=run_id)
     cand = list(candidates or ())
     hooks: list[HookEmissionResult] = []
-    demo_fed: list[str] = []
+    demo_used: set[str] = set()
+    errors = dict(hydration_errors or {})
 
     if funnel_counts is None and demo_missing:
-        demo_fed.append("funnel_sky")
-    if elbadry_panels is None and demo_missing:
-        demo_fed.append("elbadry_six_panel")
-    if not cand and demo_missing:
-        demo_fed.append("fit_tier_coverage")
-    if not gate_counts and demo_missing:
-        demo_fed.append("gate_pass_rate")
-    if not sampler_runs and demo_missing:
-        demo_fed.append("sampler_consistency")
-    if mc_noise is None and demo_missing:
-        demo_fed.append("mc_noise_convergence")
-    if m2_posterior is None and demo_missing:
-        demo_fed.append("m2_posterior_convergence")
-    if solution_types is None and demo_missing:
-        demo_fed.append("solution_type_fractions")
+        demo_used.add("funnel_sky")
     if funnel_counts is not None or demo_missing:
         hooks.append(
             emit_funnel_sky(
@@ -1938,37 +2014,48 @@ def run_diagnostic_suite(
                 or {"queried": 0, "after_quality_cut": 0, "candidates_written": 0},
             )
         )
-    if elbadry_panels is not None or demo_missing:
+    if elbadry_panels is None and "elbadry_six_panel" in errors:
+        hooks.append(
+            HookEmissionResult(
+                hook_name="elbadry_six_panel",
+                skipped_reason=f"hydration failed: {errors['elbadry_six_panel']}",
+            )
+        )
+    elif elbadry_panels is not None or demo_missing:
         panels = elbadry_panels
         if panels is None:
+            demo_used.add("elbadry_six_panel")
             panels = {
                 name: {"mock": np.linspace(0.0, 1.0, 8), "real": np.linspace(0.1, 1.1, 8)}
                 for name in DEFAULT_ELBADRY_PANEL_ORDER
             }
-        hooks.append(emit_elbadry_six_panel(config, dirs, panels=panels))
+        hooks.append(
+            emit_elbadry_six_panel(
+                config, dirs, panels=panels, meta=elbadry_panels_meta
+            )
+        )
 
+    tier_counts: dict[str, int] | None = None
+    if not cand and demo_missing:
+        demo_used.add("fit_tier_coverage")
+        tier_counts = {FitTier.BULK_ESTIMATE.value: 0, FitTier.FULL_UBERMS.value: 0, "unset": 0}
     hooks.append(
         emit_fit_tier_coverage(
             config,
             dirs,
-            counts=None if cand else (
-                {
-                    FitTier.BULK_ESTIMATE.value: 0,
-                    FitTier.FULL_UBERMS.value: 0,
-                    "unset": 0,
-                }
-                if demo_missing
-                else None
-            ),
+            counts=tier_counts,
             candidates=cand or None,
         )
     )
+    resolved_gate_counts: Mapping[str, int] = gate_counts or {}
+    if not gate_counts and demo_missing:
+        demo_used.add("gate_pass_rate")
+        resolved_gate_counts = {"passed": 0, "failed": 0, "skipped": 0}
     hooks.append(
         emit_gate_pass_rate(
             config,
             dirs,
-            counts=gate_counts
-            or ({"passed": 0, "failed": 0, "skipped": 0} if demo_missing else {}),
+            counts=resolved_gate_counts,
             chi2_dof_values=chi2_dof_values,
         )
     )
@@ -1987,21 +2074,17 @@ def run_diagnostic_suite(
         )
     )
     hooks.append(emit_info_gain_followup(config, dirs, candidates=cand))
+    resolved_sampler_runs = sampler_runs or None
+    if not sampler_runs and demo_missing:
+        demo_used.add("sampler_consistency")
+        resolved_sampler_runs = [{"logz": 0.0, "logz_err": 0.1, "seed": 0, "nlive": 1}]
     hooks.append(
-        emit_sampler_consistency(
-            config,
-            dirs,
-            sampler_runs=sampler_runs
-            or (
-                [{"logz": 0.0, "logz_err": 0.1, "seed": 0, "nlive": 1}]
-                if demo_missing
-                else None
-            ),
-        )
+        emit_sampler_consistency(config, dirs, sampler_runs=resolved_sampler_runs)
     )
     if mc_noise is not None or demo_missing:
         mc = mc_noise
         if mc is None:
+            demo_used.add("mc_noise_convergence")
             mc = run_mc_noise_convergence(
                 [10.0, 5.0, 2.0],
                 threshold=float(config.physics.mc_noise_threshold),
@@ -2016,6 +2099,7 @@ def run_diagnostic_suite(
     if m2_posterior is not None or demo_missing:
         m2c = m2_posterior
         if m2c is None:
+            demo_used.add("m2_posterior_convergence")
             mc_cfg = config.mc_mass_function
             demo_draws = propagate_nss_solution(
                 synthetic_orbital_solution(relative_error=0.03, seed=mc_cfg.random_seed),
@@ -2041,6 +2125,7 @@ def run_diagnostic_suite(
     if solution_types is not None or demo_missing:
         st = solution_types
         if st is None:
+            demo_used.add("solution_type_fractions")
             frac = {label: 1.0 / len(SOLUTION_TYPE_LABELS) for label in SOLUTION_TYPE_LABELS}
             st = SolutionTypeFractionResult(
                 mock_fractions=dict(frac),
@@ -2052,9 +2137,19 @@ def run_diagnostic_suite(
     else:
         hooks.append(emit_solution_type_fractions(config, dirs, result=None))
 
-    hooks.append(
-        emit_known_truth_benchmarks(config, dirs, observed=known_truth_observed)
-    )
+    if "known_truth_benchmarks" in errors:
+        hooks.append(
+            HookEmissionResult(
+                hook_name="known_truth_benchmarks",
+                skipped_reason=(
+                    f"hydration failed: {errors['known_truth_benchmarks']}"
+                ),
+            )
+        )
+    else:
+        hooks.append(
+            emit_known_truth_benchmarks(config, dirs, observed=known_truth_observed)
+        )
     hooks.append(emit_comparison_catalogs(config, dirs))
     do_sbc = (
         bool(config.diagnostics.sbc.run_in_stage)
@@ -2100,8 +2195,8 @@ def run_diagnostic_suite(
     )
     cov_health = bundle.covariance_health
     if cov_health is None and demo_missing:
+        demo_used.add("covariance_health")
         cov_health = CovarianceHealth()
-        demo_fed.append("covariance_health")
     hooks.append(emit_covariance_health(config, dirs, health=cov_health))
     hooks.append(
         emit_sample_selection_function(
@@ -2114,9 +2209,13 @@ def run_diagnostic_suite(
     hooks.append(emit_mode_divergence(config, dirs, results=sample_results or None))
     mg_vals = bundle.mg_0_values
     if mg_vals is None and demo_missing:
+        demo_used.add("janssens_segment_occupancy")
         mg_vals = [4.73, 2.5, 8.0, -9.0]
-        demo_fed.append("janssens_segment_occupancy")
     hooks.append(emit_janssens_segment_occupancy(config, dirs, mg_0_values=mg_vals))
+
+    for emission in hooks:
+        if emission.hook_name in demo_used and emission.skipped_reason is None:
+            mark_demo_emission(emission)
 
     return DiagnosticsStageResult(
         schema_version=DIAGNOSTICS_SCHEMA_VERSION,
@@ -2129,8 +2228,35 @@ def run_diagnostic_suite(
             "benchmarks": config.benchmarks.model_dump(mode="json"),
         },
         sbc_payload=sbc_payload,
-        stand_ins=diagnostics_suite_stand_ins(config, hooks, demo_fed_hooks=demo_fed),
+        stand_ins=diagnostics_suite_stand_ins(
+            config, hooks, demo_fed_hooks=sorted(demo_used)
+        ),
     )
+
+
+DEMO_WATERMARK = "DEMO / NOT DATA"
+
+
+def mark_demo_emission(emission: HookEmissionResult) -> None:
+    """Watermark a hook emission built from demo stand-ins (#355).
+
+    Prefixes every text report with a ``DEMO / NOT DATA`` banner, stamps the same
+    text across every PNG figure, and sets ``payload["demo"] = True`` so the stage
+    artifact records it.
+    """
+    emission.payload["demo"] = True
+    for path in emission.reports:
+        if path.suffix in {".txt", ".md"} and path.is_file():
+            text = path.read_text(encoding="utf-8")
+            if not text.startswith(f"*** {DEMO_WATERMARK}"):
+                path.write_text(
+                    f"*** {DEMO_WATERMARK}: synthetic stand-in inputs, not pipeline "
+                    f"results ***\n{text}",
+                    encoding="utf-8",
+                )
+    for path in emission.figures:
+        if path.suffix == ".png" and path.is_file():
+            watermark_png(path, DEMO_WATERMARK)
 
 
 def run_diagnostics_scaffolding(
@@ -2292,8 +2418,9 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
         if emission.skipped_reason:
             lines.append(f"  {emission.hook_name}: skipped ({emission.skipped_reason})")
         else:
+            demo_tag = f" [{DEMO_WATERMARK}]" if emission.payload.get("demo") else ""
             lines.append(
-                f"  {emission.hook_name}: "
+                f"  {emission.hook_name}{demo_tag}: "
                 f"figures={len(emission.figures)} reports={len(emission.reports)}"
             )
             for path in emission.reports:
@@ -2404,26 +2531,22 @@ def _read_solution_types_from_sf(path: Path) -> SolutionTypeFractionResult | Non
 def _read_elbadry_panels_from_manifest(
     manifest: RunManifest,
     config: PipelineConfig,
-) -> dict[str, Mapping[str, NDArray[np.floating]]] | None:
-    da_path = _optional_artifact_path(manifest, "data_acquisition")
-    if da_path is None:
-        return None
-    try:
-        from darkhunter_pop.forward_model import (
-            SIX_PANEL_NAMES,
-            load_real_panels_from_data_acquisition,
-            load_reference_panels,
-        )
+) -> tuple[dict[str, Mapping[str, NDArray[np.floating]]], dict[str, Any]] | None:
+    """Six-panel mock + real samples persisted by ``selection_function_astrometric``.
 
-        real_panels, _ = load_real_panels_from_data_acquisition(da_path)
-        mock_panels, _ = load_reference_panels(config)
-        return {
-            name: {"mock": mock_panels[name], "real": real_panels[name]}
-            for name in SIX_PANEL_NAMES
-            if name in real_panels and name in mock_panels
-        }
-    except (KeyError, ValueError, FileNotFoundError, OSError):
+    Returns ``None`` only when that stage has no artifact on the manifest (it did
+    not run). An artifact without the ``six_panel_samples`` group raises
+    ``KeyError`` — the hook never substitutes the test placeholder fixture or any
+    other reference (#339).
+    """
+    del config
+    sf_path = _optional_artifact_path(manifest, "selection_function_astrometric")
+    if sf_path is None:
         return None
+    from darkhunter_pop.forward_model import load_six_panel_samples
+
+    panels, meta = load_six_panel_samples(sf_path)
+    return dict(panels), meta
 
 
 def elbadry_m2_over_m1_from_tilde_masses(
@@ -2512,9 +2635,16 @@ def _hydrate_diagnostics_from_manifest(
         if solution_types is not None:
             hydrated["solution_types"] = solution_types
 
-    elbadry = _read_elbadry_panels_from_manifest(manifest, config)
+    try:
+        elbadry = _read_elbadry_panels_from_manifest(manifest, config)
+    except (KeyError, ValueError, OSError) as exc:
+        # Recorded as a visible skip in diagnostics_stage.txt, never dropped (#355).
+        hydrated.setdefault("hydration_errors", {})["elbadry_six_panel"] = (
+            f"{type(exc).__name__}: {exc}"
+        )
+        elbadry = None
     if elbadry is not None:
-        hydrated["elbadry_panels"] = elbadry
+        hydrated["elbadry_panels"], hydrated["elbadry_panels_meta"] = elbadry
 
     ss_path = _optional_artifact_path(manifest, "sample_selection")
     if ss_path is not None:
@@ -2558,8 +2688,13 @@ def _hydrate_diagnostics_from_manifest(
                 },
                 orbital_solution_types=config.benchmarks.nss_orbital_solution_types,
             )
-        except (OSError, KeyError, ValueError):
+        except (OSError, KeyError, ValueError) as exc:
+            # Recorded, not swallowed: the hook then reports every check
+            # not_tested and the stage report lists the hydration failure.
             hydrated["known_truth_observed"] = None
+            hydrated.setdefault("hydration_errors", {})["known_truth_benchmarks"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
 
     da_cov_path = _optional_artifact_path(manifest, "data_acquisition")
     if da_cov_path is not None:
@@ -2611,7 +2746,7 @@ def run_diagnostics_stage(
     *,
     run_path: Path,
     force_rerun: bool = False,
-    demo_hooks: bool = True,
+    demo_hooks: bool = False,
     candidates: Sequence[CandidateRecord] | None = None,
     sampler_runs: Sequence[Mapping[str, Any]] | None = None,
     mc_noise: MCNoiseConvergenceDiagnostic | None = None,
@@ -2652,6 +2787,7 @@ def run_diagnostics_stage(
         candidates=resolved_candidates,
         funnel_counts=hydrated.get("funnel_counts"),
         elbadry_panels=hydrated.get("elbadry_panels"),
+        elbadry_panels_meta=hydrated.get("elbadry_panels_meta"),
         gate_counts=resolved_gate_counts,
         chi2_dof_values=resolved_chi2,
         age_diagnostic=hydrated.get("age_diagnostic"),
@@ -2660,30 +2796,11 @@ def run_diagnostics_stage(
         solution_types=resolved_solution_types,
         sample_bundle=hydrated.get("sample_bundle"),
         known_truth_observed=hydrated.get("known_truth_observed"),
+        hydration_errors=hydrated.get("hydration_errors"),
         demo_missing=demo_hooks
         and resolved_candidates is None
         and resolved_sampler_runs is None,
     )
-    if hydrated.get("elbadry_panels") is not None:
-        # _read_elbadry_panels_from_manifest takes the "mock" side from the bundled
-        # reference file (#339 / #355 own the fix); declare it at the point of use.
-        result.stand_ins.append(
-            SyntheticStandIn(
-                name="six_panel_mock_is_reference_fixture",
-                stage="diagnostics",
-                kind="reference_fixture",
-                replaces="this run's gaiamock mock six-panel samples",
-                description=(
-                    "The diagnostics six-panel figure's 'mock' side is the bundled "
-                    "El-Badry 2024 reference file "
-                    "(tests/fixtures/elbadry2024_dr3_nss_reference.npz or "
-                    "validation_gate.reference_path), not this run's mock injections."
-                ),
-                config_keys=[
-                    "selection_function_astrometric.validation_gate.reference_path"
-                ],
-            )
-        )
     if hydrated.get("science_validity") is not None:
         result.upstream_science_validity = hydrated["science_validity"]
     elif manifest.science_valid is not None:
