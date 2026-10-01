@@ -359,7 +359,7 @@ def check_known_truth_expectations(
             statuses.append(det)
             parts.append(
                 f"detection: in_nss_orbital={obs.in_nss_orbital} "
-                f"(solution types {list(obs.nss_solution_types) or 'none'}; expected "
+                f"(solution types {list(obs.nss_solution_types) or 'none'}, expected "
                 f"an orbital solution) → {det}"
             )
         else:
@@ -725,8 +725,11 @@ def format_comparison_catalog_report(
 def catalog_completeness(cat: ComparisonCatalog) -> str:
     """``complete`` / ``incomplete (n of N)`` / ``empty`` / ``unknown`` (#348)."""
     if cat.is_mass_function:
-        return "complete (mass-function samples present)" if cat.mass_msun else (
-            "empty (mass-function fixture with 0 samples)"
+        return (
+            f"mass-function fixture ({len(cat.mass_msun)} samples; completeness "
+            "against the published mass function not checked)"
+            if cat.mass_msun
+            else "empty (mass-function fixture with 0 samples)"
         )
     n = len(cat.systems)
     if cat.n_systems_expected is None:
