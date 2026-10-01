@@ -99,6 +99,44 @@ Rules:
   (config defaults: labels 18 pt, ticks/legend 14 pt). Do not shrink annotation
   text below the tick size to “make it fit.”
 
+## Readable-by-default primitives (#333, #360)
+
+The shared primitives enforce the rules above so call sites do not have to:
+
+- **Category labels never overlap.** `plot_categorical_bars` / `plot_grouped_bars`
+  switch to horizontal bars when there are more than
+  `plotting.categorical_max_vertical_labels` categories or any label is wider than
+  its slot (`bars_should_be_horizontal`); the figure grows by
+  `plotting.categorical_row_height_inches` per bar. Every bar is annotated with its
+  value; grouped series also cycle `plotting.bar_hatch_cycle` for greyscale. On a
+  horizontal chart the legend sits outside the axes. `xlabel` / `ylabel` stay the
+  category / value labels whatever the orientation.
+- **Counts spanning decades get a log value axis** (`choose_bar_value_scale`);
+  zero bars sit at the floor and are still annotated `0`.
+- **No meaningful zero, no bar.** `baseline_zero=False` draws points with error
+  bars instead (e.g. sampler `ln Z`).
+- **Heavy tails get log axes automatically.** `plot_histogram`,
+  `plot_overlay_histograms` and `plot_line_with_threshold(log_x="auto")` use
+  `choose_axis_scale`: log for positive data spanning
+  `plotting.auto_log_min_decades`, symlog (thinned `0, ±10^k` ticks) for signed
+  data such as ΔBIC. Bins are uniform in the plotted coordinate, finite-only, and
+  capped by `diagnostics.histogram_max_bins`.
+- **Nothing clips.** `save_figure` wraps every title to its axes (mathtext-safe),
+  runs `tight_layout`, and only if text still spills past the canvas saves with
+  `bbox_inches="tight"`.
+- **Units come from one table.** `plotting.AXIS_LABELS` / `axis_label(key)` map
+  column keys (`m2_msun`, `period_day`, `g_mag`, ...) to labels with units. Add a
+  key there rather than writing a label at a call site.
+- **Reference lines differ in colour and linestyle** (`reference_line_style`,
+  `plotting.reference_line_colors` / `reference_linestyle_cycle`), so `M_Ch` and
+  `M_TOV` are never drawn alike.
+- **Legend size lives in `prop`.** Matplotlib ignores `legend(fontsize=...)` when
+  `prop=` is also passed; use `legend_prop(style)`.
+- **Sky maps** carry RA / Dec labels and a graticule; curved projections get no
+  inward edge ticks.
+- **Serif math.** Labels, titles, legends and captions render mathtext with the
+  serif set matching `plotting.font_family` (`math_fontfamily`).
+
 ## Product figures
 
 Paper-ready product figures call the same `plotting.py` primitives as the diagnostic

@@ -85,6 +85,17 @@ def axis_label(name: str) -> str:
     return AXIS_LABELS.get(name, name)
 
 
+def math_fontfamily(style: PlottingStyleConfig | None = None) -> str:
+    """Mathtext font set matching ``plotting.font_family`` (serif text, serif math).
+
+    Matplotlib renders ``$...$`` in DejaVu Sans regardless of the text family,
+    so serif labels otherwise mix two typefaces (``docs/PLOTS.md``: serif).
+    """
+    cfg = resolve_plotting_style(style)
+    family = cfg.font_family.lower()
+    return "dejavuserif" if "serif" in family and "sans" not in family else "dejavusans"
+
+
 def legend_prop(style: PlottingStyleConfig | None = None) -> dict[str, Any]:
     """Legend font properties: family **and** size.
 
@@ -92,7 +103,11 @@ def legend_prop(style: PlottingStyleConfig | None = None) -> dict[str, Any]:
     so the size must live inside ``prop`` (#360).
     """
     cfg = resolve_plotting_style(style)
-    return {"family": cfg.font_family, "size": float(cfg.legend_fontsize)}
+    return {
+        "family": cfg.font_family,
+        "size": float(cfg.legend_fontsize),
+        "math_fontfamily": math_fontfamily(cfg),
+    }
 
 
 def reference_line_style(
@@ -223,12 +238,47 @@ def scaled_histogram_edges(
     return np.asarray(inverse(edges), dtype=np.float64)
 
 
+#: Most major ticks a symlog axis gets; decades are thinned to stay under it
+#: so the ``±10^k`` labels never collide (#333).
+_SYMLOG_MAX_TICKS: Final[int] = 7
+
+
+def symlog_major_ticks(
+    lo: float, hi: float, linthresh: float, *, max_ticks: int = _SYMLOG_MAX_TICKS
+) -> list[float]:
+    """Thinned ``0, ±10^k`` major ticks for a symlog axis spanning ``[lo, hi]``.
+
+    Decades start at the first power of ten at or above ``linthresh``; every
+    ``step``-th decade is kept (same ``k`` on both signs) so at most
+    ``max_ticks`` ticks are returned. Zero is always included.
+    """
+    k_min = math.ceil(math.log10(max(float(linthresh), 1e-300)))
+    k_neg = math.floor(math.log10(-lo)) if lo < 0.0 and -lo >= 10.0**k_min else None
+    k_pos = math.floor(math.log10(hi)) if hi > 0.0 and hi >= 10.0**k_min else None
+    decades: list[tuple[int, int]] = []  # (sign, k)
+    if k_neg is not None:
+        decades += [(-1, k) for k in range(k_min, k_neg + 1)]
+    if k_pos is not None:
+        decades += [(1, k) for k in range(k_min, k_pos + 1)]
+    n_slots = max(1, int(max_ticks) - 1)
+    step = max(1, math.ceil(len(decades) / n_slots))
+    kept = [sign * 10.0**k for sign, k in decades if (k - k_min) % step == 0]
+    return sorted(kept + [0.0])
+
+
 def _apply_axis_scale(
     axis: Any, which: Literal["x", "y"], scale: AxisScale, linthresh: float
 ) -> None:
     setter = axis.set_xscale if which == "x" else axis.set_yscale
     if scale == "symlog":
+        from matplotlib.ticker import FixedLocator
+
         setter("symlog", linthresh=float(linthresh))
+        lo, hi = axis.get_xlim() if which == "x" else axis.get_ylim()
+        ticks = symlog_major_ticks(float(lo), float(hi), float(linthresh))
+        (axis.xaxis if which == "x" else axis.yaxis).set_major_locator(
+            FixedLocator(ticks)
+        )
     elif scale == "log":
         setter("log")
 
@@ -323,6 +373,9 @@ def apply_axes_style(
             spine.set_linewidth(cfg.spines_width)
         for label in list(axis.get_xticklabels()) + list(axis.get_yticklabels()):
             label.set_fontfamily(cfg.font_family)
+            label.set_math_fontfamily(math_fontfamily(cfg))
+        for text in (axis.xaxis.label, axis.yaxis.label, axis.title):
+            text.set_math_fontfamily(math_fontfamily(cfg))
         return
     if xlabel is not None:
         axis.set_xlabel(
@@ -358,6 +411,8 @@ def apply_axes_style(
     )
     for spine in axis.spines.values():
         spine.set_linewidth(cfg.spines_width)
+    for text in (axis.xaxis.label, axis.yaxis.label, axis.title):
+        text.set_math_fontfamily(math_fontfamily(cfg))
 
     if enable_minor_ticks:
         try:
@@ -373,6 +428,7 @@ def apply_axes_style(
 
     for label in list(axis.get_xticklabels()) + list(axis.get_yticklabels()):
         label.set_fontfamily(cfg.font_family)
+        label.set_math_fontfamily(math_fontfamily(cfg))
 
 
 #: Tolerance (inches) when testing whether drawn text spills past the canvas.
@@ -659,6 +715,11 @@ def plot_histogram(
     )
 
 
+#: Mollweide graticule: RA meridians and Dec parallels (degrees) that get labels.
+_SKY_RA_TICKS_DEG: Final[tuple[float, ...]] = (-120.0, -60.0, 0.0, 60.0, 120.0)
+_SKY_DEC_TICKS_DEG: Final[tuple[float, ...]] = (-60.0, -30.0, 0.0, 30.0, 60.0)
+
+
 def plot_sky_mollweide(
     ra_deg: NDArray[np.floating] | Sequence[float] | None,
     dec_deg: NDArray[np.floating] | Sequence[float] | None,
@@ -709,6 +770,10 @@ def plot_sky_mollweide(
         rasterized=True,
         linewidths=0.0,
     )
+    # Matplotlib's default 30 deg RA labels collide along the equator at
+    # tick-label size; 60 / 30 deg spacing keeps every label legible.
+    ax.set_xticks(np.radians(_SKY_RA_TICKS_DEG))
+    ax.set_yticks(np.radians(_SKY_DEC_TICKS_DEG))
     ax.grid(True, color=cfg.hist_edge_color, alpha=0.3, linewidth=cfg.line_width * 0.5)
     apply_axes_style(
         ax,
@@ -904,7 +969,10 @@ _BAR_GROUP_FILL: Final[float] = 0.8
 #: Inches added to a horizontal bar chart for title, value label and ticks.
 _BAR_FIGURE_OVERHEAD_INCHES: Final[float] = 1.8
 #: Minimum inches given to the value axis of a horizontal bar chart.
-_BAR_VALUE_AXIS_INCHES: Final[float] = 5.0
+_BAR_VALUE_AXIS_INCHES: Final[float] = 6.0
+#: Inches a horizontal bar chart spends beside the axes besides tick labels
+#: (category-axis label, paddings), used to predict the post-layout axes width.
+_BAR_SIDE_MARGIN_INCHES: Final[float] = 1.4
 #: Decades below the smallest positive bar where a log value axis starts, so
 #: the smallest bar has visible length and zero-valued bars sit at the floor.
 _LOG_BAR_FLOOR_DECADES: Final[float] = 0.5
@@ -969,11 +1037,27 @@ def choose_bar_value_scale(
     return "log" if span >= float(cfg.auto_log_min_decades) else "linear"
 
 
+def _outside_legend_inches(
+    names: Sequence[str | None], horizontal: bool, cfg: PlottingStyleConfig
+) -> float:
+    """Width an outside-right legend takes (grouped horizontal bars only)."""
+    shown = [n for n in names if n]
+    if not horizontal or len(shown) < 2:
+        return 0.0
+    return _LEGEND_HANDLE_INCHES + max(
+        measure_text_width_inches(
+            n, font_family=cfg.font_family, fontsize=cfg.legend_fontsize
+        )
+        for n in shown
+    )
+
+
 def _bar_figure_size(
     labels: Sequence[str],
     n_series: int,
     horizontal: bool,
     cfg: PlottingStyleConfig,
+    legend_inches: float = 0.0,
 ) -> tuple[float, float]:
     """Figure size that keeps every label and bar at configured font sizes."""
     width, height = (float(cfg.figsize_landscape[0]), float(cfg.figsize_landscape[1]))
@@ -990,7 +1074,7 @@ def _bar_figure_size(
         height,
         rows * float(cfg.categorical_row_height_inches) + _BAR_FIGURE_OVERHEAD_INCHES,
     )
-    width = max(width, widest + _BAR_VALUE_AXIS_INCHES)
+    width = max(width, widest + _BAR_VALUE_AXIS_INCHES + legend_inches)
     return width, height
 
 
@@ -1029,7 +1113,7 @@ def _draw_bar_series(
     if ceiling <= floor:
         ceiling = floor + 1.0
 
-    texts: list[tuple[float, float, str]] = []
+    texts: list[tuple[float, float, str, bool]] = []
     for index, (name, values, color, hatch) in enumerate(series):
         offset = (index - 0.5 * (n_series - 1)) * thickness
         heights = np.where(np.isfinite(values), values, 0.0)
@@ -1055,7 +1139,8 @@ def _draw_bar_series(
             anchor = float(value) if np.isfinite(value) else base
             if scale == "log" and anchor <= 0.0:
                 anchor = floor
-            texts.append((float(pos), anchor, format_bar_value(float(value))))
+            at_floor = not (np.isfinite(value) and value > base)
+            texts.append((float(pos), anchor, format_bar_value(float(value)), at_floor))
 
     tick_labels = [str(label) for label in labels]
     if horizontal:
@@ -1074,16 +1159,28 @@ def _draw_bar_series(
     if scale == "log":
         (axis.set_xscale if horizontal else axis.set_yscale)("log")
 
-    # Headroom: the largest annotation, measured, as a fraction of the value axis.
+    # Headroom: the largest annotation, measured, as a fraction of the value
+    # axis length expected after layout (tick labels take the rest).
     position = axis.get_position()
     if horizontal:
-        axis_inches = float(position.width) * float(fig.get_figwidth())
+        widest_label = max(
+            measure_text_width_inches(
+                label, font_family=cfg.font_family, fontsize=cfg.tick_label_fontsize
+            )
+            for label in tick_labels
+        )
+        axis_inches = (
+            float(fig.get_figwidth())
+            - widest_label
+            - _BAR_SIDE_MARGIN_INCHES
+            - _outside_legend_inches([n for n, _v, _c, _h in series], horizontal, cfg)
+        )
         text_inches = max(
             (
                 measure_text_width_inches(
                     t, font_family=cfg.font_family, fontsize=cfg.tick_label_fontsize
                 )
-                for _p, _a, t in texts
+                for _p, _a, t, _f in texts
             ),
             default=0.0,
         )
@@ -1103,12 +1200,15 @@ def _draw_bar_series(
     (axis.set_xlim if horizontal else axis.set_ylim)(*limits)
 
     if annotate:
-        for pos, anchor, text in texts:
+        # Values sitting at the axis floor clear the inward tick marks.
+        floor_pad = float(cfg.tick_major_length) + 3.0
+        for pos, anchor, text, at_floor in texts:
+            pad = floor_pad if at_floor else 3.0
             if horizontal:
                 axis.annotate(
                     text,
                     xy=(anchor, pos),
-                    xytext=(3, 0),
+                    xytext=(pad, 0),
                     textcoords="offset points",
                     ha="left",
                     va="center",
@@ -1119,7 +1219,7 @@ def _draw_bar_series(
                 axis.annotate(
                     text,
                     xy=(pos, anchor),
-                    xytext=(0, 3),
+                    xytext=(0, pad),
                     textcoords="offset points",
                     ha="center",
                     va="bottom",
@@ -1184,14 +1284,17 @@ def _draw_dot_series(
         ):
             if not ok:
                 continue
-            text = format_bar_value(float(value))
+            # Fixed-point text: a point estimate must read off without decoding
+            # scientific notation.
+            text = f"{float(value):.2f}"
             if np.isfinite(e) and e > 0.0:
-                text += f" $\\pm$ {float(e):.3g}"
+                text += f" $\\pm$ {float(e):.2f}"
             xy = (float(value), float(pos)) if horizontal else (float(pos), float(value))
+            # Beside the marker, clear of its error bar.
             axis.annotate(
-                text, xy=xy, xytext=(0, 10) if not horizontal else (10, 8),
-                textcoords="offset points", ha="center" if not horizontal else "left",
-                va="bottom", fontfamily=cfg.font_family,
+                text, xy=xy, xytext=(0, 12) if horizontal else (12, 0),
+                textcoords="offset points", ha="center" if horizontal else "left",
+                va="bottom" if horizontal else "center", fontfamily=cfg.font_family,
                 fontsize=cfg.tick_label_fontsize,
             )
     if not horizontal:
@@ -1281,10 +1384,15 @@ def plot_categorical_bars(
 
 
 def _clear_category_minor_ticks(axis: Any, horizontal: bool) -> None:
-    """Remove minor ticks from the categorical axis (they fall between bars)."""
+    """Tidy the categorical axis: no minor ticks (they fall between bars) and no
+    mirrored ticks on the far side, where value annotations sit."""
     from matplotlib.ticker import NullLocator
 
     (axis.yaxis if horizontal else axis.xaxis).set_minor_locator(NullLocator())
+    if horizontal:
+        axis.tick_params(axis="y", which="both", right=False)
+    else:
+        axis.tick_params(axis="x", which="both", top=False)
 
 
 def plot_grouped_bars(
@@ -1329,7 +1437,15 @@ def plot_grouped_bars(
         scale = "log" if log_values else "linear"
     plt = require_pyplot()
     fig, axis = plt.subplots(
-        figsize=_bar_figure_size(labels, len(arrays), is_horizontal, cfg)
+        figsize=_bar_figure_size(
+            labels,
+            len(arrays),
+            is_horizontal,
+            cfg,
+            legend_inches=_outside_legend_inches(
+                [n for n, _a in arrays], is_horizontal, cfg
+            ),
+        )
     )
     hatches = list(cfg.bar_hatch_cycle) or [""]
     drawn = [
@@ -1411,6 +1527,18 @@ def plot_line_with_threshold(
         axis.legend(loc="best", prop=legend_prop(cfg))
     if use_log_x:
         axis.set_xscale("log")
+    if yy.size > 1 and float(np.ptp(yy)) == 0.0:
+        # A flat line in an auto-scaled frame looks like structure; say what it is.
+        axis.text(
+            0.5,
+            0.9,
+            f"all {yy.size} points equal {float(yy[0]):g}",
+            transform=axis.transAxes,
+            ha="center",
+            va="top",
+            fontfamily=cfg.font_family,
+            fontsize=cfg.tick_label_fontsize,
+        )
     apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title)
     return save_figure(fig, path, dpi=dpi)
 
@@ -1530,6 +1658,9 @@ def wrap_text_to_inches(
     return out
 
 
+#: Inches an outside legend needs beyond its widest label (handle + padding).
+_LEGEND_HANDLE_INCHES: Final[float] = 1.1
+
 #: Side gutter (inches) around a reserved caption band.
 _CAPTION_GUTTER_INCHES: Final[float] = 0.18
 
@@ -1591,6 +1722,7 @@ def _save_with_caption_band(
         fontfamily=cfg.font_family,
         fontsize=cfg.tick_label_fontsize,
         linespacing=float(cfg.caption_line_spacing),
+        math_fontfamily=math_fontfamily(cfg),
     )
     bbox = "tight" if figure_overflows(fig) else None
     fig.savefig(path, dpi=dpi, bbox_inches=bbox)
@@ -1765,6 +1897,19 @@ def plot_dndm_by_class(
     caption_lines, band = _caption_band(cfg, width, caption)
     height += band
 
+    # Room for the outside legend: its widest entry plus handle and padding.
+    legend_labels = [label for label, _xs, _ys in series] + [
+        f"{name}={value:g}" + r" M$_{\odot}$"
+        for name, value in (vlines or {}).items()
+        if np.isfinite(value)
+    ]
+    width += _LEGEND_HANDLE_INCHES + max(
+        measure_text_width_inches(
+            text, font_family=cfg.font_family, fontsize=cfg.legend_fontsize
+        )
+        for text in legend_labels
+    )
+
     title_text = title
     if title:
         title_lines = wrap_text_to_inches(
@@ -1811,10 +1956,13 @@ def plot_dndm_by_class(
             label=f"{name}={value:g}" + r" M$_{\odot}$",
         )
     apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=title_text)
+    # Outside the axes, right: steep curves (a soft M_TOV cut-off) pass through
+    # any in-frame corner, and a legend must not cover the signal (#333).
     axis.legend(
-        loc="best",
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
         prop=legend_prop(cfg),
-        ncols=2 if len(series) > 4 else 1,
     )
 
     if not caption_lines:

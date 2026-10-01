@@ -1148,6 +1148,31 @@ def format_companion_nature_report(
     return "\n".join(lines)
 
 
+def delta_bic_figure_caption(diagnostics: CompanionNatureDiagnostics) -> str:
+    """Caption for the ΔBIC histogram naming where each candidate's evidence came from.
+
+    ``analytic_fallback`` is the declared analytic surrogate (the
+    ``companion_nature.*_mg_zero_point`` / ``*_mg_mass_slope`` M_G relations),
+    which has no uncertainty model, so its |ΔBIC| is not a calibrated evidence
+    scale (#333 audit). The caption travels with the figure, not only the report.
+    """
+    counts = dict(diagnostics.n_by_evidence_provenance)
+    n_total = len(diagnostics.delta_bic_wd_vs_dark)
+    parts = ", ".join(f"{tag} = {int(n)}" for tag, n in sorted(counts.items()))
+    text = (
+        f"ΔBIC = BIC(WD) − BIC(dark) for {n_total} candidates; negative favours WD. "
+        f"Evidence provenance: {parts or 'not recorded'}."
+    )
+    if counts.get("analytic_fallback", 0):
+        text += (
+            " analytic_fallback is the declared analytic surrogate "
+            "(companion_nature *_mg_zero_point / *_mg_mass_slope M_G relations), "
+            "which has no uncertainty model: its |ΔBIC| is not a calibrated "
+            "evidence scale."
+        )
+    return text + " Symmetric-log x axis when |ΔBIC| spans many decades."
+
+
 def write_diagnostic_artifacts(
     diagnostics: CompanionNatureDiagnostics,
     artifact_path: Path,
@@ -1179,12 +1204,15 @@ def write_diagnostic_artifacts(
         fig_path = plot_histogram(
             np.asarray(diagnostics.delta_bic_wd_vs_dark, dtype=np.float64),
             figures_dir / "delta_bic_wd_vs_dark.png",
-            xlabel="ΔBIC (WD − dark); negative ⇒ data prefer WD",
+            xlabel=r"$\Delta{\rm BIC}$ (WD $-$ dark); negative favours WD",
             ylabel="count",
-            title="Companion nature: ΔBIC(WD − dark)",
+            title=r"Companion nature: $\Delta{\rm BIC}$ (WD $-$ dark)",
             dpi=int(diag_cfg.figure_dpi),
             max_bins=int(diag_cfg.histogram_max_bins),
             style=config.plotting,
+            # |ΔBIC| spans ~1e1 to ~1e7 with both signs: auto picks symlog (#333).
+            log_x="auto",
+            caption=delta_bic_figure_caption(diagnostics),
         )
         if fig_path is not None:
             written.append(fig_path)
