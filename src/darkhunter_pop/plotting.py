@@ -786,6 +786,85 @@ def plot_sky_mollweide(
     return save_figure(fig, path, dpi=dpi)
 
 
+def plot_scatter_xy(
+    x: NDArray[np.floating] | Sequence[float],
+    y: NDArray[np.floating] | Sequence[float],
+    path: Path,
+    *,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    dpi: int,
+    style: PlottingStyleConfig | None = None,
+    yerr: NDArray[np.floating] | Sequence[float] | None = None,
+    log_axes: bool = False,
+    one_to_one: bool = False,
+) -> Path | None:
+    """Write an x–y scatter PNG (optional y error bars and 1:1 line).
+
+    Pairs with a non-finite coordinate (or a non-positive one when ``log_axes``)
+    are dropped and the number dropped is appended to the title so nothing is
+    hidden silently. Returns None when no pair survives.
+    """
+    xa = np.asarray(x, dtype=np.float64)
+    ya = np.asarray(y, dtype=np.float64)
+    if xa.shape != ya.shape or xa.size == 0:
+        return None
+    keep = np.isfinite(xa) & np.isfinite(ya)
+    if log_axes:
+        keep &= (xa > 0) & (ya > 0)
+    n_drop = int(xa.size - np.count_nonzero(keep))
+    if not np.any(keep):
+        return None
+    cfg = resolve_plotting_style(style)
+    plt = require_pyplot()
+    fig, axis = plt.subplots(figsize=tuple(cfg.figsize_landscape))
+    sty = series_style(0, cfg)
+    err = None
+    if yerr is not None:
+        ea = np.asarray(yerr, dtype=np.float64)
+        if ea.shape == xa.shape:
+            err = np.where(np.isfinite(ea[keep]), ea[keep], 0.0)
+    axis.errorbar(
+        xa[keep],
+        ya[keep],
+        yerr=err,
+        fmt=sty["marker"],
+        color=sty["color"],
+        markersize=sty["markersize"],
+        elinewidth=sty["linewidth"] * 0.5,
+        linestyle="none",
+    )
+    if log_axes:
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+    if one_to_one:
+        lo = float(min(np.min(xa[keep]), np.min(ya[keep])))
+        hi = float(max(np.max(xa[keep]), np.max(ya[keep])))
+        ref = series_style(1, cfg)
+        axis.plot(
+            [lo, hi],
+            [lo, hi],
+            color=ref["color"],
+            linestyle="--",
+            linewidth=ref["linewidth"],
+            label="1:1",
+        )
+        axis.legend(
+            loc="best",
+            prop={"family": cfg.font_family, "size": cfg.legend_fontsize},
+        )
+    display_title = title if n_drop == 0 else f"{title} ({n_drop} non-plottable omitted)"
+    apply_axes_style(axis, cfg, xlabel=xlabel, ylabel=ylabel, title=display_title)
+    if log_axes:
+        # Narrow log ranges label every minor tick and the labels collide.
+        from matplotlib.ticker import NullFormatter
+
+        axis.xaxis.set_minor_formatter(NullFormatter())
+        axis.yaxis.set_minor_formatter(NullFormatter())
+    return save_figure(fig, path, dpi=dpi)
+
+
 def plot_overlay_histograms(
     series: Mapping[str, NDArray[np.floating] | Sequence[float]],
     path: Path,

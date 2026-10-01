@@ -390,6 +390,26 @@ Separate registered stage (same module `rv_consistency.py`), immediately after
 
 - Gate passers only: orbital elements free, full simultaneous astrometry+RV fit (Joker-seeded);
   refined M1/M2 supersedes the astrometry-only value. `OrbitTier` records `joint_astrometry_rv`.
+- Model (#347): one Keplerian orbit fit to the RV epochs (per-instrument γ + jitter, Gaussian
+  likelihood with its normalization term) **and** the NSS astrometric solution vector (ϖ,
+  Thiele–Innes A/B/F/G, plus C/H for `AstroSpectroSB1`, e, P, T_peri) through its full
+  `nss_solution` covariance sub-block, with a Gaussian M1 prior from the upstream `m1`. Free:
+  P, √e cos ω, √e sin ω, T_peri, Ω, i, M1, M2, ϖ. **K is derived** from a1 = a0/ϖ (the
+  photocentre is taken as the primary's orbit — dark-companion hypothesis), never free.
+  Candidates without an `nss_solution` covariance are skipped (`missing_nss_covariance`),
+  never given a diagonal stand-in. RV epochs with `mjd < rv_consistency.rv_epoch_min_mjd`
+  (upstream placeholder `mjd: 0.0` rows) are dropped and counted, in the gate as well.
+- Convergence is a test on the final point, not an optimizer flag: Fisher information
+  identified (eigenvalue ratio above `joint_fisher_min_eig_ratio`) and scoring decrement
+  `gᵀF⁻¹g ≤ joint_fit_decrement_tol`. Covariance = F⁻¹ propagated to
+  `extras["joint_orbit"]` = (P, e, T_periastron, K, ω, i, Ω, M1, M2, ϖ); `m2` is that M2
+  marginal. An optimum within `joint_bound_tol` of a box edge (M1/M2 bounds, i ∈ [0, π],
+  e ceiling, jitter ceiling) is a **bound hit**: flagged, counted, and the upstream
+  `astrometry_only` mass is kept. Jitter at its floor is a legitimate boundary, held fixed.
+  Unconverged fits likewise keep the upstream mass with `joint_orbit_fit_skip_reason`.
+- Diagnostics: `joint_orbit_fit_report.txt` (converged / bound-hit / unconverged counts,
+  bound-hit parameters, recovered-M2 range, priority calibrators) and figures of the recovered
+  M2 distribution, joint vs upstream M2, and joint K vs the NSS-seed K.
 - Gate failures: stage status `skipped` with `reason: rv_astrometry_gate_failed`. System keeps
   `astrometry_only` parameters and is scored by the population model's outlier class later — not
   silently excluded.
