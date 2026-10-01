@@ -516,6 +516,10 @@ def draw_mock_binary_params(
 
     ``elbadry_prior`` follows gaiamock's uniform-in-frequency period prior and
   log-uniform component masses / flux ratio, with scalar ranges owned by config.
+
+    ``faint_draw`` only selects which absolute-magnitude range (``faint_Mg_tot_*``)
+    a stand-in draw uses; it is a population-mixture prior, not an outcome. Every
+    draw, faint or not, is run through the gaiamock cascade (#344).
     """
     if pop.sampling is MockPopulationSampling.FIXED:
         period = float(pop.period_days)
@@ -1047,14 +1051,9 @@ def _run_single_mock_realization(
     multi_solution_rng: np.random.Generator | None = None,
 ) -> MockRealizationRecord:
     pop = config.selection_function_astrometric.mock_population
-    if draw.faint_draw:
-        # gaiamock DR3 scanning-law mocks retain >=12 visibility periods even for
-        # faint G; NSS ``insufficient_visibility`` is modeled as a separate draw.
-        return MockRealizationRecord(
-            solution_type=SolutionType.INSUFFICIENT_VISIBILITY,
-            accepted_orbital=False,
-        )
-
+    # Every realization, faint draws included, goes through the gaiamock cascade
+    # (#344). The former faint_draw short circuit returned a configured
+    # ``insufficient_visibility`` outcome without simulating anything.
     parallax = 1000.0 / d_pc
 
     data_release = config.active_dr_mode.value
