@@ -1,6 +1,6 @@
 # Known-truth benchmark table for Gaia BH systems (ARCHITECTURE.md §4 diagnostics).
 # Science expectations live here with provenance — not hardcoded in Python.
-schema_version: 1
+schema_version: 2
 table_id: known_truth_gaia_bh
 active_dr_mode: dr3
 provenance:
@@ -8,7 +8,12 @@ provenance:
   notes: >
     Gaia-BH1/BH2 are clean DR3 NSS detections. Gaia-BH3 is a DR3 marginal/non-detection
     with RUWE≈3.4 and would have appeared in the acceleration catalog for parts of its orbit.
-    Numerical thresholds used by expectation checks are config-owned (benchmarks.ruwe_match_tolerance).
+    Numerical thresholds used by expectation checks are config-owned (benchmarks.ruwe_match_tolerance,
+    benchmarks.mass_check_n_sigma).
+  schema_v2: >
+    Issue #348: published dark-companion masses (published_m2_msun / published_m2_sigma_msun)
+    added from each system's discovery paper, so the known-truth check compares real pipeline
+    M2 against literature instead of passing on observations built from its own expectations.
 systems:
   - name: Gaia-BH1
     source_id: 4373465352415301632
@@ -16,6 +21,9 @@ systems:
     nss_orbital_expected: true
     ruwe_approx: null
     acceleration_catalog_parts_of_orbit: false
+    # El-Badry et al. 2023a, MNRAS 518, 1057: M_BH = 9.62 +/- 0.18 Msun (joint RV + astrometry).
+    published_m2_msun: 9.62
+    published_m2_sigma_msun: 0.18
     literature:
       citation: "El-Badry et al. 2023a, MNRAS (Gaia BH1)"
       designation: "Gaia DR3 4373465352415301632"
@@ -26,6 +34,9 @@ systems:
     nss_orbital_expected: true
     ruwe_approx: null
     acceleration_catalog_parts_of_orbit: false
+    # El-Badry et al. 2023b, MNRAS 521, 4323: M_BH = 8.94 +/- 0.34 Msun.
+    published_m2_msun: 8.94
+    published_m2_sigma_msun: 0.34
     literature:
       citation: "El-Badry et al. 2023b, MNRAS (Gaia BH2)"
       designation: "Gaia DR3 5870569352746779008"
@@ -36,6 +47,10 @@ systems:
     nss_orbital_expected: false
     ruwe_approx: 3.4
     acceleration_catalog_parts_of_orbit: true
+    # Gaia Collaboration, Panuzzo et al. 2024, A&A 686, L2: M_BH = 32.70 +/- 0.82 Msun.
+    # No DR3 NSS orbit, so no pipeline M2 is expected; checked only if a row appears.
+    published_m2_msun: 32.70
+    published_m2_sigma_msun: 0.82
     literature:
       citation: "Gaia Collaboration, Panuzzo et al. 2024, A&A 686, L2"
       designation: "Gaia DR3 4318465066420528000"

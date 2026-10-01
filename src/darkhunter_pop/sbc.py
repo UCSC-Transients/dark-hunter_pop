@@ -505,10 +505,33 @@ def assert_sbc_coverage(result: SBCResult) -> None:
     raise AssertionError("\n".join(lines))
 
 
+#: Banner for the ``analytic_binned`` backend (#356): conjugate Gamma–Poisson
+#: coverage is correct by construction and exercises no pipeline code.
+SBC_ANALYTIC_BANNER = (
+    "*** ANALYTIC SANITY CHECK ONLY — does NOT validate inference (#356) ***\n"
+    "recovery_backend=analytic_binned draws conjugate Gamma posteriors for "
+    "independent Poisson bins with astrometric_sf = followup_sf = 1. Coverage of "
+    "that posterior is correct by construction; it exercises no part of inference "
+    "(dynesty likelihood, event weights, unbinned form), of the forward-model "
+    "selection function, or of the population model. 'overall_passed' below is "
+    "NOT a pipeline validation."
+)
+
+
+def sbc_validates_pipeline(recovery_backend: str) -> bool:
+    """False for the analytic backend: its pass is textbook math, not the pipeline."""
+    return recovery_backend != "analytic_binned"
+
+
 def format_sbc_report(result: SBCResult) -> str:
     """Fully legible SBC report (exempt from caveman compression)."""
     lines = [
         "=== simulation-based calibration (SBC) ===",
+        *(
+            [SBC_ANALYTIC_BANNER]
+            if not sbc_validates_pipeline(result.recovery_backend)
+            else []
+        ),
         f"schema_version: {result.schema_version}",
         f"recovery_backend: {result.recovery_backend}",
         f"credible_interval_level: {result.credible_interval_level}",
@@ -518,7 +541,12 @@ def format_sbc_report(result: SBCResult) -> str:
         f"astrometric_sf: {result.astrometric_sf}",
         f"followup_sf: {result.followup_sf}",
         f"overall_empirical_coverage: {result.overall_empirical_coverage:.6f}",
-        f"overall_passed: {result.overall_passed}",
+        (
+            f"overall_passed: {result.overall_passed}"
+            if sbc_validates_pipeline(result.recovery_backend)
+            else f"overall_passed (analytic sanity check, NOT a pipeline validation): "
+            f"{result.overall_passed}"
+        ),
         f"n_records: {len(result.records)}",
         "profile_summaries:",
     ]

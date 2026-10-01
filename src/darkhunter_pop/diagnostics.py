@@ -41,7 +41,7 @@ from darkhunter_pop.benchmarks import (
     format_known_truth_report,
     load_all_comparison_catalogs,
     load_known_truth_table_from_config,
-    synthetic_observed_from_truth,
+    observed_benchmarks_from_artifacts,
     validate_benchmarks_config,
 )
 from darkhunter_pop.config_schema import PipelineConfig, SBCConfig
@@ -117,6 +117,7 @@ from darkhunter_pop.run_management import (
     stage_artifact_path,
 )
 from darkhunter_pop.sbc import (
+    sbc_validates_pipeline,
     format_sbc_report,
     read_sbc_artifact,
     run_sbc_suite,
@@ -134,6 +135,7 @@ from darkhunter_pop.schemas import (
     SyntheticStandIn,
 )
 from darkhunter_pop.sensitivity_analysis import (
+    MC_NOISE_ANALYTIC_LABEL,
     MCNoiseConvergenceDiagnostic,
     run_mc_noise_convergence,
 )
@@ -433,8 +435,17 @@ def format_age_stratified_wd_report(diagnostic: Any) -> str:
     ``diagnostic`` is a ``companion_nature.AgeBinDiagnostic`` (typed as Any to
     avoid a circular import with ``data_acquisition`` → diagnostics).
     """
+    status = getattr(diagnostic, "status", "") or (
+        "ok" if diagnostic.age_independence_ok else "flag"
+    )
     lines = [
         "=== age-stratified WD-debiasing check ===",
+        (
+            "  status: insufficient_data — NOT TESTED (an empty comparison is not "
+            "a pass, #334)"
+            if status == "insufficient_data"
+            else f"  status: {status}"
+        ),
         diagnostic.message,
         f"  age_independence_ok: {diagnostic.age_independence_ok}",
         f"  max_abs_mean_weight_delta: {diagnostic.max_abs_mean_weight_delta:.6g}",
@@ -554,10 +565,14 @@ def format_mc_noise_convergence_report(diagnostic: MCNoiseConvergenceDiagnostic)
     """Full-detail mock-injection Poisson-negligibility convergence report."""
     lines = [
         "=== mock-injection Poisson-negligibility convergence ===",
+        MC_NOISE_ANALYTIC_LABEL,
         diagnostic.message,
         f"  threshold (physics.mc_noise_threshold): {diagnostic.threshold}",
         f"  n_mock_final: {diagnostic.n_mock_final}",
-        f"  all_bins_passed: {diagnostic.all_bins_passed}",
+        (
+            "  all_bins_passed (analytic identity, NOT a validation): "
+            f"{diagnostic.all_bins_passed}"
+        ),
         "  schedule (n_mock, max_ratio):",
     ]
     for n_mock, ratio in zip(diagnostic.schedule_n_mock, diagnostic.schedule_max_ratio):
@@ -1015,7 +1030,9 @@ def emit_mc_noise_convergence(
                 dirs.figures / "mc_noise_convergence.png",
                 xlabel="n_mock",
                 ylabel="max sigma_MC / sigma_Poisson",
-                title="mock-injection Poisson-negligibility convergence",
+                title=(
+                    "MC-noise convergence: analytic placeholder, not measured"
+                ),
                 dpi=diag.figure_dpi,
                 threshold=float(diagnostic.threshold),
                 threshold_label=f"threshold={diagnostic.threshold}",
@@ -1145,7 +1162,14 @@ def emit_known_truth_benchmarks(
     *,
     observed: Mapping[int, Any] | Sequence[Any] | None = None,
 ) -> HookEmissionResult:
-    """Hook: Gaia BH known-truth expectation report (fixture/config-driven)."""
+    """Hook: Gaia BH known-truth check against this run's pipeline outputs (#348).
+
+    ``observed`` is built by the stage from real artifacts
+    (``benchmarks.observed_benchmarks_from_artifacts``). When it is ``None`` there
+    is nothing to compare and every check is ``not_tested``; there is no synthetic
+    fallback (``synthetic_observed_from_truth`` is reachable from tests only, by
+    passing its output here explicitly).
+    """
     diag = config.diagnostics
     if not diag.hooks.known_truth_benchmarks:
         return HookEmissionResult(
@@ -1154,18 +1178,24 @@ def emit_known_truth_benchmarks(
         )
     validate_benchmarks_config(config)
     table = load_known_truth_table_from_config(config)
-    obs = observed if observed is not None else synthetic_observed_from_truth(table)
+    obs: Mapping[int, Any] | Sequence[Any] = observed if observed is not None else {}
+    obs_list = list(obs.values()) if isinstance(obs, Mapping) else list(obs)
+    sources = sorted({str(getattr(o, "source", "supplied")) for o in obs_list})
+    observed_source = "none" if not obs_list else ",".join(sources)
+    mass_n_sigma = float(config.benchmarks.mass_check_n_sigma)
     results = check_known_truth_expectations(
         table,
         obs,
         ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+        mass_n_sigma=mass_n_sigma,
     )
     result = HookEmissionResult(
         hook_name="known_truth_benchmarks",
         payload={
-            "observed_source": (
-                "supplied" if observed is not None else "synthetic_observed_from_truth"
-            )
+            "observed_source": observed_source,
+            "status_by_system": {r.name: r.status for r in results},
+            "n_failed": sum(1 for r in results if r.status == "failed"),
+            "n_not_tested": sum(1 for r in results if r.status == "not_tested"),
         },
     )
     if diag.write_reports:
@@ -1176,6 +1206,8 @@ def emit_known_truth_benchmarks(
                     table,
                     results,
                     ruwe_match_tolerance=float(config.benchmarks.ruwe_match_tolerance),
+                    observed_source=observed_source,
+                    mass_n_sigma=mass_n_sigma,
                 ),
             )
         )
@@ -1785,7 +1817,9 @@ def diagnostics_suite_stand_ins(
             )
         )
     kt = by_name.get("known_truth_benchmarks")
-    if kt is not None and kt.payload.get("observed_source") == "synthetic_observed_from_truth":
+    if kt is not None and "synthetic_observed_from_truth" in str(
+        kt.payload.get("observed_source", "")
+    ):
         out.append(
             SyntheticStandIn(
                 name="fabricated_known_truth_observations",
@@ -1863,6 +1897,7 @@ def run_diagnostic_suite(
     m2_posterior: M2PosteriorConvergenceDiagnostic | None = None,
     solution_types: SolutionTypeFractionResult | None = None,
     sample_bundle: SampleDiagnosticsBundle | None = None,
+    known_truth_observed: Mapping[int, Any] | None = None,
     demo_missing: bool = False,
     run_sbc: bool | None = None,
 ) -> DiagnosticsStageResult:
@@ -2017,7 +2052,9 @@ def run_diagnostic_suite(
     else:
         hooks.append(emit_solution_type_fractions(config, dirs, result=None))
 
-    hooks.append(emit_known_truth_benchmarks(config, dirs))
+    hooks.append(
+        emit_known_truth_benchmarks(config, dirs, observed=known_truth_observed)
+    )
     hooks.append(emit_comparison_catalogs(config, dirs))
     do_sbc = (
         bool(config.diagnostics.sbc.run_in_stage)
@@ -2182,6 +2219,49 @@ def read_diagnostics_artifact(path: Path) -> dict[str, Any]:
         return json.loads(text)
 
 
+def format_check_verdicts(result: DiagnosticsStageResult) -> list[str]:
+    """One plain verdict line per check whose green has been mistaken for a test.
+
+    ``not_tested`` / ``analytic`` are stated as such; nothing here reports a pass
+    for a check that saw no data or that is an identity (#334, #348, #349, #356).
+    """
+    by_name = {h.hook_name: h for h in result.hooks_run}
+    lines = ["check verdicts:"]
+    kt = by_name.get("known_truth_benchmarks")
+    if kt is not None and kt.skipped_reason is None:
+        statuses = kt.payload.get("status_by_system") or {}
+        if not statuses:
+            verdict = "not_tested"
+        elif any(v == "failed" for v in statuses.values()):
+            verdict = "FAILED"
+        elif any(v == "not_tested" for v in statuses.values()):
+            verdict = "not_tested (partial)"
+        else:
+            verdict = "passed"
+        lines.append(
+            f"  known_truth_benchmarks: {verdict} {dict(statuses)} "
+            f"(observed_source={kt.payload.get('observed_source')})"
+        )
+    age = by_name.get("age_stratified_wd")
+    if age is not None and age.skipped_reason is None:
+        lines.append(f"  age_stratified_wd: {age.payload.get('status', 'unknown')}")
+    mc = by_name.get("mc_noise_convergence")
+    if mc is not None and mc.skipped_reason is None:
+        lines.append(
+            "  mc_noise_convergence: analytic placeholder, not measured (#349)"
+        )
+    if result.sbc_payload is not None:
+        backend = str(result.sbc_payload.get("recovery_backend", ""))
+        lines.append(
+            "  sbc_recovery: analytic sanity check only, does not validate inference (#356)"
+            if not sbc_validates_pipeline(backend)
+            else f"  sbc_recovery: overall_passed={result.sbc_payload.get('overall_passed')}"
+        )
+    if len(lines) == 1:
+        lines.append("  (none of the tracked checks ran)")
+    return lines
+
+
 def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
     """Fully legible diagnostics-stage summary (exempt from caveman compression)."""
     lines = [
@@ -2192,6 +2272,7 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
             else "upstream science validity: NOT ASSESSED (no inference verdict on "
             "this run) — nothing here is a science-valid result"
         ),
+        *format_check_verdicts(result),
         f"stand-ins taken by this suite ({len(result.stand_ins)}):",
         *[f"  - {si.one_line()}" for si in result.stand_ins],
         f"schema_version: {result.schema_version}",
@@ -2239,7 +2320,14 @@ def format_diagnostics_stage_report(result: DiagnosticsStageResult) -> str:
             f"  overall_empirical_coverage: "
             f"{result.sbc_payload.get('overall_empirical_coverage')}"
         )
-        lines.append(f"  overall_passed: {result.sbc_payload.get('overall_passed')}")
+        backend = str(result.sbc_payload.get("recovery_backend", sbc_cfg.get("recovery_backend")))
+        if sbc_validates_pipeline(backend):
+            lines.append(f"  overall_passed: {result.sbc_payload.get('overall_passed')}")
+        else:
+            lines.append(
+                "  overall_passed (analytic sanity check only — does NOT validate "
+                f"inference, #356): {result.sbc_payload.get('overall_passed')}"
+            )
         lines.append(f"  n_records: {result.sbc_payload.get('n_records')}")
     lines.append(
         "scope_note: this stage owns the required diagnostic list (#71) plus "
@@ -2455,6 +2543,24 @@ def _hydrate_diagnostics_from_manifest(
                 simon_elbadry_m2_over_m1=elbadry_ratios,
             )
 
+    if config.diagnostics.hooks.known_truth_benchmarks:
+        try:
+            table = load_known_truth_table_from_config(config)
+            hydrated["known_truth_observed"] = observed_benchmarks_from_artifacts(
+                table,
+                data_acquisition_artifact=_optional_artifact_path(
+                    manifest, "data_acquisition"
+                ),
+                mass_artifacts={
+                    stage: path
+                    for stage in config.benchmarks.mass_check_stages
+                    if (path := _optional_artifact_path(manifest, stage)) is not None
+                },
+                orbital_solution_types=config.benchmarks.nss_orbital_solution_types,
+            )
+        except (OSError, KeyError, ValueError):
+            hydrated["known_truth_observed"] = None
+
     da_cov_path = _optional_artifact_path(manifest, "data_acquisition")
     if da_cov_path is not None:
         try:
@@ -2553,6 +2659,7 @@ def run_diagnostics_stage(
         mc_noise=resolved_mc_noise,
         solution_types=resolved_solution_types,
         sample_bundle=hydrated.get("sample_bundle"),
+        known_truth_observed=hydrated.get("known_truth_observed"),
         demo_missing=demo_hooks
         and resolved_candidates is None
         and resolved_sampler_runs is None,
