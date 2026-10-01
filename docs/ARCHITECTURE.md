@@ -433,6 +433,18 @@ later without restructuring anything else.
   six-panel comparison (P_orb, G, 1/parallax, eccentricity, astrometric mass function f_m, cos i)
   between real DR3 NSS and mock population, plus a new diagnostic comparing the fraction of mock
   sources landing in each Gaia solution-type bin against real fractions.
+  - **Real side (#339)**: exactly the paper's §4 sample, `nss_solution_type` in
+    `dr3.selection_function_astrometric.elbadry2024_comparison_nss_solution_types`
+    (`Orbital`, `AstroSpectroSB1`; 168,065 rows), read from the **uncut** Gaia snapshot recorded
+    on the `data_acquisition` artifact. No pipeline quality cut. One row set feeds all six panels.
+  - **Mock side (#339)**: only realizations passing every
+    `<dr>.selection_function_astrometric.orbital_solution_cuts` cut (paper Eq. 18, including
+    `F2 < 25`, and Eqs. 20-22) contribute to any panel. Panel values are fitted (catalog-like),
+    and mock `f_m` is `physics_utils.astrometric_mass_function(a0, parallax, P)`, the same
+    function as the real side. The companion mass from
+    `gaiamock.get_companion_mass_from_mass_function` is stored separately.
+  - The stage artifact persists both samples (`six_panel_samples/{mock,real}`); `diagnostics`
+    plots exactly those arrays. There is no reference-fixture fallback on the science path.
 - No emulator in v1 — call `gaiamock` directly, profile, add an emulator only if profiling shows
   it's needed.
 - **DR4 dual mode**: (a) fast — Gaia's own DR4 NSS catalog directly; (b) complete — `gaiamock`'s

@@ -272,6 +272,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.gaiamock_vendor",
                 "darkhunter_pop.constants",
+                # #339: real El-Badry 2024 comparison sample (snapshot loader + f_m),
+                # plus data_acquisition's own module-scope imports (#183).
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.rv_adapter",
                 # Stand-ins / calibration status / report are written by the
                 # pipeline wrapper through run_validity (#331, #351, #354).
                 "darkhunter_pop.run_validity",
@@ -295,6 +301,12 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.gaiamock_vendor",
                 "darkhunter_pop.constants",
+                # #339: real El-Badry 2024 comparison sample (snapshot loader + f_m),
+                # plus data_acquisition's own module-scope imports (#183).
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.physics_utils",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.rv_adapter",
                 # Stand-ins / calibration status / report are written by the
                 # pipeline wrapper through run_validity (#331, #351, #354).
                 "darkhunter_pop.run_validity",
@@ -369,6 +381,10 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.diagnostic_hooks",
                 "darkhunter_pop.gaiamock_vendor",
                 "darkhunter_pop.constants",
+                # forward_model's module-scope data_acquisition import (#339).
+                "darkhunter_pop.data_acquisition",
+                "darkhunter_pop.nss_covariance",
+                "darkhunter_pop.rv_adapter",
             ),
             config_keys=(
                 "inference",

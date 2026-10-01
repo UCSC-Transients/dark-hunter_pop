@@ -7,7 +7,6 @@ selection_function_astrometric:
   validation_gate:
     ks_pvalue_min: 0.01
     solution_type_fraction_max_abs_delta: 0.05
-    reference_path: null
   mock_population:
     sampling: elbadry_prior
     random_seed: 42
@@ -18,7 +17,8 @@ selection_function_astrometric:
     m1_msun: 1.0
     m2_msun: 0.5
     eccentricity: 0.3
-    # elbadry_prior ranges (tuned to tests/fixtures/elbadry2024_dr3_nss_reference.npz)
+    # elbadry_prior ranges: stand-in box priors, historically tuned to the synthetic
+    # placeholder tests/fixtures/elbadry2024_dr3_nss_reference.npz (test-only since #339).
     period_days_min: 60.0
     period_days_max: 8500.0
     eccentricity_max: 0.65

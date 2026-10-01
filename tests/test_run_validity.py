@@ -150,8 +150,6 @@ def test_astrometric_stage_writes_report_and_registers_stand_ins(
     assert "overall_passed: False" in text
     names = {s.name for s in read_stand_ins(artifact) or []}
     assert {"box_prior_mock_population", "mock_insufficient_visibility_fraction"} <= names
-    # No data_acquisition artifact on this run → the real side is the fixture.
-    assert "astrometric_gate_real_side_reference_fixture" in names
 
 
 def test_followup_stage_reports_not_calibrated_without_real_catalog(

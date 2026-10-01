@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
-import h5py
 
 from darkhunter_pop.companion_nature import run_companion_nature_likelihood
 from darkhunter_pop.config_loader import load_config
@@ -81,17 +80,6 @@ def _artifact_from_stage(manifest: RunManifest, stage_name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def _has_nss_panels(path: Path | None) -> bool:
-    """True when a data_acquisition artifact carries real six-panel samples."""
-    if path is None or not path.is_file():
-        return False
-    try:
-        with h5py.File(path, "r") as handle:
-            return "data_acquisition/nss_panels" in handle
-    except OSError:
-        return False
-
-
 def _run_selection_function_astrometric_stage(
     manifest: RunManifest,
     config: PipelineConfig,
@@ -125,7 +113,6 @@ def _run_selection_function_astrometric_stage(
             config,
             n_realizations=len(result.records),
             n_accepted=sum(1 for r in result.records if r.accepted_orbital),
-            real_panels_from_data_acquisition=_has_nss_panels(da),
         ),
     )
     if config.diagnostics.write_reports:

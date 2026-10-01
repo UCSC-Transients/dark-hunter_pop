@@ -86,8 +86,9 @@ _LAZY_IMPORT_ALLOWLIST: dict[tuple[str, str], str] = {
             "that does execute it hashes it."
         )
         for m in (
+            # data_acquisition: declared for inference since #339 (forward_model
+            # imports it at module scope), so no longer an allowlist entry.
             "andrews2022_atf",
-            "data_acquisition",
             "elbadry2026_m2_sigma",
             "elbadry2026_selection",
             "janssens_mass",

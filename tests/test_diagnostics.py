@@ -1048,3 +1048,195 @@ def test_slow_full_suite_with_figures(tmp_path: Path) -> None:
     assert mc.all_bins_passed or mc.n_mock_final >= 8
     assert "known_truth_benchmarks" in names
     assert "comparison_catalogs" in names
+
+
+# ---------------------------------------------------------------------------
+# #339: El-Badry six-panel reads the real SF mock, paper axes, provenance caption
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_six_panel_grid_log_axes_and_caption(tmp_path: Path) -> None:
+    from darkhunter_pop.plotting import six_panel_bin_edges
+
+    edges = six_panel_bin_edges(10.0, 1.0e4, scale="log", n_bins=3)
+    np.testing.assert_allclose(edges, [10.0, 100.0, 1000.0, 1.0e4])
+    with pytest.raises(ValueError):
+        six_panel_bin_edges(0.0, 1.0, scale="log", n_bins=3)
+
+    rng = np.random.default_rng(1)
+    panels = {
+        name: {"mock": rng.lognormal(size=50) + 0.01, "real": rng.lognormal(size=80) + 0.01}
+        for name in DEFAULT_ELBADRY_PANEL_ORDER
+    }
+    axes = {name: ("log", 1.0e-2, 1.0e2) for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    out = plot_six_panel_grid(
+        panels,
+        tmp_path / "six_log.png",
+        panel_order=DEFAULT_ELBADRY_PANEL_ORDER,
+        panel_axes=axes,
+        dpi=50,
+        max_bins=20,
+        caption="Mock: stand-in population. " * 8,
+    )
+    assert out is not None and out.is_file()
+
+
+@pytest.mark.unit
+def test_emit_six_panel_uses_paper_axes_and_reports_clipping(tmp_path: Path) -> None:
+    cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path)}),
+        }
+    )
+    axes = cfg.diagnostics.elbadry_six_panel_axes
+    assert axes["P_orb_days"].scale == "log"
+    assert axes["f_m_msun"].scale == "log"
+    assert (axes["inv_parallax_mas_inv"].xmin, axes["inv_parallax_mas_inv"].xmax) == (0.0, 2.0)
+    assert (axes["cos_inclination"].xmin, axes["cos_inclination"].xmax) == (-1.0, 1.0)
+
+    dirs = resolve_diagnostic_dirs(cfg, run_id="six339")
+    rng = np.random.default_rng(3)
+    panels = {
+        "P_orb_days": {"mock": rng.uniform(100, 2000, 30), "real": rng.uniform(100, 2000, 60)},
+        "G_mag": {"mock": rng.uniform(8, 15, 30), "real": rng.uniform(8, 15, 60)},
+        "inv_parallax_mas_inv": {
+            "mock": rng.uniform(0.1, 1.0, 30),
+            "real": np.append(rng.uniform(0.1, 1.0, 59), 2.0e4),
+        },
+        "eccentricity": {"mock": rng.uniform(0, 0.6, 30), "real": rng.uniform(0, 0.6, 60)},
+        "f_m_msun": {"mock": rng.uniform(1e-3, 0.1, 30), "real": rng.uniform(1e-3, 0.1, 60)},
+        "cos_inclination": {"mock": rng.uniform(-1, 1, 30), "real": rng.uniform(-1, 1, 60)},
+    }
+    meta = {
+        "real_nss_solution_types": ["Orbital", "AstroSpectroSB1"],
+        "real_n_rows": 60,
+        "real_snapshot_id": "snap",
+        "real_sample_citation": "El-Badry et al. 2024",
+        "mock_n_accepted": 30,
+        "mock_n_realizations": 500,
+    }
+    six = emit_elbadry_six_panel(cfg, dirs, panels=panels, meta=meta)
+    text = six.reports[0].read_text(encoding="utf-8")
+    assert "outside [0, 2]: 1" in text
+    assert "KS_D=" in text
+    assert "real_nss_solution_types" in text
+    assert any(p.name == "elbadry_six_panel.png" for p in six.figures)
+
+
+@pytest.mark.unit
+def test_read_elbadry_panels_from_sf_artifact_not_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from darkhunter_pop import diagnostics as diag_mod
+
+    cfg = load_config()
+    # No SF artifact on the manifest: hook has nothing to plot (None), no fallback.
+    monkeypatch.setattr(diag_mod, "_optional_artifact_path", lambda _m, _s: None)
+    assert diag_mod._read_elbadry_panels_from_manifest(None, cfg) is None  # type: ignore[arg-type]
+
+    # SF artifact predating #339 (no six_panel_samples): fail loudly.
+    old = tmp_path / "sf_old.h5"
+    with h5py.File(old, "w") as handle:
+        handle.attrs["stage"] = "selection_function_astrometric"
+    monkeypatch.setattr(diag_mod, "_optional_artifact_path", lambda _m, _s: old)
+    with pytest.raises(KeyError, match="six_panel_samples"):
+        diag_mod._read_elbadry_panels_from_manifest(None, cfg)  # type: ignore[arg-type]
+
+    # Current SF artifact: mock and real come from its six_panel_samples group.
+    new = tmp_path / "sf_new.h5"
+    from darkhunter_pop.forward_model import SIX_PANEL_NAMES
+
+    with h5py.File(new, "w") as handle:
+        grp = handle.create_group("six_panel_samples")
+        grp.attrs["real_n_rows"] = 3
+        for side, value in (("mock", 1.0), ("real", 2.0)):
+            sub = grp.create_group(side)
+            for name in SIX_PANEL_NAMES:
+                sub.create_dataset(name, data=np.full(3, value))
+    monkeypatch.setattr(diag_mod, "_optional_artifact_path", lambda _m, _s: new)
+    out = diag_mod._read_elbadry_panels_from_manifest(None, cfg)  # type: ignore[arg-type]
+    assert out is not None
+    panels, meta = out
+    assert meta["real_n_rows"] == 3
+    np.testing.assert_allclose(panels["cos_inclination"]["mock"], 1.0)
+    np.testing.assert_allclose(panels["cos_inclination"]["real"], 2.0)
+
+
+def _cfg_only_hooks(tmp_path: Path, keep: set[str]):
+    """Config with every diagnostics hook off except ``keep`` (keeps suite tests fast)."""
+    cfg = load_config()
+    hooks = cfg.diagnostics.hooks
+    off = {name: (name in keep) for name in type(hooks).model_fields}
+    return cfg.model_copy(
+        update={
+            "paths": cfg.paths.model_copy(update={"artifact_root": str(tmp_path)}),
+            "diagnostics": cfg.diagnostics.model_copy(
+                update={"hooks": hooks.model_copy(update=off)}
+            ),
+        }
+    )
+
+
+@pytest.mark.unit
+def test_stage_default_does_not_fabricate_demo_inputs() -> None:
+    """#355: ``run_diagnostics_stage`` defaults ``demo_hooks=False``."""
+    import inspect
+
+    from darkhunter_pop.diagnostics import run_diagnostics_stage
+
+    default = inspect.signature(run_diagnostics_stage).parameters["demo_hooks"].default
+    assert default is False
+
+
+@pytest.mark.unit
+def test_demo_emissions_are_watermarked(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import DEMO_WATERMARK, run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel", "solution_type_fractions"})
+    result = run_diagnostic_suite(cfg, run_id="demo355", demo_missing=True, run_sbc=False)
+    by_name = {h.hook_name: h for h in result.hooks_run}
+    six = by_name["elbadry_six_panel"]
+    assert six.payload.get("demo") is True
+    report = next(p for p in six.reports if p.suffix == ".txt")
+    assert report.read_text(encoding="utf-8").startswith(f"*** {DEMO_WATERMARK}")
+    st = by_name["solution_type_fractions"]
+    assert st.payload.get("demo") is True
+    text = format_diagnostics_stage_report(result)
+    assert f"elbadry_six_panel [{DEMO_WATERMARK}]" in text
+
+
+@pytest.mark.unit
+def test_real_inputs_are_not_watermarked(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel"})
+    panels = {
+        name: {"mock": np.linspace(0.1, 0.9, 10), "real": np.linspace(0.2, 0.8, 10)}
+        for name in DEFAULT_ELBADRY_PANEL_ORDER
+    }
+    result = run_diagnostic_suite(
+        cfg, run_id="real355", elbadry_panels=panels, demo_missing=False, run_sbc=False
+    )
+    six = next(h for h in result.hooks_run if h.hook_name == "elbadry_six_panel")
+    assert "demo" not in six.payload
+
+
+@pytest.mark.unit
+def test_hydration_error_recorded_as_skip(tmp_path: Path) -> None:
+    from darkhunter_pop.diagnostics import run_diagnostic_suite
+
+    cfg = _cfg_only_hooks(tmp_path, {"elbadry_six_panel"})
+    result = run_diagnostic_suite(
+        cfg,
+        run_id="hyd355",
+        demo_missing=True,
+        run_sbc=False,
+        hydration_errors={"elbadry_six_panel": "KeyError: no six_panel_samples"},
+    )
+    six = next(h for h in result.hooks_run if h.hook_name == "elbadry_six_panel")
+    assert six.skipped_reason == "hydration failed: KeyError: no six_panel_samples"
+    assert "elbadry_six_panel: skipped (hydration failed" in format_diagnostics_stage_report(
+        result
+    )
