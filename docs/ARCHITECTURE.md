@@ -549,6 +549,23 @@ convergence diagnostic.
   credible-interval coverage checked across repeated injections.
 - Known-truth benchmarks: Gaia-BH1, Gaia-BH2 (clean detections); Gaia-BH3 (marginal/non-detection
   in DR3 mode, RUWE=3.4, would have appeared in the acceleration catalog for parts of its orbit).
+  **Checked against this run's real outputs (#348)**: NSS membership, solution type and RUWE are read
+  from the `data_acquisition` artifact, and M2 from every stage in `benchmarks.mass_check_stages`
+  (bulk, refined, joint). Each M2 is compared with the published mass in the fixture
+  (`published_m2_msun` ± `published_m2_sigma_msun`, fixture schema v2) within
+  `benchmarks.mass_check_n_sigma` combined sigmas. Each check is `passed` / `failed` / `not_tested`.
+  A check with no data is `not_tested`, never passed. `synthetic_observed_from_truth` is reachable
+  from tests only. The comparison-catalog report says it is a fixture listing with no comparison
+  computed, and marks each catalog `complete` / `incomplete (n of N)` / `empty`.
+- **Empty is not a pass (#334)**: a diagnostic whose input is empty reports `not_tested` /
+  `insufficient_data`, never `ok`. The age-stratified WD check needs at least two populated age bins.
+  No upstream stage supplies primary ages yet (tracked separately).
+- **Analytic / synthetic checks are labeled as such**: the MC-noise convergence check is an analytic
+  identity on configured counts (#349). `sensitivity_analysis` runs on a synthetic fiducial catalog
+  in stage runs (#350). Follow-up calibration without a real catalog is `not_calibrated` (#351). SBC
+  with `recovery_backend: analytic_binned` is an analytic sanity check that does not validate
+  inference (#356). Their reports, figure titles and the diagnostics-stage "check verdicts" block
+  say so, and none of them is reported as a validated pass.
 - Cross-validation catalogs (comparison only): El-Badry/Rix/Latham/Shahaf/Mazeh et al.'s 21-system
   NS-candidate catalog (itself reporting NS candidates more eccentric than typical WD+MS binaries
   — direct support for the SN-kick hypothesis); the 156-companions astrometry+RV validation paper;
