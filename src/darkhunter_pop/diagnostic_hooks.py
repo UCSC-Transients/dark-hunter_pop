@@ -36,6 +36,7 @@ from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import PipelineConfig
 from darkhunter_pop.plotting import (
     MatplotlibUnavailableError,
+    axis_label,
     plot_categorical_bars,
     plot_histogram,
     plot_sky_mollweide,
@@ -238,18 +239,18 @@ def emit_funnel_sky(
 
     if diag.write_figures:
         max_bins = int(diag.histogram_max_bins)
-        for name, values, xlabel in (
-            ("ruwe", ruwe, "RUWE"),
-            ("period_day", period_day, "period (day)"),
-            ("eccentricity", eccentricity, "eccentricity"),
+        for name, values, title in (
+            ("ruwe", ruwe, f"{stage_name}: RUWE"),
+            ("period_day", period_day, f"{stage_name}: orbital period"),
+            ("eccentricity", eccentricity, f"{stage_name}: eccentricity"),
         ):
             path = _maybe_plot(
                 True,
-                lambda values=values, name=name, xlabel=xlabel: plot_histogram(
+                lambda values=values, name=name, title=title: plot_histogram(
                     values,
                     dirs.figures / f"{name}.png",
-                    xlabel=xlabel,
-                    title=name,
+                    xlabel=axis_label(name),
+                    title=title,
                     dpi=dpi,
                     max_bins=max_bins,
                     style=config.plotting,
@@ -281,7 +282,7 @@ def emit_funnel_sky(
                     labels,
                     values,
                     dirs.figures / "funnel_bars.png",
-                    xlabel="step",
+                    xlabel="funnel step",
                     ylabel="count",
                     title=f"{stage_name} funnel",
                     dpi=dpi,
@@ -357,8 +358,8 @@ def emit_gate_pass_rate(
                 lambda: plot_histogram(
                     chi2_dof_values,
                     dirs.figures / f"{gate_name}_chi2_dof.png",
-                    xlabel="chi2 per dof",
-                    title=f"{gate_name} chi2/dof",
+                    xlabel=axis_label("chi2_dof"),
+                    title=f"{gate_name}: $\\chi^2$ per degree of freedom",
                     dpi=diag.figure_dpi,
                     max_bins=int(diag.histogram_max_bins),
                     style=config.plotting,

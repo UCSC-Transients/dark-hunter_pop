@@ -635,6 +635,14 @@ plotting:
   dndm_y_decades: 12.0
   # Line spacing used when a product figure reserves a caption band.
   caption_line_spacing: 1.45
+  # Heavy-tail auto log/symlog threshold (decades), horizontal-bar switch and
+  # reference-line styles (#333). Display-only.
+  auto_log_min_decades: 2.0
+  categorical_max_vertical_labels: 8
+  categorical_row_height_inches: 0.32
+  reference_line_colors: ["#D55E00", "#CC79A7", "#000000"]
+  reference_linestyle_cycle: ["--", ":", "-."]
+  bar_hatch_cycle: ["", "//", "..", "xx"]
 benchmarks:
   known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
   ruwe_match_tolerance: 0.25
