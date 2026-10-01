@@ -2257,6 +2257,22 @@ class OrbitalSolutionCutsConfig(BaseModel):
     sigma_e_intercept: float = -0.244
 
 
+class AccelerationPublicationCutsConfig(BaseModel):
+    """Extra cuts a provisionally accepted acceleration solution needed to be *published*.
+
+    El-Badry et al. (2024) §5.2.1 (from Halbwachs et al. 2023): significance s > 20 for
+    both 7- and 9-parameter solutions (s > 12 only removed them from orbit fitting), and
+    the F2 threshold for published 7-parameter solutions lowered from 25 to 22.
+    Path-specific (DR3 post-processing).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    acceleration_significance_min: float = Field(20.0, gt=0)
+    acceleration7_f2_max: float = Field(22.0, gt=0)
+    acceleration9_f2_max: float = Field(25.0, gt=0)
+
+
 class DRSelectionFunctionPathConfig(BaseModel):
     """Path-specific mock-injection window, orbital cuts and real comparison sample."""
 
@@ -2267,6 +2283,13 @@ class DRSelectionFunctionPathConfig(BaseModel):
     orbital_solution_cuts: OrbitalSolutionCutsConfig = Field(
         default_factory=OrbitalSolutionCutsConfig
     )
+    acceleration_publication_cuts: AccelerationPublicationCutsConfig = Field(
+        default_factory=AccelerationPublicationCutsConfig
+    )
+    # Mock binaries with apparent G at or fainter than this are removed from the mock
+    # sample before the cascade: El-Badry et al. (2024) §3.2 drops unresolved binaries
+    # with G > 19, "which were not fit with binary solutions in DR3". None disables.
+    mock_g_mag_max: float | None = 19.0
     # Real side of the El-Badry et al. (2024) six-panel comparison: the published
     # ``nss_two_body_orbit`` rows whose ``nss_solution_type`` is in this list, taken
     # from the uncut Gaia snapshot (no pipeline quality cut). DR3: the paper's §4
@@ -2534,6 +2557,10 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "sigma_e_ln_period_slope",
         "sigma_e_intercept",
         "elbadry2024_comparison_nss_solution_types",
+        "acceleration_significance_min",
+        "acceleration7_f2_max",
+        "acceleration9_f2_max",
+        "mock_g_mag_max",
     }
 )
 
