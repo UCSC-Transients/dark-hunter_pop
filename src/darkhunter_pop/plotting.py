@@ -353,6 +353,25 @@ def plot_overlay_histograms(
     return save_figure(fig, path, dpi=dpi)
 
 
+def six_panel_bin_edges(
+    xmin: float,
+    xmax: float,
+    *,
+    scale: str,
+    n_bins: int,
+) -> NDArray[np.float64]:
+    """Fixed histogram edges over ``[xmin, xmax]``: linear, or log-spaced for ``log``."""
+    if n_bins < 1:
+        raise ValueError(f"n_bins must be >= 1, got {n_bins}")
+    if scale == "log":
+        if xmin <= 0:
+            raise ValueError("log-scale bin edges need xmin > 0")
+        return np.logspace(np.log10(xmin), np.log10(xmax), n_bins + 1)
+    if scale != "linear":
+        raise ValueError(f"unsupported scale {scale!r}")
+    return np.linspace(xmin, xmax, n_bins + 1)
+
+
 def plot_six_panel_grid(
     panels: Mapping[str, Mapping[str, NDArray[np.floating] | Sequence[float]]],
     path: Path,
@@ -361,15 +380,26 @@ def plot_six_panel_grid(
     dpi: int,
     title: str = "El-Badry-style six-panel comparison",
     panel_xlabels: Mapping[str, str] | None = None,
+    panel_axes: Mapping[str, tuple[str, float, float]] | None = None,
     bins: int | str = "auto",
     max_bins: int | None = None,
     density: bool = True,
+    caption: str | None = None,
     style: PlottingStyleConfig | None = None,
 ) -> Path | None:
     """Write a 2×3 grid of overlay histograms (selection-function validation style).
 
     ``panels`` maps panel name → {series_label → values}. Missing or empty series are
     skipped within a panel; a panel with no data is left blank with an annotation.
+
+    ``panel_axes`` maps panel name → ``(scale, xmin, xmax)`` with ``scale`` in
+    ``{"linear", "log"}``. Such a panel uses fixed edges over that range
+    (``max_bins`` or 40 bins, log-spaced on a log axis); values outside it are not
+    drawn, so the caller should report out-of-range counts. Other panels keep
+    ``bins`` (capped by ``max_bins``) over their finite data. ``density=True``
+    normalises each series to unit area over the drawn range, so samples of very
+    different size compare by shape. ``caption`` is wrapped into its own reserved
+    band beneath the axes at tick-label size (docs/PLOTS.md).
     """
     if not panel_order:
         return None
@@ -378,25 +408,44 @@ def plot_six_panel_grid(
     n = len(panel_order)
     nrows = 2 if n > 3 else 1
     ncols = min(3, n) if n else 1
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(cfg.figsize_landscape[0] / 7.0 * 4 * ncols, 3.5 * nrows),
-    )
+    width = cfg.figsize_landscape[0] / 7.0 * 4 * ncols
+    height = 3.5 * nrows
+    gutter = 0.18
+    caption_lines: list[str] = []
+    band = 0.0
+    if caption:
+        caption_lines = wrap_text_to_inches(
+            caption,
+            max_width_inches=width - 2.0 * gutter,
+            font_family=cfg.font_family,
+            fontsize=cfg.tick_label_fontsize,
+        )
+        line_h = float(cfg.tick_label_fontsize) * float(cfg.caption_line_spacing) / 72.0
+        band = line_h * len(caption_lines) + 2.0 * gutter
+        height += band
+    fig, axes = plt.subplots(nrows, ncols, figsize=(width, height))
     flat = np.atleast_1d(axes).ravel()
     any_drawn = False
     for index, panel_name in enumerate(panel_order):
         axis = flat[index]
         series = panels.get(panel_name, {})
+        axis_spec = (panel_axes or {}).get(panel_name)
         drawn = False
         series_index = 0
         for label, values in series.items():
             arr = np.asarray(values, dtype=np.float64)
             finite = arr[np.isfinite(arr)]
+            if axis_spec is not None:
+                scale, lo, hi = axis_spec
+                finite = finite[(finite >= lo) & (finite <= hi)]
+                resolved: int | str | NDArray[np.floating] = six_panel_bin_edges(
+                    lo, hi, scale=scale, n_bins=int(max_bins) if max_bins else 40
+                )
             if finite.size == 0:
                 continue
+            if axis_spec is None:
+                resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             sty = series_style(series_index, cfg)
-            resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             axis.hist(
                 finite,
                 bins=resolved,
@@ -410,11 +459,16 @@ def plot_six_panel_grid(
             series_index += 1
             drawn = True
             any_drawn = True
+        if axis_spec is not None:
+            scale, lo, hi = axis_spec
+            if scale == "log":
+                axis.set_xscale("log")
+            axis.set_xlim(lo, hi)
         apply_axes_style(
             axis,
             cfg,
             xlabel=(panel_xlabels or {}).get(panel_name, panel_name),
-            title=panel_name,
+            ylabel="probability density" if density and index % ncols == 0 else None,
         )
         if drawn:
             axis.legend(
@@ -439,7 +493,24 @@ def plot_six_panel_grid(
     if not any_drawn:
         plt.close(fig)
         return None
-    return save_figure(fig, path, dpi=dpi)
+    if not caption_lines:
+        return save_figure(fig, path, dpi=dpi)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout(rect=(0.0, band / height, 1.0, 1.0))
+    fig.text(
+        gutter / width,
+        (band - gutter) / height,
+        "\n".join(caption_lines),
+        ha="left",
+        va="top",
+        fontfamily=cfg.font_family,
+        fontsize=cfg.tick_label_fontsize,
+        linespacing=float(cfg.caption_line_spacing),
+    )
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)
+    return path
 
 
 def plot_categorical_bars(
