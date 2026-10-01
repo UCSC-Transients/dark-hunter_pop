@@ -631,6 +631,20 @@ plotting:
 benchmarks:
   known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
   ruwe_match_tolerance: 0.25
+  # Known-truth M2 must match published within n combined sigmas (#348).
+  mass_check_n_sigma: 3.0
+  mass_check_stages:
+  - mass_derivation_bulk
+  - mass_derivation_refined
+  - joint_orbit_fit
+  # DR3 NSS solution types carrying an astrometric orbit.
+  nss_orbital_solution_types:
+  - Orbital
+  - AstroSpectroSB1
+  - OrbitalTargetedSearch
+  - OrbitalTargetedSearchValidated
+  - OrbitalAlternative
+  - OrbitalAlternativeValidated
   catalogs:
     ns_candidate_21:
       path: config/benchmarks/catalogs/ns_candidate_21.yaml

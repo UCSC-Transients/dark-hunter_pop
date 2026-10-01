@@ -415,3 +415,26 @@ def test_followup_gate_without_status_attr_is_unreadable(tmp_path: Path) -> None
     status = followup_gate_status(path)
     assert status.status == "unreadable"
     assert not status.passed
+
+
+# ---------------------------------------------------------------------------
+# #349 / #350 / #356: honesty labels
+# ---------------------------------------------------------------------------
+
+
+def test_sensitivity_report_labels_synthetic_catalog_and_analytic_mc(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    manifest, run_path = _fresh_run(cfg, tmp_path)
+    manifest = run_sensitivity_analysis_stage(manifest, cfg, run_path=run_path)
+    artifact = Path(manifest.stages["sensitivity_analysis"].artifact_path)
+    text = (_reports_dir(artifact) / "sensitivity_analysis_report.txt").read_text()
+    assert "SYNTHETIC CATALOG — NOT A PIPELINE TEST" in text
+    assert "ANALYTIC PLACEHOLDER — NOT MEASURED" in text
+
+
+def test_sbc_analytic_backend_is_not_a_pipeline_validation() -> None:
+    from darkhunter_pop.sbc import SBC_ANALYTIC_BANNER, sbc_validates_pipeline
+
+    assert sbc_validates_pipeline("analytic_binned") is False
+    assert sbc_validates_pipeline("dynesty") is True
+    assert "does NOT validate inference" in SBC_ANALYTIC_BANNER

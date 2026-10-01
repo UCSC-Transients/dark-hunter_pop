@@ -425,6 +425,29 @@ class BenchmarksConfig(BaseModel):
 
     known_truth_path: str = "config/benchmarks/known_truth_gaia_bh.yaml"
     ruwe_match_tolerance: float = Field(0.25, gt=0)
+    # Known-truth mass check (#348): pipeline M2 must agree with the published value
+    # within this many combined sigmas (published ⊕ pipeline marginal sigma).
+    mass_check_n_sigma: float = Field(3.0, gt=0)
+    # Stages whose artifacts carry an M2 ParameterSet to check, in pipeline order.
+    mass_check_stages: list[str] = Field(
+        default_factory=lambda: [
+            "mass_derivation_bulk",
+            "mass_derivation_refined",
+            "joint_orbit_fit",
+        ]
+    )
+    # Gaia DR3 NSS solution types that carry an astrometric orbit (a "clean
+    # detection" for the known-truth check). Catalog vocabulary, config-owned.
+    nss_orbital_solution_types: list[str] = Field(
+        default_factory=lambda: [
+            "Orbital",
+            "AstroSpectroSB1",
+            "OrbitalTargetedSearch",
+            "OrbitalTargetedSearchValidated",
+            "OrbitalAlternative",
+            "OrbitalAlternativeValidated",
+        ]
+    )
     catalogs: dict[str, BenchmarkCatalogEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")
