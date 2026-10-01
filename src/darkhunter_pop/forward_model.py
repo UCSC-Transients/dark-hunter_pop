@@ -34,6 +34,7 @@ from scipy import stats
 from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
     ExtinctionModel,
+    OrbitalSolutionCutsConfig,
     MajorSurveySFConfig,
     MockPopulationConfig,
     MockPopulationSampling,
@@ -50,6 +51,8 @@ from darkhunter_pop.gaiamock_vendor import (
     read_versions,
     import_gaiamock_mod,
 )
+from darkhunter_pop.data_acquisition import load_gaia_snapshot
+from darkhunter_pop.physics_utils import astrometric_mass_function
 from darkhunter_pop.schemas import ActiveDRMode, FollowUpRecord
 
 # ``SIX_PANEL_NAMES`` / ``SOLUTION_TYPE_LABELS`` live in ``diagnostic_hooks`` (#182) so
@@ -106,7 +109,21 @@ class MultiSolutionEmission:
 
 @dataclass(frozen=True)
 class MockRealizationRecord:
-    """One gaiamock mock injection outcome."""
+    """One gaiamock mock injection outcome.
+
+    Every six-panel field (``P_orb_days`` … ``cos_inclination``) and the fitted
+    orbit quantities are populated **only** when ``accepted_orbital`` is true, i.e.
+    the realization received a 12-parameter orbital solution that passes every
+    configured orbital-solution cut (#339). They are fitted (catalog-like) values,
+    as the real comparison sample's are.
+
+    ``f_m_msun`` is the astrometric mass function ``(a0/parallax)^3 / P_yr^2``
+    (``physics_utils.astrometric_mass_function``, El-Badry et al. 2024 Eq. 19) —
+    the same function the real comparison side uses. ``m2_from_mass_function_msun``
+    is the separate companion mass ``M2`` inverted by
+    ``gaiamock.get_companion_mass_from_mass_function`` given the true ``M1`` and
+    flux ratio; it is not a six-panel quantity.
+    """
 
     solution_type: SolutionType
     accepted_orbital: bool
@@ -117,6 +134,9 @@ class MockRealizationRecord:
     f_m_msun: float | None = None
     cos_inclination: float | None = None
     multi_solution: MultiSolutionEmission | None = None
+    parallax_mas: float | None = None
+    a0_mas: float | None = None
+    m2_from_mass_function_msun: float | None = None
 
 
 @dataclass
@@ -190,6 +210,7 @@ class SelectionFunctionAstrometricResult:
     records: list[MockRealizationRecord]
     validation: ValidationGateResult
     data_release: str
+    real_comparison: ElBadryComparisonSample | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -545,12 +566,46 @@ def _mock_rng(config: PipelineConfig) -> np.random.Generator:
     return np.random.default_rng(seed)
 
 
+def passes_orbital_solution_cuts(
+    *,
+    a0_over_err: float,
+    parallax_over_error: float,
+    period_days: float,
+    sigma_ecc: float,
+    goodness_of_fit_f2: float,
+    cuts: OrbitalSolutionCutsConfig,
+) -> bool:
+    """True when a fitted orbit passes every configured orbital-solution cut.
+
+    Implements El-Badry et al. (2024) Eq. 18 (``a0/sigma_a0 > 5``, ``F2 < 25``)
+    and Eqs. 20-22 (Halbwachs et al. 2023 post-processing) with thresholds owned
+    by ``<dr>.selection_function_astrometric.orbital_solution_cuts``. Requires
+    ``period_days > 0``; a non-finite input fails the cut.
+    """
+    if not (period_days > 0):
+        return False
+    return bool(
+        (a0_over_err > cuts.a0_over_err_min)
+        and (goodness_of_fit_f2 < cuts.goodness_of_fit_f2_max)
+        and (
+            parallax_over_error
+            > cuts.parallax_over_error_times_period_min_days / period_days
+        )
+        and (a0_over_err > cuts.a0_over_err_times_sqrt_period_min / np.sqrt(period_days))
+        and (
+            sigma_ecc
+            < cuts.sigma_e_ln_period_slope * np.log(period_days) + cuts.sigma_e_intercept
+        )
+    )
+
+
 def classify_cascade_result(
     cascade: Sequence[float],
     *,
     m1_msun: float,
     m2_msun: float,
     flux_ratio: float,
+    cuts: OrbitalSolutionCutsConfig,
     gaiamock: ModuleType | None = None,
 ) -> MockRealizationRecord:
     """Map ``fit_full_astrometric_cascade`` return vector to solution type + six panels.
@@ -558,19 +613,38 @@ def classify_cascade_result(
     Return layout (gaiamock_mod): plx, sig_parallax, A, sig_A, B, sig_B, F, sig_F, G, sig_G,
     period, sig_period, phi_p, sig_phi_p, ecc, sig_ecc, inc_deg, a0_mas, sigma_a0_mas,
     N_visibility_periods, N_obs, F2, ruwe.
+
+    gaiamock returns the orbital fit without applying ``F2 < 25`` or the
+    post-processing cuts, so all of them are applied here (``cuts``). Six-panel
+    fields are filled only for realizations passing every cut (#339).
+
+    Parameters
+    ----------
+    cascade
+        23-element cascade vector; shorter vectors are zero-padded.
+    m1_msun, flux_ratio
+        True primary mass and G-band flux ratio, used only for the separate
+        ``m2_from_mass_function_msun`` inversion.
+    m2_msun
+        True companion mass (unused; kept for call-site symmetry).
+    cuts
+        Orbital-solution acceptance thresholds for the active DR path.
+    gaiamock
+        Imported ``gaiamock_mod``; when ``None`` the M2 inversion is skipped.
     """
+    del m2_msun
     res = list(cascade)
     if len(res) < 23:
         res = res + [0.0] * (23 - len(res))
     plx = float(res[0])
     sig_parallax = float(res[1])
     period = float(res[10])
-    sig_period = float(res[11])
     ecc = float(res[14])
     sig_ecc = float(res[15])
     inc_deg = float(res[16])
     a0_mas = float(res[17])
     sigma_a0_mas = float(res[18])
+    f2 = float(res[21])
 
     if plx == 0.0:
         return MockRealizationRecord(
@@ -604,24 +678,27 @@ def classify_cascade_result(
             accepted_orbital=False,
         )
 
-    a0_over_err = a0_mas / sigma_a0_mas
-    plx_over_err = plx / sig_parallax
-    passed_cuts = (
-        (a0_over_err > 5.0)
-        and (plx_over_err > 20000.0 / period)
-        and (a0_over_err > 158.0 / np.sqrt(period))
-        and (sig_ecc < 0.079 * np.log(period) - 0.244)
+    passed_cuts = passes_orbital_solution_cuts(
+        a0_over_err=a0_mas / sigma_a0_mas,
+        parallax_over_error=plx / sig_parallax,
+        period_days=period,
+        sigma_ecc=sig_ecc,
+        goodness_of_fit_f2=f2,
+        cuts=cuts,
     )
-    stype = (
-        SolutionType.TWELVE_PARAMETER_ORBITAL
-        if passed_cuts
-        else SolutionType.ORBITAL_FAILED_CUTS
-    )
+    if not passed_cuts:
+        return MockRealizationRecord(
+            solution_type=SolutionType.ORBITAL_FAILED_CUTS,
+            accepted_orbital=False,
+        )
 
-    f_m: float | None = None
-    if passed_cuts and a0_mas > 0 and gaiamock is not None:
+    f_m_arr = astrometric_mass_function(a0_mas, plx, period)
+    f_m = float(f_m_arr) if np.isfinite(f_m_arr) else None
+
+    m2_inv: float | None = None
+    if a0_mas > 0 and gaiamock is not None:
         try:
-            f_m = float(
+            m2_inv = float(
                 gaiamock.get_companion_mass_from_mass_function(
                     M1=m1_msun,
                     a0_mas=a0_mas,
@@ -631,19 +708,21 @@ def classify_cascade_result(
                 )
             )
         except Exception:
-            f_m = None
+            m2_inv = None
 
-    inv_parallax = 1.0 / plx if plx > 0 else None
-    cos_inc = float(np.cos(np.radians(inc_deg))) if inc_deg == inc_deg else None
+    cos_inc = float(np.cos(np.radians(inc_deg))) if np.isfinite(inc_deg) else None
 
     return MockRealizationRecord(
-        solution_type=stype,
-        accepted_orbital=passed_cuts,
-        P_orb_days=period if passed_cuts else None,
-        inv_parallax_mas_inv=inv_parallax,
-        eccentricity=ecc if passed_cuts else None,
+        solution_type=SolutionType.TWELVE_PARAMETER_ORBITAL,
+        accepted_orbital=True,
+        P_orb_days=period,
+        inv_parallax_mas_inv=1.0 / plx,
+        eccentricity=ecc,
         f_m_msun=f_m,
         cos_inclination=cos_inc,
+        parallax_mas=plx,
+        a0_mas=a0_mas,
+        m2_from_mass_function_msun=m2_inv,
     )
 
 
@@ -734,56 +813,203 @@ def run_solution_type_validation(
     )
 
 
-def _resolve_reference_path(config: PipelineConfig) -> Path | None:
-    ref = config.selection_function_astrometric.validation_gate.reference_path
-    if ref is None:
-        default = (
-            repo_root()
-            / "tests"
-            / "fixtures"
-            / "elbadry2024_dr3_nss_reference.npz"
-        )
-        return default if default.is_file() else None
-    path = Path(ref)
-    if not path.is_absolute():
-        path = repo_root() / path
-    return path if path.is_file() else None
+ELBADRY2024_CITATION = (
+    "El-Badry, Lam, Holl et al. (2024), OJAp 7, 100 (arXiv:2411.00088), §4 and Fig. 5"
+)
 
 
-def load_reference_panels(config: PipelineConfig) -> tuple[dict[str, NDArray[np.float64]], dict[str, float]]:
-    """Load bundled or configured El-Badry DR3 NSS reference histograms."""
-    path = _resolve_reference_path(config)
-    if path is None:
+@dataclass(frozen=True)
+class ElBadryComparisonSample:
+    """Real side of the El-Badry et al. (2024) Fig. 5 six-panel comparison.
+
+    One row set feeds all six panels: the published DR3 ``nss_two_body_orbit`` rows
+    whose ``nss_solution_type`` is in ``nss_solution_types`` (paper §4: "Orbital or
+    AstroSpectroSB1"), read from the uncut Gaia snapshot (no pipeline quality cut;
+    the published catalog already carries the Halbwachs et al. 2023 cuts). A panel
+    drops only rows whose value for that panel is non-finite.
+    """
+
+    panels: dict[str, NDArray[np.float64]]
+    nss_solution_types: tuple[str, ...]
+    n_rows: int
+    snapshot_id: str
+    citation: str = ELBADRY2024_CITATION
+
+
+def _column_array(
+    columns: Mapping[str, Any], name: str, *, dtype: Any = np.float64
+) -> NDArray[Any]:
+    col = columns[name]
+    if np.ma.isMaskedArray(col) or hasattr(col, "mask"):
+        arr = np.ma.asarray(col)
+        if np.issubdtype(np.dtype(dtype), np.floating):
+            return np.asarray(arr.astype(np.float64).filled(np.nan), dtype=np.float64)
+        return np.asarray(arr.filled(""), dtype=dtype)
+    return np.asarray(col, dtype=dtype)
+
+
+def build_elbadry2024_comparison_panels(
+    columns: Mapping[str, Any],
+    *,
+    nss_solution_types: Sequence[str],
+    gaiamock: ModuleType,
+) -> tuple[dict[str, NDArray[np.float64]], int]:
+    """Six-panel arrays for the El-Badry et al. (2024) real comparison sample.
+
+    Parameters
+    ----------
+    columns
+        Column mapping (an ``astropy.table.Table`` works) with ``source_id``,
+        ``nss_solution_type``, ``period``, ``eccentricity``, ``parallax``,
+        ``A``/``B``/``F``/``G`` (Thiele-Innes, mas) and ``g_mag`` or
+        ``phot_g_mean_mag``. Masked entries become NaN.
+    nss_solution_types
+        Exact ``nss_solution_type`` strings kept (no prefix matching).
+    gaiamock
+        Imported ``gaiamock_mod``; its ``get_Campbell_elements`` gives ``a0`` and
+        the inclination (never reimplemented, docs/GAIAMOCK_API.md).
+
+    Returns
+    -------
+    (panels, n_rows)
+        ``panels`` maps every ``SIX_PANEL_NAMES`` entry to finite values from the
+        selected rows; ``n_rows`` is the number of selected rows after collapsing
+        repeated ``(source_id, nss_solution_type)`` rows (cross-match fan-out
+        duplicates in the snapshot, #221) to one.
+
+    Notes
+    -----
+    ``inv_parallax_mas_inv`` is ``1/parallax`` in mas⁻¹, numerically the paper's
+    ``1/ϖ`` in kpc. ``f_m_msun`` is ``physics_utils.astrometric_mass_function``
+    (paper Eq. 19), as on the mock side. ``cos_inclination`` is signed
+    (``i`` in [0°, 180°]), as in the paper's Fig. 5.
+    """
+    stype = _column_array(columns, "nss_solution_type", dtype=object).astype(str)
+    source_id = _column_array(columns, "source_id", dtype=np.int64)
+    keep = np.isin(stype, np.asarray(list(nss_solution_types), dtype=str))
+    idx = np.flatnonzero(keep)
+    if idx.size:
+        keys = np.char.add(source_id[idx].astype(str), np.char.add("|", stype[idx]))
+        _uniq, first = np.unique(keys, return_index=True)
+        idx = idx[np.sort(first)]
+    g_name = "g_mag" if "g_mag" in columns else "phot_g_mean_mag"
+
+    def col(name: str) -> NDArray[np.float64]:
+        return _column_array(columns, name)[idx]
+
+    period = col("period")
+    ecc = col("eccentricity")
+    plx = col("parallax")
+    g_mag = col(g_name)
+    a_ti, b_ti, f_ti, g_ti = col("A"), col("B"), col("F"), col("G")
+    if idx.size:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            a0, _node, _omega, inc = gaiamock.get_Campbell_elements(a_ti, b_ti, f_ti, g_ti)
+        a0 = np.asarray(a0, dtype=np.float64)
+        inc = np.asarray(inc, dtype=np.float64)
+    else:
+        a0 = np.empty(0, dtype=np.float64)
+        inc = np.empty(0, dtype=np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        inv_plx = np.where(plx > 0.0, 1.0 / plx, np.nan)
+        f_m = astrometric_mass_function(a0, plx, period)
+        cos_i = np.cos(inc)
+    raw = {
+        "P_orb_days": period,
+        "G_mag": g_mag,
+        "inv_parallax_mas_inv": inv_plx,
+        "eccentricity": ecc,
+        "f_m_msun": f_m,
+        "cos_inclination": cos_i,
+    }
+    panels = {
+        name: np.asarray(raw[name][np.isfinite(raw[name])], dtype=np.float64)
+        for name in SIX_PANEL_NAMES
+    }
+    return panels, int(idx.size)
+
+
+def resolve_snapshot_meta_from_data_acquisition(
+    da_artifact: Path,
+    config: PipelineConfig,
+) -> Path:
+    """Gaia snapshot ``meta.yaml`` recorded on a ``data_acquisition`` artifact.
+
+    Looks under ``{paths.data_root}/{active_dr}/gaia_snapshots/<snapshot_id>/``.
+    Raises ``FileNotFoundError`` / ``KeyError`` rather than falling back.
+    """
+    with h5py.File(da_artifact, "r") as handle:
+        if "meta" not in handle or "snapshot_id" not in handle["meta"].attrs:
+            raise KeyError(f"{da_artifact} records no meta/snapshot_id")
+        raw_id = handle["meta"].attrs["snapshot_id"]
+    snapshot_id = (
+        raw_id.decode("utf-8") if isinstance(raw_id, (bytes, bytearray)) else str(raw_id)
+    )
+    root = Path(config.paths.data_root)
+    if not root.is_absolute():
+        root = repo_root() / root
+    meta = root / config.active_dr_mode.value / "gaia_snapshots" / snapshot_id / "meta.yaml"
+    if not meta.is_file():
         raise FileNotFoundError(
-            "no El-Badry reference panels: set validation_gate.reference_path or "
-            "install tests/fixtures/elbadry2024_dr3_nss_reference.npz"
+            f"Gaia snapshot {snapshot_id!r} recorded on {da_artifact} not found at {meta}; "
+            "the El-Badry 2024 real comparison sample needs the uncut snapshot"
         )
-    with np.load(path, allow_pickle=False) as data:
-        panels = {
-            name: np.asarray(data[name], dtype=np.float64)
-            for name in SIX_PANEL_NAMES
-            if name in data
-        }
-        st_frac = {
-            label: float(data[f"solution_type_frac_{label}"])
-            for label in SOLUTION_TYPE_LABELS
-            if f"solution_type_frac_{label}" in data
-        }
-    missing = [p for p in SIX_PANEL_NAMES if p not in panels]
-    if missing:
-        raise ValueError(f"reference file missing panels: {missing}")
-    if not st_frac:
-        raise ValueError("reference file missing solution_type_frac_* keys")
-    return panels, st_frac
+    return meta
 
 
-load_elbadry_reference_panels = load_reference_panels
+def load_elbadry2024_comparison_sample(
+    da_artifact: Path,
+    config: PipelineConfig,
+    gaiamock: ModuleType,
+) -> ElBadryComparisonSample:
+    """Build the El-Badry et al. (2024) real comparison sample from the uncut snapshot.
+
+    The snapshot is the one recorded on the ``data_acquisition`` artifact; the
+    pipeline's goodness-of-fit quality cut is deliberately **not** applied, because
+    the paper compares to the full published catalog.
+    """
+    meta_path = resolve_snapshot_meta_from_data_acquisition(da_artifact, config)
+    meta, table = load_gaia_snapshot(meta_path, verify_checksum=False)
+    types = tuple(
+        config.active_dr().selection_function_astrometric.elbadry2024_comparison_nss_solution_types
+    )
+    panels, n_rows = build_elbadry2024_comparison_panels(
+        table, nss_solution_types=types, gaiamock=gaiamock
+    )
+    del table
+    if n_rows == 0:
+        raise ValueError(
+            f"El-Badry 2024 comparison sample is empty for nss_solution_type in {types} "
+            f"(snapshot {meta.snapshot_id})"
+        )
+    return ElBadryComparisonSample(
+        panels=panels,
+        nss_solution_types=types,
+        n_rows=n_rows,
+        snapshot_id=meta.snapshot_id,
+    )
+
+
+def load_real_solution_type_fractions(artifact_path: Path) -> dict[str, float]:
+    """Real DR3 NSS solution-type fractions from a ``data_acquisition`` artifact."""
+    with h5py.File(artifact_path, "r") as handle:
+        st_grp = handle.get("data_acquisition/solution_type_fractions")
+        if st_grp is None:
+            raise KeyError(
+                f"{artifact_path} lacks data_acquisition/solution_type_fractions"
+            )
+        return {label: float(st_grp[label][()]) for label in SOLUTION_TYPE_LABELS}
 
 
 def load_real_panels_from_data_acquisition(
     artifact_path: Path,
 ) -> tuple[dict[str, NDArray[np.float64]], dict[str, float]]:
-    """Read real DR3 NSS six-panel samples + solution-type fractions from data_acquisition HDF5."""
+    """Read the ``data_acquisition`` artifact's ``nss_panels`` + solution-type fractions.
+
+    Not the El-Badry et al. (2024) comparison sample: those panels mix every NSS
+    solution type and are quality-cut. ``selection_function_astrometric`` uses
+    :func:`load_elbadry2024_comparison_sample` instead (#339).
+    """
     with h5py.File(artifact_path, "r") as handle:
         if "data_acquisition/nss_panels" not in handle:
             raise KeyError(
@@ -855,6 +1081,7 @@ def _run_single_mock_realization(
         m1_msun=draw.m1_msun,
         m2_msun=draw.m2_msun,
         flux_ratio=draw.flux_ratio,
+        cuts=config.active_dr().selection_function_astrometric.orbital_solution_cuts,
         gaiamock=gaiamock,
     )
     if rec.accepted_orbital:
@@ -876,6 +1103,9 @@ def _run_single_mock_realization(
             f_m_msun=rec.f_m_msun,
             cos_inclination=rec.cos_inclination,
             multi_solution=multi_solution,
+            parallax_mas=rec.parallax_mas,
+            a0_mas=rec.a0_mas,
+            m2_from_mass_function_msun=rec.m2_from_mass_function_msun,
         )
     return rec
 
@@ -994,11 +1224,32 @@ def run_validation_gate(
     )
 
 
+def _mock_panel_column(
+    records: Sequence[MockRealizationRecord], attr: str
+) -> NDArray[np.float64]:
+    return np.array(
+        [
+            np.nan if getattr(r, attr) is None else float(getattr(r, attr))
+            for r in records
+        ],
+        dtype=np.float64,
+    )
+
+
 def write_selection_function_artifact(
     path: Path,
     result: SelectionFunctionAstrometricResult,
+    *,
+    g_mag: NDArray[np.floating] | None = None,
 ) -> None:
-    """Persist one HDF5 artifact for ``selection_function_astrometric``."""
+    """Persist one HDF5 artifact for ``selection_function_astrometric``.
+
+    Besides the gate results, writes per-realization mock quantities under
+    ``mock_catalog/`` (NaN where not accepted) and, when ``result.real_comparison``
+    is set, ``six_panel_samples/{mock,real}/<panel>`` — the exact arrays the KS
+    gate compared, which ``diagnostics`` plots (#339). ``g_mag`` is the mock
+    apparent G per realization (``run_mock_injections``).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as handle:
         handle.attrs["stage"] = "selection_function_astrometric"
@@ -1080,6 +1331,42 @@ def write_selection_function_artifact(
         mock_grp.create_dataset(
             "multi_solution_n_period_aliases", data=n_period_aliases
         )
+        for attr in (
+            "P_orb_days",
+            "inv_parallax_mas_inv",
+            "eccentricity",
+            "f_m_msun",
+            "cos_inclination",
+            "parallax_mas",
+            "a0_mas",
+            "m2_from_mass_function_msun",
+        ):
+            mock_grp.create_dataset(attr, data=_mock_panel_column(result.records, attr))
+        if g_mag is not None:
+            mock_grp.create_dataset(
+                "phot_g_mean_mag", data=np.asarray(g_mag, dtype=np.float64)
+            )
+
+        if result.real_comparison is not None:
+            comp = result.real_comparison
+            sp_grp = handle.create_group("six_panel_samples")
+            sp_grp.attrs["real_sample_citation"] = comp.citation
+            sp_grp.attrs["real_nss_solution_types"] = np.array(
+                comp.nss_solution_types, dtype="S32"
+            )
+            sp_grp.attrs["real_n_rows"] = comp.n_rows
+            sp_grp.attrs["real_snapshot_id"] = comp.snapshot_id
+            sp_grp.attrs["mock_n_realizations"] = len(result.records)
+            sp_grp.attrs["mock_n_accepted"] = int(accepted.sum())
+            sp_grp.attrs["mock_gating"] = "accepted_orbital (all orbital_solution_cuts)"
+            mock_sp = sp_grp.create_group("mock")
+            real_sp = sp_grp.create_group("real")
+            for name in SIX_PANEL_NAMES:
+                mock_vals = _panel_values(result.records, name, g_mag=g_mag)
+                mock_sp.create_dataset(name, data=mock_vals[np.isfinite(mock_vals)])
+                real_sp.create_dataset(
+                    name, data=np.asarray(comp.panels[name], dtype=np.float64)
+                )
 
 
 def run_selection_function_astrometric(
@@ -1087,6 +1374,8 @@ def run_selection_function_astrometric(
     artifact_path: Path,
     *,
     data_acquisition_artifact: Path | None = None,
+    real_comparison: ElBadryComparisonSample | None = None,
+    real_solution_fractions: Mapping[str, float] | None = None,
 ) -> SelectionFunctionAstrometricResult:
     """Execute the astrometric selection-function stage (DR3 only in v1).
 
@@ -1097,44 +1386,66 @@ def run_selection_function_astrometric(
     artifact_path
         Destination HDF5 path from ``run_management.stage_artifact_path``.
     data_acquisition_artifact
-        Optional ``data_acquisition`` HDF5 with real DR3 NSS panels. When omitted, the
-        bundled El-Badry reference under ``tests/fixtures/`` or ``validation_gate.reference_path``
-        is used.
+        Upstream ``data_acquisition`` HDF5. Supplies the real solution-type
+        fractions and the uncut Gaia snapshot id from which the El-Badry et al.
+        (2024) real comparison sample is built
+        (:func:`load_elbadry2024_comparison_sample`).
+    real_comparison, real_solution_fractions
+        Explicit real side, used instead of ``data_acquisition_artifact`` (tests,
+        notebooks). Both must be given together.
 
     Returns
     -------
     SelectionFunctionAstrometricResult
-        In-memory summary including validation gate outcome.
+        In-memory summary including validation gate outcome. The artifact
+        persists every mock realization's six-panel values plus both six-panel
+        samples (``six_panel_samples/{mock,real}``) for ``diagnostics``.
 
     Raises
     ------
     ValueError
-        DR4 active mode, gaiamock version mismatch, or validation gate failure when
-        ``validation_gate.strict`` is added in a future revision (currently records pass/fail
-        in artifact attrs only).
+        DR4 active mode, gaiamock version mismatch, no real side supplied, or an
+        empty real comparison sample. There is no fallback to any bundled
+        reference fixture (#339).
     FileNotFoundError
-        Missing reference panels when no data_acquisition artifact is supplied.
+        Missing upstream artifact or Gaia snapshot.
     """
     require_dr3_active_for_v1(config)
+    explicit = real_comparison is not None or real_solution_fractions is not None
+    if explicit and (real_comparison is None or real_solution_fractions is None):
+        raise ValueError(
+            "pass real_comparison and real_solution_fractions together"
+        )
+    if not explicit:
+        if data_acquisition_artifact is None:
+            raise ValueError(
+                "selection_function_astrometric needs the data_acquisition artifact "
+                "(real El-Badry 2024 comparison sample + solution-type fractions); "
+                "there is no fixture fallback"
+            )
+        if not data_acquisition_artifact.is_file():
+            raise FileNotFoundError(
+                f"data_acquisition artifact not found: {data_acquisition_artifact}"
+            )
     versions = verify_gaiamock_versions(config)
     gaiamock = import_gaiamock_mod(verify=True)
 
-    if data_acquisition_artifact is not None and data_acquisition_artifact.is_file():
-        try:
-            real_panels, real_st = load_real_panels_from_data_acquisition(
-                data_acquisition_artifact
-            )
-        except KeyError:
-            # Older data_acquisition artifacts may predate nss_panels persistence.
-            real_panels, real_st = load_reference_panels(config)
+    if explicit:
+        assert real_comparison is not None and real_solution_fractions is not None
+        comparison = real_comparison
+        real_st = dict(real_solution_fractions)
     else:
-        real_panels, real_st = load_reference_panels(config)
+        assert data_acquisition_artifact is not None
+        real_st = load_real_solution_type_fractions(data_acquisition_artifact)
+        comparison = load_elbadry2024_comparison_sample(
+            data_acquisition_artifact, config, gaiamock
+        )
 
     mock_records, g_mag = run_mock_injections(config, gaiamock)
     validation = run_validation_gate(
         config,
         mock_records,
-        real_panels=real_panels,
+        real_panels=comparison.panels,
         real_solution_fractions=real_st,
         g_mag=g_mag,
     )
@@ -1144,9 +1455,47 @@ def run_selection_function_astrometric(
         records=mock_records,
         validation=validation,
         data_release=config.active_dr_mode.value,
+        real_comparison=comparison,
     )
-    write_selection_function_artifact(artifact_path, result)
+    write_selection_function_artifact(artifact_path, result, g_mag=g_mag)
     return result
+
+
+def load_six_panel_samples(
+    artifact_path: Path,
+) -> tuple[dict[str, dict[str, NDArray[np.float64]]], dict[str, Any]]:
+    """Read the six-panel mock + real samples from a ``selection_function_astrometric`` artifact.
+
+    Returns ``(panels, meta)`` where ``panels[name] = {"mock": ..., "real": ...}`` for
+    every ``SIX_PANEL_NAMES`` entry and ``meta`` holds the group attributes (real
+    sample definition, citation, counts). Raises ``KeyError`` when the artifact
+    predates #339 and carries no ``six_panel_samples`` group — never a fallback.
+    """
+    with h5py.File(artifact_path, "r") as handle:
+        if "six_panel_samples" not in handle:
+            raise KeyError(
+                f"{artifact_path} has no six_panel_samples group; re-run "
+                "selection_function_astrometric (#339)"
+            )
+        grp = handle["six_panel_samples"]
+        panels: dict[str, dict[str, NDArray[np.float64]]] = {}
+        for name in SIX_PANEL_NAMES:
+            panels[name] = {
+                "mock": np.asarray(grp["mock"][name], dtype=np.float64),
+                "real": np.asarray(grp["real"][name], dtype=np.float64),
+            }
+        meta: dict[str, Any] = {}
+        for key, value in grp.attrs.items():
+            if isinstance(value, bytes):
+                value = value.decode("utf-8")
+            elif isinstance(value, np.ndarray):
+                value = [
+                    v.decode("utf-8") if isinstance(v, bytes) else v for v in value.tolist()
+                ]
+            elif isinstance(value, np.generic):
+                value = value.item()
+            meta[key] = value
+    return panels, meta
 
 
 def format_validation_gate_report(result: SelectionFunctionAstrometricResult) -> str:

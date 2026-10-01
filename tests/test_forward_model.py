@@ -10,7 +10,11 @@ import numpy as np
 import pytest
 
 from darkhunter_pop.config_loader import load_config, require_dr3_active_for_v1
-from darkhunter_pop.config_schema import ExtinctionModel, MockPopulationSampling
+from darkhunter_pop.config_schema import (
+    ExtinctionModel,
+    MockPopulationSampling,
+    OrbitalSolutionCutsConfig,
+)
 from darkhunter_pop.forward_model import (
     SIX_PANEL_NAMES,
     SOLUTION_TYPE_LABELS,
@@ -19,8 +23,8 @@ from darkhunter_pop.forward_model import (
     classify_cascade_result,
     draw_mock_binary_params,
     format_validation_gate_report,
+    ElBadryComparisonSample,
     load_real_panels_from_data_acquisition,
-    load_reference_panels,
     _run_single_mock_realization,
     run_mock_injections,
     run_selection_function_astrometric,
@@ -36,6 +40,32 @@ from darkhunter_pop.forward_model import (
 )
 from darkhunter_pop.gaiamock_vendor import GaiamockModVersions, is_overlay_ready
 from darkhunter_pop.schemas import ActiveDRMode
+
+
+_CUTS = OrbitalSolutionCutsConfig()
+
+# Synthetic placeholder panels (test-only since #339; never read by src/).
+_REFERENCE_FIXTURE = Path(__file__).parent / "fixtures" / "elbadry2024_dr3_nss_reference.npz"
+
+
+def _fixture_reference_panels() -> tuple[dict[str, np.ndarray], dict[str, float]]:
+    with np.load(_REFERENCE_FIXTURE, allow_pickle=False) as data:
+        panels = {name: np.asarray(data[name], dtype=np.float64) for name in SIX_PANEL_NAMES}
+        st = {
+            label: float(data[f"solution_type_frac_{label}"]) for label in SOLUTION_TYPE_LABELS
+        }
+    return panels, st
+
+
+def _fixture_comparison() -> tuple[ElBadryComparisonSample, dict[str, float]]:
+    panels, st = _fixture_reference_panels()
+    sample = ElBadryComparisonSample(
+        panels=panels,
+        nss_solution_types=("Orbital", "AstroSpectroSB1"),
+        n_rows=len(panels["P_orb_days"]),
+        snapshot_id="test-fixture",
+    )
+    return sample, st
 
 
 def _orbital_cascade(
@@ -124,7 +154,7 @@ def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
 @pytest.mark.unit
 def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
     cfg = load_config()
-    panels_ref, st_ref = load_reference_panels(cfg)
+    panels_ref, st_ref = _fixture_reference_panels()
     artifact = tmp_path / "da.h5"
     with h5py.File(artifact, "w") as handle:
         grp = handle.create_group("data_acquisition/nss_panels")
@@ -141,16 +171,16 @@ def test_load_real_panels_from_data_acquisition(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_classify_cascade_sentinels() -> None:
-    rec = classify_cascade_result([0.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01)
+    rec = classify_cascade_result([0.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS)
     assert rec.solution_type is SolutionType.INSUFFICIENT_VISIBILITY
 
-    rec5 = classify_cascade_result([-1.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01)
+    rec5 = classify_cascade_result([-1.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS)
     assert rec5.solution_type is SolutionType.FIVE_PARAMETER
 
-    rec7 = classify_cascade_result([-7.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01)
+    rec7 = classify_cascade_result([-7.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS)
     assert rec7.solution_type is SolutionType.SEVEN_PARAMETER
 
-    rec9 = classify_cascade_result([-9.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01)
+    rec9 = classify_cascade_result([-9.0] * 23, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS)
     assert rec9.solution_type is SolutionType.NINE_PARAMETER
 
 
@@ -160,7 +190,7 @@ def test_classify_orbital_passes_dr3_cuts() -> None:
         _orbital_cascade(),
         m1_msun=1.0,
         m2_msun=0.5,
-        flux_ratio=0.01,
+        flux_ratio=0.01, cuts=_CUTS,
     )
     assert rec.solution_type is SolutionType.TWELVE_PARAMETER_ORBITAL
     assert rec.accepted_orbital
@@ -174,7 +204,7 @@ def test_classify_orbital_fails_cuts() -> None:
     bad[17] = 0.01
     bad[18] = 1.0
     rec_bad = classify_cascade_result(
-        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01
+        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS
     )
     assert rec_bad.solution_type is SolutionType.ORBITAL_FAILED_CUTS
     assert not rec_bad.accepted_orbital
@@ -185,7 +215,7 @@ def test_classify_negative_parallax_not_sentinel_is_failed_cuts() -> None:
     bad = _orbital_cascade()
     bad[0] = -0.12
     rec = classify_cascade_result(
-        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01
+        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS
     )
     assert rec.solution_type is SolutionType.ORBITAL_FAILED_CUTS
     assert not rec.accepted_orbital
@@ -248,12 +278,18 @@ def test_solution_type_validation_pass_fail() -> None:
 
 
 @pytest.mark.unit
-def test_load_reference_panels_fixture() -> None:
-    cfg = load_config()
-    panels, st = load_reference_panels(cfg)
+def test_reference_fixture_is_test_only() -> None:
+    """#339: the synthetic placeholder fixture loads for tests but no src/ module names it."""
+    panels, st = _fixture_reference_panels()
     assert set(panels) == set(SIX_PANEL_NAMES)
-    assert len(panels["P_orb_days"]) > 0
     assert set(st) == set(SOLUTION_TYPE_LABELS)
+    src = Path(__file__).resolve().parents[1] / "src" / "darkhunter_pop"
+    offenders = [
+        str(path)
+        for path in src.rglob("*.py")
+        if "elbadry2024_dr3_nss_reference" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
 
 
 @pytest.mark.unit
@@ -295,8 +331,7 @@ def test_write_artifact_round_trip(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_format_validation_gate_report() -> None:
-    cfg = load_config()
-    panels, st = load_reference_panels(cfg)
+    panels, st = _fixture_reference_panels()
     validation = ValidationGateResult(
         six_panel=SixPanelValidationResult(
             panel_names=SIX_PANEL_NAMES,
@@ -349,7 +384,10 @@ def test_run_selection_function_astrometric_smoke(tmp_path: Path) -> None:
     )
     verify_gaiamock_versions(tweaked)
     artifact = tmp_path / "sel.h5"
-    result = run_selection_function_astrometric(tweaked, artifact)
+    comparison, real_st = _fixture_comparison()
+    result = run_selection_function_astrometric(
+        tweaked, artifact, real_comparison=comparison, real_solution_fractions=real_st
+    )
     assert artifact.is_file()
     assert result.gaiamock_versions.gaiamock_mod_release == "gaiamock-mod-v1"
     assert len(result.records) == 2
@@ -391,7 +429,10 @@ def test_validation_gate_elbadry_prior_against_fixture(tmp_path: Path) -> None:
     )
     verify_gaiamock_versions(tweaked)
     artifact = tmp_path / "sel_elbadry.h5"
-    result = run_selection_function_astrometric(tweaked, artifact)
+    comparison, real_st = _fixture_comparison()
+    result = run_selection_function_astrometric(
+        tweaked, artifact, real_comparison=comparison, real_solution_fractions=real_st
+    )
     insuf = result.validation.solution_type.mock_fractions.get(
         "insufficient_visibility", 0.0
     )
@@ -839,7 +880,7 @@ def test_multi_solution_emission_attached_to_accepted_orbital_realization() -> N
         _orbital_cascade(period=500.0),
         m1_msun=1.0,
         m2_msun=0.5,
-        flux_ratio=0.1,
+        flux_ratio=0.1, cuts=_CUTS,
     )
     assert accepted.accepted_orbital
     from darkhunter_pop.forward_model import draw_multi_solution_emission
@@ -962,3 +1003,260 @@ def test_followup_multi_solution_independent_draw(tmp_path: Path) -> None:
     with h5py.File(artifact, "r") as handle:
         grp = handle["followup_catalog"]
         assert "multi_solution_cross_type_companion" in grp
+
+
+# ---------------------------------------------------------------------------
+# #339: six-panel mock gating, mock f_m, real El-Badry 2024 comparison sample
+# ---------------------------------------------------------------------------
+
+
+class _FakeGaiamock:
+    """Minimal stand-in exposing the two gaiamock_mod functions these tests need."""
+
+    def __init__(self, m2: float = 0.777) -> None:
+        self.m2 = m2
+
+    def get_companion_mass_from_mass_function(self, **_kw: float) -> float:
+        return self.m2
+
+    @staticmethod
+    def get_Campbell_elements(A, B, F, G):  # noqa: N802,N803 - gaiamock signature
+        from darkhunter_pop.physics_utils import thiele_innes_to_campbell
+
+        a0, omega, inc = thiele_innes_to_campbell(A, B, F, G)
+        return a0, np.zeros_like(a0), omega, inc
+
+
+@pytest.mark.unit
+def test_classify_failed_cuts_leaves_every_panel_empty() -> None:
+    bad = _orbital_cascade()
+    bad[17] = 0.01  # a0 / sigma_a0 = 0.2 < 5
+    rec = classify_cascade_result(
+        bad, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS, gaiamock=_FakeGaiamock()
+    )
+    assert not rec.accepted_orbital
+    for attr in (
+        "P_orb_days",
+        "G_mag",
+        "inv_parallax_mas_inv",
+        "eccentricity",
+        "f_m_msun",
+        "cos_inclination",
+        "parallax_mas",
+        "a0_mas",
+        "m2_from_mass_function_msun",
+    ):
+        assert getattr(rec, attr) is None, attr
+
+
+@pytest.mark.unit
+def test_classify_applies_goodness_of_fit_f2_cut() -> None:
+    """gaiamock returns orbital fits with F2 >= 25; El-Badry 2024 Eq. 18 rejects them."""
+    cascade = _orbital_cascade()
+    cascade[21] = _CUTS.goodness_of_fit_f2_max + 1.0
+    rec = classify_cascade_result(cascade, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.01, cuts=_CUTS)
+    assert rec.solution_type is SolutionType.ORBITAL_FAILED_CUTS
+    assert rec.cos_inclination is None
+
+
+@pytest.mark.unit
+def test_classify_mock_f_m_is_astrometric_mass_function() -> None:
+    from darkhunter_pop.physics_utils import astrometric_mass_function
+
+    period, plx = 800.0, 4.0
+    cascade = _orbital_cascade(period=period, plx=plx, inc_deg=30.0)
+    rec = classify_cascade_result(
+        cascade,
+        m1_msun=1.0,
+        m2_msun=0.5,
+        flux_ratio=0.01,
+        cuts=_CUTS,
+        gaiamock=_FakeGaiamock(m2=0.777),
+    )
+    assert rec.accepted_orbital
+    expected = float(astrometric_mass_function(cascade[17], plx, period))
+    assert rec.f_m_msun == pytest.approx(expected)
+    assert rec.m2_from_mass_function_msun == pytest.approx(0.777)
+    assert rec.f_m_msun != pytest.approx(rec.m2_from_mass_function_msun)
+    assert rec.cos_inclination == pytest.approx(np.cos(np.radians(30.0)))
+    assert rec.inv_parallax_mas_inv == pytest.approx(1.0 / plx)
+
+
+def _comparison_columns() -> dict[str, np.ndarray]:
+    types = np.array(
+        [
+            "Orbital",
+            "Orbital",  # fan-out duplicate of row 0 (same source_id + type)
+            "AstroSpectroSB1",
+            "SB1",
+            "EclipsingBinary",
+            "OrbitalTargetedSearch",
+            "Acceleration7",
+        ]
+    )
+    n = len(types)
+    return {
+        "source_id": np.array([1, 1, 2, 3, 4, 5, 6], dtype=np.int64),
+        "nss_solution_type": types,
+        "period": np.array([500.0, 500.0, 900.0, 3.0, 1.5, 700.0, np.nan]),
+        "eccentricity": np.array([0.3, 0.3, 0.1, 0.0, 0.0, 0.2, np.nan]),
+        "parallax": np.array([2.0, 2.0, 5.0, 1.0, 1.0, 3.0, 1.0]),
+        "g_mag": np.linspace(10.0, 13.0, n),
+        "A": np.array([1.0, 1.0, 0.5, np.nan, np.nan, 0.8, np.nan]),
+        "B": np.array([0.2, 0.2, 0.1, np.nan, np.nan, 0.1, np.nan]),
+        "F": np.array([-0.1, -0.1, 0.3, np.nan, np.nan, 0.2, np.nan]),
+        "G": np.array([0.9, 0.9, 0.4, np.nan, np.nan, 0.7, np.nan]),
+    }
+
+
+@pytest.mark.unit
+def test_comparison_sample_is_orbital_plus_astrospectrosb1_only() -> None:
+    from darkhunter_pop.forward_model import build_elbadry2024_comparison_panels
+
+    panels, n_rows = build_elbadry2024_comparison_panels(
+        _comparison_columns(),
+        nss_solution_types=("Orbital", "AstroSpectroSB1"),
+        gaiamock=_FakeGaiamock(),
+    )
+    # Exact-type match: SB1 / EclipsingBinary / OrbitalTargetedSearch / Acceleration7
+    # excluded; the duplicated Orbital row collapses to one.
+    assert n_rows == 2
+    assert set(panels) == set(SIX_PANEL_NAMES)
+    # One row set feeds every panel (all values finite here).
+    assert {len(v) for v in panels.values()} == {2}
+    np.testing.assert_allclose(np.sort(panels["P_orb_days"]), [500.0, 900.0])
+    np.testing.assert_allclose(np.sort(panels["inv_parallax_mas_inv"]), [0.2, 0.5])
+    assert np.all(np.abs(panels["cos_inclination"]) <= 1.0)
+
+
+@pytest.mark.unit
+def test_comparison_sample_f_m_matches_mock_formula() -> None:
+    from darkhunter_pop.forward_model import build_elbadry2024_comparison_panels
+    from darkhunter_pop.physics_utils import astrometric_mass_function, thiele_innes_to_campbell
+
+    cols = _comparison_columns()
+    panels, _n = build_elbadry2024_comparison_panels(
+        cols, nss_solution_types=("Orbital",), gaiamock=_FakeGaiamock()
+    )
+    a0, _om, _inc = thiele_innes_to_campbell(cols["A"][0], cols["B"][0], cols["F"][0], cols["G"][0])
+    expected = astrometric_mass_function(a0, cols["parallax"][0], cols["period"][0])
+    np.testing.assert_allclose(panels["f_m_msun"], [float(expected)])
+
+
+@pytest.mark.unit
+def test_run_stage_refuses_without_real_side(tmp_path: Path) -> None:
+    """No data_acquisition artifact and no explicit sample: fail loudly, no fixture fallback."""
+    cfg = load_config()
+    with pytest.raises(ValueError, match="no fixture fallback"):
+        run_selection_function_astrometric(cfg, tmp_path / "sf.h5")
+    with pytest.raises(FileNotFoundError):
+        run_selection_function_astrometric(
+            cfg, tmp_path / "sf.h5", data_acquisition_artifact=tmp_path / "missing.h5"
+        )
+    comparison, _st = _fixture_comparison()
+    with pytest.raises(ValueError, match="together"):
+        run_selection_function_astrometric(
+            cfg, tmp_path / "sf.h5", real_comparison=comparison
+        )
+
+
+def _gate_result_for(records: list[MockRealizationRecord]) -> ValidationGateResult:
+    return ValidationGateResult(
+        six_panel=SixPanelValidationResult(panel_names=SIX_PANEL_NAMES),
+        solution_type=SolutionTypeFractionResult(
+            mock_fractions={}, real_fractions={}, max_abs_delta=0.0, passed=True
+        ),
+        detection_fraction=0.0,
+        n_mock=len(records),
+        n_real=0,
+    )
+
+
+@pytest.mark.unit
+def test_artifact_persists_gated_mock_and_real_six_panel_samples(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import load_six_panel_samples
+
+    accepted = classify_cascade_result(
+        _orbital_cascade(period=600.0, plx=2.0),
+        m1_msun=1.0,
+        m2_msun=0.5,
+        flux_ratio=0.01,
+        cuts=_CUTS,
+    )
+    failed = MockRealizationRecord(SolutionType.ORBITAL_FAILED_CUTS, False)
+    records = [accepted, failed, MockRealizationRecord(SolutionType.FIVE_PARAMETER, False)]
+    comparison, _st = _fixture_comparison()
+    result = SelectionFunctionAstrometricResult(
+        gaiamock_versions=GaiamockModVersions(
+            gaiamock_mod_release="gaiamock-mod-v1",
+            gaiamock_mod_sha256="a" * 64,
+            gaiamock_git_commit="b" * 40,
+        ),
+        records=records,
+        validation=_gate_result_for(records),
+        data_release="dr3",
+        real_comparison=comparison,
+    )
+    path = tmp_path / "sf.h5"
+    g_mag = np.array([12.5, 14.0, 9.0])
+    write_selection_function_artifact(path, result, g_mag=g_mag)
+    panels, meta = load_six_panel_samples(path)
+    assert set(panels) == set(SIX_PANEL_NAMES)
+    for name in SIX_PANEL_NAMES:
+        assert panels[name]["mock"].size == 1, name  # only the accepted realization
+        np.testing.assert_allclose(panels[name]["real"], comparison.panels[name])
+    assert panels["G_mag"]["mock"][0] == pytest.approx(12.5)
+    assert panels["inv_parallax_mas_inv"]["mock"][0] == pytest.approx(0.5)
+    assert meta["real_nss_solution_types"] == ["Orbital", "AstroSpectroSB1"]
+    assert meta["mock_n_accepted"] == 1
+    assert meta["mock_n_realizations"] == 3
+    with h5py.File(path, "r") as handle:
+        cos_col = handle["mock_catalog/cos_inclination"][()]
+        assert np.isfinite(cos_col[0]) and np.all(np.isnan(cos_col[1:]))
+
+
+@pytest.mark.unit
+def test_load_six_panel_samples_refuses_pre_339_artifact(tmp_path: Path) -> None:
+    from darkhunter_pop.forward_model import load_six_panel_samples
+
+    path = tmp_path / "old.h5"
+    with h5py.File(path, "w") as handle:
+        handle.attrs["stage"] = "selection_function_astrometric"
+    with pytest.raises(KeyError, match="six_panel_samples"):
+        load_six_panel_samples(path)
+
+
+_UNCUT_SNAPSHOT_META = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "dr3"
+    / "gaia_snapshots"
+    / "20260826T234425Z_3d3f740b080c"
+    / "meta.yaml"
+)
+
+
+@pytest.mark.slow
+@pytest.mark.gaiamock
+def test_real_comparison_sample_count_matches_elbadry2024() -> None:
+    """Uncut DR3 snapshot: Orbital + AstroSpectroSB1 = 168,065 rows (paper: ~168,000).
+
+    134,598 Orbital (Andrews' parent) + 33,467 AstroSpectroSB1 (paper footnote 6).
+    """
+    if not _UNCUT_SNAPSHOT_META.is_file():
+        pytest.skip("uncut DR3 snapshot not on this checkout")
+    if not is_overlay_ready():
+        pytest.skip("run scripts/install_gaiamock_mod.sh first")
+    from darkhunter_pop.data_acquisition import load_gaia_snapshot
+    from darkhunter_pop.forward_model import build_elbadry2024_comparison_panels
+    from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
+
+    _meta, table = load_gaia_snapshot(_UNCUT_SNAPSHOT_META, verify_checksum=False)
+    panels, n_rows = build_elbadry2024_comparison_panels(
+        table,
+        nss_solution_types=("Orbital", "AstroSpectroSB1"),
+        gaiamock=import_gaiamock_mod(),
+    )
+    assert n_rows == 168065
+    for name in SIX_PANEL_NAMES:
+        assert 0 < panels[name].size <= n_rows
