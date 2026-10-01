@@ -135,7 +135,6 @@ selection_function_astrometric:
   validation_gate:
     ks_pvalue_min: 0.01
     solution_type_fraction_max_abs_delta: 0.05
-    reference_path: null
     multi_solution_rate_max_abs_delta: 0.05
   multi_solution:
     enabled: true
@@ -462,6 +461,15 @@ diagnostics:
   sky_map_alpha: 0.25
   info_gain_top_n: 20
   sampler_logz_sigma_tol: 3.0
+  # El-Badry six-panel display axes (presentation only; KS uses full samples). Panel
+  # quantities and scales follow El-Badry et al. (2024) Fig. 5 (#339 / #333).
+  elbadry_six_panel_axes:
+    P_orb_days: {scale: log, xmin: 10.0, xmax: 10000.0}
+    G_mag: {scale: linear, xmin: 4.0, xmax: 20.0}
+    inv_parallax_mas_inv: {scale: linear, xmin: 0.0, xmax: 2.0}
+    eccentricity: {scale: linear, xmin: 0.0, xmax: 1.0}
+    f_m_msun: {scale: log, xmin: 1.0e-4, xmax: 3.0}
+    cos_inclination: {scale: linear, xmin: -1.0, xmax: 1.0}
   hooks:
     funnel_sky: true
     elbadry_six_panel: true
@@ -829,6 +837,21 @@ dr3:
   selection_function_astrometric:
     d_min_pc: 50.0
     d_max_pc: 1200.0
+    # Gaia DR3 orbital-solution cuts applied to mock cascade outputs: Halbwachs et al.
+    # (2023) as restated in El-Badry et al. (2024, arXiv:2411.00088) Eq. 18
+    # (a0/sigma_a0 > 5, F2 < 25) and Eqs. 20-22 (#339). Paper values; never retune.
+    orbital_solution_cuts:
+      a0_over_err_min: 5.0
+      goodness_of_fit_f2_max: 25.0
+      parallax_over_error_times_period_min_days: 20000.0
+      a0_over_err_times_sqrt_period_min: 158.0
+      sigma_e_ln_period_slope: 0.079
+      sigma_e_intercept: -0.244
+    # Real side of the El-Badry et al. (2024) Fig. 5 comparison: §4 "nss_solution_type
+    # = Orbital or AstroSpectroSB1" (168,065 published rows, uncut snapshot; #339).
+    elbadry2024_comparison_nss_solution_types:
+    - Orbital
+    - AstroSpectroSB1
   selection_function_followup:
     accel_jerk_catalog_id: dr3_accel_jerk_pinned
 dr4:
@@ -879,5 +902,17 @@ dr4:
   selection_function_astrometric:
     d_min_pc: 50.0
     d_max_pc: 1200.0
+    # DR4 not runnable in v1; DR4 post-processing cuts are unpublished. Values mirror
+    # DR3 only as independent placeholders (path-specific by policy).
+    orbital_solution_cuts:
+      a0_over_err_min: 5.0
+      goodness_of_fit_f2_max: 25.0
+      parallax_over_error_times_period_min_days: 20000.0
+      a0_over_err_times_sqrt_period_min: 158.0
+      sigma_e_ln_period_slope: 0.079
+      sigma_e_intercept: -0.244
+    elbadry2024_comparison_nss_solution_types:
+    - Orbital
+    - AstroSpectroSB1
   selection_function_followup:
     accel_jerk_catalog_id: dr4_accel_jerk_pinned
