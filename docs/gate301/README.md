@@ -204,6 +204,7 @@ No stage failed. Diagnostic and gate failures, each filed on its own:
 | [#334](https://github.com/UCSC-Transients/dark-hunter_pop/issues/334) | `age_stratified_wd` false green on zero candidates |
 | [#335](https://github.com/UCSC-Transients/dark-hunter_pop/issues/335) | El-Badry 2026 astrometric 74 vs 76; spectroscopic ID set 8 / 8 swap; routes |
 | [#336](https://github.com/UCSC-Transients/dark-hunter_pop/issues/336) | reproduction report mixes modes; one mode per sample in stage |
+| [#337](https://github.com/UCSC-Transients/dark-hunter_pop/issues/337) | `run_dry_run.py --plan-only` writes a run file despite printing "not written". The stray `runs/20260930-020817-672b092.yaml` (`stages: {}`) from this session's plan-only call was purged with `scripts/purge_run.py` (YAML only; no artifacts recorded) |
 | [#133](https://github.com/UCSC-Transients/dark-hunter_pop/issues/133) (existing, commented) | `primary_ns_bh` 46 vs 47 |
 
 Existing issues that this run re-confirms: #181 / #180 (SED degraded), #218 (null gaiamock triple),
