@@ -353,6 +353,58 @@ def plot_overlay_histograms(
     return save_figure(fig, path, dpi=dpi)
 
 
+def watermark_png(path: Path, text: str) -> Path:
+    """Stamp ``text`` diagonally across an existing PNG, in place (#355 demo marking).
+
+    The image is re-rendered at its native pixel size; the stamp is large,
+    semi-transparent and centred so it cannot be mistaken for data.
+    """
+    plt = require_pyplot()
+    path = Path(path)
+    img = plt.imread(path)
+    height, width = img.shape[0], img.shape[1]
+    dpi = 100.0
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    axis = fig.add_axes((0.0, 0.0, 1.0, 1.0))
+    axis.imshow(img)
+    axis.axis("off")
+    axis.text(
+        0.5,
+        0.5,
+        text,
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        rotation=25,
+        fontsize=max(12.0, width / dpi * 9.0),
+        color="#D55E00",
+        alpha=0.45,
+        fontweight="bold",
+    )
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)
+    return path
+
+
+def six_panel_bin_edges(
+    xmin: float,
+    xmax: float,
+    *,
+    scale: str,
+    n_bins: int,
+) -> NDArray[np.float64]:
+    """Fixed histogram edges over ``[xmin, xmax]``: linear, or log-spaced for ``log``."""
+    if n_bins < 1:
+        raise ValueError(f"n_bins must be >= 1, got {n_bins}")
+    if scale == "log":
+        if xmin <= 0:
+            raise ValueError("log-scale bin edges need xmin > 0")
+        return np.logspace(np.log10(xmin), np.log10(xmax), n_bins + 1)
+    if scale != "linear":
+        raise ValueError(f"unsupported scale {scale!r}")
+    return np.linspace(xmin, xmax, n_bins + 1)
+
+
 def plot_six_panel_grid(
     panels: Mapping[str, Mapping[str, NDArray[np.floating] | Sequence[float]]],
     path: Path,
@@ -361,15 +413,29 @@ def plot_six_panel_grid(
     dpi: int,
     title: str = "El-Badry-style six-panel comparison",
     panel_xlabels: Mapping[str, str] | None = None,
+    panel_axes: Mapping[str, tuple[str, float, float]] | None = None,
+    panel_ylabels: Mapping[str, str] | None = None,
     bins: int | str = "auto",
     max_bins: int | None = None,
     density: bool = True,
+    caption: str | None = None,
     style: PlottingStyleConfig | None = None,
 ) -> Path | None:
     """Write a 2×3 grid of overlay histograms (selection-function validation style).
 
     ``panels`` maps panel name → {series_label → values}. Missing or empty series are
     skipped within a panel; a panel with no data is left blank with an annotation.
+
+    ``panel_axes`` maps panel name → ``(scale, xmin, xmax)`` with ``scale`` in
+    ``{"linear", "log"}``. Such a panel uses fixed edges over that range
+    (``max_bins`` or 40 bins, log-spaced on a log axis); values outside it are not
+    drawn, so the caller should report out-of-range counts. Other panels keep
+    ``bins`` (capped by ``max_bins``) over their finite data. ``density=True``
+    normalises each drawn series to unit area **in the plotted coordinate** — per
+    unit x on a linear axis, per dex on a log axis — so samples of very different
+    size compare by shape and a log panel is not skewed toward wide bins.
+    ``caption`` is wrapped into its own reserved band beneath the axes at
+    tick-label size (docs/PLOTS.md).
     """
     if not panel_order:
         return None
@@ -378,30 +444,56 @@ def plot_six_panel_grid(
     n = len(panel_order)
     nrows = 2 if n > 3 else 1
     ncols = min(3, n) if n else 1
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(cfg.figsize_landscape[0] / 7.0 * 4 * ncols, 3.5 * nrows),
-    )
+    width = cfg.figsize_landscape[0] / 7.0 * 4 * ncols
+    height = 3.5 * nrows
+    gutter = 0.18
+    caption_lines: list[str] = []
+    band = 0.0
+    if caption:
+        caption_lines = wrap_text_to_inches(
+            caption,
+            max_width_inches=width - 2.0 * gutter,
+            font_family=cfg.font_family,
+            fontsize=cfg.tick_label_fontsize,
+        )
+        line_h = float(cfg.tick_label_fontsize) * float(cfg.caption_line_spacing) / 72.0
+        band = line_h * len(caption_lines) + 2.0 * gutter
+        height += band
+    fig, axes = plt.subplots(nrows, ncols, figsize=(width, height))
     flat = np.atleast_1d(axes).ravel()
     any_drawn = False
     for index, panel_name in enumerate(panel_order):
         axis = flat[index]
         series = panels.get(panel_name, {})
+        axis_spec = (panel_axes or {}).get(panel_name)
         drawn = False
         series_index = 0
         for label, values in series.items():
             arr = np.asarray(values, dtype=np.float64)
             finite = arr[np.isfinite(arr)]
+            if axis_spec is not None:
+                scale, lo, hi = axis_spec
+                finite = finite[(finite >= lo) & (finite <= hi)]
+                resolved: int | str | NDArray[np.floating] = six_panel_bin_edges(
+                    lo, hi, scale=scale, n_bins=int(max_bins) if max_bins else 40
+                )
             if finite.size == 0:
                 continue
+            if axis_spec is None:
+                resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             sty = series_style(series_index, cfg)
-            resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
-            axis.hist(
-                finite,
-                bins=resolved,
-                density=density,
-                histtype="step",
+            counts, edges = np.histogram(finite, bins=resolved)
+            heights = counts.astype(np.float64)
+            if density and counts.sum() > 0:
+                coord = (
+                    np.log10(edges)
+                    if axis_spec is not None and axis_spec[0] == "log"
+                    else edges
+                )
+                heights = heights / (counts.sum() * np.diff(coord))
+            axis.stairs(
+                heights,
+                edges,
                 linewidth=sty["linewidth"],
                 label=label,
                 color=sty["color"],
@@ -410,11 +502,25 @@ def plot_six_panel_grid(
             series_index += 1
             drawn = True
             any_drawn = True
+        if axis_spec is not None:
+            scale, lo, hi = axis_spec
+            if scale == "log":
+                axis.set_xscale("log")
+            axis.set_xlim(lo, hi)
         apply_axes_style(
             axis,
             cfg,
             xlabel=(panel_xlabels or {}).get(panel_name, panel_name),
-            title=panel_name,
+            ylabel=(panel_ylabels or {}).get(
+                panel_name,
+                (
+                    "density (dex$^{-1}$)"
+                    if axis_spec is not None and axis_spec[0] == "log"
+                    else "density"
+                )
+                if density
+                else "count",
+            ),
         )
         if drawn:
             axis.legend(
@@ -439,7 +545,24 @@ def plot_six_panel_grid(
     if not any_drawn:
         plt.close(fig)
         return None
-    return save_figure(fig, path, dpi=dpi)
+    if not caption_lines:
+        return save_figure(fig, path, dpi=dpi)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout(rect=(0.0, band / height, 1.0, 1.0))
+    fig.text(
+        gutter / width,
+        (band - gutter) / height,
+        "\n".join(caption_lines),
+        ha="left",
+        va="top",
+        fontfamily=cfg.font_family,
+        fontsize=cfg.tick_label_fontsize,
+        linespacing=float(cfg.caption_line_spacing),
+    )
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)
+    return path
 
 
 def plot_categorical_bars(
