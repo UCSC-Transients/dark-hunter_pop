@@ -152,9 +152,11 @@ def test_mock_injections_replay_identically_with_same_seed() -> None:
     assert truth_a.keys() == truth_b.keys()
     for key in truth_a:
         assert np.array_equal(truth_a[key], truth_b[key]), key
-    assert np.array_equal(truth_a["realization_index"], np.arange(12))
+    # realization_index is the original draw index (G-limit removal may drop draws).
+    idx = truth_a["realization_index"].tolist()
+    assert idx == sorted(set(idx)) and set(idx) <= set(range(12))
     expected = [
-        mock_global_rng_seeds(42, MOCK_RNG_STREAM_REALIZATION, i) for i in range(12)
+        mock_global_rng_seeds(42, MOCK_RNG_STREAM_REALIZATION, i) for i in idx
     ]
     assert truth_a["rng_seed_numpy"].tolist() == [s.numpy_seed for s in expected]
     assert truth_a["rng_seed_c_rand"].tolist() == [s.c_rand_seed for s in expected]
@@ -173,10 +175,12 @@ def test_mock_realization_independent_of_order() -> None:
     fake = _GlobalRNGFakeGaiamock()
     records, g_mag, truth = run_mock_injections_with_truth(cfg, fake)  # type: ignore[arg-type]
 
+    n = len(records)
     reversed_records: dict[int, MockRealizationRecord] = {}
-    for i in reversed(range(8)):
+    for i in reversed(range(n)):
+        index = int(truth["realization_index"][i])
         with seeded_global_rng(
-            mock_global_rng_seeds(11, MOCK_RNG_STREAM_REALIZATION, i)
+            mock_global_rng_seeds(11, MOCK_RNG_STREAM_REALIZATION, index)
         ):
             reversed_records[i] = _run_single_mock_realization(
                 fake,  # type: ignore[arg-type]
@@ -188,7 +192,7 @@ def test_mock_realization_independent_of_order() -> None:
                 c_funcs=None,
                 draw=_draw_from_truth(truth, i),
             )
-    assert _signature([reversed_records[i] for i in range(8)]) == _signature(records)
+    assert _signature([reversed_records[i] for i in range(n)]) == _signature(records)
 
 
 def _draw_from_truth(truth: dict[str, np.ndarray], i: int) -> Any:
@@ -284,8 +288,9 @@ def test_real_gaiamock_cascade_replays_bit_for_bit() -> None:
     pop = cfg.selection_function_astrometric.mock_population
 
     def raw(i: int) -> list[float]:
+        index = int(truth_a["realization_index"][i])
         with seeded_global_rng(
-            mock_global_rng_seeds(42, MOCK_RNG_STREAM_REALIZATION, i), c_funcs
+            mock_global_rng_seeds(42, MOCK_RNG_STREAM_REALIZATION, index), c_funcs
         ):
             return list(
                 gaiamock.run_full_astrometric_cascade(
@@ -311,9 +316,10 @@ def test_real_gaiamock_cascade_replays_bit_for_bit() -> None:
                 )
             )
 
-    forward = [raw(i) for i in range(n)]
-    backward = {i: raw(i) for i in reversed(range(n))}
-    assert forward == [backward[i] for i in range(n)]
+    n_sim = len(rec_a)
+    forward = [raw(i) for i in range(n_sim)]
+    backward = {i: raw(i) for i in reversed(range(n_sim))}
+    assert forward == [backward[i] for i in range(n_sim)]
 
     rec_c, _g_c, _truth_c = run_mock_injections_with_truth(_small_config(n, seed=43), gaiamock)
     assert _signature(rec_c) != _signature(rec_a)

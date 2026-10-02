@@ -891,6 +891,14 @@ dr3:
     elbadry2024_comparison_nss_solution_types:
     - Orbital
     - AstroSpectroSB1
+    # Publication cuts for acceleration solutions, El-Badry et al. (2024) §5.2.1 (#339).
+    acceleration_publication_cuts:
+      acceleration_significance_min: 20.0
+      acceleration7_f2_max: 22.0
+      acceleration9_f2_max: 25.0
+    # El-Badry et al. (2024) §3.2: unresolved binaries with G > 19 were not fit with
+    # binary solutions in DR3, so they are removed from the mock sample (#339).
+    mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr3_accel_jerk_pinned
 dr4:
@@ -953,5 +961,10 @@ dr4:
     elbadry2024_comparison_nss_solution_types:
     - Orbital
     - AstroSpectroSB1
+    acceleration_publication_cuts:
+      acceleration_significance_min: 20.0
+      acceleration7_f2_max: 22.0
+      acceleration9_f2_max: 25.0
+    mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr4_accel_jerk_pinned
