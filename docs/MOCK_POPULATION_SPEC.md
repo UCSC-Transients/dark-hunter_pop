@@ -147,7 +147,7 @@ All equation and table numbers are MdS17 (arXiv:1606.05347). `log` is log₁₀,
 q = M_comp/M1. These are the **published values** of θ_MdS for rung 2 (§5); at rung 3 they become
 free parameters of `population_model`, so they live in config, not in `constants.py`: the published
 coefficients in a frozen table `config/population/moe_distefano2017.yaml` (cited per equation), and
-the switches in the fragment `config/fragments/proposal_set.yaml`, which merges into
+the switches in `config/population/proposal_set_pilot.yaml` (not under `config/fragments/`, which `load_config` merges into `PipelineConfig`), which merges into
 `population_model.moe_distefano` when the stage integration lands (§3.8).
 
 ### 2.1 Domain
@@ -307,7 +307,7 @@ puts mass:
 | q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4), else U(0, e_cap) |
 | geometry | isotropic, identical to the target (§2.8) |
 
-All proposal settings are in config (`config/fragments/proposal_set.yaml`, merging into
+All proposal settings are in config (`config/population/proposal_set_pilot.yaml`, merging into
 `selection_function_astrometric.proposal_set` at stage integration). They change
 efficiency, never the answer. The support condition is enforced by a test: q(x) > 0 on the union
 of the MdS17 domain and the compact-object mass range.
@@ -480,6 +480,41 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
 | MP-Q13 mass–luminosity | Janssens et al. (2022) M_G(M) for both stars, log-normal f scatter of 0.1 dex |
 | MP-Q14 extinction | not needed by the pilot (f from both masses; gaiamock gets the observed G) |
 | MP-Q17 compact mixture at rung 2 | none (luminous MdS17 only) |
+
+### 7.1 Pilot measurements (2026-10-02, laptop shared at load average 40–120 on 10 cores)
+
+Parent snapshot `20261002T192654Z_gaia_source_parent_K1000000_plx0p2`: 214,666 rows (exactly the
+count in §1.1's slice), 200,602 usable (TAG10 M1 resolved: 142,420 MSC, 58,182 GSP-Phot, 14,064
+none). On disk 64 MB (`parent.h5`, all float64, ≈ 300 B per row, so the §1.3 sizes are ≈ 1.8×
+low) plus 8.6 MB of cached M1. The TAG10 + Santos M1 has a hard floor at 0.597 M⊙, which hits
+more than 25% of the parent (#393).
+
+| Generation | Draws | Accepted orbits | CPU s per draw (mean) | Wall (4 workers) | ESS of its accepted draws, mixture weights |
+|---|---|---|---|---|---|
+| 0 (`proposal_set_pilot.yaml`) | 2,000 | 70 (3.5%) | 2.00 | 36.9 min | 2.18 |
+| 1 top-up (`proposal_set_pilot_gen1.yaml`: σ_f 0.15 dex, ϖ¹ tilt) | 1,000 | 8 (0.8%) | 0.69 | 6.8 min | 3.04 |
+| Combined | 3,000 | 78 | 1.57 | | **4.71** |
+
+- Cost by outcome: a draw ending at a 5-, 7- or 9-parameter solution costs **0.01 CPU s**. One that
+  reaches the 12-parameter fit costs **≈ 18 CPU s**, whether accepted or not. The ≈ 0.9 s figure for
+  5-parameter draws from ELBADRY2024 §8.1 is not reproduced here. Its scripts timed a different
+  harness, and the discrepancy is not investigated. So c ≈ 18 s × P(orbit fit). Peak RSS was
+  0.30 GB for the parent process plus ≈ 0.22 GB per worker. Disk was ≈ 0.9 kB per draw.
+- Weight diagnostics (generation 0): the flux-ratio factor and the parallax tilt of q(s) set the
+  weight scatter. Only 10% of accepted draws lie within 0.2 dex of the provisional mass–luminosity
+  relation, because accepted systems favour faint companions. The top-up was retuned on that
+  basis.
+- Expected accepted orbits under MdS17 (luminous, provisional settings), relative to the parent:
+  7.6 × 10⁴, against 168,065 real. This is dominated by a few weights and is not a measurement.
+- **Efficiency**: generation 0 gave 2.0 ESS per CPU hour; generation 1 gave 16. The figure for
+  generation 1 rests on 8 accepted draws, so it is uncertain by a factor of about 3.
+
+**Projection for the full laptop run (not started; MP-Q23).** At generation 1's efficiency, an
+accepted-set ESS of 2,000 (≈ 100 per six-panel bin over 20 bins, a display-level target for
+MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 8 (≈ 2 GB RSS), with
+≈ 0.6 M draws and ≈ 0.5 GB of disk. The MC-noise rule at rung 2 (ESS_b ≥ 100 N_b with N_b ~ 10⁴)
+stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
+(≈ 1 h) would firm up the efficiency before the full run is sized.
 
 ## 8. Open questions for Ryan (none has been chosen)
 

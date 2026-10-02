@@ -1,0 +1,89 @@
+# Moe & Di Stefano (2017), ApJS 230, 15 (arXiv:1606.05347) — published fit coefficients.
+#
+# Frozen external table: the PUBLISHED values of the MdS17 parameters (validation rung 2,
+# docs/MOCK_POPULATION_SPEC.md §2). Transcribed from the paper's equations, each entry cites its
+# equation. At rung 3 these become free parameters of population_model; a fit writes a NEW table,
+# it never edits this one. Editing a value here requires a schema_version bump and a provenance note.
+#
+# Conventions: log = log10, P in days, q = M_comp / M1, M1 in Msun.
+# A piecewise-linear segment is {logp_lo, logp_hi, value, slope, pivot}:
+#     value + slope * (log P - pivot)   for logp_lo <= log P < logp_hi.
+
+schema_version: 1
+name: moe_distefano2017
+
+provenance:
+  reference: "Moe & Di Stefano (2017), ApJS 230, 15, Sections 2 and 9, Table 1"
+  transcribed_on: "2026-10-02"
+  issue: 391
+  checked_against: "Table 13 (F_twin, gamma_largeq, gamma_smallq, eta at log P = 1, 3, 5, 7); f_mult;q>0.3(1 Msun) = 0.36 (Section 9.4)"
+
+domain:                      # Table 1
+  m1_msun: [0.8, 40.0]
+  q: [0.1, 1.0]
+  log_p: [0.2, 8.0]
+  q_break: 0.3               # Eq. 2: gamma_smallq below, gamma_largeq above; p_q continuous here
+  twin_q_min: 0.95           # Section 2: excess twins at 0.95 < q < 1
+  circular_period_days: 2.0  # Section 2 (after Eq. 3): P <= 2 d binaries are circular
+
+# Companion frequency f_logP;q>0.3 (Eqs. 20-23). Anchors are c0 + c1 x + c2 x^2, x = log(M1/Msun).
+companion_frequency:
+  f_logp_lt1: [0.020, 0.04, 0.07]   # Eq. 20
+  f_logp_2p7: [0.039, 0.07, 0.01]   # Eq. 21
+  f_logp_5p5: [0.078, -0.05, 0.04]  # Eq. 22
+  alpha: 0.018                      # Eq. 23
+  delta_logp: 0.7                   # Eq. 23
+  wide_decay: 0.3                   # Eq. 23: f_5.5 * exp(-0.3 (log P - 5.5)) for 5.5 <= log P < 8
+
+# Power-law slope across 0.3 < q < 1 (Eqs. 9-11). Anchor masses: Eq. 9 holds for 0.8-1.2 Msun,
+# Eq. 10 at 3.5 Msun, Eq. 11 above 6.0 Msun; interpolated in M1 between (Section 9.1).
+gamma_largeq:
+  - m1_msun: 1.2   # Eq. 9 (0.8 < M1 < 1.2)
+    segments:
+      - {logp_lo: 0.2, logp_hi: 5.0, value: -0.5, slope: 0.0, pivot: 0.0}
+      - {logp_lo: 5.0, logp_hi: 8.0, value: -0.5, slope: -0.3, pivot: 5.0}
+  - m1_msun: 3.5   # Eq. 10
+    segments:
+      - {logp_lo: 0.2, logp_hi: 1.0, value: -0.5, slope: 0.0, pivot: 0.0}
+      - {logp_lo: 1.0, logp_hi: 4.5, value: -0.5, slope: -0.2, pivot: 1.0}
+      - {logp_lo: 4.5, logp_hi: 6.5, value: -1.2, slope: -0.4, pivot: 4.5}
+      - {logp_lo: 6.5, logp_hi: 8.0, value: -2.0, slope: 0.0, pivot: 0.0}
+  - m1_msun: 6.0   # Eq. 11 (M1 > 6.0)
+    segments:
+      - {logp_lo: 0.0, logp_hi: 1.0, value: -0.5, slope: 0.0, pivot: 0.0}
+      - {logp_lo: 1.0, logp_hi: 2.0, value: -0.5, slope: -0.9, pivot: 1.0}
+      - {logp_lo: 2.0, logp_hi: 4.0, value: -1.4, slope: -0.3, pivot: 2.0}
+      - {logp_lo: 4.0, logp_hi: 8.0, value: -2.0, slope: 0.0, pivot: 0.0}
+
+# Power-law slope across 0.1 < q < 0.3 (Eqs. 13-15), same anchor masses.
+gamma_smallq:
+  - m1_msun: 1.2   # Eq. 13
+    segments:
+      - {logp_lo: 0.2, logp_hi: 8.0, value: 0.3, slope: 0.0, pivot: 0.0}
+  - m1_msun: 3.5   # Eq. 14
+    segments:
+      - {logp_lo: 0.2, logp_hi: 2.5, value: 0.2, slope: 0.0, pivot: 0.0}
+      - {logp_lo: 2.5, logp_hi: 5.5, value: 0.2, slope: -0.3, pivot: 2.5}
+      - {logp_lo: 5.5, logp_hi: 8.0, value: -0.7, slope: -0.2, pivot: 5.5}
+  - m1_msun: 6.0   # Eq. 15
+    segments:
+      - {logp_lo: 0.2, logp_hi: 1.0, value: 0.1, slope: 0.0, pivot: 0.0}
+      - {logp_lo: 1.0, logp_hi: 3.0, value: 0.1, slope: -0.15, pivot: 1.0}
+      - {logp_lo: 3.0, logp_hi: 5.6, value: -0.2, slope: -0.50, pivot: 3.0}
+      - {logp_lo: 5.6, logp_hi: 8.0, value: -1.5, slope: 0.0, pivot: 0.0}
+
+# Excess twin fraction (Eqs. 5-7).
+twin:
+  short_period: [0.30, -0.15]       # Eq. 6: F_twin;logP<1 = 0.30 - 0.15 log(M1)
+  log_p_twin_intercept: 8.0         # Eq. 7: log P_twin = 8.0 - M1 for M1 <= 6.5
+  log_p_twin_m1_break: 6.5          # Eq. 7
+  log_p_twin_massive: 1.5           # Eq. 7: 1.5 for M1 > 6.5
+  log_p_short_edge: 1.0             # Eq. 5: constant below log P = 1
+
+# Eccentricity p_e ∝ e^eta on 0 <= e < e_max(P) (Eqs. 3, 17, 18).
+eccentricity:
+  e_max_period_scale_days: 2.0      # Eq. 3: e_max = 1 - (P / 2 d)^(-2/3), P > 2 d
+  e_max_exponent: -0.6666666666666666
+  eta_anchors:                      # eta = a - b / (log P - c)
+    - {m1_msun: 3.0, a: 0.6, b: 0.7, c: 0.5}   # Eq. 17 (0.8 < M1 < 3)
+    - {m1_msun: 7.0, a: 0.9, b: 0.2, c: 0.5}   # Eq. 18 (M1 > 7); interpolate 3-7

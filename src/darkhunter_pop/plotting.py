@@ -1020,6 +1020,8 @@ def plot_six_panel_grid(
     density: bool = True,
     caption: str | None = None,
     style: PlottingStyleConfig | None = None,
+    series_weights: Mapping[str, Mapping[str, NDArray[np.floating] | Sequence[float]]]
+    | None = None,
 ) -> Path | None:
     """Write a 2×3 grid of overlay histograms (selection-function validation style).
 
@@ -1036,6 +1038,10 @@ def plot_six_panel_grid(
     size compare by shape and a log panel is not skewed toward wide bins.
     ``caption`` is wrapped into its own reserved band beneath the axes at
     tick-label size (docs/PLOTS.md).
+
+    ``series_weights`` (optional) maps panel name → {series_label → per-value weights},
+    same length as that series' values, for importance-weighted histograms (#391). A
+    series without weights is unweighted. Non-finite values drop with their weights.
     """
     if not panel_order:
         return None
@@ -1070,10 +1076,23 @@ def plot_six_panel_grid(
         series_index = 0
         for label, values in series.items():
             arr = np.asarray(values, dtype=np.float64)
-            finite = arr[np.isfinite(arr)]
+            wts_raw = (series_weights or {}).get(panel_name, {}).get(label)
+            wts = (
+                np.ones_like(arr)
+                if wts_raw is None
+                else np.asarray(wts_raw, dtype=np.float64)
+            )
+            if wts.shape != arr.shape:
+                raise ValueError(
+                    f"series_weights[{panel_name!r}][{label!r}] shape {wts.shape} "
+                    f"!= values shape {arr.shape}"
+                )
+            keep = np.isfinite(arr) & np.isfinite(wts)
+            finite, wts = arr[keep], wts[keep]
             if axis_spec is not None:
                 scale, lo, hi = axis_spec
-                finite = finite[(finite >= lo) & (finite <= hi)]
+                in_range = (finite >= lo) & (finite <= hi)
+                finite, wts = finite[in_range], wts[in_range]
                 resolved: int | str | NDArray[np.floating] = six_panel_bin_edges(
                     lo, hi, scale=scale, n_bins=int(max_bins) if max_bins else 40
                 )
@@ -1082,7 +1101,12 @@ def plot_six_panel_grid(
             if axis_spec is None:
                 resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             sty = series_style(series_index, cfg)
-            counts, edges = np.histogram(finite, bins=resolved)
+            if wts_raw is None:
+                counts, edges = np.histogram(finite, bins=resolved)
+            else:
+                # numpy cannot auto-estimate bins for weighted data: fix edges first.
+                edges = np.histogram_bin_edges(finite, bins=resolved)
+                counts, edges = np.histogram(finite, bins=edges, weights=wts)
             heights = counts.astype(np.float64)
             if density and counts.sum() > 0:
                 coord = (
