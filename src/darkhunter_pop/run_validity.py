@@ -143,16 +143,41 @@ class CollectedStandIns:
     #: Registering stages (:data:`STAND_IN_REGISTERING_STAGES`) whose artifact
     #: exists but carries no registration attribute.
     unregistered_stages: list[str] = field(default_factory=list)
-    #: Stages with a recorded artifact path that is missing on disk.
+    #: Stages with a recorded (or explicitly passed) artifact path that is
+    #: missing on disk or unreadable.
     missing_artifacts: list[str] = field(default_factory=list)
+    #: Registering stages that were asked for but have no artifact at all — no
+    #: stage record, a record without ``artifact_path``, and no explicit path
+    #: (#373). Never treated as clean.
+    not_run_stages: list[str] = field(default_factory=list)
+
+    @property
+    def unverified_stages(self) -> list[str]:
+        """Registering stages whose stand-in inventory could not be read.
+
+        Union (first-appearance order) of :attr:`unregistered_stages`,
+        :attr:`not_run_stages`, and registering stages in
+        :attr:`missing_artifacts`. A consumer that claims science validity must
+        treat each of these as a reason it cannot.
+        """
+        out: list[str] = []
+        for name in (
+            *self.unregistered_stages,
+            *self.not_run_stages,
+            *(m for m in self.missing_artifacts if m in STAND_IN_REGISTERING_STAGES),
+        ):
+            if name not in out:
+                out.append(name)
+        return out
 
 
 def collect_stand_ins(
     manifest: RunManifest,
     *,
     stages: Sequence[str] | None = None,
+    artifact_paths: Mapping[str, Path | str | None] | None = None,
 ) -> CollectedStandIns:
-    """Collect point-of-use stand-ins from every artifact recorded in ``manifest``.
+    """Collect point-of-use stand-ins from every artifact a consumer actually used.
 
     Parameters
     ----------
@@ -160,25 +185,46 @@ def collect_stand_ins(
         Run manifest; each stage record's ``artifact_path`` is read.
     stages:
         Restrict to these stage names (in this order). Default: every stage in
-        the manifest, in manifest order.
+        the manifest, in manifest order, plus any stage in ``artifact_paths``.
+    artifact_paths:
+        Explicit per-stage artifact paths that **override** the manifest record
+        (e.g. inference's ``*_artifact_path`` arguments, #373). The artifact a
+        consumer read is the one scanned, whatever the manifest says. ``None``
+        values fall back to the manifest record.
 
     Limitations
     -----------
     Only stages whose code registers its stand-ins can be collected. A stage in
     :data:`STAND_IN_REGISTERING_STAGES` whose artifact lacks :data:`STAND_INS_ATTR`
-    is reported in ``unregistered_stages`` — never silently treated as clean.
+    is reported in ``unregistered_stages``, and one with no artifact at all in
+    ``not_run_stages`` — never silently treated as clean.
     """
-    names = list(stages) if stages is not None else list(manifest.stages)
+    overrides: dict[str, Path] = {
+        name: Path(path)
+        for name, path in (artifact_paths or {}).items()
+        if path is not None
+    }
+    if stages is not None:
+        names = list(stages)
+    else:
+        names = list(manifest.stages)
+        names.extend(n for n in overrides if n not in names)
     found: list[SyntheticStandIn] = []
     unregistered: list[str] = []
     missing: list[str] = []
+    not_run: list[str] = []
     for name in names:
         record = manifest.stages.get(name)
-        if record is None or not record.artifact_path:
-            continue
-        if record.status is StageStatus.SKIPPED:
-            continue
-        path = Path(record.artifact_path)
+        if name in overrides:
+            path = overrides[name]
+        else:
+            if record is not None and record.status is StageStatus.SKIPPED:
+                continue
+            if record is None or not record.artifact_path:
+                if name in STAND_IN_REGISTERING_STAGES:
+                    not_run.append(name)
+                continue
+            path = Path(record.artifact_path)
         if not path.is_file():
             missing.append(name)
             continue
@@ -196,6 +242,7 @@ def collect_stand_ins(
         stand_ins=merge_stand_ins(found),
         unregistered_stages=unregistered,
         missing_artifacts=missing,
+        not_run_stages=not_run,
     )
 
 
@@ -468,7 +515,8 @@ class ScienceValidity:
         out.extend(f"stand-in in force: {name}" for name in self.stand_in_names)
         out.extend(f"check failed: {c}" for c in self.failed_checks)
         out.extend(
-            f"stage artifact carries no stand-in registration: {s}"
+            "stand-in registration not verified (artifact missing, not run, or "
+            f"carries no stand-in registration): {s}"
             for s in self.unregistered_stages
         )
         return out
