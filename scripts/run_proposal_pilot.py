@@ -24,7 +24,9 @@ import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import itertools
+import shutil
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         "--draw-index-offset", type=int, default=0,
         help="first global draw_index of this generation (indices are never reused, spec §3.3)",
     )
+    ap.add_argument("--progress-every", type=int, default=50)
+    ap.add_argument("--min-free-gib", type=float, default=3.0, help="stop (resumable) below this")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -89,11 +93,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.n_draws is not None:
         frag = frag.model_copy(update={"proposal": frag.proposal.model_copy(update={"n_draws": args.n_draws})})
     prop = frag.proposal
-    parent = load_parent_snapshot(args.parent_dir, cfg, parallax_floor_mas=prop.provisional_parallax_floor_mas)
+    parent = load_parent_snapshot(args.parent_dir, cfg, prop)
+    print(f"parent attrition (cumulative, spec §0.1): {parent.attrition()}")
     print(
-        f"parent: {parent.n_rows} rows, {int(parent.usable.sum())} usable "
-        f"(TAG10 M1 resolved, parallax > {prop.provisional_parallax_floor_mas} mas); "
-        f"scale_to_full = {parent.scale_to_full:.1f}"
+        f"parent: {parent.n_rows} rows, {int(parent.usable.sum())} usable, "
+        f"{int((parent.is_giant & parent.usable).sum())} usable giants (flag only); "
+        f"scale_to_full = {parent.scale_to_full:.1f}; decision_ref: {prop.decision_ref}"
     )
     truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
     n = int(truth["draw_index"].size)
@@ -102,27 +107,47 @@ def main(argv: list[str] | None = None) -> int:
     done: dict[int, dict[str, Any]] = {}
     if partial.exists():
         for line in partial.read_text().splitlines():
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line truncated by a crash; that draw simply reruns
             done[int(rec["draw_index"])] = rec
     todo = [i for i in range(n) if int(truth["draw_index"][i]) not in done]
     print(f"draws: {n}; already done: {len(done)}; to run: {len(todo)}; workers: {args.workers}")
 
     keys = [k for k, v in truth.items() if np.asarray(v).ndim == 1]
-    payload = [{k: (truth[k][i].item() if hasattr(truth[k][i], "item") else truth[k][i]) for k in keys} for i in todo]
+
+    def payload(i: int) -> dict[str, Any]:
+        return {k: (truth[k][i].item() if hasattr(truth[k][i], "item") else truth[k][i]) for k in keys}
+
     t0 = time.time()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    window = max(1, args.workers) * 8  # bounded in-flight futures: memory stays flat at any n
+    queue = iter(todo)
+    n_todo = len(todo)
+    k = 0
     with partial.open("a") as sink, ProcessPoolExecutor(
         max_workers=args.workers, initializer=_init_worker, initargs=(str(args.config), str(args.fragment))
     ) as pool:
-        futures = [pool.submit(_work, d) for d in payload]
-        for k, fut in enumerate(as_completed(futures), 1):
-            rec = fut.result()
-            done[rec["draw_index"]] = rec
-            sink.write(json.dumps(rec) + "\n")
+        pending = {pool.submit(_work, payload(i)) for i in itertools.islice(queue, window)}
+        while pending:
+            finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                rec = fut.result()
+                done[rec["draw_index"]] = rec
+                sink.write(json.dumps(rec) + "\n")
+                k += 1
             sink.flush()
-            if k % 50 == 0 or k == len(futures):
+            pending |= {pool.submit(_work, payload(i)) for i in itertools.islice(queue, len(finished))}
+            if k % args.progress_every < len(finished) or not pending:
+                free_gib = shutil.disk_usage(args.out.parent).free / 2**30
                 el = time.time() - t0
-                print(f"  {k}/{len(futures)} done, {el / 60:.1f} min wall", flush=True)
+                print(f"  {k}/{n_todo} done, {el / 60:.1f} min wall, disk free {free_gib:.1f} GiB", flush=True)
+                if free_gib < args.min_free_gib:
+                    print(f"STOP: disk free {free_gib:.2f} GiB < {args.min_free_gib}; partial results kept, rerun to resume", flush=True)
+                    for f in pending:
+                        f.cancel()
+                    return 3
     wall = time.time() - t0
 
     try:
@@ -138,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         "wall_seconds_this_invocation": wall,
         "workers": args.workers,
         "target_mds17_json": frag.target_mds17.model_dump(mode="json"),
-        "label": "PILOT (provisional settings, not decisions; spec §7)",
+        "decision_ref": prop.decision_ref,
+        "parent_attrition": parent.attrition(),
     }
     path = write_proposal_artifact(
         args.out, truth, list(done.values()), fragment=frag, parent=parent, provenance=provenance

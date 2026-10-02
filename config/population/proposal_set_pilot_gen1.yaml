@@ -47,11 +47,19 @@ proposal:
   acceleration_publication:          # El-Badry et al. (2024) §5.2.1
     significance_min: 20.0
     f2_max_seven_parameter: 22.0
-  provisional_parallax_floor_mas: 0.2               # MP-Q1
-  provisional_halbwachs_ipd_cstar_cuts: not_applied # MP-Q3
-  provisional_truth_parallax: measured_parallax     # MP-Q4
-  provisional_m1: tag10_point_drop_unresolved       # MP-Q5
-  provisional_light_split: observed_g_is_system_total  # MP-Q6
+  # Generation-time settings exactly as the PILOT ran them (spec §7, provisional; keys renamed
+  # when the decisions of spec §0.1 landed). The decided runs use proposal_set_decided_*.yaml.
+  decision_ref: "pilot provisional settings (spec §7), not decisions"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: not_applied             # MP-Q3
+  halbwachs_cuts:                                   # unused when not_applied
+    ipd_frac_multi_peak_max: 2.0
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: measured_parallax                 # MP-Q4
+  m1: tag10_point_drop_unresolved                   # MP-Q5
+  giant_flag_logg_max: 3.6                          # flag only
+  light_split: observed_g_is_system_total           # MP-Q6
 
 target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
   table_path: config/population/moe_distefano2017.yaml
@@ -61,6 +69,6 @@ target_mds17:                        # rung 2: MdS17 at published parameters, lu
   provisional_low_mass_anchor_msun: 0.8
   provisional_low_mass_zero_msun: 0.08
   provisional_multiplicity: poisson_intensity       # MP-Q9
-  provisional_mass_luminosity: janssens2022         # MP-Q13
-  provisional_flux_sigma_dex: 0.1                   # MP-Q13
+  mass_luminosity: janssens2022                     # MP-Q13 (same value later decided, spec §0.1)
+  flux_sigma_dex: 0.1                               # MP-Q13
   provisional_compact_mixture: none                 # MP-Q17

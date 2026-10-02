@@ -30,6 +30,7 @@ import numpy as np
 import yaml
 
 from darkhunter_pop.proposal_set import (
+    BAILER_JONES_COLUMNS,
     GAIA_SOURCE_PARENT_COLUMNS,
     GAIA_SOURCE_TOTAL_ROWS,
     build_gaia_source_parent_adql,
@@ -50,11 +51,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parallax-floor", type=float, required=True, help="mas")
     parser.add_argument("--g-max", type=float, default=19.0)
     parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument(
+        "--bailer-jones", action="store_true",
+        help="LEFT JOIN external.gaiaedr3_distance geometric distances (spec §0.1 MP-Q4)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the ADQL only")
     args = parser.parse_args(argv)
 
     adql = build_gaia_source_parent_adql(
-        k=args.k, parallax_floor_mas=args.parallax_floor, g_max=args.g_max
+        k=args.k, parallax_floor_mas=args.parallax_floor, g_max=args.g_max,
+        include_bailer_jones=args.bailer_jones,
     )
     print(adql)
     if args.dry_run:
@@ -68,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     job = Gaia.launch_job_async(adql)
     table = job.get_results()
     stamp = query_date.strftime("%Y%m%dT%H%M%SZ")
-    floor_tag = f"{args.parallax_floor:g}".replace(".", "p")
+    floor_tag = f"{args.parallax_floor:g}".replace(".", "p") + ("_bj" if args.bailer_jones else "")
     out_dir = (
         args.data_root
         / "dr3"
@@ -78,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=False)
     h5_path = out_dir / "parent.h5"
     with h5py.File(h5_path, "w") as handle:
-        for name in GAIA_SOURCE_PARENT_COLUMNS:
+        names = list(GAIA_SOURCE_PARENT_COLUMNS) + (list(BAILER_JONES_COLUMNS) if args.bailer_jones else [])
+        for name in names:
             col = table[name]
             if name == "source_id" or name == "random_index":
                 handle.create_dataset(name, data=np.asarray(col, dtype=np.int64))
@@ -97,7 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         "gaia_source_total_rows": int(GAIA_SOURCE_TOTAL_ROWS),
         "subsample_fraction": float(args.k) / float(GAIA_SOURCE_TOTAL_ROWS),
         "n_rows": int(len(table)),
-        "columns": list(GAIA_SOURCE_PARENT_COLUMNS),
+        "columns": list(GAIA_SOURCE_PARENT_COLUMNS) + (list(BAILER_JONES_COLUMNS) if args.bailer_jones else []),
+        "bailer_jones": bool(args.bailer_jones),
         "parent_h5_sha256": _sha256(h5_path),
     }
     (out_dir / "meta.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))

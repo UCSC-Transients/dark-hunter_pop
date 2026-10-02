@@ -17,6 +17,7 @@ from darkhunter_pop import proposal_set as ps
 from darkhunter_pop.config_loader import load_config
 
 FRAGMENT = "config/population/proposal_set_pilot.yaml"
+DECIDED = "config/population/proposal_set_decided_tune.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -42,6 +43,10 @@ def _parent(n: int = 50, seed: int = 0) -> ps.ParentSnapshot:
         columns=cols,
         m1_msun=m1,
         m1_source=np.full(n, "MSC"),
+        atmosphere_logg=rng.uniform(3.0, 5.0, n),
+        truth_parallax_mas=cols["parallax"] * 1.01,
+        is_giant=np.zeros(n, dtype=bool),
+        flags={"all": usable},
         usable=usable,
         meta={"parent_h5_sha256": "x"},
         scale_to_full=1000.0,
@@ -51,7 +56,7 @@ def _parent(n: int = 50, seed: int = 0) -> ps.ParentSnapshot:
 
 @pytest.mark.unit
 def test_fragment_loads_and_is_not_auto_merged(fragment: ps.ProposalSetFragment) -> None:
-    assert fragment.proposal.provisional_parallax_floor_mas > 0
+    assert fragment.proposal.parallax_floor_mas > 0
     # load_config merges config/fragments/*.yaml; the pilot config must stay out of it.
     cfg = load_config()
     assert not hasattr(cfg, "proposal")
@@ -96,6 +101,8 @@ def test_sampler_reproducible_and_logq_consistent(fragment: ps.ProposalSetFragme
     for k in a:
         np.testing.assert_array_equal(a[k], b[k])
     assert not np.any(a["parent_row"] == 0)
+    np.testing.assert_allclose(a["parallax_mas"], parent.truth_parallax_mas[a["parent_row"]])
+    np.testing.assert_allclose(a["measured_parallax_mas"], parent.columns["parallax"][a["parent_row"]])
     assert np.all(a["flux_ratio"][a["is_dark"]] == 0.0)
     assert np.all(a["eccentricity"][a["period_days"] <= 2.0] == 0.0)
     np.testing.assert_allclose(ps.log_q_total_for(a, parent, cfg), a["log_q_total"])
@@ -225,3 +232,116 @@ def test_janssens_flux_ratio() -> None:
     assert float(ps.relation_log10_flux_ratio(1.0, 1.0)) == pytest.approx(0.0)
     assert float(ps.relation_log10_flux_ratio(1.0, 0.5)) < -1.0
     assert np.isnan(ps.janssens_absolute_g(1e-3))
+
+
+@pytest.mark.unit
+def test_decided_config_records_decisions() -> None:
+    d = ps.load_proposal_set_fragment(DECIDED).proposal
+    assert "5963152741" in d.decision_ref
+    assert d.parallax_floor_mas == 0.2
+    assert d.halbwachs_ipd_cstar_cuts == "applied_star_values"
+    assert d.truth_distance == "bailer_jones2021_geometric"
+    assert d.light_split == "observed_g_is_system_total"
+    tgt = ps.load_proposal_set_fragment(DECIDED).target_mds17
+    assert tgt.mass_luminosity == "janssens2022" and tgt.flux_sigma_dex == 0.1
+
+
+@pytest.mark.unit
+def test_bailer_jones_join() -> None:
+    q = ps.build_gaia_source_parent_adql(k=10, parallax_floor_mas=0.2, g_max=19.0, include_bailer_jones=True)
+    assert "LEFT JOIN external.gaiaedr3_distance AS bj ON gs.source_id = bj.source_id" in q
+    assert "bj.r_med_geo" in q and "bj.r_hi_geo" in q
+    assert "bj." not in ps.build_gaia_source_parent_adql(k=10, parallax_floor_mas=0.2, g_max=19.0)
+
+
+@pytest.mark.physics
+def test_cstar_matches_riello2021() -> None:
+    # Riello et al. (2021) Eq. 6 polynomial at its three colour regimes, and Eq. 18.
+    x = np.array([0.0, 1.0, 5.0])
+    c = np.array([1.2, 1.3, 1.9])
+    expect = c - np.array([1.154360, 1.162004 + 0.011464 + 0.049255 - 0.005879, 1.057572 + 0.140537 * 5.0])
+    np.testing.assert_allclose(ps.corrected_flux_excess(x, c), expect)
+    assert float(ps.sigma_cstar(10.0)) == pytest.approx(0.0059898 + 8.817481e-12 * 10.0**7.618399)
+    assert np.isnan(ps.corrected_flux_excess(np.nan, 1.2))
+
+
+@pytest.mark.unit
+def test_halbwachs_flags() -> None:
+    cuts = ps.load_proposal_set_fragment(DECIDED).proposal.halbwachs_cuts
+    cols = {
+        "ipd_frac_multi_peak": np.array([0.0, 2.0, 3.0, 0.0, np.nan]),
+        "ipd_gof_harmonic_amplitude": np.array([0.05, 0.05, 0.05, 0.1, 0.05]),
+        "bp_rp": np.array([1.0, 1.0, 1.0, 1.0, np.nan]),
+        "phot_bp_rp_excess_factor": np.full(5, 1.162004 + 0.011464 + 0.049255 - 0.005879),
+        "phot_g_mean_mag": np.full(5, 12.0),
+    }
+    f = ps.halbwachs_input_flags(cols, cuts)
+    assert f["halbwachs_ipd"].tolist() == [True, True, False, False, False]
+    assert f["halbwachs_cstar"].tolist() == [True, True, True, True, False]  # no colour fails
+
+
+@pytest.mark.api
+def test_load_parent_snapshot_applies_decided_filters(tmp_path: Path) -> None:
+    import h5py
+    import yaml
+
+    n = 6
+    cols: dict[str, np.ndarray] = {c: np.full(n, np.nan) for c in ps.GAIA_SOURCE_PARENT_COLUMNS}
+    cols["source_id"] = np.arange(n, dtype=np.int64)
+    cols["random_index"] = np.arange(n, dtype=np.int64)
+    for c, v in (("ra", 10.0), ("dec", 5.0), ("pmra", 1.0), ("pmdec", 1.0), ("phot_g_mean_mag", 12.0)):
+        cols[c] = np.full(n, v)
+    cols["parallax"] = np.array([5.0, 5.0, 0.1, 5.0, 5.0, 5.0])  # row 2 below the floor
+    cols["teff_msc1"], cols["logg_msc1"], cols["mh_msc"] = np.full(n, 5800.0), np.full(n, 4.4), np.zeros(n)
+    cols["logg_msc1"][4] = 3.0  # giant: kept, flagged
+    cols["teff_msc1"][5] = np.nan  # no atmosphere (no GSP-Phot either): dropped
+    cols["ipd_frac_multi_peak"], cols["ipd_gof_harmonic_amplitude"] = np.zeros(n), np.full(n, 0.01)
+    cols["ipd_frac_multi_peak"][3] = 10.0  # fails Halbwachs (b)
+    cols["bp_rp"] = np.full(n, 0.8)
+    cols["phot_bp_rp_excess_factor"] = ps.corrected_flux_excess(0.8, 0.0) * -1.0
+    cols["r_med_geo"] = np.array([200.0, np.nan, 200.0, 200.0, 250.0, 200.0])  # row 1: no BJ
+    cols["r_lo_geo"], cols["r_hi_geo"] = cols["r_med_geo"] * 0.9, cols["r_med_geo"] * 1.1
+    d = tmp_path / "snap"
+    d.mkdir()
+    with h5py.File(d / "parent.h5", "w") as h:
+        for k, v in cols.items():
+            h.create_dataset(k, data=v)
+    meta = {"parent_h5_sha256": ps._sha256(d / "parent.h5"), "random_index_max_exclusive": 1000,
+            "gaia_source_total_rows": ps.GAIA_SOURCE_TOTAL_ROWS}
+    (d / "meta.yaml").write_text(yaml.safe_dump(meta))
+    prop = ps.load_proposal_set_fragment(DECIDED).proposal
+    parent = ps.load_parent_snapshot(d, load_config(), prop, m1_cache=False)
+    assert parent.usable.tolist() == [True, False, False, False, True, False]
+    assert parent.is_giant.tolist() == [False, False, False, False, True, False]
+    assert parent.truth_parallax_mas[0] == pytest.approx(5.0)  # 1000 / 200 pc
+    assert parent.truth_parallax_mas[4] == pytest.approx(4.0)  # BJ, not the measured 5.0
+    att = parent.attrition()
+    assert att["snapshot_rows"] == 6 and att[list(parent.flags)[-1]] == 2
+
+
+@pytest.mark.unit
+def test_real_comparison_keep() -> None:
+    prop = ps.load_proposal_set_fragment(DECIDED).proposal
+    cols = {
+        "parallax": np.array([1.0, 0.1, 1.0]),
+        "teff_msc1": np.array([5800.0, 5800.0, np.nan]),
+        "logg_msc1": np.array([4.4, 4.4, np.nan]),
+        "mh_msc": np.array([0.0, 0.0, np.nan]),
+    }
+    keep, counts = ps.real_comparison_keep(cols, prop)
+    assert keep.tolist() == [True, False, False]
+    assert counts == {"rows": 3, "parallax_floor": 2, "parallax_floor_and_atmosphere": 1}
+
+
+@pytest.mark.physics
+def test_weighted_ks() -> None:
+    rng = np.random.default_rng(5)
+    real = rng.normal(size=4000)
+    mock = rng.uniform(-4, 4, 4000)
+    # weights turning the uniform mock into the real normal distribution: small D
+    w = np.exp(-0.5 * mock**2)
+    d_good, n_eff, p_good = ps.weighted_ks(real, mock, w)
+    d_bad, _, p_bad = ps.weighted_ks(real, mock, np.ones_like(mock))
+    assert d_good < 0.05 < d_bad
+    assert p_good > 0.01 > p_bad
+    assert 0 < n_eff < 4000
