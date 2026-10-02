@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         panel_order=SIX_PANEL_NAMES,
         dpi=int(cfg.diagnostics.figure_dpi),
         title=(
-            f"PILOT rung 2: DR3 Orbital+AstroSpectroSB1 (N={n_real})\\n"
+            f"PILOT rung 2: DR3 Orbital+AstroSpectroSB1 (N={n_real})\n"
             f"vs MdS17-reweighted mock "
             f"(N_acc={n_acc}, MdS17 ESS={ess_acc:.1f})"
         ),
