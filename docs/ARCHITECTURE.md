@@ -344,9 +344,54 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   the config `sigma_logM`.
   **Santos et al. (2013) correction** (coefficients named constants; enable via config, default
   on): `M_corrected = 0.791·M_TAG10² − 0.575·M_TAG10 + 0.701`.
+- **Companion mass and its uncertainty (#374).** The central `M2` is the `gaiamock_mod`
+  `get_companion_mass_from_mass_function` inversion at the best-fit Thiele–Innes `a0`, period
+  and parallax, with the TAG10 `M1` and `mass_derivation.dark_companion_flux_ratio`.
+  **`sigma_M2` propagates the full NSS covariance plus the `M1` uncertainty.** The method is a
+  Monte Carlo that reuses `mc_mass_function.propagate_nss_solution`, the same code the selection
+  samples use, rather than a second implementation:
+  - Draws come from the record's full `nss_solution` covariance: A/B/F/G, parallax, period and
+    every cross term (12×12 for `Orbital`). The factorization is the shared
+    Cholesky → nugget → eigen-clip sequence.
+  - `M1` is drawn per draw from `N(M1, sigma_M1)` (the v1 Gaussian-`M1` convention). Its stream
+    is decorrelated from the covariance draws by `mc_mass_function.M1_DRAW_SEED_SALT`.
+  - Each draw goes through `a0 → f(m) → M2`. `sigma_M2` is the ensemble standard deviation over
+    finite draws, which is the `mc_mass_function` convention (`MassFunctionDraws.m2_std`).
+  - A draw with a non-physical input (`M1 <= 0`, parallax `<= 0`) inverts to NaN and is left out
+    of that standard deviation. It is counted in `n_valid`, never replaced.
+  - `n_draws`, `random_seed` and the eigen floors come from the shared `mc_mass_function` config
+    section, which is part of this stage's fingerprint. The per-system seed is
+    `random_seed XOR (source_id & 0x7FFFFFFF)`, the same derivation as the selection-sample MC.
+  - `CandidateRecord.extras["m2_bulk_mc"]` records the ensemble summary: `n_draws`, `n_valid`,
+    `random_seed`, `factorization`, `n_clipped_eigenvalues`, `n_m1_nonpositive`, the mean, and
+    the 16/50/84 % quantiles.
+
+  A first-order (Jacobian) propagation over (A, B, F, G, ϖ, P, M1) with the same covariance was
+  measured and rejected. On a 1/100 sample of run `20260930-022223-672b092`, it agrees with the
+  MC to about 2 % (median ratio) at `M2/sigma_M2 > 10`. Below `M2/sigma_M2 = 2` it
+  underestimates the MC sigma by a median factor of about 9: `a0` is positive-definite and
+  non-linear in A/B/F/G once the orbit is near zero significance. For Gaia BH1
+  (DR3 4373465352415301632), the old M1-only term gave 0.168 M☉. The MC gives about 2.7 M☉
+  (16–84 %: 10.8–15.9), consistent with El-Badry et al. (2023a)'s astrometry-only 12.8 ± 2.0.
+- **Covariance-reconstruction failures are counted and excluded, never given a diagonal.**
+  - A candidate with Thiele–Innes elements but no `nss_solution` has no defensible `sigma_M2`.
+    That is an `nss_covariance` reconstruction failure in `data_acquisition`'s
+    `covariance_health`. The candidate is dropped as `skipped_no_nss_covariance` and is never
+    given an M1-only or diagonal sigma.
+  - A candidate whose MC cannot produce a sigma is dropped as `skipped_m2_sigma_failed`. The
+    causes are missing required parameters, a factorization or inversion error, or fewer than
+    two finite draws.
+  - Both counts are funnel rows. So are `m2_mc_cholesky_nugget` and `m2_mc_eigen_clip`: of the
+    candidates that got a `sigma_M2`, how many covariances needed each fallback factorization.
+- `mass_derivation_refined` passes the bulk `M2` ParameterSet through unchanged. It does not
+  recompute `M2` from a refined `M1`.
+- This stage's `M2` / `sigma_M2` is the pipeline's own posterior. It never writes the
+  literature-reproduction columns. Those are Andrews' `p_m2_above` / `m2_msun*` and El-Badry
+  2026's `m*_tilde` / `sigma_m2_astrometric`, which stay owned by each sample's own MC path.
 - Cut: retain `M2 + n_sigma * sigma_M2 >= M_min` (`n_sigma=2`, `M_min=1.1 M_sun` as config
   defaults — choosable, not constants).
-- **Diagnostics:** before/after counts, M2 distribution pre/post cut.
+- **Diagnostics:** before/after counts (including the exclusion rows above), and the M2
+  distribution before and after the cut.
 
 ### `mass_derivation_refined` (dark-hunter_sed integration)
 
@@ -465,6 +510,18 @@ later without restructuring anything else.
     `gaiamock.get_companion_mass_from_mass_function` is stored separately.
   - The stage artifact persists both samples (`six_panel_samples/{mock,real}`); `diagnostics`
     plots exactly those arrays. There is no reference-fixture fallback on the science path.
+- **Mock population (#391, `docs/MOCK_POPULATION_SPEC.md`)**: the mock input is an
+  **importance-reweighted proposal set**, replacing the `mock_population` box prior once wired in.
+  Primaries are real `gaia_source` stars (a uniform `random_index` subsample of the G < 19 parent of
+  the NSS astrometric input, Halbwachs et al. 2023 §1.2; RUWE > 1.4 and ≥ 12 visibility periods are
+  simulated by the cascade, never pre-selected), with M1 from the data-side TAG10 path. Companions
+  follow Moe & Di Stefano (2017) plus the WD/NS/BH mixture of `population_model`. One broad
+  proposal q(x) is run through `gaiamock_mod` once; truth, seeds (#371), cascade outcome,
+  accepted/published flags and the fitted solution with σ are stored for every draw. Any θ is a
+  reweighting w = λ(x|θ)/q(x), scaled to the parent; ESS per bin gates trust
+  (ESS_b ≥ N_b / `mc_noise_threshold`²); under-covered regions get top-up draws combined with
+  deterministic-mixture weights. Choices that change the gaiamock input (parent cuts, truth
+  parallax, M1, light split) are fixed at generation and cannot be reweighted.
 - No emulator in v1 — call `gaiamock` directly, profile, add an emulator only if profiling shows
   it's needed.
 - **DR4 dual mode**: (a) fast — Gaia's own DR4 NSS catalog directly; (b) complete — `gaiamock`'s
@@ -543,6 +600,11 @@ Hierarchical multiplicity → type mixture:
   scaled. GP-on-log(dN/dM) built and compared as a second, swappable model. Auxiliary distributions
   (M1, P, e) stay parametric, swappable families (Kroupa IMF / Moe & Di Stefano / flat-in-log-P /
   optional SN-kick-informed eccentricity — a named model-comparison hypothesis in `inference`).
+  Since #391, M1 is not drawn from an IMF: it comes from the real parent star (TAG10). The
+  luminous-companion (P, q, e) densities are Moe & Di Stefano (2017) Eqs. 2–23, with the published
+  coefficients as config defaults (`population_model.moe_distefano`) that become free parameters
+  at validation rung 3; `population_model` evaluates λ(x|θ) on the stored proposal-set truth
+  (`docs/MOCK_POPULATION_SPEC.md` §2–§3). Open choices are MP-Q1–Q23 there.
 
 ### `sensitivity_analysis`
 
@@ -586,7 +648,12 @@ convergence diagnostic.
   (bulk, refined, joint). Each M2 is compared with the published mass in the fixture
   (`published_m2_msun` ± `published_m2_sigma_msun`, fixture schema v2) within
   `benchmarks.mass_check_n_sigma` combined sigmas. Each check is `passed` / `failed` / `not_tested`.
-  A check with no data is `not_tested`, never passed. `synthetic_observed_from_truth` is reachable
+  A check with no data is `not_tested`, never passed. A stage that **did not compute** a system's
+  M2 is also `not_tested`, with the reason, not credited with the upstream value it passed through
+  (#382). It is detected by the stage's own `extras["<stage>_skip_reason"]` (e.g. `joint_orbit_fit`
+  with no RVs → `rv_astrometry_gate_failed`), or by an `m2` ParameterSet identical to the previous
+  checked stage's for the same NSS row (`mass_derivation_refined` updates M1 only, so its M2 is
+  always the bulk M2). `synthetic_observed_from_truth` is reachable
   from tests only. The comparison-catalog report says it is a fixture listing with no comparison
   computed, and marks each catalog `complete` / `incomplete (n of N)` / `empty`.
 - **Empty is not a pass (#334)**: a diagnostic whose input is empty reports `not_tested` /

@@ -83,6 +83,35 @@ def test_assert_config_checksum_refuses_mismatch() -> None:
         assert_config_checksum(cfg, "0" * 64)
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["random_seed", "n_draws", "eig_rel_floor", "eig_abs_floor", "boundary_n_sigma"],
+)
+def test_mc_mass_function_change_refuses_resume(tmp_path: Path, field: str) -> None:
+    """#379: ``mc_mass_function`` feeds ``sample_selection`` and ``mass_derivation_bulk``
+    (``sigma_M2``, #374), so changing any of its knobs must refuse a resume of a run file
+    written under the old settings (not merely move the stage fingerprint)."""
+    from darkhunter_pop.run_management import (
+        create_run_manifest,
+        resolve_run_file,
+        save_run_manifest,
+    )
+
+    assert "mc_mass_function" in SHARED_CHECKSUM_SECTIONS
+    cfg = load_config()
+    manifest = create_run_manifest(cfg)
+    path = tmp_path / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, path)
+    # Unchanged config resumes cleanly.
+    resolve_run_file(run_file=path, config=cfg, runs=tmp_path)
+    tweaked = cfg.model_copy(deep=True)
+    old = getattr(tweaked.mc_mass_function, field)
+    new = old + 1 if isinstance(old, int) else old * 10.0
+    setattr(tweaked.mc_mass_function, field, new)
+    with pytest.raises(ValueError, match="config checksum mismatch"):
+        resolve_run_file(run_file=path, config=tweaked, runs=tmp_path)
+
+
 def test_effective_m_ch_applies_delta() -> None:
     cfg = load_config()
     assert effective_M_Ch_msun(cfg) == pytest.approx(1.4)

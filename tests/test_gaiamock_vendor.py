@@ -42,6 +42,66 @@ def test_submodule_present() -> None:
     assert len(commit) == 40
 
 
+def _git(cwd: Path, *args: str) -> str:
+    import subprocess
+
+    out = subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+    )
+    return out.stdout.strip()
+
+
+def _init_repo(path: Path) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    _git(path, "init", "-q")
+    (path / "README").write_text("x\n", encoding="utf-8")
+    _git(path, "add", "README")
+    _git(
+        path,
+        "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+        "commit", "-q", "-m", "init",
+    )
+    return _git(path, "rev-parse", "HEAD")
+
+
+@pytest.mark.unit
+def test_submodule_commit_refuses_superproject_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#343: a vendor dir with gaiamock files but no .git must not report the parent's HEAD."""
+    _init_repo(tmp_path / "super")
+    vendor = tmp_path / "super" / "vendor" / "gaiamock"
+    vendor.mkdir(parents=True)
+    (vendor / "gaiamock.py").write_text("# hand-linked\n", encoding="utf-8")
+    monkeypatch.setattr(gaiamock_vendor, "_VENDOR_DIR", vendor)
+    with pytest.raises(RuntimeError, match="not its own git repository"):
+        gaiamock_vendor.submodule_commit()
+
+
+@pytest.mark.unit
+def test_submodule_commit_refuses_outside_any_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vendor = tmp_path / "loose" / "gaiamock"
+    vendor.mkdir(parents=True)
+    (vendor / "gaiamock.py").write_text("# copied\n", encoding="utf-8")
+    monkeypatch.setattr(gaiamock_vendor, "_VENDOR_DIR", vendor)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    with pytest.raises(RuntimeError, match="not its own git repository"):
+        gaiamock_vendor.submodule_commit()
+
+
+@pytest.mark.unit
+def test_submodule_commit_reads_own_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _init_repo(tmp_path / "super")
+    vendor = tmp_path / "super" / "vendor" / "gaiamock"
+    own_head = _init_repo(vendor)
+    monkeypatch.setattr(gaiamock_vendor, "_VENDOR_DIR", vendor)
+    assert gaiamock_vendor.submodule_commit() == own_head
+
+
 @pytest.mark.unit
 def test_version_mismatch_detection(tmp_path: Path) -> None:
     if not gaiamock_vendor.is_overlay_ready():

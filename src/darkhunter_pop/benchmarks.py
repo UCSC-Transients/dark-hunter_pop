@@ -81,12 +81,19 @@ class KnownTruthTable:
 
 @dataclass(frozen=True)
 class ObservedMass:
-    """One pipeline M2 estimate for a known-truth source (one stage, one NSS row)."""
+    """One pipeline M2 estimate for a known-truth source (one stage, one NSS row).
+
+    ``not_computed_reason`` is set when the stage did not compute this M2 itself (it
+    carried the upstream value through, e.g. ``joint_orbit_fit`` with no RVs). The
+    mass check for that stage is then ``not_tested`` with this reason, never a pass
+    credited to a stage that did no work (#382).
+    """
 
     stage: str
     nss_solution_type: str | None
     m2_msun: float
     m2_sigma_msun: float | None
+    not_computed_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +125,8 @@ class MassCheck:
     published_sigma_msun: float
     n_sigma_deviation: float
     status: CheckStatus
+    #: Why the check is ``not_tested`` when the stage did not compute M2 (#382).
+    not_tested_reason: str | None = None
 
     def one_line(self) -> str:
         sig = (
@@ -125,6 +134,12 @@ class MassCheck:
             if self.observed_sigma_msun is not None
             else "n/a"
         )
+        if self.not_tested_reason is not None:
+            return (
+                f"{self.stage} [{self.nss_solution_type}]: not_tested — "
+                f"{self.not_tested_reason} (carried M2={self.observed_m2_msun:.4g}"
+                f"±{sig}, not credited to this stage)"
+            )
         return (
             f"{self.stage} [{self.nss_solution_type}]: M2={self.observed_m2_msun:.4g}"
             f"±{sig} vs published {self.published_m2_msun:.4g}"
@@ -266,7 +281,9 @@ def check_masses(
     """Compare each pipeline M2 against the published value (#348).
 
     Deviation is ``|M2_pipe − M2_pub| / sqrt(σ_pub² + σ_pipe²)`` (``σ_pipe`` omitted
-    when absent or non-finite); ``failed`` above ``n_sigma``.
+    when absent or non-finite); ``failed`` above ``n_sigma``. An ``ObservedMass``
+    with ``not_computed_reason`` set (the stage passed the upstream M2 through) is
+    ``not_tested`` with that reason, whatever its deviation (#382).
     """
     if system.published_m2_msun is None or system.published_m2_sigma_msun is None:
         return []
@@ -279,7 +296,7 @@ def check_masses(
         )
         comb = math.hypot(float(system.published_m2_sigma_msun), sig_pipe or 0.0)
         dev = abs(float(m.m2_msun) - float(system.published_m2_msun)) / comb
-        if not math.isfinite(float(m.m2_msun)):
+        if m.not_computed_reason is not None or not math.isfinite(float(m.m2_msun)):
             status: CheckStatus = "not_tested"
         else:
             status = "passed" if dev <= float(n_sigma) else "failed"
@@ -293,6 +310,7 @@ def check_masses(
                 published_sigma_msun=float(system.published_m2_sigma_msun),
                 n_sigma_deviation=float(dev),
                 status=status,
+                not_tested_reason=m.not_computed_reason,
             )
         )
     return out
@@ -458,6 +476,51 @@ def _m2_from_record(rec: Mapping[str, Any]) -> tuple[float, float | None] | None
     return value, sigma
 
 
+def _m2_fingerprint(rec: Mapping[str, Any]) -> str | None:
+    """Canonical JSON of a record's full ``m2`` ParameterSet, for pass-through detection."""
+    m2 = rec.get("m2")
+    if not isinstance(m2, Mapping):
+        return None
+    return json.dumps(m2, sort_keys=True, default=str)
+
+
+def _not_computed_reason(
+    stage: str,
+    rec: Mapping[str, Any],
+    previous: tuple[str, str] | None,
+) -> str | None:
+    """Why ``stage`` did not compute this row's M2, or ``None`` if it did (#382).
+
+    Two signals, checked in order:
+
+    1. An explicit ``extras["<stage>_skip_reason"]`` the stage wrote itself (e.g.
+       ``joint_orbit_fit_skip_reason = rv_astrometry_gate_failed`` for a system with
+       no RVs, or an optimizer failure) — the stage kept the upstream M2.
+    2. The row's full ``m2`` ParameterSet (values, covariance, provenance, units) is
+       identical to the one the previous checked stage emitted for the same
+       ``(source_id, nss_solution_type)`` row — a silent pass-through (e.g.
+       ``mass_derivation_refined`` updates M1 only and never rewrites M2).
+
+    Limitations
+    -----------
+    Signal 2 needs the previous stage's artifact; when it is absent, a silent
+    pass-through with no skip marker cannot be detected and is checked as computed.
+    """
+    extras = rec.get("extras")
+    if isinstance(extras, Mapping):
+        skip = extras.get(f"{stage}_skip_reason")
+        if skip not in (None, ""):
+            return f"{stage} did not compute M2 (skip_reason={skip}), upstream M2 passed through"
+    if previous is not None:
+        prev_stage, prev_fp = previous
+        if _m2_fingerprint(rec) == prev_fp:
+            return (
+                f"{stage} did not recompute M2 (M2 ParameterSet identical to "
+                f"{prev_stage}'s), upstream M2 passed through"
+            )
+    return None
+
+
 def observed_benchmarks_from_artifacts(
     table: KnownTruthTable,
     *,
@@ -468,7 +531,10 @@ def observed_benchmarks_from_artifacts(
     """Build observed states for the known-truth systems from real stage artifacts (#348).
 
     NSS membership, solution types and RUWE come from ``data_acquisition``; M2 comes
-    from every artifact in ``mass_artifacts`` (stage name → path). With no
+    from every artifact in ``mass_artifacts`` (stage name → path, **in pipeline
+    order** — ``benchmarks.mass_check_stages``). A stage that carried the upstream M2
+    through rather than computing it is marked via ``ObservedMass.not_computed_reason``
+    (see :func:`_not_computed_reason`), so its check is ``not_tested`` (#382). With no
     ``data_acquisition`` artifact nothing was observed and an empty mapping is
     returned, so every check is ``not_tested``.
     """
@@ -480,21 +546,34 @@ def observed_benchmarks_from_artifacts(
     for rec in _read_candidate_rows(Path(data_acquisition_artifact), ids):
         da_rows[int(rec["source_id"])].append(rec)
     masses: dict[int, list[ObservedMass]] = {sid: [] for sid in ids}
+    # (source_id, nss_solution_type) → (stage, m2 fingerprint) of the last checked
+    # stage that emitted an M2 for that row; detects silent pass-through (#382).
+    previous: dict[tuple[int, str | None], tuple[str, str]] = {}
     for stage, path in mass_artifacts.items():
         if path is None or not Path(path).is_file():
             continue
+        emitted: dict[tuple[int, str | None], tuple[str, str]] = {}
         for rec in _read_candidate_rows(Path(path), ids):
             got = _m2_from_record(rec)
             if got is None:
                 continue
-            masses[int(rec["source_id"])].append(
+            sid = int(rec["source_id"])
+            row_key = (sid, rec.get("nss_solution_type"))
+            masses[sid].append(
                 ObservedMass(
                     stage=stage,
                     nss_solution_type=rec.get("nss_solution_type"),
                     m2_msun=got[0],
                     m2_sigma_msun=got[1],
+                    not_computed_reason=_not_computed_reason(
+                        stage, rec, previous.get(row_key)
+                    ),
                 )
             )
+            fp = _m2_fingerprint(rec)
+            if fp is not None:
+                emitted[row_key] = (stage, fp)
+        previous.update(emitted)
     out: dict[int, ObservedBenchmark] = {}
     for sid in ids:
         rows = da_rows[sid]

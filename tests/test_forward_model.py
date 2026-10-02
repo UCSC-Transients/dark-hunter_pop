@@ -1298,3 +1298,81 @@ def test_comparison_panels_accept_astropy_table() -> None:
     )
     assert n_rows == 2
     assert panels["G_mag"].size == 2
+
+
+# ---------------------------------------------------------------------------
+# #339 Phase 2 (paper-determined pieces): acceleration publication cuts, G < 19
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_acceleration_publication_cuts_follow_elbadry2024() -> None:
+    from darkhunter_pop.config_schema import AccelerationPublicationCutsConfig
+
+    acc = AccelerationPublicationCutsConfig()
+    nine = [-9.0] * 23
+    nine[1], nine[13] = 25.0, 24.0  # s > 20, F2 < 25 -> published 9-par
+    rec9 = classify_cascade_result(
+        nine, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.0, cuts=_CUTS, acceleration_cuts=acc
+    )
+    assert rec9.solution_type is SolutionType.NINE_PARAMETER
+    assert rec9.published_acceleration
+    assert rec9.acceleration_significance == pytest.approx(25.0)
+
+    seven = [-7.0] * 23
+    seven[1], seven[9] = 25.0, 23.0  # F2 >= 22 -> not published as 7-par
+    rec7 = classify_cascade_result(
+        seven, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.0, cuts=_CUTS, acceleration_cuts=acc
+    )
+    assert rec7.solution_type is SolutionType.SEVEN_PARAMETER
+    assert not rec7.published_acceleration
+    assert rec7.acceleration_f2 == pytest.approx(23.0)
+
+    seven[1], seven[9] = 15.0, 10.0  # 12 < s <= 20: removed from orbit fitting, unpublished
+    rec7b = classify_cascade_result(
+        seven, m1_msun=1.0, m2_msun=0.5, flux_ratio=0.0, cuts=_CUTS, acceleration_cuts=acc
+    )
+    assert not rec7b.published_acceleration
+
+
+class _FakeInjectionGaiamock(_CascadeCountingGaiamock):
+    """Fake gaiamock for run_mock_injections_with_truth: fixed distances, 5-par cascade."""
+
+    def __init__(self, d_pc: np.ndarray) -> None:
+        super().__init__()
+        self.d_pc = d_pc
+
+    def generate_coordinates_at_a_given_distance_exponential_disk(self, **kw):  # noqa: D401
+        n = len(self.d_pc)
+        z = np.zeros(n)
+        return z + 10.0, z + 5.0, self.d_pc, z + 1.0, z, z
+
+    @staticmethod
+    def xyz_to_galactic(*, x, y, z):
+        return np.zeros_like(x), np.zeros_like(x)
+
+    @staticmethod
+    def read_in_C_functions():
+        return None
+
+
+@pytest.mark.unit
+def test_mock_g_limit_removes_faint_draws_before_cascade() -> None:
+    from darkhunter_pop.forward_model import run_mock_injections_with_truth
+
+    cfg = load_config()
+    tweaked = cfg.model_copy(deep=True)
+    tweaked.selection_function_astrometric.extinction_model = ExtinctionModel.NONE
+    pop = tweaked.selection_function_astrometric.mock_population
+    tweaked.selection_function_astrometric.mock_population = pop.model_copy(
+        update={"N_realizations": 4, "faint_draw_fraction": 0.0, "Mg_tot_min": 4.0,
+                "Mg_tot_max": 4.0001}
+    )
+    # M_G = 4: G = 4 + 5 log10(d/10) -> 9, 14, 19.0 (removed, not < 19), 24 (removed)
+    d = np.array([100.0, 1000.0, 10000.0, 100000.0])
+    fake = _FakeInjectionGaiamock(d)
+    records, g, truth = run_mock_injections_with_truth(tweaked, fake)  # type: ignore[arg-type]
+    assert fake.calls == 2
+    assert len(records) == 2 and len(g) == 2
+    assert np.all(g < 19.0)
+    np.testing.assert_allclose(truth["distance_pc"], [100.0, 1000.0])
