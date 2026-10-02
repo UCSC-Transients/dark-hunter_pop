@@ -91,11 +91,12 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `spectroscopic_mass_function`,
-`rv_consistency`,
-`companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
-`selection_function_astrometric`, `selection_function_followup`, `sample_selection`,
-`sensitivity_analysis`,
-`population_model`, `triples` (`config_loader.config_checksum`).
+`rv_consistency`, `companion_nature`, `classification`, `physics`, `mc_mass_function`,
+`gaiamock`, `paths`, `selection_function_astrometric`, `selection_function_followup`,
+`sample_selection`, `spuriousness_model`, `multi_solution_rates`, `sensitivity_analysis`,
+`population_model`, `triples` (`config_loader.config_checksum`). `mc_mass_function` is in the
+checksum because it feeds both `sample_selection` and `mass_derivation_bulk` (`sigma_M2`, #374):
+a changed seed, draw count or eigenvalue floor refuses a resume (#379).
 `diagnostics` and `benchmarks` are intentionally excluded (layout + SBC tooling /
 validation fixtures; not resume science). Inactive DR changes do not affect the checksum.
 
