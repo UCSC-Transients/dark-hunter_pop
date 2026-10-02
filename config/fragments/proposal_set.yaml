@@ -1,0 +1,64 @@
+# Importance-reweighted mock proposal set (docs/MOCK_POPULATION_SPEC.md §3, #391).
+#
+# Draft fragment, NOT merged into config/config.yaml: it is read by
+# darkhunter_pop.proposal_set.load_proposal_set_fragment for the pilot only. It merges into
+# selection_function_astrometric.proposal_set / population_model.moe_distefano when the
+# stage integration lands (spec §3.8).
+#
+# Proposal settings change efficiency, never the answer (any θ is a reweighting). Every key
+# named provisional_* is a placeholder for an open question in spec §8 (MP-Q*). It is NOT a
+# decision, and it is recorded in the artifact and figure captions.
+
+proposal:
+  generation: 0
+  n_draws: 2000
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
+    uniform_fraction: 0.2
+    parallax_power: 2.0
+    parallax_cap_mas: 10.0
+  m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
+    q_tied_weight: 0.75
+    q_min: 0.05
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+  flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
+    dark_fraction: 0.2
+    relation: janssens2022
+    relation_weight: 0.7
+    relation_sigma_dex: 0.5
+    log_f_min: -5.0
+    log_f_max: 0.5
+  period:                            # log P mixture: core + MdS17-wide defensive component
+    core_weight: 0.8
+    core_log_p_min: 1.0
+    core_log_p_max: 4.0
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:
+    e_cap: 0.95
+    circular_period_days: 2.0        # MdS17 §2: P <= 2 d circular (matches the target)
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  provisional_parallax_floor_mas: 0.2               # MP-Q1
+  provisional_halbwachs_ipd_cstar_cuts: not_applied # MP-Q3
+  provisional_truth_parallax: measured_parallax     # MP-Q4
+  provisional_m1: tag10_point_drop_unresolved       # MP-Q5
+  provisional_light_split: observed_g_is_system_total  # MP-Q6
+
+target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1           # MP-Q10
+  provisional_eta_floor: -0.9                       # MP-Q11
+  provisional_low_mass_policy: log_linear_to_zero   # MP-Q7 (El-Badry et al. 2024 §3)
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity       # MP-Q9
+  provisional_mass_luminosity: janssens2022         # MP-Q13
+  provisional_flux_sigma_dex: 0.1                   # MP-Q13
+  provisional_compact_mixture: none                 # MP-Q17
