@@ -317,6 +317,101 @@ def test_known_truth_from_artifacts_fails_on_wrong_mass(tmp_path) -> None:
     assert "overall: FAILED" in report
 
 
+def test_known_truth_pass_through_stages_are_not_tested(tmp_path) -> None:
+    """#382: a stage that carried the upstream M2 through is not credited with a pass.
+
+    Mirrors main @ f252b1f: BH2 has no RVs, so ``joint_orbit_fit`` wrote
+    ``joint_orbit_fit_skip_reason`` and kept the bulk M2; ``mass_derivation_refined``
+    updates M1 only and re-emits the bulk M2 ParameterSet unchanged for both systems.
+    """
+    from darkhunter_pop.benchmarks import observed_benchmarks_from_artifacts
+
+    cfg = load_config()
+    table = load_known_truth_table_from_config(cfg)
+    bh1 = table.by_name()["Gaia-BH1"].source_id
+    bh2 = table.by_name()["Gaia-BH2"].source_id
+    da = tmp_path / "da.h5"
+    _write_candidate_artifact(
+        da, [_row(bh1, "Orbital", ruwe=7.6), _row(bh2, "AstroSpectroSB1", ruwe=9.2)]
+    )
+    bulk_rows = [_row(bh1, "Orbital", m2=9.5), _row(bh2, "AstroSpectroSB1", m2=8.9)]
+    bulk = tmp_path / "bulk.h5"
+    _write_candidate_artifact(bulk, bulk_rows)
+    refined = tmp_path / "refined.h5"
+    _write_candidate_artifact(refined, bulk_rows)  # M2 untouched
+    bh1_joint = _row(bh1, "Orbital", m2=9.7, sig=0.1)
+    bh1_joint["m2"]["provenance"] = "joint_astrometry_rv"
+    bh2_joint = _row(bh2, "AstroSpectroSB1", m2=8.9)
+    bh2_joint["extras"] = {"joint_orbit_fit_skip_reason": "rv_astrometry_gate_failed"}
+    joint = tmp_path / "joint.h5"
+    _write_candidate_artifact(joint, [bh1_joint, bh2_joint])
+    observed = observed_benchmarks_from_artifacts(
+        table,
+        data_acquisition_artifact=da,
+        mass_artifacts={
+            "mass_derivation_bulk": bulk,
+            "mass_derivation_refined": refined,
+            "joint_orbit_fit": joint,
+        },
+        orbital_solution_types=cfg.benchmarks.nss_orbital_solution_types,
+    )
+    results = {
+        r.name: r
+        for r in check_known_truth_expectations(
+            table,
+            observed,
+            ruwe_match_tolerance=float(cfg.benchmarks.ruwe_match_tolerance),
+            mass_n_sigma=float(cfg.benchmarks.mass_check_n_sigma),
+        )
+    }
+    for name, joint_status in (("Gaia-BH1", "passed"), ("Gaia-BH2", "not_tested")):
+        by_stage = {m.stage: m for m in results[name].mass_checks}
+        assert by_stage["mass_derivation_bulk"].status == "passed"
+        assert by_stage["mass_derivation_bulk"].not_tested_reason is None
+        assert by_stage["mass_derivation_refined"].status == "not_tested"
+        assert "did not recompute M2" in by_stage["mass_derivation_refined"].not_tested_reason
+        assert by_stage["joint_orbit_fit"].status == joint_status
+    bh2_joint_check = {m.stage: m for m in results["Gaia-BH2"].mass_checks}["joint_orbit_fit"]
+    assert "rv_astrometry_gate_failed" in bh2_joint_check.not_tested_reason
+    assert "not_tested" in bh2_joint_check.one_line()
+    # Never a system-level pass on carried-through masses.
+    assert results["Gaia-BH2"].status == "not_tested"
+    assert not results["Gaia-BH2"].passed
+
+
+def test_known_truth_pass_through_still_fails_on_computed_stage(tmp_path) -> None:
+    """A pass-through ``not_tested`` never masks a failure in a stage that did compute M2."""
+    from darkhunter_pop.benchmarks import observed_benchmarks_from_artifacts
+
+    cfg = load_config()
+    table = load_known_truth_table_from_config(cfg)
+    bh1 = table.by_name()["Gaia-BH1"].source_id
+    da = tmp_path / "da.h5"
+    _write_candidate_artifact(da, [_row(bh1, "Orbital", ruwe=7.6)])
+    bulk = tmp_path / "bulk.h5"
+    _write_candidate_artifact(bulk, [_row(bh1, "Orbital", m2=12.6)])
+    refined = tmp_path / "refined.h5"
+    _write_candidate_artifact(refined, [_row(bh1, "Orbital", m2=12.6)])
+    observed = observed_benchmarks_from_artifacts(
+        table,
+        data_acquisition_artifact=da,
+        mass_artifacts={"mass_derivation_bulk": bulk, "mass_derivation_refined": refined},
+        orbital_solution_types=cfg.benchmarks.nss_orbital_solution_types,
+    )
+    res = {
+        r.name: r
+        for r in check_known_truth_expectations(
+            table, observed, ruwe_match_tolerance=0.25, mass_n_sigma=3.0
+        )
+    }["Gaia-BH1"]
+    assert res.status == "failed"
+    statuses = {m.stage: m.status for m in res.mass_checks}
+    assert statuses == {
+        "mass_derivation_bulk": "failed",
+        "mass_derivation_refined": "not_tested",
+    }
+
+
 def test_known_truth_without_data_is_not_tested() -> None:
     cfg = load_config()
     table = load_known_truth_table_from_config(cfg)

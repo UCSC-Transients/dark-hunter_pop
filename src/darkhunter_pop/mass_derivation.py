@@ -3,7 +3,10 @@
 Bulk path: MSC (else gspphot) atmospheric parameters → Torres, Andersen & Giménez
 (2010) TAG10 mass/radius with analytic uncertainty propagation and optional Santos
 et al. (2013) correction, then companion mass via ``gaiamock_mod`` mass-function
-inversion and the config M2 cut.
+inversion and the config M2 cut. ``sigma_M2`` is the full-NSS-covariance + M1
+Monte Carlo of ``mc_mass_function.propagate_nss_solution`` (#374); candidates
+without a reconstructed covariance are counted and excluded, never given a
+diagonal or M1-only sigma.
 
 Refined path: consume ``dark-hunter_sed`` / uberMS (async queue, cache, re-run on
 new data) without forking photometry gathering. Watch-list when M1 approaches the
@@ -27,10 +30,16 @@ from darkhunter_pop import constants
 from darkhunter_pop.config_loader import require_dr3_active_for_v1, repo_root
 from darkhunter_pop.config_schema import (
     MassCalibrationMethod,
+    McMassFunctionConfig,
     PipelineConfig,
 )
 from darkhunter_pop.data_acquisition import read_stage_hdf5 as read_data_acquisition_hdf5
 from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
+from darkhunter_pop.mc_mass_function import (
+    M1_DRAW_SEED_SALT,
+    CovarianceFactorization,
+    propagate_nss_solution,
+)
 from darkhunter_pop.run_management import (
     STAGE_REGISTRY,
     mark_stage_finished,
@@ -173,6 +182,16 @@ class BulkFunnel:
     skipped_no_atmosphere: int
     skipped_no_orbit: int
     skipped_m2_failed: int
+    # #374: Thiele–Innes present but no reconstructed ``nss_solution`` covariance
+    # (counted in data_acquisition's covariance_health) → no defensible sigma_M2.
+    skipped_no_nss_covariance: int = 0
+    # #374: covariance present but the MC produced no sigma (missing names,
+    # factorization/inversion error, < 2 finite draws).
+    skipped_m2_sigma_failed: int = 0
+    # #374: candidates with a sigma_M2 whose covariance needed a fallback
+    # factorization (see mc_mass_function.factorize_covariance).
+    m2_mc_cholesky_nugget: int = 0
+    m2_mc_eigen_clip: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -184,6 +203,10 @@ class BulkFunnel:
             "skipped_no_atmosphere": self.skipped_no_atmosphere,
             "skipped_no_orbit": self.skipped_no_orbit,
             "skipped_m2_failed": self.skipped_m2_failed,
+            "skipped_no_nss_covariance": self.skipped_no_nss_covariance,
+            "skipped_m2_sigma_failed": self.skipped_m2_sigma_failed,
+            "m2_mc_cholesky_nugget": self.m2_mc_cholesky_nugget,
+            "m2_mc_eigen_clip": self.m2_mc_eigen_clip,
         }
 
 
@@ -460,6 +483,157 @@ def photocenter_a0_mas(
     return float(a0)
 
 
+#: ``CandidateRecord.extras`` key holding the bulk sigma_M2 MC ensemble summary.
+M2_BULK_MC_EXTRAS_KEY = "m2_bulk_mc"
+#: Minimum finite draws for an ensemble standard deviation (ddof=1).
+_MIN_FINITE_DRAWS = 2
+
+
+class M2SigmaUnavailableError(ValueError):
+    """The full-covariance MC could not produce a sigma_M2 for this candidate."""
+
+
+@dataclass(frozen=True)
+class M2SigmaMonteCarlo:
+    """Full-NSS-covariance + M1 Monte Carlo summary for the bulk sigma_M2 (#374).
+
+    ``sigma_m2_msun`` is the ensemble standard deviation over finite draws
+    (``mc_mass_function.MassFunctionDraws.m2_std``, ddof=1). Quantiles are over
+    finite draws only; ``n_valid`` says how many there were.
+    """
+
+    sigma_m2_msun: float
+    mean_m2_msun: float
+    p16_m2_msun: float
+    p50_m2_msun: float
+    p84_m2_msun: float
+    n_draws: int
+    n_valid: int
+    n_m1_nonpositive: int
+    random_seed: int
+    factorization: CovarianceFactorization
+    n_clipped_eigenvalues: int
+
+    def as_extras(self) -> dict[str, Any]:
+        """JSON-safe payload stored at ``extras[M2_BULK_MC_EXTRAS_KEY]``."""
+        return {
+            "method": "mc_mass_function.propagate_nss_solution",
+            "sigma_m2_msun": self.sigma_m2_msun,
+            "mean_m2_msun": self.mean_m2_msun,
+            "p16_m2_msun": self.p16_m2_msun,
+            "p50_m2_msun": self.p50_m2_msun,
+            "p84_m2_msun": self.p84_m2_msun,
+            "n_draws": self.n_draws,
+            "n_valid": self.n_valid,
+            "n_m1_nonpositive": self.n_m1_nonpositive,
+            "random_seed": self.random_seed,
+            "factorization": self.factorization.value,
+            "n_clipped_eigenvalues": self.n_clipped_eigenvalues,
+        }
+
+
+def bulk_m2_mc_seed(source_id: int, mc: McMassFunctionConfig) -> int:
+    """Per-system MC seed: ``random_seed XOR (source_id & 0x7FFFFFFF)``.
+
+    The same derivation as the selection-sample MC
+    (``sample_selection.load_selection_rows_from_uncut_snapshot``), so one global
+    ``mc_mass_function.random_seed`` governs every full-covariance ensemble.
+    """
+    return int(mc.random_seed) ^ (int(source_id) & 0x7FFFFFFF)
+
+
+def m2_sigma_from_nss_covariance(
+    nss_solution: ParameterSet,
+    *,
+    m1_msun: float,
+    sigma_m1_msun: float | None,
+    flux_ratio: float,
+    mc: McMassFunctionConfig,
+    source_id: int,
+) -> M2SigmaMonteCarlo:
+    """sigma_M2 from the full NSS covariance plus the M1 uncertainty (#374).
+
+    Reuses ``mc_mass_function.propagate_nss_solution``: ``mc.n_draws`` draws of
+    the record's full fitted-parameter covariance (A/B/F/G, parallax, period and
+    all cross terms; Cholesky → nugget → eigen-clip, never diagonal), each with
+    its own ``M1 ~ N(m1_msun, sigma_m1_msun)`` (v1 Gaussian-M1 convention; the
+    M1 stream is seeded ``seed ^ M1_DRAW_SEED_SALT``), propagated
+    ``a0 → f(m) → M2``.
+
+    Parameters
+    ----------
+    nss_solution:
+        ``CandidateRecord.nss_solution`` (must carry the Thiele–Innes, parallax
+        and period names ``mc_mass_function`` requires).
+    m1_msun, sigma_m1_msun:
+        Primary mass and its 1σ. ``None`` or ``<= 0`` sigma means a fixed M1
+        shared by every draw.
+    flux_ratio:
+        ``mass_derivation.dark_companion_flux_ratio``.
+    mc:
+        Shared ``mc_mass_function`` config (``n_draws``, ``random_seed``, floors).
+    source_id:
+        Gaia DR3 ``source_id``; sets the per-system seed (``bulk_m2_mc_seed``).
+
+    Limitations
+    -----------
+    Non-positive M1 or parallax draws invert to NaN and are excluded from the
+    standard deviation (counted in ``n_valid`` / ``n_m1_nonpositive``), so for
+    orbits whose parallax is near zero significance the sigma is over the
+    physical part of the ensemble only. The ensemble standard deviation is not
+    robust to heavy upper tails; the 16/84 % quantiles are recorded alongside.
+
+    Raises
+    ------
+    M2SigmaUnavailableError
+        Missing required names, a factorization/inversion error, or fewer than
+        two finite draws. The caller counts and excludes the candidate.
+    """
+    seed = bulk_m2_mc_seed(source_id, mc)
+    n_draws = int(mc.n_draws)
+    m1_draws: float | NDArray[np.floating]
+    if sigma_m1_msun is None or not math.isfinite(sigma_m1_msun) or sigma_m1_msun <= 0:
+        m1_draws = float(m1_msun)
+        n_m1_nonpositive = 0 if m1_msun > 0 else n_draws
+    else:
+        rng = np.random.default_rng(seed ^ M1_DRAW_SEED_SALT)
+        m1_draws = rng.normal(float(m1_msun), float(sigma_m1_msun), size=n_draws)
+        n_m1_nonpositive = int(np.count_nonzero(m1_draws <= 0.0))
+    try:
+        draws = propagate_nss_solution(
+            nss_solution,
+            m1_msun=m1_draws,
+            n_draws=n_draws,
+            random_seed=seed,
+            flux_ratio=float(flux_ratio),
+            eig_rel_floor=float(mc.eig_rel_floor),
+            eig_abs_floor=float(mc.eig_abs_floor),
+            source_id=int(source_id),
+            covariance_mode=mc.covariance,
+        )
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        raise M2SigmaUnavailableError(str(exc)) from exc
+    finite = draws.m2_msun[np.isfinite(draws.m2_msun)]
+    if finite.size < _MIN_FINITE_DRAWS:
+        raise M2SigmaUnavailableError(
+            f"only {finite.size} finite M2 draw(s) of {n_draws}"
+        )
+    p16, p50, p84 = (float(v) for v in np.percentile(finite, [16.0, 50.0, 84.0]))
+    return M2SigmaMonteCarlo(
+        sigma_m2_msun=draws.m2_std(),
+        mean_m2_msun=draws.m2_mean(),
+        p16_m2_msun=p16,
+        p50_m2_msun=p50,
+        p84_m2_msun=p84,
+        n_draws=n_draws,
+        n_valid=int(finite.size),
+        n_m1_nonpositive=n_m1_nonpositive,
+        random_seed=seed,
+        factorization=draws.factorization,
+        n_clipped_eigenvalues=int(draws.n_clipped_eigenvalues),
+    )
+
+
 def companion_mass_m2(
     m1_msun: float,
     *,
@@ -468,9 +642,17 @@ def companion_mass_m2(
     parallax_mas: float,
     flux_ratio: float,
     gaiamock: GaiamockMassAPI,
-    sigma_m1_msun: float | None = None,
+    sigma_m2_msun: float,
 ) -> ParameterSet:
-    """Invert the astrometric mass function for M2 (dark-companion flux ratio from config)."""
+    """Invert the astrometric mass function for M2 (dark-companion flux ratio from config).
+
+    The central value is the ``gaiamock_mod`` inversion at the best-fit orbit.
+    ``sigma_m2_msun`` is supplied by the caller and must already include the
+    full orbit covariance and the M1 term (``m2_sigma_from_nss_covariance``,
+    #374); this function never derives a partial (M1-only) sigma.
+    """
+    if not math.isfinite(sigma_m2_msun) or sigma_m2_msun < 0:
+        raise ValueError(f"sigma_m2_msun must be finite and >= 0, got {sigma_m2_msun}")
     m2 = float(
         gaiamock.get_companion_mass_from_mass_function(
             M1=m1_msun,
@@ -480,37 +662,11 @@ def companion_mass_m2(
             fluxratio=flux_ratio,
         )
     )
-    if sigma_m1_msun is None or sigma_m1_msun <= 0:
-        sigma_m2 = 0.0
-    else:
-        # Finite-difference ∂M2/∂M1 at fixed orbit (gaiamock owns the transcendental root).
-        delta = max(sigma_m1_msun * 0.1, 1e-4 * max(m1_msun, 1.0))
-        m2_hi = float(
-            gaiamock.get_companion_mass_from_mass_function(
-                M1=m1_msun + delta,
-                a0_mas=a0_mas,
-                period=period_day,
-                parallax=parallax_mas,
-                fluxratio=flux_ratio,
-            )
-        )
-        m2_lo = float(
-            gaiamock.get_companion_mass_from_mass_function(
-                M1=max(m1_msun - delta, 1e-6),
-                a0_mas=a0_mas,
-                period=period_day,
-                parallax=parallax_mas,
-                fluxratio=flux_ratio,
-            )
-        )
-        dmdm = (m2_hi - m2_lo) / (2.0 * delta)
-        sigma_m2 = abs(dmdm) * sigma_m1_msun
-
     return ParameterSet(
         names=["M2"],
         values=[m2],
-        covariance=[[sigma_m2**2]],
-        provenance="gaiamock_mass_function+TAG10_M1",
+        covariance=[[float(sigma_m2_msun) ** 2]],
+        provenance="gaiamock_mass_function+TAG10_M1+nss_full_covariance_mc",
         units=["Msun"],
     )
 
@@ -571,6 +727,12 @@ def format_bulk_funnel_table(diagnostics: BulkDiagnostics) -> str:
         f"  skipped_no_atmosphere:  {funnel.skipped_no_atmosphere}",
         f"  skipped_no_orbit:       {funnel.skipped_no_orbit}",
         f"  skipped_m2_failed:      {funnel.skipped_m2_failed}",
+        f"  skipped_no_nss_covariance: {funnel.skipped_no_nss_covariance}"
+        "  (Thiele-Innes present, no reconstructed NSS covariance; excluded, never diagonal)",
+        f"  skipped_m2_sigma_failed:   {funnel.skipped_m2_sigma_failed}"
+        "  (full-covariance MC produced no sigma_M2)",
+        f"  m2_mc_cholesky_nugget:     {funnel.m2_mc_cholesky_nugget}",
+        f"  m2_mc_eigen_clip:          {funnel.m2_mc_eigen_clip}",
         f"  m2_pre_cut_n:           {len(diagnostics.m2_pre_cut_msun)}",
         f"  m2_post_cut_n:          {len(diagnostics.m2_post_cut_msun)}",
     ]
@@ -644,20 +806,28 @@ def process_bulk_candidate(
     candidate: CandidateRecord,
     config: PipelineConfig,
     gaiamock: GaiamockMassAPI,
-) -> tuple[CandidateRecord | None, str | None, float | None]:
+) -> tuple[
+    CandidateRecord | None, str | None, float | None, CovarianceFactorization | None
+]:
     """Derive M1/M2 for one candidate.
 
-    Returns ``(updated_candidate_or_None, skip_reason, m2_pre_cut)``.
-    ``m2_pre_cut`` is set whenever M2 is computed (even if the cut rejects).
+    Returns ``(updated_candidate_or_None, skip_reason, m2_pre_cut, factorization)``.
+    ``m2_pre_cut`` is set whenever M2 and its sigma are computed (even if the
+    cut rejects); ``factorization`` is the sigma_M2 MC's covariance
+    factorization in the same cases, else ``None``.
+
+    Skip reasons: ``no_atmosphere``, ``m1_failed``, ``no_orbit``,
+    ``no_nss_covariance`` (Thiele–Innes but no reconstructed covariance),
+    ``m2_sigma_failed`` (MC produced no sigma), ``m2_failed``, ``m2_cut``.
     """
     atmosphere = resolve_atmosphere(candidate)
     if atmosphere is None:
-        return None, "no_atmosphere", None
+        return None, "no_atmosphere", None, None
 
     try:
         m1_set = derive_tag10_m1_r1(atmosphere, config)
     except (ValueError, NotImplementedError):
-        return None, "m1_failed", None
+        return None, "m1_failed", None, None
 
     m1_marg = m1_set.marginal("M1")
     period = _finite(candidate.nss_orbital.get("period"))
@@ -671,7 +841,24 @@ def process_bulk_candidate(
         or parallax <= 0
         or period <= 0
     ):
-        return None, "no_orbit", None
+        return None, "no_orbit", None, None
+
+    if candidate.nss_solution is None:
+        # Counted and excluded; never an M1-only or diagonal stand-in (#374).
+        return None, "no_nss_covariance", None, None
+
+    flux_ratio = config.mass_derivation.dark_companion_flux_ratio
+    try:
+        sigma_mc = m2_sigma_from_nss_covariance(
+            candidate.nss_solution,
+            m1_msun=m1_marg.value,
+            sigma_m1_msun=m1_marg.sigma,
+            flux_ratio=flux_ratio,
+            mc=config.mc_mass_function,
+            source_id=candidate.source_id,
+        )
+    except M2SigmaUnavailableError:
+        return None, "m2_sigma_failed", None, None
 
     try:
         a0 = photocenter_a0_mas(candidate.thiele_innes, gaiamock)
@@ -680,12 +867,12 @@ def process_bulk_candidate(
             a0_mas=a0,
             period_day=period,
             parallax_mas=parallax,
-            flux_ratio=config.mass_derivation.dark_companion_flux_ratio,
+            flux_ratio=flux_ratio,
             gaiamock=gaiamock,
-            sigma_m1_msun=m1_marg.sigma,
+            sigma_m2_msun=sigma_mc.sigma_m2_msun,
         )
     except (ValueError, ZeroDivisionError):
-        return None, "m2_failed", None
+        return None, "m2_failed", None, None
 
     m2_marg = m2_set.marginal("M2")
     if not passes_m2_mass_cut(
@@ -694,16 +881,19 @@ def process_bulk_candidate(
         m_min_msun=config.classification.M_MIN_msun,
         n_sigma=config.classification.n_sigma_mass_cut,
     ):
-        return None, "m2_cut", m2_marg.value
+        return None, "m2_cut", m2_marg.value, sigma_mc.factorization
 
+    extras = dict(candidate.extras)
+    extras[M2_BULK_MC_EXTRAS_KEY] = sigma_mc.as_extras()
     updated = candidate.model_copy(
         update={
             "m1": m1_set,
             "m2": m2_set,
             "fit_tier": FitTier.BULK_ESTIMATE,
+            "extras": extras,
         }
     )
-    return updated, None, m2_marg.value
+    return updated, None, m2_marg.value, sigma_mc.factorization
 
 
 def run_bulk_on_candidates(
@@ -724,11 +914,21 @@ def run_bulk_on_candidates(
     skipped_no_atmosphere = 0
     skipped_no_orbit = 0
     skipped_m2_failed = 0
+    skipped_no_nss_covariance = 0
+    skipped_m2_sigma_failed = 0
+    m2_mc_cholesky_nugget = 0
+    m2_mc_eigen_clip = 0
     progress_interval = config.mass_derivation.bulk_progress_log_interval
 
     for candidate in candidates:
         input_candidates += 1
-        updated, reason, m2_pre_val = process_bulk_candidate(candidate, config, api)
+        updated, reason, m2_pre_val, factorization = process_bulk_candidate(
+            candidate, config, api
+        )
+        if factorization is CovarianceFactorization.CHOLESKY_NUGGET:
+            m2_mc_cholesky_nugget += 1
+        elif factorization is CovarianceFactorization.EIGEN_CLIP:
+            m2_mc_eigen_clip += 1
         if reason == "no_atmosphere":
             skipped_no_atmosphere += 1
         else:
@@ -741,6 +941,10 @@ def run_bulk_on_candidates(
                     skipped_no_orbit += 1
                 elif reason == "m2_failed":
                     skipped_m2_failed += 1
+                elif reason == "no_nss_covariance":
+                    skipped_no_nss_covariance += 1
+                elif reason == "m2_sigma_failed":
+                    skipped_m2_sigma_failed += 1
                 else:
                     if m2_pre_val is not None:
                         m2_pre.append(m2_pre_val)
@@ -771,6 +975,10 @@ def run_bulk_on_candidates(
             skipped_no_atmosphere=skipped_no_atmosphere,
             skipped_no_orbit=skipped_no_orbit,
             skipped_m2_failed=skipped_m2_failed,
+            skipped_no_nss_covariance=skipped_no_nss_covariance,
+            skipped_m2_sigma_failed=skipped_m2_sigma_failed,
+            m2_mc_cholesky_nugget=m2_mc_cholesky_nugget,
+            m2_mc_eigen_clip=m2_mc_eigen_clip,
         ),
         m2_pre_cut_msun=np.asarray(m2_pre, dtype=np.float64),
         m2_post_cut_msun=np.asarray(m2_post, dtype=np.float64),

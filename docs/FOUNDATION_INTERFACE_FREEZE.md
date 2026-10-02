@@ -72,6 +72,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `gaiamock.mod_release` (+ optional sha/commit pins) | Version triple with installed overlay |
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
 | `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps, `sed_summary_root` + `phot_sed_root` snapshot roots/templates |
+| `mc_mass_function.*` | Shared full-covariance MC knobs (`n_draws`, `random_seed`, `covariance: full_12x12`, eigen floors). Read by `sample_selection` and, since #374, by `mass_derivation_bulk` for the bulk `sigma_M2` (in both stages' fingerprints) |
 | `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
 | `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |
@@ -90,11 +91,12 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 
 Checksum for resume/amend (`config_schema.SHARED_CHECKSUM_SECTIONS` + active DR subtree):
 **active DR subtree +** `mass_calibration`, `mass_derivation`, `spectroscopic_mass_function`,
-`rv_consistency`,
-`companion_nature`, `classification`, `physics`, `gaiamock`, `paths`,
-`selection_function_astrometric`, `selection_function_followup`, `sample_selection`,
-`sensitivity_analysis`,
-`population_model`, `triples` (`config_loader.config_checksum`).
+`rv_consistency`, `companion_nature`, `classification`, `physics`, `mc_mass_function`,
+`gaiamock`, `paths`, `selection_function_astrometric`, `selection_function_followup`,
+`sample_selection`, `spuriousness_model`, `multi_solution_rates`, `sensitivity_analysis`,
+`population_model`, `triples` (`config_loader.config_checksum`). `mc_mass_function` is in the
+checksum because it feeds both `sample_selection` and `mass_derivation_bulk` (`sigma_M2`, #374):
+a changed seed, draw count or eigenvalue floor refuses a resume (#379).
 `diagnostics` and `benchmarks` are intentionally excluded (layout + SBC tooling /
 validation fixtures; not resume science). Inactive DR changes do not affect the checksum.
 
