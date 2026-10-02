@@ -66,6 +66,7 @@ from darkhunter_pop.forward_model import (
 )
 from darkhunter_pop.nss_covariance import CovarianceHealth
 from darkhunter_pop.plotting import (
+    axis_label,
     matplotlib_available,
     plot_categorical_bars,
     plot_grouped_bars,
@@ -799,7 +800,7 @@ def emit_fit_tier_coverage(
                 labels,
                 values,
                 dirs.figures / "fit_tier_coverage.png",
-                xlabel="fit_tier",
+                xlabel=axis_label("fit_tier"),
                 ylabel="count",
                 title="fit-tier coverage",
                 dpi=diag.figure_dpi,
@@ -862,7 +863,7 @@ def emit_age_stratified_wd(
                 labels,
                 plot_vals,
                 dirs.figures / "age_stratified_wd_mean.png",
-                xlabel="primary age bin [Gyr]",
+                xlabel="primary age bin (Gyr)",
                 ylabel="mean WD weight",
                 title="age-stratified WD weights",
                 dpi=diag.figure_dpi,
@@ -1013,7 +1014,7 @@ def emit_info_gain_followup(
                 [str(r.source_id) for r in top],
                 [r.score for r in top],
                 dirs.figures / "info_gain_top_n.png",
-                xlabel="source_id",
+                xlabel=axis_label("source_id"),
                 ylabel="score",
                 title=f"top-{len(top)} follow-up priority",
                 dpi=diag.figure_dpi,
@@ -1062,10 +1063,13 @@ def emit_sampler_consistency(
                 assessment.logz_values,
                 dirs.figures / "sampler_logz.png",
                 xlabel="robustness run",
-                ylabel="logZ",
-                title="sampler multi-run logZ",
+                ylabel=axis_label("logz"),
+                title="sampler multi-run evidence",
                 dpi=diag.figure_dpi,
                 style=config.plotting,
+                # logZ has no meaningful zero: points with 1-sigma bars (#333).
+                baseline_zero=False,
+                errors=assessment.logz_errs,
             ),
         )
         if path is not None:
@@ -1109,8 +1113,8 @@ def emit_mc_noise_convergence(
                 diagnostic.schedule_n_mock,
                 diagnostic.schedule_max_ratio,
                 dirs.figures / "mc_noise_convergence.png",
-                xlabel="n_mock",
-                ylabel="max sigma_MC / sigma_Poisson",
+                xlabel=axis_label("n_mock"),
+                ylabel=axis_label("mc_poisson_ratio"),
                 title=(
                     "MC-noise convergence: analytic placeholder, not measured"
                 ),
@@ -1409,9 +1413,9 @@ def emit_sample_attrition_waterfall(
                     labels,
                     series,
                     dirs.figures / f"sample_attrition_waterfall_{name}.png",
-                    xlabel="cut_id",
+                    xlabel=axis_label("cut_id"),
                     ylabel="count",
-                    title=f"{name} attrition (passed / failed / not_applicable)",
+                    title=f"{name} attrition: passed / failed / not applicable",
                     dpi=diag.figure_dpi,
                     style=config.plotting,
                 ),
@@ -1676,11 +1680,12 @@ def emit_sample_selection_function(
                     curve.survival,
                     dirs.figures
                     / f"sample_selection_function_{curve.sample_name}_{curve.axis}.png",
-                    xlabel=curve.axis,
-                    ylabel="survival probability",
-                    title=f"{curve.sample_name} selection function vs {curve.axis}",
+                    xlabel=axis_label(curve.axis),
+                    ylabel=axis_label("survival_probability"),
+                    title=f"{curve.sample_name} selection function",
                     dpi=diag.figure_dpi,
                     threshold=None,
+                    log_x="auto",
                     style=config.plotting,
                 ),
             )
@@ -1810,7 +1815,7 @@ def emit_janssens_segment_occupancy(
                 labels,
                 values,
                 dirs.figures / "janssens_segment_occupancy.png",
-                xlabel="mass segment (Msun)",
+                xlabel=r"mass segment (M$_\odot$)",
                 ylabel="count",
                 title="Janssens segment occupancy",
                 dpi=diag.figure_dpi,
