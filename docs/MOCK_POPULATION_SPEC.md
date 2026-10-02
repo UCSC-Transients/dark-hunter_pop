@@ -145,8 +145,10 @@ The real star's own RUWE is never used to remove it, since that would select on 
 
 All equation and table numbers are MdS17 (arXiv:1606.05347). `log` is log₁₀, P in days,
 q = M_comp/M1. These are the **published values** of θ_MdS for rung 2 (§5); at rung 3 they become
-free parameters of `population_model`, so they live in config (`population_model.moe_distefano`),
-not in `constants.py`.
+free parameters of `population_model`, so they live in config, not in `constants.py`: the published
+coefficients in a frozen table `config/population/moe_distefano2017.yaml` (cited per equation), and
+the switches in the fragment `config/fragments/proposal_set.yaml`, which merges into
+`population_model.moe_distefano` when the stage integration lands (§3.8).
 
 ### 2.1 Domain
 
@@ -305,7 +307,8 @@ puts mass:
 | q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4), else U(0, e_cap) |
 | geometry | isotropic, identical to the target (§2.8) |
 
-All proposal settings are in config (`selection_function_astrometric.proposal_set`). They change
+All proposal settings are in config (`config/fragments/proposal_set.yaml`, merging into
+`selection_function_astrometric.proposal_set` at stage integration). They change
 efficiency, never the answer. The support condition is enforced by a test: q(x) > 0 on the union
 of the MdS17 domain and the compact-object mass range.
 
