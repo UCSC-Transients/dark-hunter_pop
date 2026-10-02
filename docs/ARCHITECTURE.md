@@ -631,7 +631,12 @@ convergence diagnostic.
   (bulk, refined, joint). Each M2 is compared with the published mass in the fixture
   (`published_m2_msun` ± `published_m2_sigma_msun`, fixture schema v2) within
   `benchmarks.mass_check_n_sigma` combined sigmas. Each check is `passed` / `failed` / `not_tested`.
-  A check with no data is `not_tested`, never passed. `synthetic_observed_from_truth` is reachable
+  A check with no data is `not_tested`, never passed. A stage that **did not compute** a system's
+  M2 is also `not_tested`, with the reason, not credited with the upstream value it passed through
+  (#382). It is detected by the stage's own `extras["<stage>_skip_reason"]` (e.g. `joint_orbit_fit`
+  with no RVs → `rv_astrometry_gate_failed`), or by an `m2` ParameterSet identical to the previous
+  checked stage's for the same NSS row (`mass_derivation_refined` updates M1 only, so its M2 is
+  always the bulk M2). `synthetic_observed_from_truth` is reachable
   from tests only. The comparison-catalog report says it is a fixture listing with no comparison
   computed, and marks each catalog `complete` / `incomplete (n of N)` / `empty`.
 - **Empty is not a pass (#334)**: a diagnostic whose input is empty reports `not_tested` /
