@@ -78,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fragment", type=Path, default=Path("config/population/proposal_set_pilot.yaml"))
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--n-draws", type=int, default=None, help="override proposal.n_draws")
+    ap.add_argument(
+        "--draw-index-offset", type=int, default=0,
+        help="first global draw_index of this generation (indices are never reused, spec §3.3)",
+    )
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -91,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         f"(TAG10 M1 resolved, parallax > {prop.provisional_parallax_floor_mas} mas); "
         f"scale_to_full = {parent.scale_to_full:.1f}"
     )
-    truth = sample_proposal(parent, prop)
+    truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
     n = int(truth["draw_index"].size)
 
     partial = args.out.with_suffix(".partial.jsonl")
