@@ -227,10 +227,15 @@ def test_gaiamock_stages_declare_gaiamock_vendor(stage: str) -> None:
 
 
 @pytest.mark.unit
-def test_uses_gaiamock_stages_are_the_expected_pair() -> None:
-    """Keeps the parametrized gaiamock test above from silently shrinking."""
+def test_uses_gaiamock_stages_are_the_expected_set() -> None:
+    """Keeps the parametrized gaiamock test above from silently shrinking.
+
+    ``mass_derivation_refined`` joined in #377: it re-inverts M2 with
+    ``gaiamock_mod`` when a refined M1 replaces the bulk one.
+    """
     assert {n for n in STAGE_ORDER if STAGE_REGISTRY[n].uses_gaiamock} == {
         "mass_derivation_bulk",
+        "mass_derivation_refined",
         "selection_function_astrometric",
     }
 

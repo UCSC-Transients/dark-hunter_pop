@@ -72,7 +72,7 @@ Review/Integration materializes fragments into `config/config.yaml` at checkpoin
 | `gaiamock.mod_release` (+ optional sha/commit pins) | Version triple with installed overlay |
 | `mass_calibration.*` | method, `sigma_logM`/`R`, Santos flag, `delta_M_Ch_msun` |
 | `mass_derivation.*` | dark-companion flux ratio, uberMS prior/watch-list, SED queue caps, `sed_summary_root` + `phot_sed_root` snapshot roots/templates |
-| `mc_mass_function.*` | Shared full-covariance MC knobs (`n_draws`, `random_seed`, `covariance: full_12x12`, eigen floors). Read by `sample_selection` and, since #374, by `mass_derivation_bulk` for the bulk `sigma_M2` (in both stages' fingerprints) |
+| `mc_mass_function.*` | Shared full-covariance MC knobs (`n_draws`, `random_seed`, `covariance: full_12x12`, eigen floors). Read by `sample_selection` and, since #374, by `mass_derivation_bulk` for the bulk `sigma_M2` and, since #377, by `mass_derivation_refined` for the refined `sigma_M2` (in all three stages' fingerprints) |
 | `rv_consistency.*` | chi2/dof gate threshold, SB2 orbit tolerances, joint-fit priors/seeds |
 | `companion_nature.*` | ΔBIC threshold, channel/tier knobs, age-bin edges; emits five-key weights |
 | `classification.*` | `M_MIN_msun`, `n_sigma_mass_cut`, `M_TOV_msun` |

@@ -197,7 +197,11 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "mass_calibration",
                 "mass_derivation",
                 "active_dr_mode",
+                # #377: refined M2 / sigma_M2 are recomputed with the shared
+                # full-covariance MC from the refined M1.
+                "mc_mass_function",
             ),
+            uses_gaiamock=True,
         ),
         _spec(
             "rv_astrometry_gate",

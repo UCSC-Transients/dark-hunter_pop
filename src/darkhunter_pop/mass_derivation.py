@@ -9,7 +9,8 @@ without a reconstructed covariance are counted and excluded, never given a
 diagonal or M1-only sigma.
 
 Refined path: consume ``dark-hunter_sed`` / uberMS (async queue, cache, re-run on
-new data) without forking photometry gathering. Watch-list when M1 approaches the
+new data) without forking photometry gathering. A refined M1 is applied together
+with M2 / sigma_M2 recomputed from it by the same MC (#377). Watch-list when M1 approaches the
 configured uberMS prior cap (ARCHITECTURE.md §4).
 """
 
@@ -157,6 +158,48 @@ class GaiamockMassAPI(Protocol):
         ...
 
 
+class _LazyGaiamock:
+    """``GaiamockMassAPI`` that calls ``import_gaiamock_mod()`` on first use.
+
+    The refined stage only needs ``gaiamock_mod`` for candidates whose M2 is
+    actually recomputed (#377); a run that refines nothing, or whose records
+    fail the orbit/covariance checks first, never imports it.
+    """
+
+    def __init__(self) -> None:
+        self._api: Any | None = None
+
+    def _resolve(self) -> Any:
+        if self._api is None:
+            self._api = import_gaiamock_mod()
+        return self._api
+
+    def get_Campbell_elements(
+        self, A: float, B: float, F: float, G: float
+    ) -> tuple[float, float, float, float]:
+        return self._resolve().get_Campbell_elements(A, B, F, G)
+
+    def get_companion_mass_from_mass_function(
+        self,
+        M1: float,
+        a0_mas: float,
+        period: float,
+        parallax: float,
+        fluxratio: float,
+        tol: float = 1e-6,
+        max_iter: int = 1000,
+    ) -> float:
+        return self._resolve().get_companion_mass_from_mass_function(
+            M1=M1,
+            a0_mas=a0_mas,
+            period=period,
+            parallax=parallax,
+            fluxratio=fluxratio,
+            tol=tol,
+            max_iter=max_iter,
+        )
+
+
 @dataclass(frozen=True)
 class AtmosphereParams:
     """Teff / log g / [Fe/H] with optional 1σ uncertainties."""
@@ -192,6 +235,11 @@ class BulkFunnel:
     # factorization (see mc_mass_function.factorize_covariance).
     m2_mc_cholesky_nugget: int = 0
     m2_mc_eigen_clip: int = 0
+    # #380: candidates with a sigma_M2 whose Gaussian M1 ensemble had >= 1
+    # non-positive draw (excluded from the std, so the M1 width is truncated),
+    # and how many of those the M2 cut then rejected.
+    m1_draws_truncated: int = 0
+    m2_cut_m1_draws_truncated: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -207,6 +255,8 @@ class BulkFunnel:
             "skipped_m2_sigma_failed": self.skipped_m2_sigma_failed,
             "m2_mc_cholesky_nugget": self.m2_mc_cholesky_nugget,
             "m2_mc_eigen_clip": self.m2_mc_eigen_clip,
+            "m1_draws_truncated": self.m1_draws_truncated,
+            "m2_cut_m1_draws_truncated": self.m2_cut_m1_draws_truncated,
         }
 
 
@@ -215,6 +265,8 @@ class BulkDiagnostics:
     funnel: BulkFunnel
     m2_pre_cut_msun: NDArray[np.floating]
     m2_post_cut_msun: NDArray[np.floating]
+    #: #380: source_ids rejected by the M2 cut whose M1 ensemble was truncated.
+    m2_cut_m1_draws_truncated_source_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -226,6 +278,12 @@ class RefinedDiagnostics:
     fit_failed: int
     watchlist_source_ids: tuple[int, ...]
     information_gain_order: tuple[int, ...]
+    # #377: refined M1 applied with M2/sigma_M2 recomputed from it, vs. the
+    # recompute failing (record keeps its consistent bulk M1+M2 pair).
+    m2_recomputed: int = 0
+    m2_recompute_failed: int = 0
+    # #380: recomputed records whose Gaussian M1 ensemble had >= 1 M1 <= 0 draw.
+    m1_draws_truncated: int = 0
     # Loud flag (issue #181): whether darkhunter_sed (and transitively
     # darkhunter_rv) was importable when this diagnostics object was built.
     # False means every candidate above fell through the "doc is None" path in
@@ -634,6 +692,112 @@ def m2_sigma_from_nss_covariance(
     )
 
 
+#: M1 labels embedded in the M2 provenance (which M1 the inversion used).
+BULK_M1_LABEL = "TAG10_M1"
+REFINED_M1_LABEL = "uberMS_M1"
+#: ``extras`` key for the refined-tier sigma_M2 MC summary (#377).
+M2_REFINED_MC_EXTRAS_KEY = "m2_refined_mc"
+#: ``extras`` key recording why a refined M2 recompute failed (#377).
+M2_REFINED_FAILED_EXTRAS_KEY = "m2_refined_failed"
+
+
+class M2DerivationError(ValueError):
+    """M2 / sigma_M2 could not be derived; ``reason`` is the funnel skip reason.
+
+    ``reason`` is one of ``no_orbit``, ``no_nss_covariance``, ``m2_sigma_failed``
+    or ``m2_failed`` (``process_bulk_candidate`` skip reasons).
+    """
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+
+
+def derive_m2_from_m1(
+    candidate: CandidateRecord,
+    *,
+    m1_msun: float,
+    sigma_m1_msun: float | None,
+    config: PipelineConfig,
+    gaiamock: GaiamockMassAPI,
+    m1_label: str,
+) -> tuple[ParameterSet, M2SigmaMonteCarlo]:
+    """M2 and full-covariance sigma_M2 for one candidate given an M1 posterior.
+
+    Shared by ``mass_derivation_bulk`` (TAG10 M1) and ``mass_derivation_refined``
+    (uberMS M1, #377) so both tiers use one inversion and one Monte Carlo
+    (``m2_sigma_from_nss_covariance``); a diagonal or M1-only sigma is never
+    used.
+
+    Parameters
+    ----------
+    candidate:
+        Record carrying ``thiele_innes``, ``nss_solution``, the orbital period
+        and a parallax (``parallax_mas`` else ``nss_orbital['parallax']``).
+    m1_msun, sigma_m1_msun:
+        Central M1 and its 1σ (Gaussian-in-M1 v1 convention; see #380 for the
+        open question on wide M1 posteriors).
+    config:
+        Pipeline config (``mass_derivation.dark_companion_flux_ratio``,
+        ``mc_mass_function``).
+    gaiamock:
+        ``gaiamock_mod`` API (Campbell elements and mass-function inversion).
+    m1_label:
+        Name of the M1 used, embedded in the M2 provenance.
+
+    Raises
+    ------
+    M2DerivationError
+        ``reason`` in ``no_orbit`` (no Thiele–Innes / non-positive period or
+        parallax), ``no_nss_covariance``, ``m2_sigma_failed`` or ``m2_failed``,
+        checked in that order.
+    """
+    period = _finite(candidate.nss_orbital.get("period"))
+    parallax = candidate.parallax_mas
+    if parallax is None:
+        parallax = _finite(candidate.nss_orbital.get("parallax"))
+    if (
+        candidate.thiele_innes is None
+        or period is None
+        or parallax is None
+        or parallax <= 0
+        or period <= 0
+    ):
+        raise M2DerivationError("no_orbit")
+    if candidate.nss_solution is None:
+        # Counted and excluded; never an M1-only or diagonal stand-in (#374).
+        raise M2DerivationError("no_nss_covariance")
+
+    flux_ratio = config.mass_derivation.dark_companion_flux_ratio
+    try:
+        sigma_mc = m2_sigma_from_nss_covariance(
+            candidate.nss_solution,
+            m1_msun=m1_msun,
+            sigma_m1_msun=sigma_m1_msun,
+            flux_ratio=flux_ratio,
+            mc=config.mc_mass_function,
+            source_id=candidate.source_id,
+        )
+    except M2SigmaUnavailableError as exc:
+        raise M2DerivationError("m2_sigma_failed", str(exc)) from exc
+
+    try:
+        a0 = photocenter_a0_mas(candidate.thiele_innes, gaiamock)
+        m2_set = companion_mass_m2(
+            m1_msun,
+            a0_mas=a0,
+            period_day=period,
+            parallax_mas=parallax,
+            flux_ratio=flux_ratio,
+            gaiamock=gaiamock,
+            sigma_m2_msun=sigma_mc.sigma_m2_msun,
+            m1_label=m1_label,
+        )
+    except (ValueError, ZeroDivisionError) as exc:
+        raise M2DerivationError("m2_failed", str(exc)) from exc
+    return m2_set, sigma_mc
+
+
 def companion_mass_m2(
     m1_msun: float,
     *,
@@ -643,6 +807,7 @@ def companion_mass_m2(
     flux_ratio: float,
     gaiamock: GaiamockMassAPI,
     sigma_m2_msun: float,
+    m1_label: str = BULK_M1_LABEL,
 ) -> ParameterSet:
     """Invert the astrometric mass function for M2 (dark-companion flux ratio from config).
 
@@ -650,6 +815,10 @@ def companion_mass_m2(
     ``sigma_m2_msun`` is supplied by the caller and must already include the
     full orbit covariance and the M1 term (``m2_sigma_from_nss_covariance``,
     #374); this function never derives a partial (M1-only) sigma.
+
+    ``m1_label`` names the M1 the inversion used and is embedded in the
+    provenance (``gaiamock_mass_function+<m1_label>+nss_full_covariance_mc``):
+    ``BULK_M1_LABEL`` (TAG10, bulk tier) or ``REFINED_M1_LABEL`` (uberMS, #377).
     """
     if not math.isfinite(sigma_m2_msun) or sigma_m2_msun < 0:
         raise ValueError(f"sigma_m2_msun must be finite and >= 0, got {sigma_m2_msun}")
@@ -666,7 +835,7 @@ def companion_mass_m2(
         names=["M2"],
         values=[m2],
         covariance=[[float(sigma_m2_msun) ** 2]],
-        provenance="gaiamock_mass_function+TAG10_M1+nss_full_covariance_mc",
+        provenance=f"gaiamock_mass_function+{m1_label}+nss_full_covariance_mc",
         units=["Msun"],
     )
 
@@ -733,6 +902,11 @@ def format_bulk_funnel_table(diagnostics: BulkDiagnostics) -> str:
         "  (full-covariance MC produced no sigma_M2)",
         f"  m2_mc_cholesky_nugget:     {funnel.m2_mc_cholesky_nugget}",
         f"  m2_mc_eigen_clip:          {funnel.m2_mc_eigen_clip}",
+        f"  m1_draws_truncated:        {funnel.m1_draws_truncated}"
+        "  (sigma_M2 MC had >= 1 non-positive Gaussian M1 draw; M1 width truncated, #380)",
+        f"  m2_cut_m1_draws_truncated: {funnel.m2_cut_m1_draws_truncated}"
+        "  (of those, rejected by the M2 cut; source_ids in"
+        " m2_cut_m1_draws_truncated_source_ids.txt)",
         f"  m2_pre_cut_n:           {len(diagnostics.m2_pre_cut_msun)}",
         f"  m2_post_cut_n:          {len(diagnostics.m2_post_cut_msun)}",
     ]
@@ -749,6 +923,12 @@ def format_refined_report(diagnostics: RefinedDiagnostics) -> str:
         f"  fit_cached:             {diagnostics.fit_cached}",
         f"  fit_succeeded:          {diagnostics.fit_succeeded}",
         f"  fit_failed:             {diagnostics.fit_failed}",
+        f"  m2_recomputed:          {diagnostics.m2_recomputed}"
+        "  (refined M1 applied; M2/sigma_M2 recomputed from it, #377)",
+        f"  m2_recompute_failed:    {diagnostics.m2_recompute_failed}"
+        "  (recompute failed; bulk M1+M2 pair kept, refined M1 not applied)",
+        f"  m1_draws_truncated:     {diagnostics.m1_draws_truncated}"
+        "  (recomputed sigma_M2 MC had >= 1 non-positive M1 draw, #380)",
         f"  watchlist_n:            {len(diagnostics.watchlist_source_ids)}",
         f"  watchlist_source_ids:   {list(diagnostics.watchlist_source_ids)}",
         f"  information_gain_order: {list(diagnostics.information_gain_order)}",
@@ -807,14 +987,15 @@ def process_bulk_candidate(
     config: PipelineConfig,
     gaiamock: GaiamockMassAPI,
 ) -> tuple[
-    CandidateRecord | None, str | None, float | None, CovarianceFactorization | None
+    CandidateRecord | None, str | None, float | None, M2SigmaMonteCarlo | None
 ]:
     """Derive M1/M2 for one candidate.
 
-    Returns ``(updated_candidate_or_None, skip_reason, m2_pre_cut, factorization)``.
+    Returns ``(updated_candidate_or_None, skip_reason, m2_pre_cut, sigma_mc)``.
     ``m2_pre_cut`` is set whenever M2 and its sigma are computed (even if the
-    cut rejects); ``factorization`` is the sigma_M2 MC's covariance
-    factorization in the same cases, else ``None``.
+    cut rejects); ``sigma_mc`` is the sigma_M2 Monte Carlo summary in the same
+    cases (its ``factorization`` and ``n_m1_nonpositive`` feed the funnel,
+    #374 / #380), else ``None``.
 
     Skip reasons: ``no_atmosphere``, ``m1_failed``, ``no_orbit``,
     ``no_nss_covariance`` (Thiele–Innes but no reconstructed covariance),
@@ -830,49 +1011,17 @@ def process_bulk_candidate(
         return None, "m1_failed", None, None
 
     m1_marg = m1_set.marginal("M1")
-    period = _finite(candidate.nss_orbital.get("period"))
-    parallax = candidate.parallax_mas
-    if parallax is None:
-        parallax = _finite(candidate.nss_orbital.get("parallax"))
-    if (
-        candidate.thiele_innes is None
-        or period is None
-        or parallax is None
-        or parallax <= 0
-        or period <= 0
-    ):
-        return None, "no_orbit", None, None
-
-    if candidate.nss_solution is None:
-        # Counted and excluded; never an M1-only or diagonal stand-in (#374).
-        return None, "no_nss_covariance", None, None
-
-    flux_ratio = config.mass_derivation.dark_companion_flux_ratio
     try:
-        sigma_mc = m2_sigma_from_nss_covariance(
-            candidate.nss_solution,
+        m2_set, sigma_mc = derive_m2_from_m1(
+            candidate,
             m1_msun=m1_marg.value,
             sigma_m1_msun=m1_marg.sigma,
-            flux_ratio=flux_ratio,
-            mc=config.mc_mass_function,
-            source_id=candidate.source_id,
-        )
-    except M2SigmaUnavailableError:
-        return None, "m2_sigma_failed", None, None
-
-    try:
-        a0 = photocenter_a0_mas(candidate.thiele_innes, gaiamock)
-        m2_set = companion_mass_m2(
-            m1_marg.value,
-            a0_mas=a0,
-            period_day=period,
-            parallax_mas=parallax,
-            flux_ratio=flux_ratio,
+            config=config,
             gaiamock=gaiamock,
-            sigma_m2_msun=sigma_mc.sigma_m2_msun,
+            m1_label=BULK_M1_LABEL,
         )
-    except (ValueError, ZeroDivisionError):
-        return None, "m2_failed", None, None
+    except M2DerivationError as exc:
+        return None, exc.reason, None, None
 
     m2_marg = m2_set.marginal("M2")
     if not passes_m2_mass_cut(
@@ -881,7 +1030,7 @@ def process_bulk_candidate(
         m_min_msun=config.classification.M_MIN_msun,
         n_sigma=config.classification.n_sigma_mass_cut,
     ):
-        return None, "m2_cut", m2_marg.value, sigma_mc.factorization
+        return None, "m2_cut", m2_marg.value, sigma_mc
 
     extras = dict(candidate.extras)
     extras[M2_BULK_MC_EXTRAS_KEY] = sigma_mc.as_extras()
@@ -893,7 +1042,7 @@ def process_bulk_candidate(
             "extras": extras,
         }
     )
-    return updated, None, m2_marg.value, sigma_mc.factorization
+    return updated, None, m2_marg.value, sigma_mc
 
 
 def run_bulk_on_candidates(
@@ -918,17 +1067,24 @@ def run_bulk_on_candidates(
     skipped_m2_sigma_failed = 0
     m2_mc_cholesky_nugget = 0
     m2_mc_eigen_clip = 0
+    m1_draws_truncated = 0
+    m2_cut_truncated_ids: list[int] = []
     progress_interval = config.mass_derivation.bulk_progress_log_interval
 
     for candidate in candidates:
         input_candidates += 1
-        updated, reason, m2_pre_val, factorization = process_bulk_candidate(
+        updated, reason, m2_pre_val, sigma_mc = process_bulk_candidate(
             candidate, config, api
         )
-        if factorization is CovarianceFactorization.CHOLESKY_NUGGET:
-            m2_mc_cholesky_nugget += 1
-        elif factorization is CovarianceFactorization.EIGEN_CLIP:
-            m2_mc_eigen_clip += 1
+        if sigma_mc is not None:
+            if sigma_mc.factorization is CovarianceFactorization.CHOLESKY_NUGGET:
+                m2_mc_cholesky_nugget += 1
+            elif sigma_mc.factorization is CovarianceFactorization.EIGEN_CLIP:
+                m2_mc_eigen_clip += 1
+            if sigma_mc.n_m1_nonpositive > 0:
+                m1_draws_truncated += 1
+                if reason == "m2_cut":
+                    m2_cut_truncated_ids.append(int(candidate.source_id))
         if reason == "no_atmosphere":
             skipped_no_atmosphere += 1
         else:
@@ -979,9 +1135,12 @@ def run_bulk_on_candidates(
             skipped_m2_sigma_failed=skipped_m2_sigma_failed,
             m2_mc_cholesky_nugget=m2_mc_cholesky_nugget,
             m2_mc_eigen_clip=m2_mc_eigen_clip,
+            m1_draws_truncated=m1_draws_truncated,
+            m2_cut_m1_draws_truncated=len(m2_cut_truncated_ids),
         ),
         m2_pre_cut_msun=np.asarray(m2_pre, dtype=np.float64),
         m2_post_cut_msun=np.asarray(m2_post, dtype=np.float64),
+        m2_cut_m1_draws_truncated_source_ids=tuple(m2_cut_truncated_ids),
     )
     return kept, diagnostics
 
@@ -998,6 +1157,12 @@ def write_bulk_diagnostic_artifacts(
     funnel_path = out_dir / "funnel.txt"
     funnel_path.write_text(format_bulk_funnel_table(diagnostics), encoding="utf-8")
     written.append(funnel_path)
+    truncated_path = out_dir / "m2_cut_m1_draws_truncated_source_ids.txt"
+    truncated_ids = diagnostics.m2_cut_m1_draws_truncated_source_ids
+    truncated_path.write_text(
+        "".join(f"{sid}\n" for sid in truncated_ids), encoding="utf-8"
+    )
+    written.append(truncated_path)
 
     diag = config.diagnostics
     if not diag.write_figures:
@@ -1315,6 +1480,9 @@ def run_mass_derivation_bulk(
             **diagnostics.funnel.as_dict(),
             "m2_pre_cut_msun": diagnostics.m2_pre_cut_msun,
             "m2_post_cut_msun": diagnostics.m2_post_cut_msun,
+            "m2_cut_m1_draws_truncated_source_ids": list(
+                diagnostics.m2_cut_m1_draws_truncated_source_ids
+            ),
         },
     )
     manifest = mark_stage_finished(
@@ -1398,11 +1566,22 @@ def run_refined_on_candidates(
     needs_update_fn: Callable[[int], tuple[bool, str]] | None = None,
     fit_fn: Callable[[int], dict[str, Any] | None] | None = None,
     sed_package_available: bool | None = None,
+    gaiamock: GaiamockMassAPI | None = None,
 ) -> tuple[list[CandidateRecord], RefinedDiagnostics]:
     """Queue and apply uberMS refined M1; prioritize by information-gain stub.
 
+    When a refined M1 is applied, M2 and sigma_M2 are recomputed from it with
+    the bulk stage's inversion and full-covariance MC (``derive_m2_from_m1``,
+    #377), so a ``full_uberMS`` record never carries the stale bulk M2. If the
+    recompute fails, the record keeps its consistent bulk M1+M2 pair and is
+    counted in ``m2_recompute_failed``.
+
     Parameters
     ----------
+    gaiamock:
+        ``gaiamock_mod`` API for the M2 recompute. ``None`` imports it via
+        ``import_gaiamock_mod()`` the first time a refined M1 is applied (so a
+        run that refines nothing never imports it).
     sed_package_available:
         Overrides the module-level ``_SED_AVAILABLE`` (real import result of
         ``darkhunter_sed``/``darkhunter_rv``) for the returned
@@ -1441,6 +1620,10 @@ def run_refined_on_candidates(
     fit_cached = 0
     fit_succeeded = 0
     fit_failed = 0
+    m2_recomputed = 0
+    m2_recompute_failed = 0
+    m1_draws_truncated = 0
+    api: GaiamockMassAPI = gaiamock if gaiamock is not None else _LazyGaiamock()
 
     for candidate in ordered:
         source_id = candidate.source_id
@@ -1476,7 +1659,8 @@ def run_refined_on_candidates(
             continue
 
         fit_succeeded += 1
-        m1_val = m1_set.marginal("M1").value
+        m1_marg = m1_set.marginal("M1")
+        m1_val = m1_marg.value
         if approaches_uberms_m1_prior_cap(m1_val, config):
             watchlist.append(source_id)
 
@@ -1488,10 +1672,43 @@ def run_refined_on_candidates(
         extras["uberms_m1_watchlist"] = approaches_uberms_m1_prior_cap(
             m1_val, config
         )
+
+        # #377: never pair the refined M1 with the stale bulk M2.
+        try:
+            m2_set, sigma_mc = derive_m2_from_m1(
+                candidate,
+                m1_msun=m1_val,
+                sigma_m1_msun=m1_marg.sigma,
+                config=config,
+                gaiamock=api,
+                m1_label=REFINED_M1_LABEL,
+            )
+        except M2DerivationError as exc:
+            m2_recompute_failed += 1
+            extras[M2_REFINED_FAILED_EXTRAS_KEY] = {
+                "reason": exc.reason,
+                "detail": str(exc),
+                "m1_provenance": m1_set.provenance,
+                "m1_msun": m1_val,
+                "sigma_m1_msun": m1_marg.sigma,
+            }
+            updated.append(candidate.model_copy(update={"extras": extras}))
+            continue
+
+        m2_recomputed += 1
+        if sigma_mc.n_m1_nonpositive > 0:
+            m1_draws_truncated += 1
+        extras[M2_REFINED_MC_EXTRAS_KEY] = {
+            **sigma_mc.as_extras(),
+            "m1_provenance": m1_set.provenance,
+            "m1_msun": m1_val,
+            "sigma_m1_msun": m1_marg.sigma,
+        }
         updated.append(
             candidate.model_copy(
                 update={
                     "m1": m1_set,
+                    "m2": m2_set,
                     "fit_tier": FitTier.FULL_UBERMS,
                     "extras": extras,
                 }
@@ -1507,6 +1724,9 @@ def run_refined_on_candidates(
         watchlist_source_ids=tuple(watchlist),
         information_gain_order=order_ids,
         sed_package_available=effective_sed_available,
+        m2_recomputed=m2_recomputed,
+        m2_recompute_failed=m2_recompute_failed,
+        m1_draws_truncated=m1_draws_truncated,
     )
     return updated, diagnostics
 
@@ -1537,8 +1757,9 @@ def run_mass_derivation_refined(
     summary_loader: Callable[[int], dict[str, Any] | None] | None = None,
     needs_update_fn: Callable[[int], tuple[bool, str]] | None = None,
     fit_fn: Callable[[int], dict[str, Any] | None] | None = None,
+    gaiamock: GaiamockMassAPI | None = None,
 ) -> RunManifest:
-    """Execute ``mass_derivation_refined``: uberMS queue → HDF5 + watch-list."""
+    """Execute ``mass_derivation_refined``: uberMS queue → refined M1, recomputed M2 → HDF5."""
     require_dr3_active_for_v1(config)
     spec = STAGE_REGISTRY["mass_derivation_refined"]
     guard = plan_and_guard(
@@ -1561,6 +1782,7 @@ def run_mass_derivation_refined(
         summary_loader=summary_loader or _sed_summary_loader_for_config(config),
         needs_update_fn=needs_update_fn or _sed_needs_update_for_config(config),
         fit_fn=fit_fn,
+        gaiamock=gaiamock,
     )
     write_stage_hdf5(
         artifact,
@@ -1573,6 +1795,9 @@ def run_mass_derivation_refined(
             "fit_cached": diagnostics.fit_cached,
             "fit_succeeded": diagnostics.fit_succeeded,
             "fit_failed": diagnostics.fit_failed,
+            "m2_recomputed": diagnostics.m2_recomputed,
+            "m2_recompute_failed": diagnostics.m2_recompute_failed,
+            "m1_draws_truncated": diagnostics.m1_draws_truncated,
             "watchlist_source_ids": list(diagnostics.watchlist_source_ids),
             "information_gain_order": list(diagnostics.information_gain_order),
         },

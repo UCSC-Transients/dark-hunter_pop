@@ -156,6 +156,20 @@ def _candidate(
     )
 
 
+def _with_orbit(cand: CandidateRecord) -> CandidateRecord:
+    """Give a refined-stage test record the orbit + NSS covariance a bulk-kept
+    record always carries, so the #377 M2 recompute can run."""
+    orbit = _candidate(cand.source_id)
+    return cand.model_copy(
+        update={
+            "parallax_mas": orbit.parallax_mas,
+            "thiele_innes": orbit.thiele_innes,
+            "nss_orbital": orbit.nss_orbital,
+            "nss_solution": orbit.nss_solution,
+        }
+    )
+
+
 def test_tag10_solar_like_near_one_msun() -> None:
     log_m, log_r = tag10_log_mass_radius(5772.0, 4.44, 0.0)
     m = 10**log_m
@@ -522,11 +536,11 @@ def test_bulk_counts_mc_failure_as_sigma_failed() -> None:
             )
         }
     )
-    updated, reason, m2_pre, factorization = process_bulk_candidate(
+    updated, reason, m2_pre, sigma_mc = process_bulk_candidate(
         cand, cfg, FakeGaiamock()
     )
     assert updated is None and reason == "m2_sigma_failed"
-    assert m2_pre is None and factorization is None
+    assert m2_pre is None and sigma_mc is None
     _keepers, diag = run_bulk_on_candidates([cand], cfg, gaiamock=FakeGaiamock())
     assert diag.funnel.skipped_m2_sigma_failed == 1
     assert diag.funnel.after_m2_cut == 0
@@ -599,10 +613,12 @@ def test_refined_queue_cache_and_watchlist() -> None:
         provenance="TAG10+MSC",
         units=["Msun", "Rsun"],
     )
-    cand = CandidateRecord(
-        source_id=42,
-        m1=bulk_m1,
-        fit_tier=FitTier.BULK_ESTIMATE,
+    cand = _with_orbit(
+        CandidateRecord(
+            source_id=42,
+            m1=bulk_m1,
+            fit_tier=FitTier.BULK_ESTIMATE,
+        )
     )
 
     summaries = {
@@ -627,6 +643,7 @@ def test_refined_queue_cache_and_watchlist() -> None:
         summary_loader=loader,
         needs_update_fn=needs_update,
         fit_fn=fit,
+        gaiamock=FakeGaiamock(),
     )
     assert diag.fit_cached == 1
     assert diag.fit_succeeded == 1
@@ -681,7 +698,7 @@ def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
     candidate was actually left unrefined, so the completion reason (which
     drives the run-file record) must not falsely claim a skip happened."""
     cfg = load_config()
-    cand = _unrefined_candidate(2)
+    cand = _with_orbit(_unrefined_candidate(2))
     doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
 
     out, diag = run_refined_on_candidates(
@@ -691,6 +708,7 @@ def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
         needs_update_fn=lambda _sid: (False, "up to date"),
         fit_fn=lambda _sid: (_ for _ in ()).throw(AssertionError("should not fit")),
         sed_package_available=False,
+        gaiamock=FakeGaiamock(),
     )
 
     assert diag.sed_package_available is False
@@ -709,7 +727,7 @@ def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
 def test_refined_diagnostics_quiet_when_sed_available() -> None:
     """Baseline: SED package available, normal behavior is unaffected."""
     cfg = load_config()
-    cand = _unrefined_candidate(3)
+    cand = _with_orbit(_unrefined_candidate(3))
     doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
 
     _out, diag = run_refined_on_candidates(
@@ -719,6 +737,7 @@ def test_refined_diagnostics_quiet_when_sed_available() -> None:
         needs_update_fn=lambda _sid: (False, "up to date"),
         fit_fn=lambda _sid: (_ for _ in ()).throw(AssertionError("should not fit")),
         sed_package_available=True,
+        gaiamock=FakeGaiamock(),
     )
 
     assert diag.sed_package_available is True
@@ -908,6 +927,7 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         summary_loader=loader,
         needs_update_fn=lambda _sid: (False, "up to date"),
         fit_fn=lambda _sid: None,
+        gaiamock=FakeGaiamock(),
     )
     ref = manifest.stages["mass_derivation_refined"]
     assert ref.status is StageStatus.COMPLETED
@@ -944,14 +964,18 @@ def test_refined_consumes_fixture_summary_sets_full_uberms() -> None:
     cfg = load_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
-    cand = CandidateRecord(
-        source_id=515151,
-        m1=ParameterSet(
-            names=["M1"], values=[1.0], covariance=[[0.01]], provenance="TAG10"
-        ),
-        fit_tier=FitTier.BULK_ESTIMATE,
+    cand = _with_orbit(
+        CandidateRecord(
+            source_id=515151,
+            m1=ParameterSet(
+                names=["M1"], values=[1.0], covariance=[[0.01]], provenance="TAG10"
+            ),
+            fit_tier=FitTier.BULK_ESTIMATE,
+        )
     )
-    updated, diag = run_refined_on_candidates([cand], tweaked)
+    updated, diag = run_refined_on_candidates(
+        [cand], tweaked, gaiamock=FakeGaiamock()
+    )
     assert diag.fit_succeeded == 1
     assert updated[0].fit_tier is FitTier.FULL_UBERMS
     assert updated[0].m1 is not None
@@ -973,18 +997,21 @@ def test_refined_missing_summary_queues_fit() -> None:
         # Keep M1 near the uberMS prior cap so watch-list still fires post-fit.
         return {"m1_msun": {"median": 2.92, "p16": 2.9, "p84": 2.94}}
 
-    cand = CandidateRecord(
-        source_id=999001,
-        m1=ParameterSet(
-            names=["M1"], values=[2.9], covariance=[[0.01]], provenance="TAG10"
-        ),
-        fit_tier=FitTier.BULK_ESTIMATE,
+    cand = _with_orbit(
+        CandidateRecord(
+            source_id=999001,
+            m1=ParameterSet(
+                names=["M1"], values=[2.9], covariance=[[0.01]], provenance="TAG10"
+            ),
+            fit_tier=FitTier.BULK_ESTIMATE,
+        )
     )
     updated, diag = run_refined_on_candidates(
         [cand],
         tweaked,
         needs_update_fn=needs_update,
         fit_fn=fit,
+        gaiamock=FakeGaiamock(),
     )
     assert calls == [999001]
     assert diag.fit_attempted == 1
@@ -1175,3 +1202,161 @@ def test_write_bulk_diagnostic_artifacts_m2_histogram_axes_from_config(
     for call in m2_calls:
         assert call.get("xlim") == (0.5, 10.0)
         assert call.get("log_y") is False
+
+
+# --- #377: refined M1 → M2 / sigma_M2 recomputed by the same full-covariance MC
+
+
+def _bulk_kept(source_id: int = 377) -> CandidateRecord:
+    cfg = load_config()
+    keepers, _ = run_bulk_on_candidates(
+        [_candidate(source_id, m2_boost_a0=True)], cfg, gaiamock=FakeGaiamock()
+    )
+    (kept,) = keepers
+    return kept
+
+
+def test_refined_m1_recomputes_m2_and_sigma_with_full_covariance_mc() -> None:
+    cfg = load_config()
+    bulk = _bulk_kept()
+    bulk_m1 = bulk.m1.marginal("M1").value
+    bulk_m2 = bulk.m2.marginal("M2")
+    refined_median = bulk_m1 + 1.0
+    doc = {"m1_msun": {"median": refined_median, "p16": refined_median - 0.1,
+                       "p84": refined_median + 0.1}}
+    out, diag = run_refined_on_candidates(
+        [bulk],
+        cfg,
+        summary_loader=lambda _sid: doc,
+        needs_update_fn=lambda _sid: (False, "up to date"),
+        fit_fn=lambda _sid: None,
+        gaiamock=FakeGaiamock(),
+    )
+    (rec,) = out
+    assert diag.m2_recomputed == 1 and diag.m2_recompute_failed == 0
+    assert rec.fit_tier is FitTier.FULL_UBERMS
+    m1 = rec.m1.marginal("M1")
+    m2 = rec.m2.marginal("M2")
+    assert m1.value == pytest.approx(refined_median)
+
+    # Central M2: the same inversion at the best-fit orbit, with the refined M1.
+    a0 = mass_derivation.photocenter_a0_mas(rec.thiele_innes, FakeGaiamock())
+    expected_central = FakeGaiamock().get_companion_mass_from_mass_function(
+        M1=refined_median, a0_mas=a0, period=200.0, parallax=10.0, fluxratio=0.0
+    )
+    assert m2.value == pytest.approx(expected_central)
+    assert m2.value != pytest.approx(bulk_m2.value)
+
+    # sigma_M2: the bulk MC, re-run with the refined M1 median and sigma.
+    expected = m2_sigma_from_nss_covariance(
+        rec.nss_solution,
+        m1_msun=refined_median,
+        sigma_m1_msun=m1.sigma,
+        flux_ratio=cfg.mass_derivation.dark_companion_flux_ratio,
+        mc=cfg.mc_mass_function,
+        source_id=rec.source_id,
+    )
+    assert m2.sigma == pytest.approx(expected.sigma_m2_msun)
+    assert m2.sigma != pytest.approx(bulk_m2.sigma)
+
+    # A heavier primary needs a heavier companion for the same orbit.
+    refined_mc = rec.extras[mass_derivation.M2_REFINED_MC_EXTRAS_KEY]
+    bulk_mc = rec.extras[M2_BULK_MC_EXTRAS_KEY]
+    assert refined_mc["p50_m2_msun"] > bulk_mc["p50_m2_msun"]
+
+    # Provenance names the M1 that was used.
+    assert "uberMS_M1" in rec.m2.provenance
+    assert "TAG10_M1" not in rec.m2.provenance
+    assert refined_mc["m1_provenance"] == rec.m1.provenance == "uberMS"
+    assert refined_mc["m1_msun"] == pytest.approx(refined_median)
+    json.dumps(refined_mc)
+    assert "m2_recomputed:          1" in format_refined_report(diag)
+
+
+def test_bulk_m2_provenance_names_tag10_m1() -> None:
+    bulk = _bulk_kept()
+    assert bulk.m2.provenance == "gaiamock_mass_function+TAG10_M1+nss_full_covariance_mc"
+
+
+def test_refined_recompute_failure_keeps_consistent_bulk_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = load_config()
+    bulk = _bulk_kept().model_copy(update={"nss_solution": None})
+
+    def _no_import(*_a, **_k):
+        raise AssertionError("gaiamock must not be imported when M2 cannot be recomputed")
+
+    monkeypatch.setattr(mass_derivation, "import_gaiamock_mod", _no_import)
+    doc = {"m1_msun": {"median": 2.0, "p16": 1.9, "p84": 2.1}}
+    out, diag = run_refined_on_candidates(
+        [bulk],
+        cfg,
+        summary_loader=lambda _sid: doc,
+        needs_update_fn=lambda _sid: (False, "up to date"),
+        fit_fn=lambda _sid: None,
+    )
+    (rec,) = out
+    assert diag.fit_succeeded == 1
+    assert diag.m2_recomputed == 0 and diag.m2_recompute_failed == 1
+    # Neither half of the pair is replaced: no refined M1 beside a bulk M2.
+    assert rec.fit_tier is FitTier.BULK_ESTIMATE
+    assert rec.m1 == bulk.m1 and rec.m2 == bulk.m2
+    failed = rec.extras[mass_derivation.M2_REFINED_FAILED_EXTRAS_KEY]
+    assert failed["reason"] == "no_nss_covariance"
+    assert failed["m1_provenance"] == "uberMS"
+
+
+# --- #380: truncated Gaussian M1 ensembles are counted, never silent --------
+
+
+def _wide_m1_extras() -> dict[str, float]:
+    # sigma_logM ~ 0.3 dex from the inputs → sigma_M1 ~ M1 → M1 <= 0 draws.
+    return _sunlike_extras(teff_msc1_error=2000.0, logg_msc1_error=1.5, mh_msc_error=0.6)
+
+
+def test_bulk_counts_truncated_m1_draws_kept_and_cut(tmp_path: Path) -> None:
+    cfg = load_config()
+    kept_wide = _candidate(11, extras=_wide_m1_extras(), m2_boost_a0=True)
+    cut_wide = _candidate(12, extras=_wide_m1_extras(), m2_boost_a0=False)
+    narrow = _candidate(13, m2_boost_a0=True)
+    keepers, diag = run_bulk_on_candidates(
+        [kept_wide, cut_wide, narrow], cfg, gaiamock=FakeGaiamock()
+    )
+    f = diag.funnel
+    assert {k.source_id for k in keepers} == {11, 13}
+    assert f.m1_draws_truncated == 2
+    assert f.m2_cut_m1_draws_truncated == 1
+    assert diag.m2_cut_m1_draws_truncated_source_ids == (12,)
+    kept_by_id = {k.source_id: k for k in keepers}
+    assert kept_by_id[11].extras[M2_BULK_MC_EXTRAS_KEY]["n_m1_nonpositive"] > 0
+    assert kept_by_id[13].extras[M2_BULK_MC_EXTRAS_KEY]["n_m1_nonpositive"] == 0
+    assert f.as_dict()["m1_draws_truncated"] == 2
+    table = format_bulk_funnel_table(diag)
+    assert "m1_draws_truncated:        2" in table
+    assert "m2_cut_m1_draws_truncated: 1" in table
+
+    no_figs = cfg.model_copy(
+        update={"diagnostics": cfg.diagnostics.model_copy(update={"write_figures": False})}
+    )
+    artifact = tmp_path / "mass_derivation_bulk.h5"
+    artifact.write_bytes(b"")
+    written = write_bulk_diagnostic_artifacts(diag, artifact, no_figs)
+    ids_file = next(p for p in written if p.name == "m2_cut_m1_draws_truncated_source_ids.txt")
+    assert ids_file.read_text(encoding="utf-8") == "12\n"
+
+
+def test_refined_counts_truncated_m1_draws() -> None:
+    cfg = load_config()
+    bulk = _bulk_kept()
+    doc = {"m1_msun": {"median": 1.0, "p16": 0.1, "p84": 1.9}}  # sigma 0.9
+    _out, diag = run_refined_on_candidates(
+        [bulk],
+        cfg,
+        summary_loader=lambda _sid: doc,
+        needs_update_fn=lambda _sid: (False, "up to date"),
+        fit_fn=lambda _sid: None,
+        gaiamock=FakeGaiamock(),
+    )
+    assert diag.m2_recomputed == 1
+    assert diag.m1_draws_truncated == 1

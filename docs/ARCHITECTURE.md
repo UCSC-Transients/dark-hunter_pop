@@ -431,7 +431,7 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
     `...+TAG10_M1+...`), and `extras["m2_refined_mc"]` holds the ensemble summary plus
     `m1_provenance` (the refined `M1` ParameterSet's provenance). `extras["m2_bulk_mc"]` is kept
     as the bulk-tier record.
-  - If the recompute fails (no `nss_solution`, MC unavailable, inversion error), the record keeps
+  - If the recompute fails (no orbit, no `nss_solution`, MC unavailable, inversion error), the record keeps
     its bulk `M1` **and** bulk `M2` as a consistent pair at `bulk_estimate` tier. It is counted
     as `m2_recompute_failed` and the reason is stored in `extras["m2_refined_failed"]`; the
     uberMS `M1` is not applied.
