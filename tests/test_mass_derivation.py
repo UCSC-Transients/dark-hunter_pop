@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,7 @@ import darkhunter_pop.mass_derivation as mass_derivation
 from darkhunter_pop.config_loader import load_config
 from darkhunter_pop.config_schema import MassCalibrationMethod
 from darkhunter_pop.mass_derivation import (
+    M2_BULK_MC_EXTRAS_KEY,
     SED_UNAVAILABLE_SKIP_REASON,
     BulkDiagnostics,
     BulkFunnel,
@@ -21,8 +23,11 @@ from darkhunter_pop.mass_derivation import (
     format_bulk_funnel_table,
     format_refined_report,
     information_gain_stub,
+    M2SigmaUnavailableError,
+    m2_sigma_from_nss_covariance,
     parameterset_from_sed_summary,
     passes_m2_mass_cut,
+    process_bulk_candidate,
     read_stage_hdf5,
     refined_completion_reason,
     resolve_atmosphere,
@@ -90,14 +95,55 @@ def _sunlike_extras(**overrides: float) -> dict[str, float]:
     return base
 
 
+_NSS_TEST_NAMES = [
+    "a_thiele_innes",
+    "b_thiele_innes",
+    "f_thiele_innes",
+    "g_thiele_innes",
+    "parallax",
+    "period",
+]
+
+
+def _nss_solution(
+    a: float,
+    b: float,
+    f: float,
+    g: float,
+    parallax: float,
+    period: float,
+    *,
+    relative_error: float = 0.01,
+    correlation: float = 0.3,
+) -> ParameterSet:
+    """Correlated (not diagonal) NSS-like ParameterSet for the required names."""
+    values = np.array([a, b, f, g, parallax, period], dtype=np.float64)
+    sig = np.maximum(np.abs(values) * relative_error, 1.0e-6)
+    corr = np.full((6, 6), correlation)
+    np.fill_diagonal(corr, 1.0)
+    cov = corr * np.outer(sig, sig)
+    return ParameterSet(
+        names=list(_NSS_TEST_NAMES),
+        values=[float(v) for v in values],
+        covariance=cov.tolist(),
+        provenance="test_nss_correlated",
+    )
+
+
 def _candidate(
     source_id: int = 1001,
     *,
     extras: dict | None = None,
     m2_boost_a0: bool = True,
+    with_nss_solution: bool = True,
 ) -> CandidateRecord:
     # Large a0 / short period → high M2 so the default M_min cut keeps the star.
     scale = 5.0 if m2_boost_a0 else 0.05
+    nss = (
+        _nss_solution(scale, scale, scale * 0.5, scale * 0.5, 10.0, 200.0)
+        if with_nss_solution
+        else None
+    )
     return CandidateRecord(
         source_id=source_id,
         parallax_mas=10.0,
@@ -105,6 +151,7 @@ def _candidate(
             A=scale, B=scale, F=scale * 0.5, G=scale * 0.5
         ),
         nss_orbital={"period": 200.0, "parallax": 10.0},
+        nss_solution=nss,
         extras=extras if extras is not None else _sunlike_extras(),
     )
 
@@ -245,11 +292,259 @@ def test_companion_mass_parameterset_provenance() -> None:
         parallax_mas=5.0,
         flux_ratio=0.0,
         gaiamock=FakeGaiamock(),
-        sigma_m1_msun=0.05,
+        sigma_m2_msun=0.25,
     )
     assert ps.names == ["M2"]
     assert "gaiamock" in ps.provenance
-    assert ps.marginal("M2").sigma is not None
+    assert "nss_full_covariance_mc" in ps.provenance
+    assert ps.marginal("M2").sigma == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), -0.1, float("inf")])
+def test_companion_mass_rejects_invalid_sigma(bad: float) -> None:
+    with pytest.raises(ValueError, match="sigma_m2_msun"):
+        companion_mass_m2(
+            1.0,
+            a0_mas=1.0,
+            period_day=300.0,
+            parallax_mas=5.0,
+            flux_ratio=0.0,
+            gaiamock=FakeGaiamock(),
+            sigma_m2_msun=bad,
+        )
+
+
+# --- #374: bulk sigma_M2 from the full NSS covariance + M1 -----------------
+
+_BH_FIXTURE = Path(__file__).parent / "fixtures" / "gaia_bh_nss_solutions.json"
+# Gaia BH1 bulk TAG10+MSC+Santos2013 M1 from run 20260930-022223-672b092
+# (mass_derivation_bulk/dbcfab1b48af00a2.h5; #372 analysis comment).
+_BH1_M1_MSUN = 0.8189544558487549
+_BH1_SIGMA_M1_MSUN = 0.10050090689
+# The pre-#374 M1-only finite-difference sigma recorded in that artifact.
+_BH1_OLD_SIGMA_M2_MSUN = 0.168165
+
+
+def _bh1_nss_solution() -> ParameterSet:
+    doc = json.loads(_BH_FIXTURE.read_text())
+    sol = doc["solutions"]["Gaia-BH1"]["nss_solution"]
+    return ParameterSet.model_validate(sol)
+
+
+def _independent_dark_m2(m1: np.ndarray, m_f: np.ndarray) -> np.ndarray:
+    """Vectorized bisection of M2^3/(M1+M2)^2 = m_f (flux ratio 0).
+
+    Deliberately shares no code with ``physics_utils`` / ``mc_mass_function``.
+    """
+    lo = np.zeros_like(m_f)
+    hi = np.full_like(m_f, 1.0e4)
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        above = mid**3 / (m1 + mid) ** 2 > m_f
+        hi = np.where(above, mid, hi)
+        lo = np.where(above, lo, mid)
+    return 0.5 * (lo + hi)
+
+
+def _independent_mc_sigma(
+    solution: ParameterSet,
+    m1: float,
+    sigma_m1: float,
+    *,
+    n: int,
+    seed: int,
+) -> tuple[float, np.ndarray]:
+    """Independent full-covariance MC: numpy multivariate_normal on the
+    (A, B, F, G, parallax, period) marginal block, closed-form a0, bisection."""
+    idx = [solution.names.index(k) for k in _NSS_TEST_NAMES]
+    mean = solution.values_array()[idx]
+    cov = solution.covariance_array()[np.ix_(idx, idx)]
+    rng = np.random.default_rng(seed)
+    x = rng.multivariate_normal(mean, cov, size=n, method="eigh")
+    a, b, f, g, plx, per = x.T
+    u = (a**2 + b**2 + f**2 + g**2) / 2.0
+    v = a * g - b * f
+    a0 = np.sqrt(u + np.sqrt(u * u - v * v))
+    m1_draws = rng.normal(m1, sigma_m1, size=n)
+    ok = (plx > 0) & (m1_draws > 0)
+    m_f = (a0[ok] / plx[ok]) ** 3 / (per[ok] / 365.25) ** 2
+    m2 = _independent_dark_m2(m1_draws[ok], m_f)
+    return float(np.std(m2, ddof=1)), m2
+
+
+@pytest.mark.physics
+def test_bh1_sigma_m2_matches_independent_full_covariance_mc() -> None:
+    """Gaia BH1 from its DR3 NSS inputs: sigma_M2 ≈ 2.7 Msun (was 0.168, #374).
+
+    Tolerance: 5 % of an independent 2×10^4-draw MC (MC noise on a standard
+    deviation at these N is ~0.5–0.7 %; the heavier-than-Gaussian tail roughly
+    doubles it). Published astrometry-only value for reference: 12.8 ± 2.0
+    (El-Badry et al. 2023a, Table 1).
+    """
+    cfg = load_config()
+    solution = _bh1_nss_solution()
+    result = m2_sigma_from_nss_covariance(
+        solution,
+        m1_msun=_BH1_M1_MSUN,
+        sigma_m1_msun=_BH1_SIGMA_M1_MSUN,
+        flux_ratio=0.0,
+        mc=cfg.mc_mass_function,
+        source_id=4373465352415301632,
+    )
+    ref_sigma, ref_draws = _independent_mc_sigma(
+        solution, _BH1_M1_MSUN, _BH1_SIGMA_M1_MSUN, n=20_000, seed=374
+    )
+    assert 2.0 < result.sigma_m2_msun < 3.2
+    assert result.sigma_m2_msun == pytest.approx(ref_sigma, rel=0.05)
+    assert result.sigma_m2_msun > 10.0 * _BH1_OLD_SIGMA_M2_MSUN
+    p16, p84 = np.percentile(ref_draws, [16.0, 84.0])
+    assert result.p16_m2_msun == pytest.approx(p16, rel=0.03)
+    assert result.p84_m2_msun == pytest.approx(p84, rel=0.03)
+    assert result.n_draws == cfg.mc_mass_function.n_draws
+    assert result.n_valid == result.n_draws
+
+
+@pytest.mark.physics
+def test_high_snr_orbit_gives_small_sigma_matching_linear_propagation() -> None:
+    """A 0.1 %-precision orbit with a fixed M1 has sigma_M2 << M2 and matches
+    first-order propagation (where linearization is valid)."""
+    cfg = load_config()
+    sol = _nss_solution(2.0, 2.0, 1.0, 1.0, 10.0, 200.0, relative_error=1.0e-3)
+    result = m2_sigma_from_nss_covariance(
+        sol, m1_msun=1.0, sigma_m1_msun=None, flux_ratio=0.0,
+        mc=cfg.mc_mass_function, source_id=7,
+    )
+    idx = list(range(6))
+    mean = sol.values_array()[idx]
+    cov = sol.covariance_array()
+
+    def m2_of(x: np.ndarray) -> float:
+        a, b, f, g, plx, per = x
+        u = (a**2 + b**2 + f**2 + g**2) / 2.0
+        v = a * g - b * f
+        a0 = np.sqrt(u + np.sqrt(u * u - v * v))
+        m_f = (a0 / plx) ** 3 / (per / 365.25) ** 2
+        return float(_independent_dark_m2(np.array([1.0]), np.array([m_f]))[0])
+
+    jac = np.zeros(6)
+    for k in range(6):
+        h = 1.0e-3 * np.sqrt(cov[k, k])
+        xp, xm = mean.copy(), mean.copy()
+        xp[k] += h
+        xm[k] -= h
+        jac[k] = (m2_of(xp) - m2_of(xm)) / (2.0 * h)
+    linear_sigma = float(np.sqrt(jac @ cov @ jac))
+    m2 = m2_of(mean)
+    assert result.sigma_m2_msun < 0.02 * m2
+    assert result.sigma_m2_msun == pytest.approx(linear_sigma, rel=0.03)
+
+
+@pytest.mark.physics
+def test_negligible_orbit_covariance_recovers_m1_only_term() -> None:
+    """With a ~zero orbit covariance, the MC reduces to |dM2/dM1| sigma_M1."""
+    cfg = load_config()
+    sol = _nss_solution(2.0, 2.0, 1.0, 1.0, 10.0, 200.0, relative_error=1.0e-8)
+    result = m2_sigma_from_nss_covariance(
+        sol, m1_msun=1.0, sigma_m1_msun=0.01, flux_ratio=0.0,
+        mc=cfg.mc_mass_function, source_id=11,
+    )
+    a0 = float(np.sqrt(0.5 * (4 + 4 + 1 + 1) + np.sqrt(25.0 - (2 * 1 - 2 * 1) ** 2)))
+    m_f = np.array([(a0 / 10.0) ** 3 / (200.0 / 365.25) ** 2])
+    hi = _independent_dark_m2(np.array([1.0 + 1e-4]), m_f)[0]
+    lo = _independent_dark_m2(np.array([1.0 - 1e-4]), m_f)[0]
+    expected = abs(hi - lo) / 2e-4 * 0.01
+    assert result.sigma_m2_msun == pytest.approx(expected, rel=0.03)
+
+
+@pytest.mark.physics
+def test_sigma_mc_is_seeded_per_system_and_reproducible() -> None:
+    cfg = load_config()
+    sol = _bh1_nss_solution()
+    kwargs = dict(m1_msun=0.82, sigma_m1_msun=0.1, flux_ratio=0.0, mc=cfg.mc_mass_function)
+    r1 = m2_sigma_from_nss_covariance(sol, source_id=5, **kwargs)
+    r2 = m2_sigma_from_nss_covariance(sol, source_id=5, **kwargs)
+    r3 = m2_sigma_from_nss_covariance(sol, source_id=6, **kwargs)
+    assert r1.sigma_m2_msun == r2.sigma_m2_msun
+    assert r1.random_seed != r3.random_seed
+
+
+def test_sigma_mc_missing_required_names_raises() -> None:
+    cfg = load_config()
+    bad = ParameterSet(
+        names=["a_thiele_innes", "b_thiele_innes"],
+        values=[1.0, 1.0],
+        covariance=[[0.01, 0.0], [0.0, 0.01]],
+        provenance="test",
+    )
+    with pytest.raises(M2SigmaUnavailableError):
+        m2_sigma_from_nss_covariance(
+            bad, m1_msun=1.0, sigma_m1_msun=0.1, flux_ratio=0.0,
+            mc=cfg.mc_mass_function, source_id=1,
+        )
+
+
+def test_bulk_excludes_and_counts_missing_covariance_never_diagonal() -> None:
+    """Thiele–Innes but no nss_solution → skipped_no_nss_covariance, not kept."""
+    cfg = load_config()
+    keepers, diag = run_bulk_on_candidates(
+        [
+            _candidate(1, m2_boost_a0=True),
+            _candidate(2, m2_boost_a0=True, with_nss_solution=False),
+        ],
+        cfg,
+        gaiamock=FakeGaiamock(),
+    )
+    assert [c.source_id for c in keepers] == [1]
+    assert diag.funnel.skipped_no_nss_covariance == 1
+    assert diag.funnel.skipped_m2_sigma_failed == 0
+    assert diag.funnel.m2_ok == 1
+    f = diag.funnel
+    assert f.m1_ok == (
+        f.skipped_no_orbit
+        + f.skipped_m2_failed
+        + f.skipped_no_nss_covariance
+        + f.skipped_m2_sigma_failed
+        + f.m2_ok
+    )
+    assert "skipped_no_nss_covariance" in format_bulk_funnel_table(diag)
+    assert "skipped_no_nss_covariance" in diag.funnel.as_dict()
+
+
+def test_bulk_counts_mc_failure_as_sigma_failed() -> None:
+    cfg = load_config()
+    cand = _candidate(3, m2_boost_a0=True).model_copy(
+        update={
+            "nss_solution": ParameterSet(
+                names=["a_thiele_innes"],
+                values=[5.0],
+                covariance=[[0.01]],
+                provenance="test_incomplete",
+            )
+        }
+    )
+    updated, reason, m2_pre, factorization = process_bulk_candidate(
+        cand, cfg, FakeGaiamock()
+    )
+    assert updated is None and reason == "m2_sigma_failed"
+    assert m2_pre is None and factorization is None
+    _keepers, diag = run_bulk_on_candidates([cand], cfg, gaiamock=FakeGaiamock())
+    assert diag.funnel.skipped_m2_sigma_failed == 1
+    assert diag.funnel.after_m2_cut == 0
+
+
+def test_bulk_kept_candidate_carries_full_covariance_sigma_and_mc_summary() -> None:
+    cfg = load_config()
+    keepers, _diag = run_bulk_on_candidates(
+        [_candidate(1, m2_boost_a0=True)], cfg, gaiamock=FakeGaiamock()
+    )
+    (kept,) = keepers
+    summary = kept.extras[M2_BULK_MC_EXTRAS_KEY]
+    assert kept.m2 is not None
+    assert kept.m2.marginal("M2").sigma == pytest.approx(summary["sigma_m2_msun"])
+    assert summary["n_draws"] == cfg.mc_mass_function.n_draws
+    assert summary["factorization"] == "cholesky"
+    assert summary["p16_m2_msun"] <= summary["p50_m2_msun"] <= summary["p84_m2_msun"]
+    json.dumps(summary)  # JSON-safe for the HDF5 records_json payload
 
 
 def test_watchlist_uses_config_fraction_not_hardcoded_3() -> None:

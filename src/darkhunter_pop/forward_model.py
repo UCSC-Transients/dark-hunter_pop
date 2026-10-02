@@ -15,15 +15,18 @@ mining and weekly snapshot hooks reconstruct adoption dates (ARCHITECTURE.md §4
 from __future__ import annotations
 
 import csv
+import ctypes
+import ctypes.util
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 import h5py
 import numpy as np
@@ -33,6 +36,7 @@ from scipy import stats
 
 from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
+    AccelerationPublicationCutsConfig,
     ExtinctionModel,
     OrbitalSolutionCutsConfig,
     MajorSurveySFConfig,
@@ -137,6 +141,11 @@ class MockRealizationRecord:
     parallax_mas: float | None = None
     a0_mas: float | None = None
     m2_from_mass_function_msun: float | None = None
+    # Acceleration branch only: significance s and F2 returned by gaiamock, and whether
+    # the solution passes the publication cuts (El-Badry et al. 2024 §5.2.1).
+    acceleration_significance: float | None = None
+    acceleration_f2: float | None = None
+    published_acceleration: bool = False
 
 
 @dataclass
@@ -211,9 +220,14 @@ class SelectionFunctionAstrometricResult:
     validation: ValidationGateResult
     data_release: str
     real_comparison: ElBadryComparisonSample | None = None
+    # n_drawn / n_removed_g_limit / n_simulated for the mock sample (#339).
+    mock_counts: dict[str, int] | None = None
     # Injected truth per realization (same order as ``records``), see
     # ``run_mock_injections_with_truth``. Persisted under ``mock_catalog/truth``.
-    injected_truth: dict[str, NDArray[np.float64]] | None = None
+    injected_truth: dict[str, NDArray[Any]] | None = None
+    # ``mock_population.random_seed`` the mock ran under (#371); with
+    # ``MOCK_RNG_SEED_SCHEME`` it fixes every realization's global-RNG seeds.
+    mock_random_seed: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +587,144 @@ def _mock_rng(config: PipelineConfig) -> np.random.Generator:
     return np.random.default_rng(seed)
 
 
+# ---------------------------------------------------------------------------
+# Global-RNG seeding at the gaiamock call boundary (#371)
+# ---------------------------------------------------------------------------
+#
+# gaiamock_mod draws from two RNGs our ``np.random.Generator`` streams never reach:
+#   * numpy's legacy global state (``np.random.uniform`` / ``randn`` / ``exponential`` /
+#     ``choice``): sky positions, the random 10% transit loss, per-source epoch
+#     error jitter and per-transit epoch noise;
+#   * the C library's ``rand()`` inside ``kepler_solve_astrometry.so``: the adaptive
+#     simulated-annealing proposals and acceptance draws of ``run_astfit`` (the
+#     nonlinear orbit-fit search). ``srand`` is never called upstream, so its stream
+#     depends on how many fits ran earlier in the process.
+# Both are seeded here, per realization, from ``SeedSequence`` children keyed by
+# (stream, realization index). A realization's outcome therefore depends only on
+# the base seed and its own index, never on what ran before it, in what order, or
+# in which worker. gaiamock itself is not edited (docs/GAIAMOCK_API.md).
+
+#: ``SeedSequence`` spawn-key stream for the sky-position draw (one call per run).
+MOCK_RNG_STREAM_SKY: int = 0
+#: ``SeedSequence`` spawn-key stream for per-realization cascade draws.
+MOCK_RNG_STREAM_REALIZATION: int = 1
+
+#: Human-readable seeding scheme, recorded in the artifact and run manifest.
+MOCK_RNG_SEED_SCHEME: str = (
+    "numpy.random.SeedSequence(entropy=mock_population.random_seed, "
+    "spawn_key=(stream, realization_index)).generate_state(2, uint32) -> "
+    "(np.random.seed, libc srand) around each gaiamock call; "
+    f"stream {MOCK_RNG_STREAM_SKY}=sky draw (index 0), "
+    f"stream {MOCK_RNG_STREAM_REALIZATION}=cascade per realization; "
+    "multi-solution emission: default_rng(SeedSequence(entropy="
+    "multi_solution.random_seed, spawn_key=(realization_index,))); "
+    "numpy global state restored afterwards (#371)"
+)
+
+
+@dataclass(frozen=True)
+class GlobalRNGSeeds:
+    """Seeds for the two global RNGs gaiamock_mod draws from.
+
+    ``numpy_seed`` feeds ``np.random.seed`` (legacy global state); ``c_rand_seed``
+    feeds libc ``srand`` (the ``rand()`` stream inside ``kepler_solve_astrometry.so``).
+    Both are uint32 values.
+    """
+
+    numpy_seed: int
+    c_rand_seed: int
+
+
+def mock_global_rng_seeds(base_seed: int, stream: int, index: int) -> GlobalRNGSeeds:
+    """Deterministic global-RNG seeds for one gaiamock call (#371).
+
+    Parameters
+    ----------
+    base_seed:
+        ``selection_function_astrometric.mock_population.random_seed``.
+    stream:
+        ``MOCK_RNG_STREAM_SKY`` or ``MOCK_RNG_STREAM_REALIZATION``.
+    index:
+        Realization index (position in the original ``N_realizations`` draw list);
+        ``0`` for the sky stream.
+
+    Returns
+    -------
+    GlobalRNGSeeds
+        Two uint32 words from ``SeedSequence(base_seed, spawn_key=(stream, index))``.
+        Independent of call order, worker count or prior RNG use.
+    """
+    if base_seed < 0 or stream < 0 or index < 0:
+        raise ValueError(
+            f"seed components must be non-negative, got {base_seed=}, {stream=}, {index=}"
+        )
+    words = np.random.SeedSequence(
+        entropy=int(base_seed), spawn_key=(int(stream), int(index))
+    ).generate_state(2, dtype=np.uint32)
+    return GlobalRNGSeeds(numpy_seed=int(words[0]), c_rand_seed=int(words[1]))
+
+
+def _c_srand(c_funcs: Any, seed: int) -> None:
+    """Seed the C ``rand()`` stream gaiamock's compiled fitter draws from.
+
+    ``srand`` is looked up through the ``kepler_solve_astrometry.so`` handle when one
+    is given, so it resolves to the same libc symbol the fitter's ``rand()`` binds
+    to; otherwise through the C library directly (``c_funcs`` is ``None`` or a test
+    fake without ``srand``).
+    """
+    srand = getattr(c_funcs, "srand", None) if c_funcs is not None else None
+    if srand is None:
+        srand = ctypes.CDLL(ctypes.util.find_library("c")).srand
+    srand(ctypes.c_uint(int(seed)))
+
+
+@contextmanager
+def seeded_global_rng(seeds: GlobalRNGSeeds, c_funcs: Any = None) -> Iterator[None]:
+    """Seed numpy's global RNG and libc ``rand()`` for one gaiamock call (#371).
+
+    numpy's global state is saved on entry and restored on exit, so code outside
+    the block is not perturbed. libc ``rand()`` has no portable state getter, so it
+    is left at the seeded stream's position; nothing in this package draws from it
+    other than gaiamock's compiled fitter, which is always reseeded here first.
+
+    Limitations: process-global, so not thread-safe; a worker process must enter
+    this block itself (state does not cross ``fork``/``spawn`` boundaries).
+    """
+    saved = np.random.get_state()
+    np.random.seed(seeds.numpy_seed)
+    _c_srand(c_funcs, seeds.c_rand_seed)
+    try:
+        yield
+    finally:
+        np.random.set_state(saved)
+
+
+def mock_rng_manifest_record(config: PipelineConfig) -> dict[str, Any]:
+    """``RunManifest.random_seeds`` entry for the astrometric mock (#371).
+
+    Base seeds plus the scheme that derives every realization's global-RNG seeds,
+    so a reader of the run file alone can replay any realization.
+    """
+    sfa = config.selection_function_astrometric
+    return {
+        "random_seed": int(sfa.mock_population.random_seed),
+        "multi_solution_random_seed": int(sfa.multi_solution.random_seed),
+        "n_realizations": int(sfa.mock_population.N_realizations),
+        "scheme": MOCK_RNG_SEED_SCHEME,
+    }
+
+
+def multi_solution_realization_rng(seed: int, index: int) -> np.random.Generator:
+    """Per-realization multi-solution emission generator (#371).
+
+    Keyed by realization index so an emission does not depend on how many earlier
+    realizations were accepted.
+    """
+    return np.random.default_rng(
+        np.random.SeedSequence(entropy=int(seed), spawn_key=(int(index),))
+    )
+
+
 def passes_orbital_solution_cuts(
     *,
     a0_over_err: float,
@@ -606,6 +758,31 @@ def passes_orbital_solution_cuts(
     )
 
 
+def passes_acceleration_publication_cuts(
+    *,
+    n_params: int,
+    significance: float,
+    goodness_of_fit_f2: float,
+    cuts: AccelerationPublicationCutsConfig,
+) -> bool:
+    """True when a provisionally accepted 7- or 9-parameter solution would be published.
+
+    El-Badry et al. (2024) §5.2.1: s > 20, and F2 < 22 for 7-parameter (F2 < 25 for
+    9-parameter) solutions. Thresholds from
+    ``<dr>.selection_function_astrometric.acceleration_publication_cuts``.
+    """
+    if n_params == 7:
+        f2_max = cuts.acceleration7_f2_max
+    elif n_params == 9:
+        f2_max = cuts.acceleration9_f2_max
+    else:
+        raise ValueError(f"n_params must be 7 or 9, got {n_params}")
+    return bool(
+        (significance > cuts.acceleration_significance_min)
+        and (goodness_of_fit_f2 < f2_max)
+    )
+
+
 def classify_cascade_result(
     cascade: Sequence[float],
     *,
@@ -614,6 +791,7 @@ def classify_cascade_result(
     flux_ratio: float,
     cuts: OrbitalSolutionCutsConfig,
     gaiamock: ModuleType | None = None,
+    acceleration_cuts: AccelerationPublicationCutsConfig | None = None,
 ) -> MockRealizationRecord:
     """Map ``fit_full_astrometric_cascade`` return vector to solution type + six panels.
 
@@ -664,15 +842,32 @@ def classify_cascade_result(
                 solution_type=SolutionType.FIVE_PARAMETER,
                 accepted_orbital=False,
             )
-        if np.isclose(plx, -7.0):
-            return MockRealizationRecord(
-                solution_type=SolutionType.SEVEN_PARAMETER,
-                accepted_orbital=False,
+        if np.isclose(plx, -7.0) or np.isclose(plx, -9.0):
+            # gaiamock layout: 9-par → s = res[1], F2 = res[13];
+            # 7-par → s = res[1], F2 = res[9].
+            n_par = 7 if np.isclose(plx, -7.0) else 9
+            sig = float(res[1])
+            f2_acc = float(res[9] if n_par == 7 else res[13])
+            published = (
+                passes_acceleration_publication_cuts(
+                    n_params=n_par,
+                    significance=sig,
+                    goodness_of_fit_f2=f2_acc,
+                    cuts=acceleration_cuts,
+                )
+                if acceleration_cuts is not None
+                else False
             )
-        if np.isclose(plx, -9.0):
             return MockRealizationRecord(
-                solution_type=SolutionType.NINE_PARAMETER,
+                solution_type=(
+                    SolutionType.SEVEN_PARAMETER
+                    if n_par == 7
+                    else SolutionType.NINE_PARAMETER
+                ),
                 accepted_orbital=False,
+                acceleration_significance=sig,
+                acceleration_f2=f2_acc,
+                published_acceleration=published,
             )
         return MockRealizationRecord(
             solution_type=SolutionType.ORBITAL_FAILED_CUTS,
@@ -1087,6 +1282,9 @@ def _run_single_mock_realization(
         flux_ratio=draw.flux_ratio,
         cuts=config.active_dr().selection_function_astrometric.orbital_solution_cuts,
         gaiamock=gaiamock,
+        acceleration_cuts=(
+            config.active_dr().selection_function_astrometric.acceleration_publication_cuts
+        ),
     )
     if rec.accepted_orbital:
         multi_solution = None
@@ -1130,7 +1328,7 @@ def run_mock_injections(
 def run_mock_injections_with_truth(
     config: PipelineConfig,
     gaiamock: ModuleType,
-) -> tuple[list[MockRealizationRecord], NDArray[np.float64], dict[str, NDArray[np.float64]]]:
+) -> tuple[list[MockRealizationRecord], NDArray[np.float64], dict[str, NDArray[Any]]]:
     """Mock binaries through the gaiamock DR3 cascade, plus the injected truth.
 
     Returns ``(records, phot_g_mean_mag, truth)``; ``truth`` maps each injected
@@ -1138,6 +1336,19 @@ def run_mock_injections_with_truth(
     distance, ``A_G``, apparent and absolute G, masses, period, eccentricity,
     flux ratio, inclination, periastron time, Ω, ω and the ``faint_draw`` flag.
     Persisting it lets every step (truth → fitted → accepted) be checked (#339).
+
+    Draws with apparent G ≥ ``<dr>.selection_function_astrometric.mock_g_mag_max``
+    are removed before the cascade (El-Badry et al. 2024 §3.2), so ``records``,
+    the returned G and ``truth`` cover only the simulated draws.
+
+    Reproducibility (#371): gaiamock's own draws (sky positions, transit loss,
+    epoch noise, the C fitter's annealing) come from numpy's global RNG and libc
+    ``rand()``. Each gaiamock call runs inside :func:`seeded_global_rng` with seeds
+    from :func:`mock_global_rng_seeds` (``MOCK_RNG_SEED_SCHEME``), so with the same
+    ``mock_population.random_seed`` a realization is bit-identical across runs and
+    independent of order. ``truth`` also carries the integer replay keys
+    ``realization_index`` (original draw index, so it survives the
+    G-limit removal), ``rng_seed_numpy`` and ``rng_seed_c_rand``.
     """
     require_dr3_active_for_v1(config)
     if config.active_dr_mode is not ActiveDRMode.DR3:
@@ -1147,15 +1358,21 @@ def run_mock_injections_with_truth(
     path_cfg = config.active_dr().selection_function_astrometric
     do_dust = _do_dust_from_config(config.selection_function_astrometric)
     rng = _mock_rng(config)
+    c_funcs = gaiamock.read_in_C_functions()
+    base_seed = int(pop.random_seed)
 
-    ra, dec, d_pc, _x, _y, _z = (
-        gaiamock.generate_coordinates_at_a_given_distance_exponential_disk(
-            d_min=path_cfg.d_min_pc,
-            d_max=path_cfg.d_max_pc,
-            N_stars=pop.N_realizations,
-            hz_pc=pop.hz_pc,
+    # gaiamock draws sky positions from numpy's global RNG: seed it (#371).
+    with seeded_global_rng(
+        mock_global_rng_seeds(base_seed, MOCK_RNG_STREAM_SKY, 0), c_funcs
+    ):
+        ra, dec, d_pc, _x, _y, _z = (
+            gaiamock.generate_coordinates_at_a_given_distance_exponential_disk(
+                d_min=path_cfg.d_min_pc,
+                d_max=path_cfg.d_max_pc,
+                N_stars=pop.N_realizations,
+                hz_pc=pop.hz_pc,
+            )
         )
-    )
     l_deg, b_deg = gaiamock.xyz_to_galactic(x=_x, y=_y, z=_z)
 
     draws = [draw_mock_binary_params(pop, rng) for _ in range(pop.N_realizations)]
@@ -1181,14 +1398,16 @@ def run_mock_injections_with_truth(
         ],
         dtype=np.float64,
     )
-    c_funcs = gaiamock.read_in_C_functions()
-
     multi_solution_table = load_multi_solution_rate_table(config)
-    multi_solution_rng = np.random.default_rng(
+    multi_solution_seed = int(
         config.selection_function_astrometric.multi_solution.random_seed
     )
+    realization_seeds = [
+        mock_global_rng_seeds(base_seed, MOCK_RNG_STREAM_REALIZATION, i)
+        for i in range(pop.N_realizations)
+    ]
 
-    truth: dict[str, NDArray[np.float64]] = {
+    truth: dict[str, NDArray[Any]] = {
         "ra_deg": np.asarray(ra, dtype=np.float64),
         "dec_deg": np.asarray(dec, dtype=np.float64),
         "distance_pc": np.asarray(d_pc, dtype=np.float64),
@@ -1205,25 +1424,50 @@ def run_mock_injections_with_truth(
         "Omega_rad": np.array([d.omega_rad for d in draws], dtype=np.float64),
         "omega_rad": np.array([d.w_rad for d in draws], dtype=np.float64),
         "faint_draw": np.array([d.faint_draw for d in draws], dtype=np.float64),
+        # Replay keys (#371): original draw index and the global-RNG seeds that
+        # realization ran under (MOCK_RNG_SEED_SCHEME). Integer-valued.
+        "realization_index": np.arange(pop.N_realizations, dtype=np.int64),
+        "rng_seed_numpy": np.array(
+            [s.numpy_seed for s in realization_seeds], dtype=np.int64
+        ),
+        "rng_seed_c_rand": np.array(
+            [s.c_rand_seed for s in realization_seeds], dtype=np.int64
+        ),
     }
 
+    # El-Badry et al. (2024) §3.2: remove unresolved binaries with G > 19 from the mock
+    # sample (they were not fit with binary solutions in DR3). Removed draws are not
+    # simulated and not counted in any fraction; the count is reported (#339).
+    g_max = config.active_dr().selection_function_astrometric.mock_g_mag_max
+    keep = np.ones(pop.N_realizations, dtype=bool)
+    if g_max is not None:
+        keep = phot_g < float(g_max)
+    kept_idx = np.flatnonzero(keep)
+    truth = {key: np.asarray(values)[kept_idx] for key, values in truth.items()}
+
     records: list[MockRealizationRecord] = []
-    for i in range(pop.N_realizations):
-        records.append(
-            _run_single_mock_realization(
-                gaiamock,
-                ra=float(ra[i]),
-                dec=float(dec[i]),
-                d_pc=float(d_pc[i]),
-                phot_g_mean_mag=float(phot_g[i]),
-                config=config,
-                c_funcs=c_funcs,
-                draw=draws[i],
-                multi_solution_table=multi_solution_table,
-                multi_solution_rng=multi_solution_rng,
+    for i in kept_idx:
+        i = int(i)
+        # Per-realization seeding at the gaiamock boundary (#371): epoch noise,
+        # transit loss and the C fitter's annealing all depend only on (seed, i).
+        with seeded_global_rng(realization_seeds[i], c_funcs):
+            records.append(
+                _run_single_mock_realization(
+                    gaiamock,
+                    ra=float(ra[i]),
+                    dec=float(dec[i]),
+                    d_pc=float(d_pc[i]),
+                    phot_g_mean_mag=float(phot_g[i]),
+                    config=config,
+                    c_funcs=c_funcs,
+                    draw=draws[i],
+                    multi_solution_table=multi_solution_table,
+                    multi_solution_rng=multi_solution_realization_rng(
+                        multi_solution_seed, i
+                    ),
+                )
             )
-        )
-    return records, phot_g, truth
+    return records, phot_g[kept_idx], truth
 
 
 def run_validation_gate(
@@ -1302,6 +1546,11 @@ def write_selection_function_artifact(
         handle.attrs["gaiamock_git_commit"] = result.gaiamock_versions.gaiamock_git_commit
         handle.attrs["validation_gate_passed"] = result.validation.passed
         handle.attrs["detection_fraction"] = result.validation.detection_fraction
+        # Mock replay provenance (#371): per-realization seeds live in
+        # mock_catalog/truth/{realization_index,rng_seed_numpy,rng_seed_c_rand}.
+        if result.mock_random_seed is not None:
+            handle.attrs["mock_random_seed"] = int(result.mock_random_seed)
+            handle.attrs["mock_rng_seed_scheme"] = MOCK_RNG_SEED_SCHEME
 
         vg = handle.create_group("validation_gate")
         sp = vg.create_group("six_panel")
@@ -1383,8 +1632,17 @@ def write_selection_function_artifact(
             "parallax_mas",
             "a0_mas",
             "m2_from_mass_function_msun",
+            "acceleration_significance",
+            "acceleration_f2",
         ):
             mock_grp.create_dataset(attr, data=_mock_panel_column(result.records, attr))
+        mock_grp.create_dataset(
+            "published_acceleration",
+            data=np.array([r.published_acceleration for r in result.records], dtype=bool),
+        )
+        if result.mock_counts is not None:
+            for key, value in result.mock_counts.items():
+                mock_grp.attrs[key] = int(value)
         if g_mag is not None:
             mock_grp.create_dataset(
                 "phot_g_mean_mag", data=np.asarray(g_mag, dtype=np.float64)
@@ -1395,8 +1653,12 @@ def write_selection_function_artifact(
                 "injected parameters per realization, same order as mock_catalog rows; "
                 "Omega_rad = longitude of ascending node, omega_rad = argument of periastron"
             )
+            truth_grp.attrs["rng_seed_scheme"] = MOCK_RNG_SEED_SCHEME
             for key, values in result.injected_truth.items():
-                truth_grp.create_dataset(key, data=np.asarray(values, dtype=np.float64))
+                arr = np.asarray(values)
+                if not np.issubdtype(arr.dtype, np.integer):
+                    arr = arr.astype(np.float64)
+                truth_grp.create_dataset(key, data=arr)
 
         if result.real_comparison is not None:
             comp = result.real_comparison
@@ -1501,6 +1763,7 @@ def run_selection_function_astrometric(
         g_mag=g_mag,
     )
 
+    n_drawn = int(config.selection_function_astrometric.mock_population.N_realizations)
     result = SelectionFunctionAstrometricResult(
         gaiamock_versions=versions,
         records=mock_records,
@@ -1508,6 +1771,27 @@ def run_selection_function_astrometric(
         data_release=config.active_dr_mode.value,
         real_comparison=comparison,
         injected_truth=truth,
+        mock_random_seed=int(
+            config.selection_function_astrometric.mock_population.random_seed
+        ),
+        mock_counts={
+            "n_drawn": n_drawn,
+            "n_removed_g_limit": n_drawn - len(mock_records),
+            "n_simulated": len(mock_records),
+            "n_published_acceleration7": sum(
+                1
+                for r in mock_records
+                if r.published_acceleration
+                and r.solution_type is SolutionType.SEVEN_PARAMETER
+            ),
+            "n_published_acceleration9": sum(
+                1
+                for r in mock_records
+                if r.published_acceleration
+                and r.solution_type is SolutionType.NINE_PARAMETER
+            ),
+            "n_published_orbital": sum(1 for r in mock_records if r.accepted_orbital),
+        },
     )
     write_selection_function_artifact(artifact_path, result, g_mag=g_mag)
     return result

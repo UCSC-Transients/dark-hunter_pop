@@ -92,8 +92,48 @@ def verify_installed_overlay() -> str:
 
 
 def submodule_commit() -> str:
+    """Return the commit checked out in the ``vendor/gaiamock`` submodule.
+
+    Returns
+    -------
+    str
+        40-hex commit SHA of the gaiamock repository at ``vendor/gaiamock``.
+
+    Raises
+    ------
+    FileNotFoundError
+        ``vendor/gaiamock`` has neither a ``.git`` entry nor ``gaiamock.py``.
+    RuntimeError
+        ``vendor/gaiamock`` is not the top level of its own git repository — e.g. an
+        uninitialized submodule whose files were copied or linked in by hand (common in
+        fresh ``git worktree add`` checkouts). There, ``git -C vendor/gaiamock rev-parse
+        HEAD`` walks up and reports the **superproject's** HEAD, which would be recorded
+        as ``gaiamock_git_commit`` with no error (#343). The on-disk commit is then
+        unknowable, so this refuses rather than guess. Fix with
+        ``git submodule update --init``.
+
+    Limitations
+    -----------
+    Does not compare the result against the superproject's pinned gitlink; a submodule
+    deliberately checked out at another commit is reported as that commit.
+    """
     if not (_VENDOR_DIR / ".git").exists() and not (_VENDOR_DIR / "gaiamock.py").is_file():
         raise FileNotFoundError(f"vendor/gaiamock is missing: {_VENDOR_DIR}")
+    toplevel = subprocess.run(
+        ["git", "-C", str(_VENDOR_DIR), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    resolved_top = (
+        Path(toplevel.stdout.strip()).resolve() if toplevel.returncode == 0 else None
+    )
+    if resolved_top != _VENDOR_DIR.resolve():
+        raise RuntimeError(
+            f"{_VENDOR_DIR} is not its own git repository (git toplevel resolved to "
+            f"{resolved_top}); refusing to report a gaiamock_git_commit, which would be "
+            "the superproject's HEAD. Run `git submodule update --init` in this checkout."
+        )
     result = subprocess.run(
         ["git", "-C", str(_VENDOR_DIR), "rev-parse", "HEAD"],
         check=True,
