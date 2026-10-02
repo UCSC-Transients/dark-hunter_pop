@@ -1101,7 +1101,12 @@ def plot_six_panel_grid(
             if axis_spec is None:
                 resolved = resolve_histogram_bins(finite, bins, max_bins=max_bins)
             sty = series_style(series_index, cfg)
-            counts, edges = np.histogram(finite, bins=resolved, weights=wts)
+            if wts_raw is None:
+                counts, edges = np.histogram(finite, bins=resolved)
+            else:
+                # numpy cannot auto-estimate bins for weighted data: fix edges first.
+                edges = np.histogram_bin_edges(finite, bins=resolved)
+                counts, edges = np.histogram(finite, bins=edges, weights=wts)
             heights = counts.astype(np.float64)
             if density and counts.sum() > 0:
                 coord = (
