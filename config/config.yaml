@@ -172,6 +172,9 @@ selection_function_astrometric:
     flux_ratio_max: 0.15
     Mg_tot_min: 3.0
     Mg_tot_max: 6.5
+    # Stand-in prior mixture weight: fraction of draws whose M_G comes from the
+    # faint_Mg_tot range. Since #344 every draw is simulated by gaiamock; this no
+    # longer sets any solution-type outcome.
     faint_draw_fraction: 0.45
     faint_Mg_tot_min: 8.0
     faint_Mg_tot_max: 11.5

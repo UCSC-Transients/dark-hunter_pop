@@ -131,14 +131,27 @@ def test_draw_mock_binary_params_spreads_elbadry_prior() -> None:
     assert sum(d.faint_draw for d in draws) >= 10
 
 
+class _CascadeCountingGaiamock:
+    """Fake gaiamock whose cascade returns the 5-parameter sentinel and counts calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run_full_astrometric_cascade(self, **kwargs: object) -> list[float]:
+        self.calls += 1
+        return [-1.0] * 23
+
+
 @pytest.mark.unit
-def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
+def test_faint_draw_runs_through_gaiamock() -> None:
+    """#344: a faint draw is simulated, never short-circuited to insufficient_visibility."""
     cfg = load_config()
     pop = cfg.selection_function_astrometric.mock_population
     draw = draw_mock_binary_params(pop, np.random.default_rng(0))
     faint = draw.__class__(**{**draw.__dict__, "faint_draw": True})
+    fake = _CascadeCountingGaiamock()
     rec = _run_single_mock_realization(
-        gaiamock=None,  # type: ignore[arg-type]
+        gaiamock=fake,  # type: ignore[arg-type]
         ra=0.0,
         dec=0.0,
         d_pc=200.0,
@@ -147,7 +160,8 @@ def test_faint_draw_short_circuits_to_insufficient_visibility() -> None:
         c_funcs=None,
         draw=faint,
     )
-    assert rec.solution_type is SolutionType.INSUFFICIENT_VISIBILITY
+    assert fake.calls == 1
+    assert rec.solution_type is SolutionType.FIVE_PARAMETER
     assert not rec.accepted_orbital
 
 
@@ -859,11 +873,11 @@ def test_multi_solution_emission_attached_to_accepted_orbital_realization() -> N
     )
     ms_rng = np.random.default_rng(2)
 
-    # gaiamock is mocked out entirely: force the faint-draw short circuit so
-    # accepted_orbital stays False and we exercise the "not attached" branch cheaply,
-    # then flip to accepted_orbital=True via classify_cascade_result directly below.
+    # gaiamock is faked with a 5-parameter outcome so accepted_orbital stays False
+    # and we exercise the "not attached" branch cheaply, then flip to
+    # accepted_orbital=True via classify_cascade_result directly below.
     rec = _run_single_mock_realization(
-        gaiamock=None,  # type: ignore[arg-type]
+        gaiamock=_CascadeCountingGaiamock(),  # type: ignore[arg-type]
         ra=0.0,
         dec=0.0,
         d_pc=200.0,
@@ -874,7 +888,7 @@ def test_multi_solution_emission_attached_to_accepted_orbital_realization() -> N
         multi_solution_table=table,
         multi_solution_rng=ms_rng,
     )
-    assert rec.multi_solution is None  # insufficient_visibility short circuit: no draw
+    assert rec.multi_solution is None  # not accepted: no emission drawn
 
     accepted = classify_cascade_result(
         _orbital_cascade(period=500.0),
