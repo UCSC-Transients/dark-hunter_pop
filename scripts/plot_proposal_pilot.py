@@ -7,6 +7,10 @@ parameters (luminous companions only; provisional settings from the artifact), a
 compares accepted mock orbits with the real DR3 Orbital + AstroSpectroSB1 sample from the
 uncut snapshot. Every figure is labelled PILOT with N accepted and ESS.
 
+Several ``--artifact`` generations (top-ups, spec §3.7) are combined with
+deterministic-mixture weights: every draw is evaluated under every generation's ``q_j``,
+which needs the shared parent snapshot (``--parent-dir``).
+
 Outputs (``--out-dir``): ``pilot_six_panel_mds17.png``, ``pilot_ess_per_bin.png``,
 ``pilot_report.txt``.
 """
@@ -34,6 +38,9 @@ from darkhunter_pop.plotting import (
 )
 from darkhunter_pop.proposal_set import (
     MdS17TargetConfig,
+    ProposalConfig,
+    load_parent_snapshot,
+    log_q_total_for,
     binned_weights,
     importance_weights,
     kish_ess,
@@ -68,24 +75,46 @@ def mock_panel_values(truth: dict, outcome: dict) -> dict[str, np.ndarray]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--artifact", type=Path, required=True)
+    ap.add_argument("--artifact", type=Path, required=True, action="append")
+    ap.add_argument("--parent-dir", type=Path, required=True)
     ap.add_argument("--real-snapshot", type=Path, required=True, help="uncut snapshot query.ecsv")
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
-    truth, outcome, attrs = read_proposal_artifact(args.artifact)
+    parts = [read_proposal_artifact(a) for a in args.artifact]
+    attrs = parts[0][2]
     prov = json.loads(attrs["provenance_json"])
     target = MdS17TargetConfig.model_validate(prov["target_mds17_json"])
+    for _t, _o, at in parts[1:]:
+        if json.loads(at["provenance_json"])["target_mds17_json"] != prov["target_mds17_json"]:
+            raise ValueError("artifacts disagree on the target configuration")
+        if at["parent_h5_sha256"] != attrs["parent_h5_sha256"]:
+            raise ValueError("all generations must share one parent snapshot (spec §3.7)")
+    truth = {k: np.concatenate([p[0][k] for p in parts]) for k in parts[0][0]}
+    outcome = {k: np.concatenate([p[1][k] for p in parts]) for k in parts[0][1]}
+    if np.unique(truth["draw_index"]).size != truth["draw_index"].size:
+        raise ValueError("draw_index reused across generations")
+    gen_cfgs = [ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
     prop_cfg = json.loads(attrs["proposal_config_json"])
     n_draw = int(truth["draw_index"].size)
     scale = float(attrs["scale_to_full"])
+    parent = load_parent_snapshot(
+        args.parent_dir, cfg, parallax_floor_mas=gen_cfgs[0].provisional_parallax_floor_mas
+    )
     acc = np.asarray(outcome["accepted_orbital"], bool)
     stype = np.asarray(outcome["solution_type"]).astype(str)
 
     log_lam = mds17_luminous_log_intensity(truth, target)
-    w = importance_weights(log_lam, [truth["log_q_total"]], [n_draw], scale_to_full=scale)
+    log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]
+    w = importance_weights(
+        log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=scale
+    )
+    per_gen = []
+    for gc in gen_cfgs:
+        sel = (truth["generation"] == gc.generation) & np.asarray(outcome["accepted_orbital"], bool)
+        per_gen.append((gc.generation, gc.n_draws, int(sel.sum()), kish_ess(w[sel])))
 
     # --- real sample (El-Badry et al. 2024 §4: Orbital + AstroSpectroSB1, uncut) ---
     from astropy.table import Table
@@ -112,22 +141,23 @@ def main(argv: list[str] | None = None) -> int:
     panels = {}
     weights = {}
     for name in SIX_PANEL_NAMES:
+        # Short legend labels; N and ESS go in the title and caption (labels must not overflow).
         panels[name] = {
-            f"DR3 Orbital+AstroSpectroSB1 (N={n_real})": real_panels[name],
-            f"mock, MdS17-reweighted (N_acc={n_acc_wpos}, ESS={ess_acc:.1f})": mock_vals[name][acc],
-            f"mock, raw proposal (N_acc={n_acc})": mock_vals[name][acc],
+            "DR3": real_panels[name],
+            "MdS17 wt": mock_vals[name][acc],
+            "proposal": mock_vals[name][acc],
         }
-        weights[name] = {
-            f"mock, MdS17-reweighted (N_acc={n_acc_wpos}, ESS={ess_acc:.1f})": w[acc],
-        }
+        weights[name] = {"MdS17 wt": w[acc]}
 
     provisional = {k: v for k, v in prop_cfg.items() if k.startswith("provisional_")}
     provisional.update({k: v for k, v in target.model_dump(mode="json").items() if k.startswith("provisional_")})
     caption = (
         f"PILOT (#391, docs/MOCK_POPULATION_SPEC.md §7), validation rung 2. {n_draw} proposal draws "
-        f"(generation {prop_cfg['generation']}, base seed {prop_cfg['base_seed']}) through gaiamock_mod; "
+        f"(generations {[g[0] for g in per_gen]}, deterministic-mixture weights, base seed "
+        f"{prop_cfg['base_seed']}) through gaiamock_mod; "
         f"{n_acc} accepted orbits pass every orbital_solution_cut, {n_acc_wpos} with nonzero MdS17 weight; "
-        f"Kish ESS of the accepted set = {ess_acc:.1f}. Weighted mock is Moe & Di Stefano (2017) at "
+        f"Kish ESS of the accepted set = {ess_acc:.1f}. Series: DR3 = real sample; MdS17 wt = accepted mock orbits "
+        f"reweighted to MdS17; proposal = the same accepted orbits unweighted. Weighted mock is Moe & Di Stefano (2017) at "
         f"published parameters, luminous companions only. Expected accepted orbits relative to the "
         f"G<19 parent: {lam_orbit:.3g} (real: {n_real}); shapes only are compared (unit area). "
         f"Provisional settings, not decisions: "
@@ -140,7 +170,11 @@ def main(argv: list[str] | None = None) -> int:
         args.out_dir / "pilot_six_panel_mds17.png",
         panel_order=SIX_PANEL_NAMES,
         dpi=int(cfg.diagnostics.figure_dpi),
-        title="PILOT: MdS17-reweighted mock vs DR3 (rung 2)",
+        title=(
+            f"PILOT rung 2: DR3 Orbital+AstroSpectroSB1 (N={n_real})\\n"
+            f"vs MdS17-reweighted mock "
+            f"(N_acc={n_acc}, MdS17 ESS={ess_acc:.1f})"
+        ),
         panel_xlabels=PANEL_LABELS,
         panel_axes=axes_cfg,
         max_bins=n_bins,
@@ -187,9 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     # --- report ---
     cpu = np.asarray(outcome["cpu_seconds"], float)
     report = [
+        "artifacts: " + ", ".join(str(a) for a in args.artifact),
         "PILOT report (#391; docs/MOCK_POPULATION_SPEC.md §7). Provisional settings are not decisions.",
-        f"artifact: {args.artifact}",
         f"draws: {n_draw}; scale_to_full (N_full/N_snap): {scale:.2f}",
+        "per generation (generation, n_draws, accepted, ESS of its accepted draws under mixture weights): "
+        + "; ".join(f"({g}, {n}, {a}, {e:.2f})" for g, n, a, e in per_gen),
         f"accepted orbits: {n_acc}; with nonzero MdS17 weight: {n_acc_wpos}",
         f"MdS17 Kish ESS: accepted {ess_acc:.2f}; all draws {kish_ess(w):.2f}",
         f"max weight share among accepted: {(w[acc].max() / w[acc].sum()) if w[acc].sum() > 0 else float('nan'):.3f}",
@@ -212,7 +248,9 @@ def main(argv: list[str] | None = None) -> int:
         sel = stype == lab
         if sel.any():
             report.append(f"  {lab:28s} n={int(sel.sum()):5d} mean {cpu[sel].mean():.2f} s")
-    report.append(f"  wall this invocation: {prov.get('wall_seconds_this_invocation', float('nan')) / 60:.1f} min at {prov.get('workers')} workers")
+    for _t, _o, at in parts:
+        pv = json.loads(at["provenance_json"])
+        report.append(f"  wall: {pv.get('wall_seconds_this_invocation', float('nan')) / 60:.1f} min at {pv.get('workers')} workers")
     report.append("provisional: " + json.dumps(provisional, sort_keys=True))
     (args.out_dir / "pilot_report.txt").write_text("\n".join(report) + "\n")
     print("\n".join(report))
