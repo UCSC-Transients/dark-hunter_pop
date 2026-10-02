@@ -883,7 +883,13 @@ either as the parent query would under-count the parent.
 - If zero incomplete runs and `--run-file` omitted: create a new run.
 - Selection among runs uses the **run_id timestamp inside the file**, never filesystem mtime.
 - `scripts/purge_run.py`: default deletes the run YAML only; `--with-artifacts` also deletes
-  recorded HDF5 paths; refuse purging completed runs unless `--force`.
+  the HDF5 artifacts **this run produced** — only recorded paths under
+  `{artifact_root}/{this run_id}/` that no other run file in the runs directory references.
+  Copied-forward (parent) artifacts, shared artifacts and paths outside `artifact_root` are
+  kept and listed as "kept, owned by <run_id>" / "kept, also referenced by <run_id>" /
+  "kept, outside artifact_root" (#376). The delete/keep plan is printed before anything is
+  deleted; `--dry-run` prints it and deletes nothing. Refuse purging completed runs unless
+  `--force`.
 
 **Required screen output at run start**: before any stage executes, print a run plan — which run
 file is used/created, and for every stage whether it will run or be skipped and why

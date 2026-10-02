@@ -1474,8 +1474,18 @@ def run_inference_stage(
         sample_membership=membership,
     )
 
+    # Scan the artifacts inference actually consumed, explicit overrides
+    # included (#373), not only the manifest's records.
     upstream = collect_stand_ins(
-        manifest, stages=list(STAGE_ORDER[: STAGE_ORDER.index("inference")])
+        manifest,
+        stages=list(STAGE_ORDER[: STAGE_ORDER.index("inference")]),
+        artifact_paths={
+            "population_model": pop_path,
+            "sensitivity_analysis": sa_path,
+            "selection_function_astrometric": astro_path,
+            "selection_function_followup": follow_path,
+            "sample_selection": ss_path,
+        },
     )
     failed_checks: list[str] = []
     ppo_status = str(result.posterior_prior_overlap.get("status", "not_tested"))
@@ -1486,7 +1496,7 @@ def run_inference_stage(
         gates=gates,
         stand_ins=merge_stand_ins(upstream.stand_ins, result.stand_ins),
         failed_checks=failed_checks,
-        unregistered_stages=upstream.unregistered_stages,
+        unregistered_stages=upstream.unverified_stages,
     )
     result.science_validity = validity.as_dict()
     write_inference_artifact(artifact, result)
