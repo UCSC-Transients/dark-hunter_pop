@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import yaml
 
@@ -1385,22 +1385,178 @@ def validate_registry_inputs_from() -> list[str]:
     return errors
 
 
+def _resolve_recorded_path(raw: str | Path) -> Path:
+    """Absolute, symlink-resolved form of a recorded artifact path.
+
+    Relative paths resolve against :func:`repo_root`, matching
+    :func:`stage_artifact_path`'s convention for a relative ``artifact_root``.
+    """
+    path = Path(raw)
+    if not path.is_absolute():
+        path = repo_root() / path
+    return path.resolve()
+
+
+def _manifest_artifact_root(manifest: RunManifest) -> Path:
+    root = Path(manifest.artifact_root)
+    if not root.is_absolute():
+        root = repo_root() / root
+    return root.resolve()
+
+
+@dataclass(frozen=True)
+class PurgePlan:
+    """What ``purge_run(..., with_artifacts=True)`` deletes and keeps (#376).
+
+    ``delete`` holds only files under ``<artifact_root>/<this run_id>/`` that no
+    other run file under ``runs_dir`` references. Every other recorded path is in
+    ``kept`` as ``(stage, path, reason)``.
+    """
+
+    run_id: str
+    run_path: Path
+    artifact_root: Path
+    delete: list[tuple[str, Path]]
+    kept: list[tuple[str, Path, str]]
+
+
+def _other_run_references(run_path: Path, runs_dir: Path) -> dict[Path, list[str]]:
+    """``{resolved artifact path: [run_id, ...]}`` across every other run file."""
+    refs: dict[Path, list[str]] = {}
+    if not runs_dir.is_dir():
+        return refs
+    self_resolved = run_path.resolve()
+    for other in sorted(runs_dir.glob("*.yaml")):
+        if other.resolve() == self_resolved:
+            continue
+        try:
+            raw = yaml.safe_load(other.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise ValueError(
+                f"cannot read run file {other} to check artifact sharing; "
+                f"refusing to delete artifacts: {exc}"
+            ) from exc
+        if not isinstance(raw, dict):
+            continue
+        other_id = str(raw.get("run_id") or other.stem)
+        stages = raw.get("stages") or {}
+        if not isinstance(stages, dict):
+            continue
+        for record in stages.values():
+            if not isinstance(record, dict):
+                continue
+            art = record.get("artifact_path")
+            if not art:
+                continue
+            refs.setdefault(_resolve_recorded_path(art), []).append(other_id)
+    return refs
+
+
+def plan_purge_artifacts(run_path: Path, *, runs_dir: Path | None = None) -> PurgePlan:
+    """Decide which recorded artifacts this run owns and may delete (#376).
+
+    A path is deleted only if (1) it resolves under ``<artifact_root>/<run_id>/``
+    of *this* manifest and (2) no other run file in ``runs_dir`` (default: the
+    run file's own directory) records it. Copy-forward children record their
+    parent's artifacts, so ownership is by path, never by appearance in the
+    run file. Paths outside ``artifact_root`` are never deleted.
+    """
+    manifest = load_run_manifest(run_path)
+    root = _manifest_artifact_root(manifest)
+    own_dir = root / manifest.run_id
+    refs = _other_run_references(run_path, runs_dir or run_path.parent)
+    delete: list[tuple[str, Path]] = []
+    kept: list[tuple[str, Path, str]] = []
+    seen: set[Path] = set()
+    for stage_name, record in manifest.stages.items():
+        if not record.artifact_path:
+            continue
+        path = _resolve_recorded_path(record.artifact_path)
+        if path in seen:
+            kept.append((stage_name, path, "duplicate entry in this run file"))
+            continue
+        seen.add(path)
+        if not path.is_relative_to(own_dir):
+            if path.is_relative_to(root):
+                owner = path.relative_to(root).parts[0]
+                reason = f"kept, owned by {owner}"
+            else:
+                reason = f"kept, outside artifact_root {root}"
+            kept.append((stage_name, path, reason))
+            continue
+        sharers = refs.get(path)
+        if sharers:
+            kept.append(
+                (stage_name, path, "kept, also referenced by " + ", ".join(sorted(set(sharers))))
+            )
+            continue
+        if not path.is_file():
+            kept.append((stage_name, path, "not on disk"))
+            continue
+        delete.append((stage_name, path))
+    return PurgePlan(
+        run_id=manifest.run_id,
+        run_path=run_path,
+        artifact_root=root,
+        delete=delete,
+        kept=kept,
+    )
+
+
+def format_purge_plan(plan: PurgePlan, *, dry_run: bool) -> str:
+    """Human-readable listing of a :class:`PurgePlan` (printed before deleting)."""
+    verb = "would delete" if dry_run else "deleting"
+    lines = [
+        f"purge plan for run {plan.run_id} ({plan.run_path})",
+        f"  artifact_root: {plan.artifact_root}",
+        f"  {verb} {len(plan.delete)} artifact(s) owned by this run:",
+    ]
+    lines.extend(f"    - [{stage}] {path}" for stage, path in plan.delete)
+    lines.append(f"  keeping {len(plan.kept)} recorded path(s):")
+    lines.extend(f"    - [{stage}] {path} ({reason})" for stage, path, reason in plan.kept)
+    return "\n".join(lines)
+
+
 def purge_run(
     run_path: Path,
     *,
     with_artifacts: bool = False,
     force: bool = False,
-) -> None:
-    """Delete a run YAML; optionally its recorded HDF5 artifacts."""
+    dry_run: bool = False,
+    runs_dir: Path | None = None,
+    emit: Callable[[str], None] | None = print,
+) -> PurgePlan | None:
+    """Delete a run YAML; optionally the HDF5 artifacts this run itself produced.
+
+    With ``with_artifacts``, only files in :func:`plan_purge_artifacts`'s
+    ``delete`` list are removed: under ``<artifact_root>/<run_id>/`` and not
+    referenced by any other run file in ``runs_dir``. Copied-forward and shared
+    artifacts are kept and listed (#376). The plan is passed to ``emit`` before
+    anything is deleted. ``dry_run`` emits the plan and deletes nothing (not
+    even the run file).
+    """
     manifest = load_run_manifest(run_path)
-    if manifest.is_complete() and not force:
+    if manifest.is_complete() and not force and not dry_run:
         raise ValueError(
             f"refusing to purge completed run {manifest.run_id}; pass force=True"
         )
+    plan: PurgePlan | None = None
     if with_artifacts:
-        for record in manifest.stages.values():
-            if record.artifact_path:
-                path = Path(record.artifact_path)
-                if path.is_file():
-                    path.unlink()
+        plan = plan_purge_artifacts(run_path, runs_dir=runs_dir)
+        if emit is not None:
+            emit(format_purge_plan(plan, dry_run=dry_run))
+    elif emit is not None:
+        emit(
+            f"{'would delete' if dry_run else 'deleting'} run file {run_path} only "
+            "(no artifacts; pass with_artifacts to purge this run's own artifacts)"
+        )
+    if dry_run:
+        if emit is not None:
+            emit(f"dry run: nothing deleted; run file {run_path} kept")
+        return plan
+    if with_artifacts and plan is not None:
+        for _stage, path in plan.delete:
+            if path.is_file():
+                path.unlink()
     run_path.unlink()
+    return plan
