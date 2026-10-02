@@ -475,8 +475,10 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
 | MP-Q6 light split | observed G is the total system light |
 | MP-Q7 M1 < 0.8 M⊙ | MdS17 shapes at 0.8 M⊙, frequency scaled linearly in log M1 to 0 at 0.08 M⊙ (El-Badry et al. 2024 §3 binary-fraction prescription) |
 | MP-Q9 frequency vs fraction | Poisson intensity |
-| MP-Q13 mass–luminosity | Janssens et al. (2022), log-normal f scatter of 0.1 dex |
-| MP-Q14 extinction | Combined19 (`mwdust`, the current pipeline setting) |
+| MP-Q10 interpolation in M1 | linear in M1 |
+| MP-Q11 η outside range | clipped below at η = −0.9; formulas evaluated as written elsewhere |
+| MP-Q13 mass–luminosity | Janssens et al. (2022) M_G(M) for both stars, log-normal f scatter of 0.1 dex |
+| MP-Q14 extinction | not needed by the pilot (f from both masses; gaiamock gets the observed G) |
 | MP-Q17 compact mixture at rung 2 | none (luminous MdS17 only) |
 
 ## 8. Open questions for Ryan (none has been chosen)
