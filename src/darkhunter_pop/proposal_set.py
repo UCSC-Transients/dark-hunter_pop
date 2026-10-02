@@ -124,7 +124,7 @@ def build_gaia_source_parent_adql(*, k: int, parallax_floor_mas: float, g_max: f
 
 
 # ---------------------------------------------------------------------------
-# Config (fragment config/fragments/proposal_set.yaml; merged at stage integration)
+# Config (fragment config/population/proposal_set_pilot.yaml; merged at stage integration)
 # ---------------------------------------------------------------------------
 
 
@@ -233,7 +233,7 @@ class MdS17TargetConfig(_Strict):
 
 
 class ProposalSetFragment(_Strict):
-    """Whole ``config/fragments/proposal_set.yaml``."""
+    """Whole ``config/population/proposal_set_pilot.yaml``."""
 
     proposal: ProposalConfig
     target_mds17: MdS17TargetConfig
