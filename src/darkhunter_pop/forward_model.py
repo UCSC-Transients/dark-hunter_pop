@@ -33,6 +33,7 @@ from scipy import stats
 
 from darkhunter_pop.config_loader import repo_root, require_dr3_active_for_v1
 from darkhunter_pop.config_schema import (
+    AccelerationPublicationCutsConfig,
     ExtinctionModel,
     OrbitalSolutionCutsConfig,
     MajorSurveySFConfig,
@@ -137,6 +138,11 @@ class MockRealizationRecord:
     parallax_mas: float | None = None
     a0_mas: float | None = None
     m2_from_mass_function_msun: float | None = None
+    # Acceleration branch only: significance s and F2 returned by gaiamock, and whether
+    # the solution passes the publication cuts (El-Badry et al. 2024 §5.2.1).
+    acceleration_significance: float | None = None
+    acceleration_f2: float | None = None
+    published_acceleration: bool = False
 
 
 @dataclass
@@ -211,6 +217,8 @@ class SelectionFunctionAstrometricResult:
     validation: ValidationGateResult
     data_release: str
     real_comparison: ElBadryComparisonSample | None = None
+    # n_drawn / n_removed_g_limit / n_simulated for the mock sample (#339).
+    mock_counts: dict[str, int] | None = None
     # Injected truth per realization (same order as ``records``), see
     # ``run_mock_injections_with_truth``. Persisted under ``mock_catalog/truth``.
     injected_truth: dict[str, NDArray[np.float64]] | None = None
@@ -606,6 +614,31 @@ def passes_orbital_solution_cuts(
     )
 
 
+def passes_acceleration_publication_cuts(
+    *,
+    n_params: int,
+    significance: float,
+    goodness_of_fit_f2: float,
+    cuts: AccelerationPublicationCutsConfig,
+) -> bool:
+    """True when a provisionally accepted 7- or 9-parameter solution would be published.
+
+    El-Badry et al. (2024) §5.2.1: s > 20, and F2 < 22 for 7-parameter (F2 < 25 for
+    9-parameter) solutions. Thresholds from
+    ``<dr>.selection_function_astrometric.acceleration_publication_cuts``.
+    """
+    if n_params == 7:
+        f2_max = cuts.acceleration7_f2_max
+    elif n_params == 9:
+        f2_max = cuts.acceleration9_f2_max
+    else:
+        raise ValueError(f"n_params must be 7 or 9, got {n_params}")
+    return bool(
+        (significance > cuts.acceleration_significance_min)
+        and (goodness_of_fit_f2 < f2_max)
+    )
+
+
 def classify_cascade_result(
     cascade: Sequence[float],
     *,
@@ -614,6 +647,7 @@ def classify_cascade_result(
     flux_ratio: float,
     cuts: OrbitalSolutionCutsConfig,
     gaiamock: ModuleType | None = None,
+    acceleration_cuts: AccelerationPublicationCutsConfig | None = None,
 ) -> MockRealizationRecord:
     """Map ``fit_full_astrometric_cascade`` return vector to solution type + six panels.
 
@@ -664,15 +698,32 @@ def classify_cascade_result(
                 solution_type=SolutionType.FIVE_PARAMETER,
                 accepted_orbital=False,
             )
-        if np.isclose(plx, -7.0):
-            return MockRealizationRecord(
-                solution_type=SolutionType.SEVEN_PARAMETER,
-                accepted_orbital=False,
+        if np.isclose(plx, -7.0) or np.isclose(plx, -9.0):
+            # gaiamock layout: 9-par → s = res[1], F2 = res[13];
+            # 7-par → s = res[1], F2 = res[9].
+            n_par = 7 if np.isclose(plx, -7.0) else 9
+            sig = float(res[1])
+            f2_acc = float(res[9] if n_par == 7 else res[13])
+            published = (
+                passes_acceleration_publication_cuts(
+                    n_params=n_par,
+                    significance=sig,
+                    goodness_of_fit_f2=f2_acc,
+                    cuts=acceleration_cuts,
+                )
+                if acceleration_cuts is not None
+                else False
             )
-        if np.isclose(plx, -9.0):
             return MockRealizationRecord(
-                solution_type=SolutionType.NINE_PARAMETER,
+                solution_type=(
+                    SolutionType.SEVEN_PARAMETER
+                    if n_par == 7
+                    else SolutionType.NINE_PARAMETER
+                ),
                 accepted_orbital=False,
+                acceleration_significance=sig,
+                acceleration_f2=f2_acc,
+                published_acceleration=published,
             )
         return MockRealizationRecord(
             solution_type=SolutionType.ORBITAL_FAILED_CUTS,
@@ -1087,6 +1138,9 @@ def _run_single_mock_realization(
         flux_ratio=draw.flux_ratio,
         cuts=config.active_dr().selection_function_astrometric.orbital_solution_cuts,
         gaiamock=gaiamock,
+        acceleration_cuts=(
+            config.active_dr().selection_function_astrometric.acceleration_publication_cuts
+        ),
     )
     if rec.accepted_orbital:
         multi_solution = None
@@ -1138,6 +1192,10 @@ def run_mock_injections_with_truth(
     distance, ``A_G``, apparent and absolute G, masses, period, eccentricity,
     flux ratio, inclination, periastron time, Ω, ω and the ``faint_draw`` flag.
     Persisting it lets every step (truth → fitted → accepted) be checked (#339).
+
+    Draws with apparent G ≥ ``<dr>.selection_function_astrometric.mock_g_mag_max``
+    are removed before the cascade (El-Badry et al. 2024 §3.2), so ``records``,
+    the returned G and ``truth`` cover only the simulated draws.
     """
     require_dr3_active_for_v1(config)
     if config.active_dr_mode is not ActiveDRMode.DR3:
@@ -1207,8 +1265,18 @@ def run_mock_injections_with_truth(
         "faint_draw": np.array([d.faint_draw for d in draws], dtype=np.float64),
     }
 
+    # El-Badry et al. (2024) §3.2: remove unresolved binaries with G > 19 from the mock
+    # sample (they were not fit with binary solutions in DR3). Removed draws are not
+    # simulated and not counted in any fraction; the count is reported (#339).
+    g_max = config.active_dr().selection_function_astrometric.mock_g_mag_max
+    keep = np.ones(pop.N_realizations, dtype=bool)
+    if g_max is not None:
+        keep = phot_g < float(g_max)
+    kept_idx = np.flatnonzero(keep)
+    truth = {key: np.asarray(values)[kept_idx] for key, values in truth.items()}
+
     records: list[MockRealizationRecord] = []
-    for i in range(pop.N_realizations):
+    for i in kept_idx:
         records.append(
             _run_single_mock_realization(
                 gaiamock,
@@ -1223,7 +1291,7 @@ def run_mock_injections_with_truth(
                 multi_solution_rng=multi_solution_rng,
             )
         )
-    return records, phot_g, truth
+    return records, phot_g[kept_idx], truth
 
 
 def run_validation_gate(
@@ -1383,8 +1451,17 @@ def write_selection_function_artifact(
             "parallax_mas",
             "a0_mas",
             "m2_from_mass_function_msun",
+            "acceleration_significance",
+            "acceleration_f2",
         ):
             mock_grp.create_dataset(attr, data=_mock_panel_column(result.records, attr))
+        mock_grp.create_dataset(
+            "published_acceleration",
+            data=np.array([r.published_acceleration for r in result.records], dtype=bool),
+        )
+        if result.mock_counts is not None:
+            for key, value in result.mock_counts.items():
+                mock_grp.attrs[key] = int(value)
         if g_mag is not None:
             mock_grp.create_dataset(
                 "phot_g_mean_mag", data=np.asarray(g_mag, dtype=np.float64)
@@ -1501,6 +1578,7 @@ def run_selection_function_astrometric(
         g_mag=g_mag,
     )
 
+    n_drawn = int(config.selection_function_astrometric.mock_population.N_realizations)
     result = SelectionFunctionAstrometricResult(
         gaiamock_versions=versions,
         records=mock_records,
@@ -1508,6 +1586,24 @@ def run_selection_function_astrometric(
         data_release=config.active_dr_mode.value,
         real_comparison=comparison,
         injected_truth=truth,
+        mock_counts={
+            "n_drawn": n_drawn,
+            "n_removed_g_limit": n_drawn - len(mock_records),
+            "n_simulated": len(mock_records),
+            "n_published_acceleration7": sum(
+                1
+                for r in mock_records
+                if r.published_acceleration
+                and r.solution_type is SolutionType.SEVEN_PARAMETER
+            ),
+            "n_published_acceleration9": sum(
+                1
+                for r in mock_records
+                if r.published_acceleration
+                and r.solution_type is SolutionType.NINE_PARAMETER
+            ),
+            "n_published_orbital": sum(1 for r in mock_records if r.accepted_orbital),
+        },
     )
     write_selection_function_artifact(artifact_path, result, g_mag=g_mag)
     return result
