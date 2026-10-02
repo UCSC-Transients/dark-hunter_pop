@@ -28,6 +28,37 @@ reimplemented), `docs/ARCHITECTURE.md` §4 (`selection_function_astrometric`, `p
 5. Laptop compute, smaller test run first.
 6. No catalog request to El-Badry et al. (old Q8 closed). Their Fig. 5 stays a by-eye cross-check.
 
+### 0.1 Generation-time decisions (Ryan, 2026-10-02, #391 comment 5963152741)
+
+Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5963152741.
+These replace the pilot's `provisional_*` settings for the questions below. They are fixed at
+generation (§3.5).
+
+| Question | Decision | Implementation |
+|---|---|---|
+| MP-Q1 parallax floor | ϖ > 0.2 mas, with the same floor on the real comparison sample | parent query cut on measured `parallax`; the real Orbital + AstroSpectroSB1 sample is filtered on its NSS `parallax` > 0.2 mas |
+| MP-Q2 subsample | K = 10⁶ | `random_index < 1,000,000`, the pilot's slice |
+| MP-Q3 Halbwachs (b)/(c) | applied, using each real star's own values | parent rows must have `ipd_frac_multi_peak` ≤ 2, `ipd_gof_harmonic_amplitude` < 0.1 and \|C\*\| < 1.645 σ_C\*. C\* = `phot_bp_rp_excess_factor` − polynomial(`bp_rp`) per Riello et al. (2021) Eq. 6 / Table 2; σ_C\*(G) = 0.0059898 + 8.817481×10⁻¹² G^7.618399 (Eq. 18). A row with undefined C\* (no BP/RP) fails, since the condition cannot hold. The per-cut pass flags are stored |
+| MP-Q4 truth distance | Bailer-Jones et al. (2021) geometric | truth parallax = 1000 / `r_med_geo` (pc) from `external.gaiaedr3_distance`; `r_lo_geo` and `r_hi_geo` are stored; rows without a geometric distance are dropped and counted. The ϖ floor stays on the *measured* parallax (MP-Q1) |
+| MP-Q5 M1 | TAG10 point value; no-atmosphere stars dropped on both sides; giants kept and flagged | parent as in the pilot. Real side: rows with neither an MSC nor a GSP-Phot atmosphere are dropped. `is_giant` = log g of the atmosphere TAG10 used < 3.6. The threshold is the dwarf/giant log g of the Andrews et al. (2022) ATF notebook cut, used here **only as a flag**: it changes no weight or selection |
+| MP-Q6 light split | observed G is the total system light | gaiamock gets the star's observed `phot_g_mean_mag` |
+| MP-Q13 mass–luminosity | Janssens et al. (2022) M_G(M), 0.1 dex log-normal scatter in f | target `p(log10 f) = N(log10 f_J(M1, M2), 0.1)`; it stays reweightable |
+
+**Real-side check of the Halbwachs (b)/(c) cuts** (measured 2026-10-02, archive DR3 `gaia_source`
+values for all 168,065 rows). The cuts are almost exactly implicit on the real side, as expected
+for NSS input filters. The few failures probably come from the cuts being run on internal
+pre-release values; this was not verified.
+
+| Real sample | rows | IPD pass | C\* pass | both | RUWE > 1.4 | ≥ 12 vis. periods |
+|---|---|---|---|---|---|---|
+| Orbital | 134,598 | 99.984% | 99.972% | 99.956% | 100% | 100% |
+| AstroSpectroSB1 | 33,467 | 99.866% | 99.970% | 99.836% | 100% | 100% |
+
+So no IPD/C\* filter is applied to the real comparison sample. Whether to remove the 0.06% that
+fail (114 rows) for exact symmetry is MP-Q24.
+
+MP-Q7–Q12 and Q14–Q22 stay open. They can still be changed by reweighting.
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -92,6 +123,11 @@ FROM gaiadr3.gaia_source AS gs
 LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON gs.source_id = ap.source_id
 WHERE gs.random_index < :K AND gs.phot_g_mean_mag < 19 AND gs.parallax > :parallax_floor
 ```
+
+Since §0.1 (MP-Q4), the query also selects `bj.r_med_geo, bj.r_lo_geo, bj.r_hi_geo` via
+`LEFT JOIN external.gaiaedr3_distance AS bj ON gs.source_id = bj.source_id` (EDR3 and DR3
+`source_id` are identical). That is a new snapshot with the same `K` and slice; the pilot snapshot
+is kept unchanged.
 
 The atmospheric columns are exactly the ones `data_acquisition` fetches for `mass_derivation`
 (MSC preferred, GSP-Phot fallback), so the same TAG10 code path applies (§1.4). The real star's
@@ -466,6 +502,9 @@ N_accepted shown: ESS per six-panel bin, and the MdS17-reweighted six-panel agai
 sample (rung 2). Where an open question must have a value to run, the pilot uses a provisional
 setting that is named in the config key (`provisional_*`), the artifact and the caption:
 
+Since §0.1, the generation-time rows below (MP-Q1, Q3–Q6, Q13) are superseded by the decisions.
+The reweightable rows (MP-Q7, Q9–Q11, Q17) stay provisional.
+
 | Open question | Pilot provisional setting (not a decision) |
 |---|---|
 | MP-Q1 parallax floor | ϖ > 0.2 mas (a superset; any higher floor is a later filter) |
@@ -516,26 +555,14 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (none has been chosen)
+## 8. Open questions for Ryan (MP-Q1–Q6 and Q13 decided, §0.1; none of the rest chosen)
 
-- **MP-Q1 Parallax floor.** None is in Halbwachs et al. (2023). 0.2 mas keeps 99.998% of the real
-  orbits (66 GB full parent); 0.5 mas keeps 98.6% (30 GB). Whichever is picked, the same floor is
-  applied to the real comparison sample. Or a distance cut instead?
-- **MP-Q2 Parent subsample size** for the full run (`K` in §1.3), e.g. 10⁶ vs 10⁷.
-- **MP-Q3 Halbwachs steps (b) and (c)** (`ipd_frac_multi_peak` ≤ 2, `ipd_gof_harmonic_amplitude`
-  < 0.1, \|C\*\| < 1.645 σ_C\*), which removed 89% of step (a)'s stars. Apply them to the parent
-  using the real star's values (they encode real crowding and real companions, not the mock one),
-  skip them, or model them? Skipping them leaves the mock with partially resolved pairs the real
-  pipeline excluded.
-- **MP-Q4 Truth parallax.** The star's measured parallax, or a distance estimate such as
-  Bailer-Jones et al. (2021)? (Generation-time.)
-- **MP-Q5 M1 truth.** The TAG10 point value or a draw from its uncertainty; and what to do with
-  parent stars that have no MSC or GSP-Phot atmosphere (drop, with the same drop on the real side?).
-  Also giants, for which TAG10 returns a mass but the MS companion model does not obviously apply.
-  (Generation-time.)
-- **MP-Q6 Light split** (§1.5). Observed G is the total system light (companion share carved out;
-  a companion brighter than the system is then impossible), or the observed star is the primary
-  alone and the companion adds light? (Generation-time.)
+- **MP-Q1**: decided 2026-10-02, see §0.1.
+- **MP-Q2**: decided 2026-10-02, see §0.1.
+- **MP-Q3**: decided 2026-10-02, see §0.1.
+- **MP-Q4**: decided 2026-10-02, see §0.1.
+- **MP-Q5**: decided 2026-10-02, see §0.1.
+- **MP-Q6**: decided 2026-10-02, see §0.1.
 - **MP-Q7 Primaries below 0.8 M⊙**, outside MdS17. Options: El-Badry et al. (2024)'s linear decline
   in log M1 to 0 at 0.08 M⊙; an M-dwarf multiplicity survey (e.g. Winters et al. 2019); MdS17's
   0.8 M⊙ values held flat; or free parameters at rung 3.
@@ -550,9 +577,7 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   log P = 5–6. Clip η, hold it at the range edge, or extend the formula?
 - **MP-Q12 e > e_max(P)**: the proposal covers e up to `e_cap`. Must every θ respect Eq. 3, or may
   alternative eccentricity models (El-Badry's e^0.2, thermal) exceed it?
-- **MP-Q13 Mass–luminosity relation** for luminous companions (Janssens 2022 in the repo, MIST as
-  El-Badry used, or Pecaut & Mamajek 2013), and the width of p(f | M1, M2) that reweighting needs
-  (age/[Fe/H] spread or an intrinsic σ).
+- **MP-Q13**: decided 2026-10-02, see §0.1.
 - **MP-Q14 Extinction** for absolute magnitudes: Combined19 (current) or `ag_gspphot`?
 - **MP-Q15 WD flux**: f = 0, or a G-band flux from the Bédard et al. cooling tracks already used by
   `companion_nature`?
@@ -573,7 +598,8 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
 - **MP-Q22 Rung 3 parameterization**: which MdS17 coefficients are free (all, or e.g. the
   f_logP anchors, γ_largeq, F_twin, η), their priors (the published 1σ of Eqs. 8, 12, 16, 19, 24,
   25 are available), and the posterior-predictive acceptance thresholds.
-- **MP-Q23 Full laptop run size and approval** from the pilot's measured cost and ESS (§6, §7).
+- **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
+- **MP-Q24 Real-side Halbwachs (b)/(c) residue**: remove the 114 real rows (0.06%) that fail the IPD/C\* cuts on DR3 values, for exact symmetry with the parent, or keep El-Badry et al. (2024)'s "no further cut"? Measured in §0.1.
 
 ## References
 
