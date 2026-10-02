@@ -92,3 +92,26 @@ from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod, read_versions
 gaiamock = import_gaiamock_mod()  # verifies sha256 + .so present
 versions = read_versions()        # record into run file
 ```
+
+## Random number generation (#371)
+
+gaiamock_mod takes no seed or `Generator` argument. It draws from two process-global
+RNGs our own `np.random.Generator` streams never reach:
+
+| RNG | Draws in the mock path |
+|---|---|
+| numpy legacy global state (`np.random.*`) | sky positions (`generate_coordinates_at_a_given_distance_exponential_disk`, `draw_from_exponential_disk`); the random 10% transit loss and per-transit epoch noise (`predict_astrometry_luminous_binary`); per-source epoch-error jitter (`get_realistic_epoch_astrometry_errors`) |
+| libc `rand()` in `kepler_solve_astrometry.so` | adaptive simulated-annealing proposals and acceptance in `run_astfit` / `run_astfit_reject_outlier` (the nonlinear orbit-fit search). `srand` is never called upstream, so the stream depends on how many fits ran earlier in the process |
+
+`check_ruwe` / `check_7par` / `check_9par` / the Jacobian uncertainties are deterministic.
+`simulate_many_realizations_of_a_single_binary` and `get_astrometric_likelihoods` use joblib
+workers; pop does not call either.
+
+Never edit gaiamock to take a seed. Seed at the call boundary: wrap every gaiamock call in
+`forward_model.seeded_global_rng(mock_global_rng_seeds(base_seed, stream, index), c_funcs)`.
+Seeds come from `SeedSequence(entropy=base_seed, spawn_key=(stream, index))`, so a realization
+depends only on the seed and its index, not on call order or worker count; numpy's global
+state is restored on exit. A worker process must enter the block itself. The scheme string
+(`MOCK_RNG_SEED_SCHEME`) and per-realization seeds are written to the
+`selection_function_astrometric` artifact (`mock_catalog/truth/rng_seed_*`) and the run
+manifest (`random_seeds["selection_function_astrometric.mock_rng"]`).

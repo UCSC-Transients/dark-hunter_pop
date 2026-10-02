@@ -19,6 +19,7 @@ from darkhunter_pop.diagnostic_hooks import resolve_diagnostic_dirs, write_repor
 from darkhunter_pop.forward_model import (
     format_followup_calibration_report,
     format_validation_gate_report,
+    mock_rng_manifest_record,
     run_selection_function_astrometric,
     run_selection_function_followup,
 )
@@ -133,6 +134,11 @@ def _run_selection_function_astrometric_stage(
             header + "\n" + format_validation_gate_report(result),
         )
 
+    # Run provenance for mock replay (#371): base seeds plus the per-realization
+    # global-RNG seeding scheme; per-realization seeds are in the artifact.
+    seeds = dict(manifest.random_seeds)
+    seeds["selection_function_astrometric.mock_rng"] = mock_rng_manifest_record(config)
+    manifest = manifest.model_copy(update={"random_seeds": seeds})
     manifest = mark_stage_finished(
         manifest,
         spec,
