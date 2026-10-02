@@ -887,6 +887,8 @@ class InferenceResult:
     followup_sf_source: str = ""
     #: Stand-ins this invocation took at the point of use (#354).
     stand_ins: list[SyntheticStandIn] = field(default_factory=list)
+    #: ``catalog_source`` of the sensitivity artifact consulted (#350), or None.
+    sensitivity_catalog_source: str | None = None
     #: ``ScienceValidity.as_dict()`` set by the stage runner (#352); empty when
     #: ``run_inference`` is called outside a run (not assessed).
     science_validity: dict[str, Any] = field(default_factory=dict)
@@ -898,6 +900,7 @@ class InferenceResult:
             "stage": "inference",
             "likelihood_form": self.likelihood_form,
             "sensitivity_dimensionality_applied": self.sensitivity_dimensionality_applied,
+            "sensitivity_catalog_source": self.sensitivity_catalog_source,
             "eccentricity_hypothesis": self.eccentricity_hypothesis,
             "circular_implies_wd": self.circular_implies_wd,
             "astrometric_sf": self.astrometric_sf,
@@ -1205,6 +1208,9 @@ def run_inference(
         config_snapshot=icfg.model_dump(mode="json"),
         astrometric_sf_source=astro_sf_source,
         followup_sf_source=follow_sf_source,
+        sensitivity_catalog_source=(
+            str(sa_payload.get("catalog_source")) if sa_payload is not None else None
+        ),
         stand_ins=inference_stand_ins(
             config,
             astrometric_sf=astro_sf,
@@ -1325,6 +1331,15 @@ def format_inference_report(result: InferenceResult) -> str:
         ),
         f"likelihood_form: {result.likelihood_form}",
         f"sensitivity_dimensionality_applied: {result.sensitivity_dimensionality_applied}",
+        *(
+            [
+                "  WARNING: the applied sensitivity recommendation was derived from "
+                "a SYNTHETIC catalog, not this run's candidates (#350)."
+            ]
+            if result.sensitivity_dimensionality_applied
+            and result.sensitivity_catalog_source == "synthetic_fiducial"
+            else []
+        ),
         f"eccentricity_hypothesis: {result.eccentricity_hypothesis}",
         f"circular_implies_wd: {result.circular_implies_wd}",
         f"astrometric_sf: {result.astrometric_sf} (source: {result.astrometric_sf_source})",

@@ -163,6 +163,16 @@ class SensitivityAnalysisResult:
         }
 
 
+#: Plain-language label for the MC-noise convergence check (#349). The ratio is an
+#: algebraic identity on configured counts; nothing is measured.
+MC_NOISE_ANALYTIC_LABEL = (
+    "ANALYTIC PLACEHOLDER — NOT MEASURED (#349): sigma_MC/sigma_Poisson = "
+    "1/sqrt(n_mock) in every bin whatever the expected count, evaluated on the "
+    "configured sensitivity_analysis.fiducial_expected_counts. No mock-injection "
+    "noise is measured, so a pass here does not validate the forward model."
+)
+
+
 def sigma_mc_poisson_ratio(expected_count: float, n_mock: int) -> tuple[float, float, float]:
     """Return ``(sigma_mc, sigma_poisson, ratio)`` for one bin.
 
@@ -246,6 +256,7 @@ def run_mc_noise_convergence(
         schedule_max.append(max_ratio)
         if all(b.passed for b in bins):
             msg = (
+                "[analytic placeholder, not measured] "
                 f"MC noise budget met: all {len(bins)} bins have "
                 f"sigma_MC/sigma_Poisson < {threshold} at n_mock={n_mock} "
                 f"(max_ratio={max_ratio:.6g})."
@@ -266,6 +277,7 @@ def run_mc_noise_convergence(
 
     max_ratio = max((b.ratio for b in last_bins), default=float("inf"))
     msg = (
+        "[analytic placeholder, not measured] "
         f"MC noise budget NOT met within n_mock_max={n_mock_max}: "
         f"max_ratio={max_ratio:.6g} still >= threshold={threshold}."
     )
@@ -1001,7 +1013,20 @@ def format_sensitivity_report(result: SensitivityAnalysisResult) -> str:
     """Fully legible diagnostic report (exempt from caveman compression)."""
     lines = [
         "=== sensitivity_analysis report ===",
+        *(
+            [
+                "*** SYNTHETIC CATALOG — NOT A PIPELINE TEST (#350) ***",
+                "Dimensionality and per-class covariates below were selected on a "
+                "synthetic fiducial catalog from generate_fiducial_catalog, not on "
+                "this run's candidates. They describe the generator, not the data; "
+                "any downstream stage applying them applies a synthetic-data "
+                "recommendation.",
+            ]
+            if result.catalog_source == "synthetic_fiducial"
+            else [f"catalog_source: {result.catalog_source}"]
+        ),
         f"mc_noise_threshold: {result.mc_noise_threshold}",
+        MC_NOISE_ANALYTIC_LABEL,
         result.mc_noise.message,
         (
             f"dimensionality: preferred_model={result.dimensionality.preferred_model} "

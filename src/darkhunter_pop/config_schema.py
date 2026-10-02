@@ -401,6 +401,33 @@ class PlottingStyleConfig(BaseModel):
     #: Line-spacing multiple applied when a product figure reserves a caption
     #: band beneath the axes, so wrapped caption text cannot overlap the x label.
     caption_line_spacing: float = Field(1.45, gt=0)
+    #: Dynamic range, in decades, above which a primitive left on ``"auto"``
+    #: switches an axis to log (strictly positive data: ``log10(max / min)``) or
+    #: symlog (data with zeros or both signs: ``log10(max|x| / median|x|)``,
+    #: over non-zero ``|x|``). Heavy-tailed NSS quantities (RUWE, period,
+    #: chi2/dof, ΔBIC) otherwise leave the signal in the first few bins
+    #: (``docs/PLOTS.md``, "Aspect ratio and dynamic range"; #333).
+    auto_log_min_decades: float = Field(2.0, gt=0)
+    #: Categorical bar charts with more categories than this are drawn as
+    #: horizontal bars so category labels never overlap (#333). Fewer
+    #: categories still go horizontal when any label is wider than its slot.
+    categorical_max_vertical_labels: int = Field(8, ge=1)
+    #: Height per bar (inches) on a horizontal bar chart; the figure grows with
+    #: the number of bars so labels stay at ``tick_label_fontsize``.
+    categorical_row_height_inches: float = Field(0.32, gt=0)
+    #: Colours and linestyles for labelled reference lines (``M_Ch``, ``M_TOV``,
+    #: cuts). Both cycle together so two reference lines never share a style
+    #: (#333). Defaults avoid the first six ``color_cycle`` entries, which the
+    #: data series use.
+    reference_line_colors: list[str] = Field(
+        default_factory=lambda: ["#D55E00", "#CC79A7", "#000000"]
+    )
+    reference_linestyle_cycle: list[str] = Field(
+        default_factory=lambda: ["--", ":", "-."]
+    )
+    #: Hatch patterns cycled with colour on grouped bar charts, so series stay
+    #: distinguishable in greyscale (``docs/PLOTS.md``, series discrimination).
+    bar_hatch_cycle: list[str] = Field(default_factory=lambda: ["", "//", "..", "xx"])
 
 
 class BenchmarkCatalogEntry(BaseModel):
@@ -425,6 +452,29 @@ class BenchmarksConfig(BaseModel):
 
     known_truth_path: str = "config/benchmarks/known_truth_gaia_bh.yaml"
     ruwe_match_tolerance: float = Field(0.25, gt=0)
+    # Known-truth mass check (#348): pipeline M2 must agree with the published value
+    # within this many combined sigmas (published ⊕ pipeline marginal sigma).
+    mass_check_n_sigma: float = Field(3.0, gt=0)
+    # Stages whose artifacts carry an M2 ParameterSet to check, in pipeline order.
+    mass_check_stages: list[str] = Field(
+        default_factory=lambda: [
+            "mass_derivation_bulk",
+            "mass_derivation_refined",
+            "joint_orbit_fit",
+        ]
+    )
+    # Gaia DR3 NSS solution types that carry an astrometric orbit (a "clean
+    # detection" for the known-truth check). Catalog vocabulary, config-owned.
+    nss_orbital_solution_types: list[str] = Field(
+        default_factory=lambda: [
+            "Orbital",
+            "AstroSpectroSB1",
+            "OrbitalTargetedSearch",
+            "OrbitalTargetedSearchValidated",
+            "OrbitalAlternative",
+            "OrbitalAlternativeValidated",
+        ]
+    )
     catalogs: dict[str, BenchmarkCatalogEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -1521,12 +1571,40 @@ class RvConsistencyConfig(BaseModel):
     sb2_ecc_abs_tol: float = Field(0.15, gt=0, le=1)
     # Which dark-hunter_rv Joker variant block seeds the joint fit when present.
     joker_seed_variant: str = "full"
-    # Soft NSS prior scales (fractional on P; absolute on e / ω_rad / T_day) for joint fit.
-    joint_prior_period_frac: float = Field(0.05, gt=0)
-    joint_prior_ecc_abs: float = Field(0.05, gt=0)
-    joint_prior_omega_rad: float = Field(0.2, gt=0)
-    joint_prior_t_peri_day: float = Field(5.0, gt=0)
-    joint_fit_max_nfev: int = Field(200, ge=20)
+    # RV epochs with MJD below this are rejected as non-physical placeholders
+    # (upstream summaries carry ``mjd: 0.0`` rows; #347). Counted, never fit.
+    rv_epoch_min_mjd: float = 40000.0
+    # Lower jitter bound (km/s). A fit sitting here is a legitimate zero-jitter
+    # boundary (not a bound hit); the jitter is then held fixed for the Fisher matrix.
+    jitter_min_kms: float = Field(1.0e-3, gt=0)
+    # joint_orbit_fit (#347): RV epochs + the NSS astrometric solution vector
+    # (parallax, Thiele–Innes A/B/F/G[/C/H], e, P, T_peri) with its full
+    # covariance; K is derived from a1 = a0/parallax, never free. Search box for
+    # the fitted masses — an optimum on either edge is flagged and counted as a
+    # bound hit, never returned as a solution.
+    joint_m1_bounds_msun: tuple[float, float] = (0.05, 100.0)
+    joint_m2_bounds_msun: tuple[float, float] = (1.0e-3, 1.0e3)
+    # Hard eccentricity ceiling inside the joint fit (an optimum here is a bound hit).
+    joint_ecc_max: float = Field(0.99, gt=0, lt=1)
+    # Max function evaluations for the L-BFGS-B stage of the joint fit.
+    joint_fit_max_nfev: int = Field(20000, ge=20)
+    # Convergence: scoring decrement gᵀF⁻¹g of −ln L at the optimum (≈ twice the
+    # log-likelihood a further step would gain); parametrization-invariant.
+    joint_fit_decrement_tol: float = Field(1.0e-4, gt=0)
+    # Identifiability: smallest/largest Fisher eigenvalue (local-σ units) must
+    # exceed this, else the fit is reported not converged (degenerate direction).
+    joint_fisher_min_eig_ratio: float = Field(1.0e-12, gt=0, lt=1)
+    # L-BFGS-B restarts from its own result (stop when −ln L gains < 1e-9).
+    joint_lbfgsb_restarts: int = Field(5, ge=0)
+    # Fisher-scoring polish steps after L-BFGS-B.
+    joint_polish_steps: int = Field(20, ge=0)
+    # Central-difference step for model Jacobians (gradient / Fisher / output
+    # propagation), in units of the local posterior σ (1/sqrt Fisher diagonal).
+    joint_derivative_step: float = Field(1.0e-3, gt=0)
+    # A parameter within this many conditioning units (its NSS / M1 σ; 0.02 in
+    # √e·cos/sin ω and angles; 5% of seed M2; 0.1 in ln jitter) of a box bound
+    # counts as a bound hit.
+    joint_bound_tol: float = Field(1.0e-3, gt=0)
     # Sort gate input by on-disk summary mtime (newest first). Prefer current
     # pipeline outputs over stale pre-pipeline summaries.
     prefer_recent_summary_mtime: bool = True

@@ -158,9 +158,22 @@ class NatureEvidence:
         }
 
 
+#: Minimum number of populated age bins for the age-independence comparison to
+#: test anything: one bin has nothing to be compared against (#334). A structural
+#: property of the comparison, not a tunable threshold.
+MIN_POPULATED_AGE_BINS: int = 2
+
 @dataclass
 class AgeBinDiagnostic:
-    """Required age-independence diagnostic (ARCHITECTURE.md §4)."""
+    """Required age-independence diagnostic (ARCHITECTURE.md §4).
+
+    ``status`` is ``ok`` / ``flag`` only when at least
+    :data:`MIN_POPULATED_AGE_BINS` age bins hold candidates; otherwise it is
+    ``insufficient_data`` and ``age_independence_ok`` is False — an empty check is
+    never a pass (#334). Artifacts written before #334 carry no ``status``; it is
+    derived on load from ``bin_counts``, so a zero-candidate run re-reads as
+    ``insufficient_data``.
+    """
 
     bin_edges_gyr: list[float]
     bin_counts: list[int]
@@ -169,9 +182,31 @@ class AgeBinDiagnostic:
     max_abs_mean_weight_delta: float
     age_independence_ok: bool
     message: str
+    #: ``ok`` | ``flag`` | ``insufficient_data`` (derived when left empty).
+    status: str = ""
+
+    def __post_init__(self) -> None:
+        populated = sum(1 for c in self.bin_counts if int(c) > 0)
+        if populated < MIN_POPULATED_AGE_BINS:
+            self.status = "insufficient_data"
+            self.age_independence_ok = False
+            if "insufficient_data" not in self.message:
+                self.message = (
+                    f"Age-bin diagnostic: NOT TESTED (insufficient_data) — "
+                    f"{populated} populated age bin(s), need "
+                    f">= {MIN_POPULATED_AGE_BINS}; bins={list(self.bin_counts)}. "
+                    "No candidate carried a usable primary age."
+                    if populated == 0
+                    else f"Age-bin diagnostic: NOT TESTED (insufficient_data) — "
+                    f"{populated} populated age bin(s), need "
+                    f">= {MIN_POPULATED_AGE_BINS}; bins={list(self.bin_counts)}."
+                )
+        elif not self.status:
+            self.status = "ok" if self.age_independence_ok else "flag"
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "status": self.status,
             "bin_edges_gyr": list(self.bin_edges_gyr),
             "bin_counts": list(self.bin_counts),
             "mean_weights_by_bin": [dict(w) for w in self.mean_weights_by_bin],
@@ -947,7 +982,7 @@ def age_bin_diagnostic(
         for k in NATURE_CLASSES:
             max_delta = max(max_delta, abs(mean[k] - global_mean[k]))
 
-    ok = max_delta <= tol or n_global == 0
+    ok = max_delta <= tol
     msg = (
         f"Age-bin diagnostic: max |Δmean weight|={max_delta:.4g} "
         f"(tol={tol:.4g}); bins={counts}; "
@@ -1150,6 +1185,31 @@ def format_companion_nature_report(
     return "\n".join(lines)
 
 
+def delta_bic_figure_caption(diagnostics: CompanionNatureDiagnostics) -> str:
+    """Caption for the ΔBIC histogram naming where each candidate's evidence came from.
+
+    ``analytic_fallback`` is the declared analytic surrogate (the
+    ``companion_nature.*_mg_zero_point`` / ``*_mg_mass_slope`` M_G relations),
+    which has no uncertainty model, so its |ΔBIC| is not a calibrated evidence
+    scale (#333 audit). The caption travels with the figure, not only the report.
+    """
+    counts = dict(diagnostics.n_by_evidence_provenance)
+    n_total = len(diagnostics.delta_bic_wd_vs_dark)
+    parts = ", ".join(f"{tag} = {int(n)}" for tag, n in sorted(counts.items()))
+    text = (
+        f"ΔBIC = BIC(WD) − BIC(dark) for {n_total} candidates; negative favours WD. "
+        f"Evidence provenance: {parts or 'not recorded'}."
+    )
+    if counts.get("analytic_fallback", 0):
+        text += (
+            " analytic_fallback is the declared analytic surrogate "
+            "(companion_nature *_mg_zero_point / *_mg_mass_slope M_G relations), "
+            "which has no uncertainty model: its |ΔBIC| is not a calibrated "
+            "evidence scale."
+        )
+    return text + " Symmetric-log x axis when |ΔBIC| spans many decades."
+
+
 def write_diagnostic_artifacts(
     diagnostics: CompanionNatureDiagnostics,
     artifact_path: Path,
@@ -1181,12 +1241,15 @@ def write_diagnostic_artifacts(
         fig_path = plot_histogram(
             np.asarray(diagnostics.delta_bic_wd_vs_dark, dtype=np.float64),
             figures_dir / "delta_bic_wd_vs_dark.png",
-            xlabel="ΔBIC (WD − dark); negative ⇒ data prefer WD",
+            xlabel=r"$\Delta{\rm BIC}$ (WD $-$ dark); negative favours WD",
             ylabel="count",
-            title="Companion nature: ΔBIC(WD − dark)",
+            title=r"Companion nature: $\Delta{\rm BIC}$ (WD $-$ dark)",
             dpi=int(diag_cfg.figure_dpi),
             max_bins=int(diag_cfg.histogram_max_bins),
             style=config.plotting,
+            # |ΔBIC| spans ~1e1 to ~1e7 with both signs: auto picks symlog (#333).
+            log_x="auto",
+            caption=delta_bic_figure_caption(diagnostics),
         )
         if fig_path is not None:
             written.append(fig_path)

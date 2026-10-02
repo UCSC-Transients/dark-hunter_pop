@@ -109,3 +109,18 @@ SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS: Final[float] = float(
 
 # Gaia DR3 NSS ``t_periastron`` origin (days from J2016.0 → add to this MJD).
 GAIA_J2016_MJD: Final[float] = 57388.5
+
+# ---------------------------------------------------------------------------
+# Kepler's third law / orbital velocity in (AU, day, Msun) units (joint
+# astrometry + RV orbit fit, #347). Derived from astropy G, Msun, au — true
+# constants, not choosables.
+#   a_total[AU]^3 = KEPLER_AU3_PER_MSUN_DAY2 * (M1 + M2)[Msun] * P[day]^2
+#   v[km/s] = AU_PER_DAY_KMS * v[AU/day]
+# ---------------------------------------------------------------------------
+
+KEPLER_AU3_PER_MSUN_DAY2: Final[float] = float(
+    (G * const.M_sun * (1.0 * u.day) ** 2 / (4.0 * np.pi**2 * const.au**3))
+    .decompose()
+    .value
+)
+AU_PER_DAY_KMS: Final[float] = float((1.0 * u.au / u.day).to_value(u.km / u.s))

@@ -390,6 +390,26 @@ Separate registered stage (same module `rv_consistency.py`), immediately after
 
 - Gate passers only: orbital elements free, full simultaneous astrometry+RV fit (Joker-seeded);
   refined M1/M2 supersedes the astrometry-only value. `OrbitTier` records `joint_astrometry_rv`.
+- Model (#347): one Keplerian orbit fit to the RV epochs (per-instrument γ + jitter, Gaussian
+  likelihood with its normalization term) **and** the NSS astrometric solution vector (ϖ,
+  Thiele–Innes A/B/F/G, plus C/H for `AstroSpectroSB1`, e, P, T_peri) through its full
+  `nss_solution` covariance sub-block, with a Gaussian M1 prior from the upstream `m1`. Free:
+  P, √e cos ω, √e sin ω, T_peri, Ω, i, M1, M2, ϖ. **K is derived** from a1 = a0/ϖ (the
+  photocentre is taken as the primary's orbit — dark-companion hypothesis), never free.
+  Candidates without an `nss_solution` covariance are skipped (`missing_nss_covariance`),
+  never given a diagonal stand-in. RV epochs with `mjd < rv_consistency.rv_epoch_min_mjd`
+  (upstream placeholder `mjd: 0.0` rows) are dropped and counted, in the gate as well.
+- Convergence is a test on the final point, not an optimizer flag: Fisher information
+  identified (eigenvalue ratio above `joint_fisher_min_eig_ratio`) and scoring decrement
+  `gᵀF⁻¹g ≤ joint_fit_decrement_tol`. Covariance = F⁻¹ propagated to
+  `extras["joint_orbit"]` = (P, e, T_periastron, K, ω, i, Ω, M1, M2, ϖ); `m2` is that M2
+  marginal. An optimum within `joint_bound_tol` of a box edge (M1/M2 bounds, i ∈ [0, π],
+  e ceiling, jitter ceiling) is a **bound hit**: flagged, counted, and the upstream
+  `astrometry_only` mass is kept. Jitter at its floor is a legitimate boundary, held fixed.
+  Unconverged fits likewise keep the upstream mass with `joint_orbit_fit_skip_reason`.
+- Diagnostics: `joint_orbit_fit_report.txt` (converged / bound-hit / unconverged counts,
+  bound-hit parameters, recovered-M2 range, priority calibrators) and figures of the recovered
+  M2 distribution, joint vs upstream M2, and joint K vs the NSS-seed K.
 - Gate failures: stage status `skipped` with `reason: rv_astrometry_gate_failed`. System keeps
   `astrometry_only` parameters and is scored by the population model's outlier class later — not
   silently excluded.
@@ -561,6 +581,23 @@ convergence diagnostic.
   credible-interval coverage checked across repeated injections.
 - Known-truth benchmarks: Gaia-BH1, Gaia-BH2 (clean detections); Gaia-BH3 (marginal/non-detection
   in DR3 mode, RUWE=3.4, would have appeared in the acceleration catalog for parts of its orbit).
+  **Checked against this run's real outputs (#348)**: NSS membership, solution type and RUWE are read
+  from the `data_acquisition` artifact, and M2 from every stage in `benchmarks.mass_check_stages`
+  (bulk, refined, joint). Each M2 is compared with the published mass in the fixture
+  (`published_m2_msun` ± `published_m2_sigma_msun`, fixture schema v2) within
+  `benchmarks.mass_check_n_sigma` combined sigmas. Each check is `passed` / `failed` / `not_tested`.
+  A check with no data is `not_tested`, never passed. `synthetic_observed_from_truth` is reachable
+  from tests only. The comparison-catalog report says it is a fixture listing with no comparison
+  computed, and marks each catalog `complete` / `incomplete (n of N)` / `empty`.
+- **Empty is not a pass (#334)**: a diagnostic whose input is empty reports `not_tested` /
+  `insufficient_data`, never `ok`. The age-stratified WD check needs at least two populated age bins.
+  No upstream stage supplies primary ages yet (tracked separately).
+- **Analytic / synthetic checks are labeled as such**: the MC-noise convergence check is an analytic
+  identity on configured counts (#349). `sensitivity_analysis` runs on a synthetic fiducial catalog
+  in stage runs (#350). Follow-up calibration without a real catalog is `not_calibrated` (#351). SBC
+  with `recovery_backend: analytic_binned` is an analytic sanity check that does not validate
+  inference (#356). Their reports, figure titles and the diagnostics-stage "check verdicts" block
+  say so, and none of them is reported as a validated pass.
 - Cross-validation catalogs (comparison only): El-Badry/Rix/Latham/Shahaf/Mazeh et al.'s 21-system
   NS-candidate catalog (itself reporting NS candidates more eccentric than typical WD+MS binaries
   — direct support for the SN-kick hypothesis); the 156-companions astrometry+RV validation paper;

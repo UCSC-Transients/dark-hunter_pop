@@ -60,11 +60,21 @@ rv_consistency:
   sb2_period_frac_tol: 0.1
   sb2_ecc_abs_tol: 0.15
   joker_seed_variant: full
-  joint_prior_period_frac: 0.05
-  joint_prior_ecc_abs: 0.05
-  joint_prior_omega_rad: 0.2
-  joint_prior_t_peri_day: 5.0
-  joint_fit_max_nfev: 200
+  # #347: reject placeholder RV epochs (mjd 0.0) before any fit.
+  rv_epoch_min_mjd: 40000.0
+  jitter_min_kms: 1.0e-3
+  # #347 joint astrometry+RV fit: NSS solution vector + full covariance + RVs;
+  # K derived from a0/parallax. Optima on a box edge are flagged bound hits.
+  joint_m1_bounds_msun: [0.05, 100.0]
+  joint_m2_bounds_msun: [1.0e-3, 1.0e3]
+  joint_ecc_max: 0.99
+  joint_fit_max_nfev: 20000
+  joint_fit_decrement_tol: 1.0e-4
+  joint_fisher_min_eig_ratio: 1.0e-12
+  joint_lbfgsb_restarts: 5
+  joint_polish_steps: 20
+  joint_derivative_step: 1.0e-3
+  joint_bound_tol: 1.0e-3
   prefer_recent_summary_mtime: true
   priority_source_ids:
   - 4373465352415301632
@@ -628,9 +638,31 @@ plotting:
   dndm_y_decades: 12.0
   # Line spacing used when a product figure reserves a caption band.
   caption_line_spacing: 1.45
+  # Heavy-tail auto log/symlog threshold (decades), horizontal-bar switch and
+  # reference-line styles (#333). Display-only.
+  auto_log_min_decades: 2.0
+  categorical_max_vertical_labels: 8
+  categorical_row_height_inches: 0.32
+  reference_line_colors: ["#D55E00", "#CC79A7", "#000000"]
+  reference_linestyle_cycle: ["--", ":", "-."]
+  bar_hatch_cycle: ["", "//", "..", "xx"]
 benchmarks:
   known_truth_path: config/benchmarks/known_truth_gaia_bh.yaml
   ruwe_match_tolerance: 0.25
+  # Known-truth M2 must match published within n combined sigmas (#348).
+  mass_check_n_sigma: 3.0
+  mass_check_stages:
+  - mass_derivation_bulk
+  - mass_derivation_refined
+  - joint_orbit_fit
+  # DR3 NSS solution types carrying an astrometric orbit.
+  nss_orbital_solution_types:
+  - Orbital
+  - AstroSpectroSB1
+  - OrbitalTargetedSearch
+  - OrbitalTargetedSearchValidated
+  - OrbitalAlternative
+  - OrbitalAlternativeValidated
   catalogs:
     ns_candidate_21:
       path: config/benchmarks/catalogs/ns_candidate_21.yaml
