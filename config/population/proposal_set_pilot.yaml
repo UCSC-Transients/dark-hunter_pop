@@ -1,6 +1,7 @@
 # Importance-reweighted mock proposal set (docs/MOCK_POPULATION_SPEC.md §3, #391).
 #
-# Draft fragment, NOT merged into config/config.yaml: it is read by
+# Pilot config, deliberately NOT under config/fragments/ (load_config merges those into
+# PipelineConfig) and NOT in config/config.yaml. It is read by
 # darkhunter_pop.proposal_set.load_proposal_set_fragment for the pilot only. It merges into
 # selection_function_astrometric.proposal_set / population_model.moe_distefano when the
 # stage integration lands (spec §3.8).
