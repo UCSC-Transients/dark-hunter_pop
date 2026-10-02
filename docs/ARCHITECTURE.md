@@ -381,8 +381,8 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   - A candidate whose MC cannot produce a sigma is dropped as `skipped_m2_sigma_failed`. The
     causes are missing required parameters, a factorization or inversion error, or fewer than
     two finite draws.
-  - Both counts are funnel rows. So are `m2_mc_cholesky_nugget` and `m2_mc_eigen_clip`, the
-    numbers of retained covariances that needed a fallback factorization.
+  - Both counts are funnel rows. So are `m2_mc_cholesky_nugget` and `m2_mc_eigen_clip`: of the
+    candidates that got a `sigma_M2`, how many covariances needed each fallback factorization.
 - `mass_derivation_refined` passes the bulk `M2` ParameterSet through unchanged. It does not
   recompute `M2` from a refined `M1`.
 - This stage's `M2` / `sigma_M2` is the pipeline's own posterior. It never writes the
