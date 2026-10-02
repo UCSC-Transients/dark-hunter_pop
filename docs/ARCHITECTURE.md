@@ -365,6 +365,23 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   - `CandidateRecord.extras["m2_bulk_mc"]` records the ensemble summary: `n_draws`, `n_valid`,
     `random_seed`, `factorization`, `n_clipped_eigenvalues`, `n_m1_nonpositive`, the mean, and
     the 16/50/84 % quantiles.
+  - **Truncated `M1` draws are counted, never hidden (#380).** When the TAG10 `sigma_M1` is
+    comparable to `M1`, part of the Gaussian `M1` ensemble is non-positive and the ensemble is
+    effectively truncated, so `sigma_M2` comes out *smaller* than the full `M1` width implies.
+    The funnel row `m1_draws_truncated` counts candidates with a `sigma_M2` whose MC had at
+    least one `M1 <= 0` draw; `m2_cut_m1_draws_truncated` counts those of them rejected by the
+    cut, and their `source_id`s are written to
+    `m2_cut_m1_draws_truncated_source_ids.txt` in the stage diagnostics directory. No draw is
+    clipped or replaced (#289). The draw distribution for these candidates (linear Gaussian,
+    log-normal from TAG10's `sigma_logM`, truncated-and-renormalized, or a flag) is an **open
+    decision for Ryan** (#380); until it is made the v1 linear-Gaussian convention stands.
+    Measured on run `20260930-022223-672b092` (386 sources that passed the pre-#374 cut and
+    fail the #374 one): every point estimate is inside TAG10's stated range (main-sequence and
+    evolved stars above 0.6 M☉; Torres et al. 2010 §8), and the width comes from the MSC input
+    uncertainties (median `sigma_Teff` 1480 K, `sigma_logg` 1.13, `sigma_[Fe/H]` 0.62, giving
+    `sigma_logM` ≈ 0.30 dex against the 0.027 dex intrinsic scatter), amplified by a median
+    1.5× through the Santos correction. They are not a #323 out-of-calibration population, so
+    `m1_outside_calibration` is not applied.
 
   A first-order (Jacobian) propagation over (A, B, F, G, ϖ, P, M1) with the same covariance was
   measured and rejected. On a 1/100 sample of run `20260930-022223-672b092`, it agrees with the
@@ -383,8 +400,9 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
     two finite draws.
   - Both counts are funnel rows. So are `m2_mc_cholesky_nugget` and `m2_mc_eigen_clip`: of the
     candidates that got a `sigma_M2`, how many covariances needed each fallback factorization.
-- `mass_derivation_refined` passes the bulk `M2` ParameterSet through unchanged. It does not
-  recompute `M2` from a refined `M1`.
+- `mass_derivation_refined` never keeps the bulk `M2` beside a refined `M1`. When it replaces
+  `M1`, it recomputes `M2` and `sigma_M2` with the same inversion and the same full-covariance
+  MC as this stage (see `mass_derivation_refined` below, #377).
 - This stage's `M2` / `sigma_M2` is the pipeline's own posterior. It never writes the
   literature-reproduction columns. Those are Andrews' `p_m2_above` / `m2_msun*` and El-Badry
   2026's `m*_tilde` / `sigma_m2_astrometric`, which stay owned by each sample's own MC path.
@@ -402,6 +420,24 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   `full_uberMS` coverage.
 - `dark-hunter_sed` extended for WISE and DECam-u photometry (new PRs against that repo).
 - Watch-list diagnostic: uberMS's M1 prior is capped at 3 M☉ — flag any candidate approaching it.
+- **Refined `M2` (#377).** When an uberMS `M1` replaces the bulk TAG10 `M1`, `M2` and
+  `sigma_M2` are recomputed from it. The central `M2` is the same `gaiamock_mod` inversion at the
+  best-fit orbit with the uberMS `M1` median; `sigma_M2` is the same full-NSS-covariance + `M1`
+  Monte Carlo as `mass_derivation_bulk` (`m2_sigma_from_nss_covariance`, shared
+  `mc_mass_function` config and per-system seed), with the uberMS `M1` median and sigma
+  (half the 16–84 % width). A diagonal or `M1`-only sigma is never used.
+  - Provenance names the `M1` that was used: the `M2` ParameterSet is tagged
+    `gaiamock_mass_function+uberMS_M1+nss_full_covariance_mc` (bulk:
+    `...+TAG10_M1+...`), and `extras["m2_refined_mc"]` holds the ensemble summary plus
+    `m1_provenance` (the refined `M1` ParameterSet's provenance). `extras["m2_bulk_mc"]` is kept
+    as the bulk-tier record.
+  - If the recompute fails (no `nss_solution`, MC unavailable, inversion error), the record keeps
+    its bulk `M1` **and** bulk `M2` as a consistent pair at `bulk_estimate` tier. It is counted
+    as `m2_recompute_failed` and the reason is stored in `extras["m2_refined_failed"]`; the
+    uberMS `M1` is not applied.
+  - The report counts `m2_recomputed`, `m2_recompute_failed` and `m1_draws_truncated` (#380).
+  - The refined stage does not re-apply the bulk `M2` cut; the bulk `m2_cut` semantics are
+    unchanged.
 
 ### `rv_astrometry_gate`
 
