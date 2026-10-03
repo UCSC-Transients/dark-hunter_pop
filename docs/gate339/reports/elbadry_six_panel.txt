@@ -1,0 +1,16 @@
+=== El-Badry-style six-panel comparison ===
+note: science KS thresholds live in selection_function_astrometric.validation_gate; KS values below are recomputed on the full (unclipped) samples.
+  mock_gating: accepted_orbital (all orbital_solution_cuts)
+  mock_n_accepted: 12
+  mock_n_realizations: 500
+  real_n_rows: 168065
+  real_nss_solution_types: ['Orbital', 'AstroSpectroSB1']
+  real_sample_citation: El-Badry, Lam, Holl et al. (2024), OJAp 7, 100 (arXiv:2411.00088), §4 and Fig. 5
+  real_snapshot_id: 20260826T234425Z_3d3f740b080c
+  P_orb_days: mock=n=12 (outside [10, 10000]: 0), real=n=168065 (outside [10, 10000]: 0), KS_D=0.5308 KS_p=0.00111
+  G_mag: mock=n=12 (outside [4, 20]: 0), real=n=168065 (outside [4, 20]: 0), KS_D=0.1835 KS_p=0.75
+  inv_parallax_mas_inv: mock=n=12 (outside [0, 2]: 0), real=n=168065 (outside [0, 2]: 2319), KS_D=0.2052 KS_p=0.622
+  eccentricity: mock=n=12 (outside [0, 1]: 0), real=n=168065 (outside [0, 1]: 0), KS_D=0.3453 KS_p=0.088
+  f_m_msun: mock=n=12 (outside [0.0001, 3]: 0), real=n=168065 (outside [0.0001, 3]: 183), KS_D=0.7618 KS_p=8.93e-08
+  cos_inclination: mock=n=12 (outside [-1, 1]: 0), real=n=168065 (outside [-1, 1]: 0), KS_D=0.2399 KS_p=0.428
+=== end El-Badry-style six-panel comparison ===
