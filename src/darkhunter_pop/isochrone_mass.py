@@ -79,12 +79,16 @@ MOMENT_CHANNELS: tuple[str, ...] = (
     "log_mass2",
     "initial_mass",
     "log_r",
+    "log_r2",
     "r_max_past",
     "log_g",
     "evolved",
     "log_age",
     "feh",
 )
+#: Bumped whenever the per-star outputs change, so result caches keyed by
+#: :func:`config_key` are rebuilt.
+RESULT_SCHEMA_VERSION: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +623,7 @@ def point_channels(pts: PriorPoints) -> FloatArray:
         lm * lm,
         v["initial_mass"],
         v["log_r"],
+        v["log_r"] ** 2,
         v["r_max_past"],
         v["log_g"],
         (v["phase"] >= 1.5).astype(float),
@@ -668,6 +673,7 @@ class IsochronePosterior:
     log_m1_sigma: FloatArray
     m_init_mean: FloatArray
     log_r_mean: FloatArray
+    log_r_sigma: FloatArray
     r_max_past_mean: FloatArray
     log_g_mean: FloatArray
     p_evolved: FloatArray
@@ -777,6 +783,7 @@ def posterior_moments(
         log_m1_sigma=np.sqrt(np.clip(col("log_mass2") - lm**2, 0.0, None)),
         m_init_mean=col("initial_mass"),
         log_r_mean=col("log_r"),
+        log_r_sigma=np.sqrt(np.clip(col("log_r2") - col("log_r") ** 2, 0.0, None)),
         r_max_past_mean=col("r_max_past"),
         log_g_mean=col("log_g"),
         p_evolved=col("evolved"),
@@ -840,7 +847,7 @@ def config_key(cfg: IsochroneMassConfig) -> str:
     """Short hash of the whole section except ``mist_root`` (host path), for result caches."""
     d = cfg.model_dump(mode="json")
     d.pop("mist_root", None)
-    blob = json.dumps({"cfg": d, "mbol_sun": constants.MIST_MBOL_SUN}, sort_keys=True)
+    blob = json.dumps({"cfg": d, "mbol_sun": constants.MIST_MBOL_SUN, "schema": RESULT_SCHEMA_VERSION}, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:10]
 
 
