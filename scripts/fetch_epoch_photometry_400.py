@@ -89,8 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     Gaia.ROW_LIMIT = -1
     query_date = dt.datetime.now(dt.timezone.utc)
     out = args.data_root / "dr3" / "gaia_snapshots" / f"{query_date.strftime('%Y%m%dT%H%M%SZ')}_epoch_times_400"
-    out.mkdir(parents=True, exist_ok=False)
     src = Gaia.launch_job_async(adql).get_results()
+    out.mkdir(parents=True, exist_ok=False)  # only after the query succeeded
     with h5py.File(out / "sources.h5", "w") as h:
         for c in COLUMNS:
             h.create_dataset(c, data=np.asarray(src[c], dtype=np.int64) if c in ("source_id", "random_index")
