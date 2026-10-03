@@ -25,6 +25,7 @@ starts with ``provisional_``. All are recorded in the artifact.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -32,7 +33,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, ContextManager, Literal, Mapping, Sequence
 
 import numpy as np
 import yaml
@@ -195,10 +196,58 @@ class PeriodProposalConfig(_Strict):
 
 
 class EccentricityProposalConfig(_Strict):
-    """e = 0 for P <= ``circular_period_days``, else U(0, ``e_cap``)."""
+    """Eccentricity proposal ``q(e | P)``; e = 0 for P <= ``circular_period_days``.
 
-    e_cap: float = Field(..., gt=0.0, lt=1.0)
+    ``shape: uniform`` (the pilot and the paused run): U(0, ``e_cap``). It truncates the
+    MdS17 target above ``e_cap`` (#409), and with eta < -0.5 its weights have infinite
+    variance (#410). Kept only so those artifacts stay readable.
+
+    ``shape: mds17_bounded`` (#409, #410): a three-part mixture for P > circular,
+    with E = e_max(P) = 1 − (P / ``e_max_period_scale_days``)^``e_max_exponent``
+    (MdS17 Eq. 3, the target's own support):
+
+    * ``floor_weight`` × power law (η_q + 1) e^η_q / E^(η_q+1) on [0, E), η_q = ``floor_eta``;
+    * ``support_weight`` × U(0, E);
+    * the rest × U(0, ``defensive_e_max``), a defensive part that also covers e > e_max
+      for any alternative eccentricity model (MP-Q12).
+
+    The weight p/q is **bounded** whenever every target eta ≥ η_q: near e = 0 the power
+    law dominates and (e/E)^(η−η_q) ≤ 1; elsewhere U(0, E) bounds it by (η+1)/``support_weight``.
+    :func:`check_eccentricity_bounded` enforces η_q ≤ the target's eta floor. These are
+    sampling-efficiency settings only.
+    """
+
+    shape: Literal["uniform", "mds17_bounded"] = "uniform"
     circular_period_days: float = Field(..., gt=0.0)
+    e_cap: float | None = Field(None, gt=0.0, lt=1.0)
+    floor_eta: float | None = Field(None, gt=-1.0)
+    floor_weight: float | None = Field(None, ge=0.0, le=1.0)
+    support_weight: float | None = Field(None, ge=0.0, le=1.0)
+    defensive_e_max: float | None = Field(None, gt=0.0, lt=1.0)
+    e_max_period_scale_days: float | None = Field(None, gt=0.0)
+    e_max_exponent: float | None = Field(None, lt=0.0)
+
+    @model_validator(mode="after")
+    def _shape_fields(self) -> EccentricityProposalConfig:
+        if self.shape == "uniform":
+            if self.e_cap is None:
+                raise ValueError("shape uniform needs e_cap")
+            return self
+        need = ("floor_eta", "floor_weight", "support_weight", "defensive_e_max",
+                "e_max_period_scale_days", "e_max_exponent")
+        missing = [k for k in need if getattr(self, k) is None]
+        if missing:
+            raise ValueError(f"shape mds17_bounded needs {missing}")
+        if self.floor_weight + self.support_weight > 1.0 + 1e-12:  # type: ignore[operator]
+            raise ValueError("floor_weight + support_weight must be <= 1")
+        return self
+
+    def e_max(self, period_days: ArrayLike) -> FloatArray:
+        """MdS17 Eq. 3 support edge (0 for P <= circular_period_days)."""
+        p = np.asarray(period_days, dtype=np.float64)
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            val = 1.0 - (p / float(self.e_max_period_scale_days)) ** float(self.e_max_exponent)  # type: ignore[arg-type]
+        return np.where(p > self.circular_period_days, np.clip(val, 0.0, 1.0), 0.0)
 
 
 class AccelerationPublicationConfig(_Strict):
@@ -240,6 +289,10 @@ class ProposalConfig(_Strict):
     m1: Literal["tag10_point_drop_unresolved"]  # MP-Q5
     giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g)
     light_split: Literal["observed_g_is_system_total"]  # MP-Q6
+    # #400 E1 (decided 2026-10-03): ``dr3_config`` wraps every cascade call in the epoch
+    # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
+    # gaiamock's GOST list. Generation-time: it changes the epochs (spec §3.5).
+    epoch_model: Literal["off", "dr3_config"] = "off"
 
 
 class MdS17TargetConfig(_Strict):
@@ -577,14 +630,71 @@ def log_q_log_p(log_p: ArrayLike, cfg: PeriodProposalConfig) -> FloatArray:
 
 
 def log_q_ecc(ecc: ArrayLike, period_days: ArrayLike, cfg: EccentricityProposalConfig) -> FloatArray:
-    """0 (probability 1) for circular-class draws; else log uniform density on [0, e_cap)."""
+    """log q(e | P): 0 (probability 1) at e = 0 for circular-class draws; else the
+    log density of ``cfg.shape`` (see :class:`EccentricityProposalConfig`)."""
     e = np.asarray(ecc, float)
     p = np.asarray(period_days, float)
     circ = p <= cfg.circular_period_days
-    inside = (e >= 0) & (e < cfg.e_cap)
-    with np.errstate(divide="ignore"):
-        cont = np.where(inside, -math.log(cfg.e_cap), -np.inf)
+    if cfg.shape == "uniform":
+        inside = (e >= 0) & (e < cfg.e_cap)  # type: ignore[operator]
+        with np.errstate(divide="ignore"):
+            cont = np.where(inside, -math.log(cfg.e_cap), -np.inf)  # type: ignore[arg-type]
+    else:
+        big_e = cfg.e_max(p)
+        eq = float(cfg.floor_eta)  # type: ignore[arg-type]
+        wa, wb = float(cfg.floor_weight), float(cfg.support_weight)  # type: ignore[arg-type]
+        wc = max(0.0, 1.0 - wa - wb)
+        d = float(cfg.defensive_e_max)  # type: ignore[arg-type]
+        in_e = (e >= 0) & (e < big_e) & (big_e > 0)
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            pow_d = np.where(in_e, (eq + 1.0) * e**eq / big_e ** (eq + 1.0), 0.0)
+            uni_e = np.where(in_e, 1.0 / big_e, 0.0)
+        uni_d = ((e >= 0) & (e < d)) / d
+        dens = wa * np.nan_to_num(pow_d, posinf=np.inf) + wb * uni_e + wc * uni_d
+        with np.errstate(divide="ignore"):
+            cont = np.log(dens)
     return np.where(circ, np.where(e == 0.0, 0.0, -np.inf), cont)
+
+
+def sample_ecc(
+    period_days: NDArray[np.float64], cfg: EccentricityProposalConfig, rng: np.random.Generator
+) -> NDArray[np.float64]:
+    """Draw e | P from ``cfg`` (vectorized; one uniform for the component, one for e)."""
+    p = np.asarray(period_days, dtype=np.float64)
+    n = p.size
+    circ = p <= cfg.circular_period_days
+    if cfg.shape == "uniform":
+        return np.where(circ, 0.0, rng.uniform(0.0, cfg.e_cap, size=n))  # type: ignore[arg-type]
+    big_e = cfg.e_max(p)
+    eq = float(cfg.floor_eta)  # type: ignore[arg-type]
+    wa, wb = float(cfg.floor_weight), float(cfg.support_weight)  # type: ignore[arg-type]
+    comp = rng.uniform(size=n)
+    u = rng.uniform(size=n)
+    e_pow = big_e * u ** (1.0 / (eq + 1.0))
+    e_uni = big_e * u
+    e_def = float(cfg.defensive_e_max) * u  # type: ignore[arg-type]
+    e = np.where(comp < wa, e_pow, np.where(comp < wa + wb, e_uni, e_def))
+    return np.where(circ, 0.0, e)
+
+
+def check_eccentricity_bounded(cfg: EccentricityProposalConfig, target_eta_floor: float) -> None:
+    """Refuse an eccentricity proposal whose weights can be unbounded (#410).
+
+    ``mds17_bounded`` needs η_q = ``floor_eta`` ≤ the target's eta floor and a nonzero
+    ``floor_weight`` and ``support_weight``. ``uniform`` is refused whenever the target eta
+    floor is below −0.5 (infinite-variance weights) and always truncates (#409).
+    """
+    if cfg.shape == "uniform":
+        raise ValueError(
+            "uniform eccentricity proposal truncates the MdS17 target at e_cap (#409) and has "
+            "infinite-variance weights for eta < -0.5 (#410); use shape mds17_bounded"
+        )
+    if float(cfg.floor_eta) > target_eta_floor:  # type: ignore[arg-type]
+        raise ValueError(
+            f"proposal floor_eta {cfg.floor_eta} > target eta floor {target_eta_floor}: weights unbounded at e -> 0"
+        )
+    if not (float(cfg.floor_weight) > 0 and float(cfg.support_weight) > 0):  # type: ignore[arg-type]
+        raise ValueError("floor_weight and support_weight must both be > 0 for bounded weights")
 
 
 def sample_proposal(
@@ -640,7 +750,7 @@ def sample_proposal(
 
     # Eccentricity
     ec = cfg.eccentricity
-    ecc = np.where(period <= ec.circular_period_days, 0.0, rng.uniform(0.0, ec.e_cap, size=n))
+    ecc = sample_ecc(period, ec, rng)
 
     # Orientation and phase: isotropic, identical to the target (cancels in weights).
     cos_i = rng.uniform(-1.0, 1.0, size=n)
@@ -735,16 +845,24 @@ def simulate_one(
     c_funcs: Any,
     cfg: ProposalConfig,
     cuts: OrbitalSolutionCutsConfig,
+    epoch_wrap: Callable[[Mapping[str, Any]], ContextManager[Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one stored draw through ``run_full_astrometric_cascade``, seeded per #371.
 
     Seeds: ``mock_global_rng_seeds(base_seed, PROPOSAL_RNG_STREAM_BASE + generation,
     draw_index)``, so a draw replays alone, independent of order or worker.
+
+    ``epoch_wrap(draw)`` (optional) returns a context manager entered around the cascade,
+    e.g. ``epoch_model.gost_epoch_model(...)`` with ``epoch_model_rng(base_seed, stream,
+    draw_index)`` (#400 hook). It must be given exactly when ``cfg.epoch_model != "off"``.
     """
+    if (epoch_wrap is None) != (cfg.epoch_model == "off"):
+        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch_wrap is {'missing' if epoch_wrap is None else 'given'}")
     stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
     seeds = mock_global_rng_seeds(cfg.base_seed, stream, int(draw["draw_index"]))
     t0 = time.process_time()
-    with seeded_global_rng(seeds, c_funcs):
+    wrap = epoch_wrap(draw) if epoch_wrap is not None else contextlib.nullcontext()
+    with wrap, seeded_global_rng(seeds, c_funcs):
         cascade = gaiamock.run_full_astrometric_cascade(
             ra=float(draw["ra_deg"]),
             dec=float(draw["dec_deg"]),
@@ -982,15 +1100,31 @@ def read_proposal_artifact(path: str | Path) -> tuple[dict[str, NDArray[Any]], d
 # ---------------------------------------------------------------------------
 
 
+def load_real_input_columns(snapshot_dir: str | Path) -> dict[str, NDArray[Any]]:
+    """Load ``columns.h5`` from ``scripts/fetch_real_nss_input_columns.py`` (checksum verified)."""
+    import h5py
+
+    d = Path(snapshot_dir)
+    meta = yaml.safe_load((d / "meta.yaml").read_text())
+    got = _sha256(d / "columns.h5")
+    if got != meta["columns_h5_sha256"]:
+        raise ValueError(f"input-columns snapshot checksum mismatch: {got}")
+    with h5py.File(d / "columns.h5", "r") as h:
+        return {k: h[k][()] for k in h.keys()}
+
+
 def real_comparison_keep(
-    columns: Any, proposal: ProposalConfig
+    columns: Any,
+    proposal: ProposalConfig,
+    input_columns: Mapping[str, NDArray[Any]] | None = None,
 ) -> tuple[NDArray[np.bool_], dict[str, int]]:
     """Rows of the real comparison table kept to mirror the decided parent filters.
 
     Applies the same measured-parallax floor (MP-Q1) and the same no-atmosphere drop (MP-Q5:
-    neither an MSC nor a GSP-Phot atmosphere resolves) as the parent. The Halbwachs (b)/(c)
-    cuts are *not* applied here: they are NSS input filters, measured as implicit on the real
-    side (spec §0.1; their 0.06% residue is MP-Q24). Returns ``(mask, counts)``.
+    neither an MSC nor a GSP-Phot atmosphere resolves) as the parent. When ``input_columns``
+    is given (MP-Q24, decided 2026-10-03: drop the real rows failing the Halbwachs (b)/(c)
+    cuts, for symmetry), the same :func:`halbwachs_input_flags` are applied, joined by
+    ``source_id``; a row missing from ``input_columns`` fails. Returns ``(mask, counts)``.
     """
     from darkhunter_pop.mass_derivation import resolve_atmosphere_from_extras
 
@@ -1006,11 +1140,26 @@ def real_comparison_keep(
     with np.errstate(invalid="ignore"):
         floor = plx > proposal.parallax_floor_mas
     keep = floor & has_atm
-    return keep, {
+    counts = {
         "rows": int(n),
         "parallax_floor": int(floor.sum()),
         "parallax_floor_and_atmosphere": int(keep.sum()),
     }
+    if input_columns is not None:
+        sid = np.asarray(columns["source_id"], dtype=np.int64)
+        ref = np.asarray(input_columns["source_id"], dtype=np.int64)
+        order = np.argsort(ref)
+        pos = np.searchsorted(ref[order], sid)
+        pos_c = np.clip(pos, 0, max(ref.size - 1, 0))
+        found = (ref.size > 0) & (ref[order][pos_c] == sid)
+        idx = order[pos_c]
+        joined = {k: np.where(found, np.asarray(v, dtype=np.float64)[idx], np.nan)
+                  for k, v in input_columns.items() if k != "source_id"}
+        hf = halbwachs_input_flags(joined, proposal.halbwachs_cuts)
+        keep = keep & hf["halbwachs_ipd"] & hf["halbwachs_cstar"]
+        counts["missing_input_columns"] = int((~found).sum())
+        counts["and_halbwachs_ipd_cstar"] = int(keep.sum())
+    return keep, counts
 
 
 def weighted_ks(
@@ -1042,3 +1191,159 @@ def weighted_ks(
     ess = kish_ess(w)
     n_eff = r.size * ess / (r.size + ess)
     return d, float(n_eff), float(kolmogorov(np.sqrt(n_eff) * d))
+
+
+# ---------------------------------------------------------------------------
+# Malmquist conditioning inputs (#405 wired in; spec §9, decisions 2026-10-03)
+# ---------------------------------------------------------------------------
+
+
+class ParentExtinctionConfig(_Strict):
+    """MP-Q29 (decided): Combined19 extinction for ΔM.
+
+    ``a_g_per_ebv`` converts Combined19 E(B−V) to A_G; 2.8 is the El-Badry et al. (2024) §3
+    value the mock already uses. ``sigma_a_mag`` is 0 by construction: the extinction scatter
+    is absorbed into the fitted σ_int (MP-Q25), which is fitted with the same A_G.
+    """
+
+    model: Literal["combined19"]
+    a_g_per_ebv: float = Field(..., gt=0.0)
+    sigma_a_mag: float = Field(..., ge=0.0)
+
+
+class ZeroPointFitConfig(_Strict):
+    """MP-Q25 (decided): fit σ_int and the M_G zero point on single-star-like parent stars."""
+
+    ruwe_max: float = Field(..., gt=0.0)  # RUWE < ruwe_max ("single-star-like")
+    exclude_giants: bool
+    n_bootstrap: int = Field(..., ge=10)
+    bootstrap_seed: int = Field(..., ge=0)
+
+
+def combined19_a_g(parent: ParentSnapshot, cfg: ParentExtinctionConfig, *, cache: bool = True) -> FloatArray:
+    """A_G per parent row from mwdust Combined19 at (l, b, Bailer-Jones distance); NaN where
+    the row has no truth distance. Cached beside the snapshot (``a_g_combined19_<k>.npz``)."""
+    key = hashlib.sha256(json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()[:10]
+    path = parent.path / f"a_g_combined19_{key}.npz"
+    if cache and path.exists():
+        return np.load(path)["a_g_mag"]
+    import mwdust
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        d_kpc = 1.0 / np.asarray(parent.truth_parallax_mas, float)
+    ok = np.isfinite(d_kpc) & (d_kpc > 0)
+    a_g = np.full(d_kpc.size, np.nan)
+    if ok.any():
+        dust = mwdust.Combined19()
+        l_deg = np.asarray(parent.columns["l"], float)[ok]
+        b_deg = np.asarray(parent.columns["b"], float)[ok]
+        ebv = np.asarray(dust(l_deg, b_deg, d_kpc[ok]), float)
+        a_g[ok] = cfg.a_g_per_ebv * ebv
+    if cache:
+        np.savez(path, a_g_mag=a_g)
+    return a_g
+
+
+@dataclass(frozen=True)
+class ZeroPointFit:
+    """MLE of (δ_zp, σ_int) with ΔM_raw ~ N(δ_zp, σ_int² + σ_μ² + σ_A² + (∂M_G/∂log M1)² σ²_logM1)."""
+
+    zero_point_mag: float
+    sigma_int_mag: float
+    zero_point_err_mag: float
+    sigma_int_err_mag: float
+    n_stars: int
+    median_mag: float
+    robust_sigma_mag: float
+    by_m1_bin: list[dict[str, float]]
+
+
+def fit_mg_zero_point(
+    parent: ParentSnapshot,
+    a_g_mag: ArrayLike,
+    mcfg: Any,
+    fit: ZeroPointFitConfig,
+    ext: ParentExtinctionConfig,
+) -> ZeroPointFit:
+    """Fit the Janssens M_G zero point and σ_int on the parent's single-star-like rows.
+
+    Rows: ``usable`` (spec §0.1 filters), RUWE < ``fit.ruwe_max``, finite ΔM and σ, and not
+    giants when ``fit.exclude_giants`` (Janssens is a dwarf relation; MP-Q28 handles giants).
+    Uncertainties are bootstrap standard deviations over rows. The median and 1.4826 × MAD are
+    reported as a robustness check: unresolved binaries pull ΔM bright and the TAG10 floor
+    (#393) pulls M dwarfs faint, so a Gaussian is only an approximation (MP-Q26 ignores the
+    TAG10 blended-light bias by decision).
+    """
+    from scipy.optimize import minimize
+
+    from darkhunter_pop import malmquist as mq
+
+    cols = parent.columns
+    with np.errstate(divide="ignore", invalid="ignore"):
+        d = 1000.0 / np.asarray(parent.truth_parallax_mas, float)
+    m1 = np.asarray(parent.m1_msun, float)
+    raw = mq.luminosity_excess(cols["phot_g_mean_mag"], d, a_g_mag, m1, zero_point_mag=0.0)
+    s_mu = mq.sigma_mu_from_quantiles(cols["r_lo_geo"], cols["r_med_geo"], cols["r_hi_geo"])
+    slope = mq.mg_slope_per_dex(m1, mcfg.slope_step_dex)
+    var0 = s_mu**2 + ext.sigma_a_mag**2 + (slope * mcfg.provisional_sigma_log_m1_dex) ** 2
+    with np.errstate(invalid="ignore"):
+        sel = parent.usable & (np.asarray(cols["ruwe"], float) < fit.ruwe_max)
+    if fit.exclude_giants:
+        sel &= ~np.asarray(parent.is_giant, bool)
+    sel &= np.isfinite(raw) & np.isfinite(var0)
+    x, v = raw[sel], var0[sel]
+
+    def nll(theta: NDArray[np.float64], xx: FloatArray, vv: FloatArray) -> float:
+        zp, ls = theta
+        tot = vv + math.exp(2.0 * ls)
+        return float(0.5 * np.sum((xx - zp) ** 2 / tot + np.log(tot)))
+
+    def solve(xx: FloatArray, vv: FloatArray) -> tuple[float, float]:
+        start = np.array([float(np.median(xx)), math.log(max(1e-3, float(np.std(xx))))])
+        r = minimize(nll, start, args=(xx, vv), method="Nelder-Mead", options={"xatol": 1e-6, "fatol": 1e-6, "maxiter": 4000})
+        return float(r.x[0]), float(math.exp(r.x[1]))
+
+    zp, si = solve(x, v)
+    rng = np.random.default_rng(fit.bootstrap_seed)
+    boots = np.array([solve(x[i], v[i]) for i in (rng.integers(0, x.size, x.size) for _ in range(fit.n_bootstrap))])
+    med = float(np.median(x))
+    mad = float(1.4826 * np.median(np.abs(x - med)))
+    bins = []
+    m1s = m1[sel]
+    for lo, hi in ((0.0, 0.6), (0.6, 0.8), (0.8, 1.2), (1.2, 2.0), (2.0, 100.0)):
+        b = (m1s >= lo) & (m1s < hi)
+        if b.any():
+            bins.append({"m1_lo": lo, "m1_hi": hi, "n": int(b.sum()), "median": float(np.median(x[b])),
+                         "robust_sigma": float(1.4826 * np.median(np.abs(x[b] - np.median(x[b]))))})
+    return ZeroPointFit(
+        zero_point_mag=zp, sigma_int_mag=si,
+        zero_point_err_mag=float(np.std(boots[:, 0])), sigma_int_err_mag=float(np.std(boots[:, 1])),
+        n_stars=int(x.size), median_mag=med, robust_sigma_mag=mad, by_m1_bin=bins,
+    )
+
+
+def malmquist_log_weight(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    target: MdS17TargetConfig,
+    mcfg: Any,
+    a_g_mag: ArrayLike,
+    ext: ParentExtinctionConfig,
+) -> tuple[FloatArray, dict[str, int]]:
+    """log W per draw (#405) for the decided settings, plus counts of unit-weight draws.
+
+    Add to :func:`mds17_luminous_log_intensity` before :func:`importance_weights`.
+    MP-Q30 (decided): ``gaussian_mu`` distance marginalization, enforced here. Giants get
+    unit weight through ``mcfg.provisional_giant_policy`` (the MP-Q28 hook, owned elsewhere).
+    """
+    from darkhunter_pop import malmquist as mq
+
+    if mcfg.provisional_distance_marginalization != "gaussian_mu":
+        raise ValueError("MP-Q30 decided gaussian_mu distance marginalization")
+    rows = mq.row_conditioning(parent, mcfg, a_g_mag=a_g_mag, sigma_a_mag=ext.sigma_a_mag)
+    grid = mq.build_flux_marginal(target, mcfg.grid)
+    lw = mq.log_weight_for_draws(truth, rows, grid, mcfg)
+    r = np.asarray(truth["parent_row"], dtype=np.int64)
+    unit = ~(np.isfinite(rows.delta_m[r]) & np.isfinite(rows.sigma[r]))
+    return lw, {"draws": int(r.size), "unit_weight_no_delta_m": int(unit.sum()),
+                "unit_weight_giant": int(np.asarray(rows.is_giant, bool)[r].sum())}

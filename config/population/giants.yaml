@@ -1,0 +1,32 @@
+# Giant / evolved-primary identification for the mock population (docs/MOCK_POPULATION_SPEC.md §10,
+# MP-Q28, #413). Not under config/fragments/ (load_config merges those into PipelineConfig).
+#
+# The classifier is a dereddened colour-magnitude cut relative to the main-sequence ridge MEASURED
+# from the parent itself: a row is evolved when it is brighter than the ridge by more than an
+# equal-light twin can make it (2.5 log10 2 mag, constants.TWIN_BRIGHTENING_MAG) plus
+# n_sigma times the ridge's faint-side scatter. Every number below is either a numerical setting
+# of the ridge measurement or a provisional_* choice (MP-Q28 option, not a decision).
+
+giants:
+  extinction:
+    # MP-Q29 (decided 2026-10-03): Combined19 E(B-V) at the Bailer-Jones geometric distance.
+    # E(B-V) -> A_G, E(BP-RP) uses the Gaia collaboration law (Babusiaux et al. 2018) with the
+    # r_v and coefficients already in config.yaml sample_selection.dust_maps (#295).
+    map: combined19
+    band_law: babusiaux2018
+  ridge:
+    # Main-sequence ridge = smoothed mode of M_G0 per (BP-RP)_0 bin; its 1-sigma width is the
+    # RMS of the faint side (singles only; binaries only brighten), iteratively clipped.
+    colour_min: 0.3
+    colour_max: 2.8
+    colour_step: 0.1
+    mag_min: 1.5               # search window for the MS mode (excludes the clump/RGB)
+    mag_max: 12.0
+    hist_step_mag: 0.05
+    smooth_bins: 7
+    faint_window_mag: 1.5
+    clip_sigma: 3.0
+    clip_iterations: 5
+    min_rows_per_bin: 200
+    min_parallax_over_error: 10.0   # ridge and width measured on well-measured distances only
+  provisional_n_sigma: 3.0           # MP-Q28 option: margin beyond the twin line, in ridge sigma

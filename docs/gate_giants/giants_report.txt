@@ -1,0 +1,99 @@
+MP-Q28 DIAGNOSTIC (pre-noise-fix, pre-Malmquist mock) — #413 / docs/MOCK_POPULATION_SPEC.md §10
+
+MS ridge (parent usable rows, parallax_over_error >= 10.0): colour0, ridge M_G0, faint-side sigma, rows
+  0.35 2.625 0.630 583
+  0.45 2.925 0.619 1153
+  0.55 3.375 0.578 2153
+  0.65 3.875 0.514 4418
+  0.75 4.475 0.409 6509
+  0.85 5.075 0.309 5443
+  0.95 5.575 0.267 3946
+  1.05 5.875 0.264 3193
+  1.15 6.225 0.250 2304
+  1.25 6.525 0.239 1620
+  1.35 6.775 0.259 1231
+  1.45 6.975 0.266 1124
+  1.55 7.275 0.260 932
+  1.65 7.525 0.309 816
+  1.75 7.825 0.298 802
+  1.85 8.075 0.336 784
+  1.95 8.275 0.395 703
+  2.05 8.675 0.386 677
+  2.15 8.825 0.501 641
+  2.25 9.125 0.519 633
+  2.35 9.525 0.515 632
+  2.45 9.825 0.502 617
+  2.55 10.075 0.568 506
+  2.65 10.175 0.610 461
+  2.75 10.725 0.487 320
+
+provisional_n_sigma = 3.0 (MP-Q28 option)
+
+=== GIANT (EVOLVED) FRACTIONS ===
+parent usable rows: 164397; extinction law failed: 428; CMD-classified: 155771 (outside ridge colour range or no CMD: 8626)
+parent evolved (CMD): 12654/155771 = 0.0812 ± 0.0007
+parent old flag (TAG10-atmosphere log g < 3.6): 519/164397 = 0.0032 ± 0.0001
+parent GSP-Phot log g < 3.6: 5882/157080 = 0.0374 ± 0.0005
+  sensitivity n_sigma=2.0: parent evolved 15896/155771 = 0.1020 ± 0.0008
+  sensitivity n_sigma=3.0: parent evolved 12654/155771 = 0.0812 ± 0.0007
+  sensitivity n_sigma=4.0: parent evolved 10480/155771 = 0.0673 ± 0.0006
+  sensitivity n_sigma=5.0: parent evolved 8889/155771 = 0.0571 ± 0.0006
+  parent parallax/error in [0,5): evolved 3167/75810 = 0.0418 ± 0.0007; GSP-Phot log g<3.6 0.0090
+  parent parallax/error in [5,10): evolved 3170/34758 = 0.0912 ± 0.0015; GSP-Phot log g<3.6 0.0409
+  parent parallax/error in [10,20): evolved 3042/22138 = 0.1374 ± 0.0023; GSP-Phot log g<3.6 0.0839
+  parent parallax/error in [20,inf): evolved 3275/23065 = 0.1420 ± 0.0023; GSP-Phot log g<3.6 0.0667
+
+=== PARENT RUWE AT FIXED G (real stars' own RUWE; median and fraction > 1.4) ===
+  G in [8,10): evolved N=120 median 0.991, >1.4 0.1083 | dwarfs N=51 median 1.004, >1.4 0.0980
+  G in [10,12): evolved N=589 median 1.035, >1.4 0.1273 | dwarfs N=486 median 1.053, >1.4 0.2284
+  G in [12,14): evolved N=2370 median 1.015, >1.4 0.0414 | dwarfs N=3266 median 1.014, >1.4 0.1356
+  G in [14,16): evolved N=4677 median 1.008, >1.4 0.0152 | dwarfs N=17002 median 1.010, >1.4 0.0408
+  G in [16,18): evolved N=4175 median 1.003, >1.4 0.0022 | dwarfs N=65081 median 1.008, >1.4 0.0058
+  G in [18,20): evolved N=709 median 1.013, >1.4 0.0014 | dwarfs N=57226 median 1.009, >1.4 0.0016
+
+real Orbital+AstroSpectroSB1: 168025 after mirror filters {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025} and 0 duplicate source_id rows (#221) dropped; distance: inverse NSS parallax (Bailer-Jones join timed out on the Gaia archive); real parallax/error p5/p50 = 29.2/80.6; CMD-classified 158921
+real evolved (CMD): 22844/158921 = 0.1437 ± 0.0009
+real GSP-Phot log g < 3.6: 11145/124649 = 0.0894 ± 0.0008
+  Orbital: evolved 12599/126197 = 0.0998 ± 0.0008
+  AstroSpectroSB1: evolved 10245/32724 = 0.3131 ± 0.0026
+  sensitivity n_sigma=2.0: real evolved 26165/158921 = 0.1646 ± 0.0009
+  sensitivity n_sigma=3.0: real evolved 22844/158921 = 0.1437 ± 0.0009
+  sensitivity n_sigma=4.0: real evolved 21050/158921 = 0.1325 ± 0.0009
+  sensitivity n_sigma=5.0: real evolved 19777/158921 = 0.1244 ± 0.0008
+
+mock accepted orbits: 3549 (CMD-classified primaries 3214); artifacts ../mock-population-decisions-391/output/proposal_set/decided_gen10_tune.h5, ../mock-population-decisions-391/output/proposal_set/decided_gen11_partial.h5
+mock accepted evolved, raw draws: 87/3214 = 0.0271 ± 0.0029
+mock accepted evolved, MdS17-weighted: 0.0993 ± 0.0135 (ESS accepted 492.5, ESS evolved accepted 31.6)
+mock old flag (is_giant) among accepted: 38/3549 = 0.0107 ± 0.0017
+mock all draws on evolved primaries (proposal): 0.0464
+
+=== SIX-PANEL, EVOLVED: weighted KS real vs mock (informational, ESS-limited) ===
+  P_orb_days: D=0.498, n_eff=31.6, p=3.06e-07
+  G_mag: D=0.299, n_eff=31.6, p=0.007
+  inv_parallax_mas_inv: D=0.363, n_eff=31.6, p=0.000479
+  eccentricity: D=0.298, n_eff=31.6, p=0.00719
+  f_m_msun: D=0.500, n_eff=31.6, p=2.79e-07
+  cos_inclination: D=0.067, n_eff=31.6, p=0.999
+  real evolved rows in panels 22844; real dwarfs 136077; mock evolved accepted 87, ESS 31.6
+  P_orb_days p10/50/90: DR3 evolved [402.6076, 701.0488, 1071.166], mock evolved [213.2601, 517.0383, 786.5189], DR3 dwarfs [227.8008, 570.7507, 966.0285]
+  eccentricity p10/50/90: DR3 evolved [0.085, 0.3173, 0.615], mock evolved [0.173, 0.4894, 0.6617], DR3 dwarfs [0.0966, 0.3179, 0.6158]
+  f_m_msun p10/50/90: DR3 evolved [0.0207, 0.0723, 0.2006], mock evolved [0.0053, 0.0385, 0.062], DR3 dwarfs [0.008, 0.0428, 0.0994]
+
+=== PERIOD vs RADIUS (Eggleton 1983 Roche-lobe floor, circular orbit) ===
+CMD radius (Andrae et al. 2018 BC_G, GSP-Phot Teff): real evolved median R1 = 4.61 Rsun, real dwarfs 1.23; parent evolved 4.51
+mock accepted evolved draws whose truth P is below their own Roche floor (truth M1, M2, CMD R1): raw 0/49, MdS17-weighted fraction 0.000
+  R1 in [1,3) Rsun: real N=3691, P5=226 d, P_min=58 d | mock acc N=16, weighted P5=145 d
+  R1 in [3,6) Rsun: real N=3477, P5=259 d, P_min=53 d | mock acc N=12, weighted P5=127 d
+  R1 in [6,12) Rsun: real N=3428, P5=314 d, P_min=79 d | mock acc N=15, weighted P5=135 d
+  R1 in [12,30) Rsun: real N=1586, P5=460 d, P_min=163 d | mock acc N=5, weighted P5=245 d
+  R1 in [30,10000.0) Rsun: real N=144, P5=520 d, P_min=297 d | mock acc N=1, weighted P5=527 d
+
+=== COMPANION FLUX RATIO FOR EVOLVED PRIMARIES (all draws with MdS17 weight > 0) ===
+draws on evolved primaries with weight > 0: 4823
+log10 f, dwarf relation for both stars (current target), weighted p10/50/90: [-2.404, -1.22, -0.127]
+log10 f, evolved_log10_flux_ratio (companion share of the observed system light, spec §10.4), weighted p10/50/90: [-4.699, -3.433, -2.037]
+companion brightening delta = 2.5 log10(1 + f_obs) (mag), weighted p50/90/99: [0.0004, 0.0099, 0.115]
+stored proposal log10 f on accepted evolved draws, p10/50/90 (raw): [nan, -1.767, -0.679]
+dwarf-relation luminosity excess of evolved parent rows, M_G0 - M_G^J(TAG10 M1), p10/50/90: [-7.61, -5.38, -2.92]
+TAG10 M1 / FLAME mass, DR3 dwarfs: N=76451 (FLAME available for 0.562 of the class), median 0.924, p16/p84 0.763/1.027; TAG10 atmosphere log g median 4.43; MSC share 1.000
+TAG10 M1 / FLAME mass, DR3 evolved: N=12472 (FLAME available for 0.546 of the class), median 0.516, p16/p84 0.258/0.740; TAG10 atmosphere log g median 4.51; MSC share 1.000

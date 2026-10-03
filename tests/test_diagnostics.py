@@ -1261,3 +1261,15 @@ def test_six_panel_grid_series_weights(tmp_path: Path) -> None:
             panels, tmp_path / "bad.png", panel_order=DEFAULT_ELBADRY_PANEL_ORDER,
             panel_axes=axes, dpi=40, max_bins=4, series_weights=bad,
         )
+
+
+@pytest.mark.unit
+def test_six_panel_grid_shade_ranges(tmp_path: Path) -> None:
+    """Low-ESS bins (#391 MP-Q19) can be shaded behind the histograms."""
+    rng = np.random.default_rng(3)
+    panels = {name: {"mock": rng.uniform(0.0, 1.0, 50)} for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    axes = {name: ("linear", 0.0, 1.0) for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    shade = {name: [(0.0, 0.25), (0.75, 1.0)] for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    out = plot_six_panel_grid(panels, tmp_path / "s.png", panel_order=DEFAULT_ELBADRY_PANEL_ORDER,
+                              panel_axes=axes, dpi=40, max_bins=4, shade_ranges=shade)
+    assert out is not None and out.is_file()

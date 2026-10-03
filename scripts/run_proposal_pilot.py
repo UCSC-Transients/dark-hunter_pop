@@ -48,9 +48,56 @@ from darkhunter_pop.proposal_set import (
 _WORKER: dict[str, Any] = {}
 
 
-def _init_worker(config_path: str, fragment_path: str) -> None:
+def blas_thread_report() -> list[dict[str, Any]]:
+    """Per-library BLAS/OpenMP thread counts as threadpoolctl sees them (#408)."""
+    from threadpoolctl import threadpool_info
+
+    return [
+        {"user_api": i.get("user_api"), "internal_api": i.get("internal_api"), "num_threads": i.get("num_threads")}
+        for i in threadpool_info()
+    ]
+
+
+def build_epoch_wrap(cfg: Any, prop: Any, gaiamock: Any) -> Any:
+    """The #400 epoch-model wrapper for ``simulate_one`` (None when ``epoch_model: off``).
+
+    Uses ``dr3.epoch_model`` from config with ``enabled`` forced on: #400 E1 was decided
+    "on" (#391 issuecomment-5971280434) even where the config default is still off. The
+    epoch-model Generator is ``epoch_model_rng(base_seed, stream, draw_index)``, disjoint
+    from the gaiamock global-RNG seeds of the same draw.
+    """
+    if prop.epoch_model == "off":
+        return None
+    import dataclasses
+
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.proposal_set import PROPOSAL_RNG_STREAM_BASE
+
+    section = getattr(cfg.active_dr(), "epoch_model", None)
+    if section is None:
+        raise ValueError("epoch_model: dr3_config but the active DR path has no epoch_model section")
+    emc = dataclasses.replace(em.epoch_model_config_from_mapping(section), enabled=True)
+    gaps = em.gap_intervals_jd(emc)
+
+    def wrap(draw: dict[str, Any]) -> Any:
+        stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
+        return em.gost_epoch_model(
+            gaiamock, emc, em.SourceEpochContext(g_mag=float(draw["phot_g_mean_mag"])),
+            em.epoch_model_rng(prop.base_seed, stream, int(draw["draw_index"])), gaps_jd=gaps,
+        )
+
+    return wrap
+
+
+def _init_worker(config_path: str, fragment_path: str, niceness: int) -> None:
+    from threadpoolctl import threadpool_limits
+
     from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
 
+    if niceness:
+        os.nice(niceness)
+    # Pin every BLAS/OpenMP pool to one thread in this worker (#408); verified in _work.
+    _WORKER["blas_limits"] = threadpool_limits(limits=1)
     cfg = load_config(Path(config_path))
     frag = load_proposal_set_fragment(fragment_path)
     gm = import_gaiamock_mod()
@@ -59,17 +106,24 @@ def _init_worker(config_path: str, fragment_path: str) -> None:
         c_funcs=gm.read_in_C_functions(),
         proposal=frag.proposal,
         cuts=cfg.active_dr().selection_function_astrometric.orbital_solution_cuts,
+        epoch_wrap=build_epoch_wrap(cfg, frag.proposal, gm),
     )
 
 
 def _work(draw: dict[str, Any]) -> dict[str, Any]:
-    return simulate_one(
+    rec = simulate_one(
         draw,
         gaiamock=_WORKER["gaiamock"],
         c_funcs=_WORKER["c_funcs"],
         cfg=_WORKER["proposal"],
         cuts=_WORKER["cuts"],
+        epoch_wrap=_WORKER["epoch_wrap"],
     )
+    if "blas_checked" not in _WORKER:
+        _WORKER["blas_checked"] = True
+        rec["blas_threads"] = blas_thread_report()
+        rec["worker_niceness"] = os.nice(0)
+    return rec
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         help="first global draw_index of this generation (indices are never reused, spec §3.3)",
     )
     ap.add_argument("--progress-every", type=int, default=50)
+    ap.add_argument("--nice", type=int, default=10, help="os.nice increment for workers (#408)")
     ap.add_argument("--min-free-gib", type=float, default=3.0, help="stop (resumable) below this")
     args = ap.parse_args(argv)
 
@@ -127,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     n_todo = len(todo)
     k = 0
     with partial.open("a") as sink, ProcessPoolExecutor(
-        max_workers=args.workers, initializer=_init_worker, initargs=(str(args.config), str(args.fragment))
+        max_workers=args.workers, initializer=_init_worker,
+        initargs=(str(args.config), str(args.fragment), int(args.nice)),
     ) as pool:
         pending = {pool.submit(_work, payload(i)) for i in itertools.islice(queue, window)}
         while pending:
@@ -150,6 +206,11 @@ def main(argv: list[str] | None = None) -> int:
                     return 3
     wall = time.time() - t0
 
+    blas = [r["blas_threads"] for r in done.values() if "blas_threads" in r]
+    pinned = all(lib["num_threads"] == 1 for rep in blas for lib in rep)
+    print(f"BLAS/OpenMP pools per worker (threadpoolctl, #408): {blas[:1]} ... all pinned to 1: {pinned}")
+    if blas and not pinned:
+        print("WARNING: a worker reported a thread pool with num_threads != 1", flush=True)
     try:
         commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
@@ -165,6 +226,13 @@ def main(argv: list[str] | None = None) -> int:
         "target_mds17_json": frag.target_mds17.model_dump(mode="json"),
         "decision_ref": prop.decision_ref,
         "parent_attrition": parent.attrition(),
+        "epoch_model": prop.epoch_model,
+        "epoch_model_section": (
+            None if prop.epoch_model == "off"
+            else getattr(cfg.active_dr(), "epoch_model").model_dump(mode="json")
+        ),
+        "nice": args.nice,
+        "blas_threads_per_worker": blas,
     }
     path = write_proposal_artifact(
         args.out, truth, list(done.values()), fragment=frag, parent=parent, provenance=provenance
