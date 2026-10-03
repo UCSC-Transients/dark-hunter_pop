@@ -381,8 +381,9 @@ RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 G-band transit times for 1,500 faint (G > 17) and 1,000 brighter stars. `n_transits` equals
 `matched_transits` (checked on 3 stars), so these are matched-transit times. The source query
 failed on 2026-10-03 with HTTP 500 (statement timeout); even `SELECT TOP 3 source_id FROM
-gaiadr3.vari_summary` timed out. A retry loop ran in the background; see the gate report for
-the outcome.
+gaiadr3.vari_summary` timed out. A retry loop then ran from 11:28 to 16:18 PDT and failed on
+all 10 attempts (HTTP 500, statement timeouts, socket timeouts). No epoch-time snapshot exists,
+so τ stays provisional (option T1). The script is ready to rerun as is.
 
 ## References
 
