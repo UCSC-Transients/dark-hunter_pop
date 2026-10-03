@@ -62,9 +62,14 @@ def _hist_step(ax: Any, x: np.ndarray, bins: np.ndarray, i: int, style: Any, lab
 
 
 def _model_draws(
-    g: np.lib.npyio.NpzFile, pix: np.ndarray, gmag: np.ndarray, cfg: em.EpochModelConfig, seed: int
+    g: np.lib.npyio.NpzFile, pix: np.ndarray, gmag: np.ndarray, cfg: em.EpochModelConfig, seed: int,
+    l_deg: np.ndarray | None = None, b_deg: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Per star: transits and visibility periods from gaps + calibrated loss (one draw)."""
+    """Per star: transits and visibility periods from the configured model (one draw).
+
+    Same logic as ``epoch_model.thin_gost_mask`` at the transit level: gaps, then the
+    clustered episodes and the independent per-transit loss.
+    """
     off, tm = g["offsets"], g["t_mid"]
     gaps = em.gap_intervals_jd(cfg)
     keep_gap = ~em.in_gaps(tm, gaps)
@@ -73,8 +78,14 @@ def _model_draws(
     nvis = np.zeros(pix.size, dtype=np.int64)
     for i, (p, gm) in enumerate(zip(pix, gmag)):
         t = tm[off[p]:off[p + 1]][keep_gap[off[p]:off[p + 1]]]
-        pl = em.transit_loss_probability(float(gm), cfg)
-        t = t[rng.uniform(size=t.size) >= pl]
+        lb = {} if l_deg is None else {"l_deg": float(l_deg[i]), "b_deg": float(b_deg[i])}
+        q = 1.0 - em.keep_probability(float(gm), cfg, **lb)
+        e = em.clustered_fraction(float(gm), cfg) * q
+        p_ind = 1.0 - (1.0 - q) / (1.0 - e)
+        k = rng.uniform(size=t.size) >= p_ind
+        if e > 0 and cfg.clustered is not None:
+            k &= ~em.loss_episode_mask(t, e, cfg.clustered.tau_day, rng)
+        t = t[k]
         ntr[i] = t.size
         nvis[i] = em.n_visibility_periods_from_days(t, 4.0)
     return ntr, nvis
@@ -122,7 +133,13 @@ def cmd_measurement(args: argparse.Namespace) -> None:
                            "inj390/all": "#390 injection set"}[key])
     edges = np.asarray(cfg.transit_loss_g_edges)
     keep = 1 - np.asarray(cfg.transit_loss_prob)
-    ax.stairs(keep, edges, baseline=None, color="k", linewidth=2.5, label="calibrated model (config)")
+    ax.stairs(keep, edges, baseline=None, color="0.5", linewidth=2.0, label="v1 binned (#412, random stars)")
+    if cfg.continuous is not None:
+        gg = np.linspace(3.0, 19.0, 200)
+        cc = cfg.continuous
+        eta = cc.coef_g[0] + em.g_polynomial_basis(gg, cc) @ np.asarray(cc.coef_g[1:])
+        ax.plot(gg, np.minimum(1.0, np.exp(eta)), color="k", linewidth=2.5,
+                label="v2 continuous, NSS at RUWE 1.4 (sky average)")
     apply_axes_style(ax, style, xlabel="G (mag)", ylabel="DR3 transits / GOST transits after gaps",
                      title="Per-transit keep fraction after the published gaps")
     ax.set_ylim(0.85, 1.07)
@@ -156,7 +173,11 @@ def cmd_measurement(args: argparse.Namespace) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(13, 10))
     for col, name in enumerate(("random", "nss")):
         d = data[name]
-        ntr_m, nvis_m = _model_draws(g, d["pix"], d["phot_g_mean_mag"], cfg, seed=400 + col)
+        with h5py.File(Path(dec["snapshot"]) / f"{name}.h5", "r") as fs:
+            lb = {int(a): (x, y) for a, x, y in zip(fs["source_id"][:], fs["l"][:], fs["b"][:])}
+        lg = np.array([lb[int(s_)][0] for s_ in d["source_id"]])
+        bg = np.array([lb[int(s_)][1] for s_ in d["source_id"]])
+        ntr_m, nvis_m = _model_draws(g, d["pix"], d["phot_g_mean_mag"], cfg, seed=400 + col, l_deg=lg, b_deg=bg)
         dr3_tr = d["dr3_astrometric_matched_transits"]
         dr3_vp = d["dr3_visibility_periods_used"]
         b_tr = np.arange(0, 121, 3)
@@ -225,7 +246,7 @@ def _q(x: np.ndarray) -> dict[str, float]:
     return {"n": int(x.size), "median": float(p50), "p16": float(p16), "p84": float(p84)}
 
 
-def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str, np.ndarray]]:
+def _load_validation(inj390: Path, log: Path | list[Path], n_real: int) -> dict[str, dict[str, np.ndarray]]:
     """Per variant: a flat table aligned with (system_index, realization)."""
     with h5py.File(inj390, "r") as f:
         sids = f["systems/source_id"][:]
@@ -237,9 +258,13 @@ def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str
     out = {"baseline": base}
     index = {int(s): i for i, s in enumerate(sids)}
     rows: dict[str, list[dict[str, Any]]] = {}
-    for line in log.read_text().splitlines():
-        r = json.loads(line)
-        rows.setdefault(r.get("variant", "error"), []).append(r)
+    for lg in (log if isinstance(log, list) else [log]):
+        for line in Path(lg).read_text().splitlines():
+            r = json.loads(line)
+            if "error" in r and r.get("variant") not in ("epoch", "epoch_noise") and r["error"]:
+                rows.setdefault("error", []).append(r)
+                continue
+            rows.setdefault(r.get("variant", "error"), []).append(r)
     for variant, recs in rows.items():
         if variant == "error":
             out["errors"] = {"n": np.array([len(recs)])}
@@ -255,8 +280,9 @@ def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str
         tab["system_index"] = np.array([index[int(r["source_id"])] for r in recs])
         out[variant] = tab
     # pair the baseline with the re-run: keep only (system, realization) pairs present in it
-    if "epoch" in out:
-        done = set(zip(out["epoch"]["system_index"].astype(int), out["epoch"]["realization"].astype(int)))
+    ref = "v2" if "v2" in out else ("epoch" if "epoch" in out else None)
+    if ref is not None:
+        done = set(zip(out[ref]["system_index"].astype(int), out[ref]["realization"].astype(int)))
         keep = np.array([(int(a), int(b)) in done for a, b in zip(base["system_index"], base["realization"])])
         out["baseline"] = {k: v[keep] for k, v in base.items()}
     return out
@@ -268,7 +294,7 @@ def cmd_validation(args: argparse.Namespace) -> None:
     plt = require_pyplot()
     style, dpi = _style()
     fig_dir = Path(args.fig_dir)
-    data = _load_validation(Path(args.inj390), Path(args.log), args.n_realizations)
+    data = _load_validation(Path(args.inj390), [Path(x) for x in args.log], args.n_realizations)
     with h5py.File(args.inj390, "r") as f:
         truth = {k: f["systems/truth"][k][:] for k in f["systems/truth"]}
         stype = np.array([x.decode() for x in f["systems/nss_solution_type"][:]])
@@ -284,9 +310,10 @@ def cmd_validation(args: argparse.Namespace) -> None:
         o = np.argsort(cs)
         gost_tr = f["inj390/gost_ntr_raw"][:][o[np.searchsorted(cs[o], sids)]].astype(float)
     nvis_pub = truth["published_visibility_periods_used"].astype(float)
-    variants = [v for v in ("baseline", "epoch", "epoch_noise") if v in data]
-    labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model",
-              "epoch_noise": "epoch model + G < 13 excess noise"}
+    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2") if v in data]
+    labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model v1 (#412)",
+              "epoch_noise": "v1 + El-Badry U(0, 0.04) mas", "v2": "epoch model v2",
+              "v2_n2": "v2 + per-CCD bright noise (N2)"}
     summary: dict[str, Any] = {"n_realizations": args.n_realizations, "variants": {}}
     for v in variants:
         t = data[v]
@@ -311,6 +338,22 @@ def cmd_validation(args: argparse.Namespace) -> None:
                 / inflation_factor_from_f2(truth["goodness_of_fit"][si[acc]], nu_pub)
             )
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
+            # RUWE over every realization (all outcomes carry a RUWE except flag 0)
+            r["ruwe_ratio_all"] = _q(t["ruwe"][m_typ] / truth["ruwe"][si[m_typ]])
+            r["ruwe_ratio_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
+                mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                entry = {"renormalized": _q(t["ruwe"][mg] / truth["ruwe"][si[mg]])}
+                if "ruwe_scale" in t:
+                    entry["unrenormalized"] = _q(t["ruwe"][mg] * t["ruwe_scale"][mg] / truth["ruwe"][si[mg]])
+                r["ruwe_ratio_by_g"][f"{lo}-{hi}"] = entry
+            orbf = m_typ & (t["outcome"] == 12)
+            r["f2_median_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
+                mg = orbf & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                mp_ = (stype == typ) & (truth["g_mag"] >= lo) & (truth["g_mag"] < hi)
+                r["f2_median_by_g"][f"{lo}-{hi}"] = {"recovered": _q(t["goodness_of_fit"][mg]).get("median", float("nan")),
+                                                      "published": float(np.median(truth["goodness_of_fit"][mp_])) if mp_.any() else float("nan")}
             for lab, mg in (("g_lt_13", truth["g_mag"][si] < 13), ("g_ge_13", truth["g_mag"][si] >= 13)):
                 for name, rec_key, pub_key in SIGMA_PAIRS:
                     sel = acc & mg
@@ -363,8 +406,8 @@ def cmd_validation(args: argparse.Namespace) -> None:
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     for i, v in enumerate(variants):
-        if v == "epoch_noise":
-            continue  # same epochs as "epoch"
+        if v in ("epoch_noise", "v2_n2"):
+            continue  # same epochs as "epoch" / "v2"
         t = data[v]
         si = t["system_index"].astype(int)
         nv = t["n_visibility_periods"] if v == "baseline" else t["sim_n_visibility_periods"]
@@ -399,6 +442,36 @@ def cmd_validation(args: argparse.Namespace) -> None:
     ax.legend(prop=legend_prop(style), loc="upper left", frameon=False)
     save_figure(fig, fig_dir / "validation_capture_vs_period.png", dpi=dpi)
 
+    # N2 check: F2 and RUWE ratio by G (Orbital)
+    gk = ("0-11", "11-12", "12-13", "13-25")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+    pubf2 = [summary["variants"]["baseline"]["Orbital"]["f2_median_by_g"][k]["published"] for k in gk]
+    axes[0].plot(np.arange(4), pubf2, color="k", marker="*", markersize=16, linestyle="none", label="DR3 published")
+    j = 0
+    for v in variants:
+        if v in ("epoch", "epoch_noise"):
+            continue
+        st = series_style(j + 1, style)
+        o = summary["variants"][v]["Orbital"]
+        axes[0].plot(np.arange(4) + 0.08 * j, [o["f2_median_by_g"][k]["recovered"] for k in gk], color=st["color"],
+                     marker=st["marker"], linestyle="none", markersize=st["markersize"] + 2, label=labels[v])
+        axes[1].plot(np.arange(4) + 0.08 * j, [o["ruwe_ratio_by_g"][k]["renormalized"].get("median", np.nan) for k in gk],
+                     color=st["color"], marker=st["marker"], linestyle="none", markersize=st["markersize"] + 2,
+                     label=labels[v] + (" (RUWE renormalised)" if v == "v2_n2" else ""))
+        if v == "v2_n2":
+            axes[1].plot(np.arange(4) + 0.08 * j + 0.04, [o["ruwe_ratio_by_g"][k]["unrenormalized"].get("median", np.nan) for k in gk],
+                         color=st["color"], marker="x", linestyle="none", markersize=st["markersize"] + 4,
+                         label=labels[v] + " (not renormalised)")
+        j += 1
+    axes[1].axhline(1.0, color="0.4", linestyle=":", linewidth=1.5)
+    for ax in axes:
+        ax.set_xticks(np.arange(4), ["< 11", "11-12", "12-13", "> 13"])
+    apply_axes_style(axes[0], style, xlabel="G (mag)", ylabel="median F2 (orbit fits)", title="Orbital: goodness of fit")
+    apply_axes_style(axes[1], style, xlabel="G (mag)", ylabel="median recovered / published RUWE", title="Orbital: RUWE")
+    axes[0].legend(prop=legend_prop(style), loc="center right", frameon=False)
+    axes[1].legend(prop=legend_prop(style), loc="upper right", frameon=False, fontsize=11)
+    save_figure(fig, fig_dir / "validation_n2_f2_ruwe.png", dpi=dpi)
+
     path = fig_dir / "summary.json"
     old = json.loads(path.read_text()) if path.exists() else {}
     old["validation"] = summary
@@ -417,6 +490,50 @@ def cmd_validation(args: argparse.Namespace) -> None:
               "cap600+", round(o["acceleration_capture"]["600-1e+09"]["fraction"], 3))
 
 
+def cmd_single(args: argparse.Namespace) -> None:
+    """Single-star RUWE check: injected non-binary stars vs DR3 RUWE of the same stars."""
+    plt = require_pyplot()
+    style, dpi = _style()
+    with h5py.File(Path(args.snapshot) / "random.h5", "r") as f:
+        sid, ruwe_dr3, vp = f["source_id"][:], f["ruwe"][:], f["visibility_periods_used"][:]
+    idx = {int(s_): i for i, s_ in enumerate(sid)}
+    rows: dict[str, list[tuple[int, float, float, float]]] = {}
+    for line in Path(args.log).read_text().splitlines():
+        r = json.loads(line)
+        rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"], r.get("ruwe_scale", 1.0)))
+    arr = {k: np.array(v) for k, v in rows.items()}
+    variants = [v for v in ("gaiamock", "v2", "v2_n2") if v in arr]
+    labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)"}
+    gbins = ((0, 13), (13, 17), (17, 19))
+    summary: dict[str, Any] = {"n_stars": int(arr[variants[0]].shape[0]), "bins": {}}
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
+    bins = np.linspace(0.7, 1.8, 56)
+    for ax, (lo, hi) in zip(axes, gbins):
+        a0 = arr[variants[0]]
+        m0 = (a0[:, 1] >= lo) & (a0[:, 1] < hi)
+        i0 = a0[m0, 0].astype(int)
+        _hist_step(ax, ruwe_dr3[i0], bins, 0, style, "DR3 RUWE (same stars, incl. binaries)")
+        b: dict[str, Any] = {"n": int(m0.sum()), "dr3": _q(ruwe_dr3[i0]), "dr3_frac_gt_1p4": float(np.mean(ruwe_dr3[i0] > 1.4))}
+        for j, v in enumerate(variants):
+            a = arr[v]
+            m = (a[:, 1] >= lo) & (a[:, 1] < hi)
+            _hist_step(ax, a[m, 2], bins, j + 1, style, labels[v])
+            b[v] = {"ruwe": _q(a[m, 2]), "frac_gt_1p4": float(np.mean(a[m, 2] > 1.4)),
+                    "ruwe_unrenormalized": _q(a[m, 2] * a[m, 4]),
+                    "frac_gt_1p4_unrenormalized": float(np.mean(a[m, 2] * a[m, 4] > 1.4)),
+                    "nvis_minus_dr3_mean": float(np.mean(a[m, 3] - vp[a[m, 0].astype(int)]))}
+        summary["bins"][f"{lo}-{hi}"] = b
+        apply_axes_style(ax, style, xlabel="RUWE", ylabel="fraction of stars" if lo == 0 else None,
+                         title=f"{lo} < G < {hi} (N = {int(m0.sum()):,})")
+    axes[0].legend(prop=legend_prop(style), loc="upper right", frameon=False)
+    save_figure(fig, Path(args.fig_dir) / "single_star_ruwe.png", dpi=dpi)
+    path = Path(args.fig_dir) / "summary.json"
+    old = json.loads(path.read_text()) if path.exists() else {}
+    old["single_star_ruwe"] = summary
+    path.write_text(json.dumps(old, indent=1))
+    print(json.dumps(summary, indent=1))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(required=True)
@@ -426,12 +543,17 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_measurement)
     p = sub.add_parser("validation")
     p.add_argument("--inj390", required=True)
-    p.add_argument("--log", required=True)
+    p.add_argument("--log", required=True, nargs="+")
     p.add_argument("--snapshot", required=True)
     p.add_argument("--compare", required=True, help="output/gate400/epoch_compare.h5")
     p.add_argument("--n-realizations", type=int, default=3)
     p.add_argument("--fig-dir", default=str(REPO / "docs" / "gate400" / "figures"))
     p.set_defaults(func=cmd_validation)
+    p = sub.add_parser("single")
+    p.add_argument("--log", required=True)
+    p.add_argument("--snapshot", required=True)
+    p.add_argument("--fig-dir", default=str(REPO / "docs" / "gate400" / "figures"))
+    p.set_defaults(func=cmd_single)
     args = parser.parse_args(argv)
     args.func(args)
     return 0

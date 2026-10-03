@@ -2461,11 +2461,56 @@ class ExternalPhotometryCrossmatch(BaseModel):
         return self
 
 
+class EpochContinuousLossConfig(BaseModel):
+    """Continuous keep model: polynomial in clipped G + Galactic real harmonics (§4.2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    g_clip: list[float] = Field(..., min_length=2, max_length=2)
+    g_ref: float
+    g_scale: float = Field(..., gt=0)
+    coef_g: list[float] = Field(..., min_length=1)
+    sky_lmax: int = Field(..., ge=0)
+    coef_sky: list[float] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochContinuousLossConfig:
+        if len(self.coef_sky) != (self.sky_lmax + 1) ** 2 - 1:
+            raise ValueError("coef_sky needs (sky_lmax + 1)^2 - 1 entries")
+        return self
+
+
+class EpochClusteredLossConfig(BaseModel):
+    """Time-clustered loss episodes for faint stars (#400 E4; §4.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    g_start: float
+    g_full: float
+    frac_max: float = Field(..., ge=0, le=1)
+    tau_day: float = Field(..., gt=0)
+
+
+class EpochBrightExcessNoiseConfig(BaseModel):
+    """Bright-star per-CCD excess noise for the unbinned overlay (#398 / #400 N2; §4.5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    g_max: float
+    knots_g: list[float] = Field(..., min_length=1)
+    knots_r2: list[float] = Field(..., min_length=1)
+    renormalize_ruwe: bool = True
+
+
 class EpochTransitLossConfig(BaseModel):
     """Per-FoV-transit loss probability after the gaps (docs/EPOCH_MODEL_SPEC.md §3)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    model: Literal["binned", "continuous"] = "binned"
+    continuous: EpochContinuousLossConfig | None = None
     g_edges: list[float] = Field(..., min_length=2)
     prob: list[float] = Field(..., min_length=1)
     density_slope_per_dex: float = 0.0
@@ -2518,6 +2563,8 @@ class EpochModelPathConfig(BaseModel):
     transit_loss: EpochTransitLossConfig
     calibration_snapshot: str | None = None
     excess_noise: EpochExcessNoiseConfig = Field(default_factory=EpochExcessNoiseConfig)
+    clustered_loss: EpochClusteredLossConfig | None = None
+    bright_excess_noise: EpochBrightExcessNoiseConfig | None = None
     provenance: str = ""
 
     @model_validator(mode="after")

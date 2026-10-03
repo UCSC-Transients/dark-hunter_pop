@@ -60,6 +60,77 @@ GOST_CCD_ROW_COLUMN: Final[str] = "CcdRow[1-7]"
 
 
 @dataclass(frozen=True)
+class ContinuousLossConfig:
+    """Continuous per-transit keep probability (#400 E3, E6, E7; spec §4.2).
+
+    ``log p_keep = coef_g[0] + sum_k coef_g[k] x^k + sum_j coef_sky[j] Y_j(l, b)``, with
+    ``x = (clip(G, *g_clip) - g_ref) / g_scale`` and ``Y_j`` the real spherical harmonics
+    in Galactic coordinates for ``1 <= ell <= sky_lmax`` (order: ell ascending, m from
+    -ell to ell). ``p_keep`` is capped at 1. Calibrated on NSS stars at the reference
+    RUWE (spec §4.2).
+    """
+
+    g_clip: tuple[float, float]
+    g_ref: float
+    g_scale: float
+    coef_g: tuple[float, ...]
+    sky_lmax: int
+    coef_sky: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if not self.g_clip[0] < self.g_clip[1] or self.g_scale <= 0:
+            raise ValueError("g_clip must increase and g_scale must be > 0")
+        if len(self.coef_g) < 1:
+            raise ValueError("coef_g needs at least the intercept")
+        if self.sky_lmax < 0 or len(self.coef_sky) != (self.sky_lmax + 1) ** 2 - 1:
+            raise ValueError("coef_sky needs (sky_lmax + 1)^2 - 1 entries")
+
+
+@dataclass(frozen=True)
+class ClusteredLossConfig:
+    """Time-clustered part of the transit loss for faint stars (#400 E4; spec §4.3).
+
+    A fraction ``f(G)`` of the total loss comes from loss *episodes*: a Poisson process
+    in time with durations ``~ Exponential(tau_day)``. Every transit inside an episode is
+    lost. ``f`` rises linearly from 0 at ``g_start`` to ``frac_max`` at ``g_full`` and
+    stays there. The rest of the loss is independent per transit.
+    """
+
+    g_start: float
+    g_full: float
+    frac_max: float
+    tau_day: float
+
+    def __post_init__(self) -> None:
+        if not self.g_start < self.g_full or not 0.0 <= self.frac_max <= 1.0 or self.tau_day <= 0:
+            raise ValueError("need g_start < g_full, 0 <= frac_max <= 1 and tau_day > 0")
+
+
+@dataclass(frozen=True)
+class PerCcdExcessNoiseConfig:
+    """Bright-star unmodelled per-CCD noise for the unbinned overlay (#398 / #400 N2).
+
+    Extra white noise with variance ``r2(G) * sigma_stated^2`` is added to every CCD
+    observation, where ``r2`` is linearly interpolated in ``(knots_g, knots_r2)`` for
+    ``G < g_max`` and 0 above. The stated errors are not changed (DR3's NSS fits saw
+    this excess as F2 > 0). With ``renormalize_ruwe`` the RUWE gaiamock reports, and the
+    RUWE threshold of its cascade, are divided by ``k = sqrt(1 + r2)``, the analogue of
+    DR3's RUWE normalisation (Lindegren et al. 2021).
+    """
+
+    g_max: float
+    knots_g: tuple[float, ...]
+    knots_r2: tuple[float, ...]
+    renormalize_ruwe: bool = True
+
+    def __post_init__(self) -> None:
+        if len(self.knots_g) != len(self.knots_r2) or len(self.knots_g) < 1:
+            raise ValueError("knots_g and knots_r2 need the same, non-zero length")
+        if np.any(np.diff(self.knots_g) <= 0) or np.any(np.asarray(self.knots_r2) < 0):
+            raise ValueError("knots_g must increase and knots_r2 must be >= 0")
+
+
+@dataclass(frozen=True)
 class EpochModelConfig:
     """Parameters of the epoch model (``dr3.epoch_model`` in config).
 
@@ -92,6 +163,12 @@ class EpochModelConfig:
         ``(start, end)`` OBMT of the data the DR3 astrometric solution used (Lindegren et
         al. 2021 Sect. 2.2: 1192.13-5230.09). Rows outside are removed with the gaps.
         ``None`` keeps gaiamock's own JD window.
+    continuous
+        Continuous loss model; when set it replaces the binned ``transit_loss_*``.
+    clustered
+        Time-clustered loss for faint stars; ``None`` = all loss independent per transit.
+    excess_noise
+        Bright-star per-CCD excess noise (used by :func:`run_cascade`); ``None`` = none.
     """
 
     enabled: bool
@@ -106,6 +183,9 @@ class EpochModelConfig:
     transit_loss_density_slope: float = 0.0
     transit_loss_density_ref: float = 1.0
     agis_window_obmt_rev: tuple[float, float] | None = None
+    continuous: ContinuousLossConfig | None = None
+    clustered: ClusteredLossConfig | None = None
+    excess_noise: PerCcdExcessNoiseConfig | None = None
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -175,7 +255,37 @@ def epoch_model_config_from_mapping(
         agis_window_obmt_rev=(
             None if window is None else (float(window[0]), float(window[1]))
         ),
+        continuous=_continuous_from(loss.get("continuous")) if loss.get("model", "binned") == "continuous" else None,
+        clustered=_clustered_from(section.get("clustered_loss")),
+        excess_noise=_noise_from(section.get("bright_excess_noise")),
         provenance=str(section.get("provenance", "")),
+    )
+
+
+def _continuous_from(m: Mapping[str, Any] | None) -> ContinuousLossConfig | None:
+    if m is None:
+        raise ValueError("transit_loss.model is 'continuous' but transit_loss.continuous is missing")
+    return ContinuousLossConfig(
+        g_clip=(float(m["g_clip"][0]), float(m["g_clip"][1])), g_ref=float(m["g_ref"]),
+        g_scale=float(m["g_scale"]), coef_g=tuple(float(x) for x in m["coef_g"]),
+        sky_lmax=int(m["sky_lmax"]), coef_sky=tuple(float(x) for x in m["coef_sky"]),
+    )
+
+
+def _clustered_from(m: Mapping[str, Any] | None) -> ClusteredLossConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return ClusteredLossConfig(g_start=float(m["g_start"]), g_full=float(m["g_full"]),
+                               frac_max=float(m["frac_max"]), tau_day=float(m["tau_day"]))
+
+
+def _noise_from(m: Mapping[str, Any] | None) -> PerCcdExcessNoiseConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return PerCcdExcessNoiseConfig(
+        g_max=float(m["g_max"]), knots_g=tuple(float(x) for x in m["knots_g"]),
+        knots_r2=tuple(float(x) for x in m["knots_r2"]),
+        renormalize_ruwe=bool(m.get("renormalize_ruwe", True)),
     )
 
 
@@ -316,6 +426,93 @@ def transit_loss_probability(
     return float(np.clip(p, 0.0, 0.99))
 
 
+def real_sph_harm_galactic(
+    l_deg: NDArray[np.float64] | float, b_deg: NDArray[np.float64] | float, lmax: int
+) -> NDArray[np.float64]:
+    """Real spherical harmonics ``Y_{ell m}(l, b)`` for ``1 <= ell <= lmax``, shape ``(N, (lmax+1)^2 - 1)``.
+
+    Columns ordered by ell ascending and m from -ell to ell: ``sqrt(2) Im Y_ell^|m|`` for
+    m < 0, ``Re Y_ell^0`` for m = 0, ``sqrt(2) Re Y_ell^m`` for m > 0 (orthonormal on the
+    sphere). The monopole is the model intercept and is not included.
+    """
+    from scipy import special
+
+    phi = np.radians(np.atleast_1d(np.asarray(l_deg, dtype=np.float64)))
+    theta = np.radians(90.0 - np.atleast_1d(np.asarray(b_deg, dtype=np.float64)))
+    cols = []
+    for ell in range(1, int(lmax) + 1):
+        for m in range(-ell, ell + 1):
+            y = special.sph_harm_y(ell, abs(m), theta, phi)
+            cols.append(np.sqrt(2.0) * y.imag if m < 0 else (y.real if m == 0 else np.sqrt(2.0) * y.real))
+    return np.column_stack(cols) if cols else np.zeros((phi.size, 0))
+
+
+def g_polynomial_basis(g_mag: NDArray[np.float64] | float, cont: ContinuousLossConfig) -> NDArray[np.float64]:
+    """``[x, x^2, ..., x^d]`` with ``x = (clip(G) - g_ref) / g_scale``; shape ``(N, d)``."""
+    g = np.clip(np.atleast_1d(np.asarray(g_mag, dtype=np.float64)), *cont.g_clip)
+    x = (g - cont.g_ref) / cont.g_scale
+    d = len(cont.coef_g) - 1
+    return np.column_stack([x**k for k in range(1, d + 1)]) if d > 0 else np.zeros((g.size, 0))
+
+
+def keep_probability(
+    g_mag: float,
+    config: EpochModelConfig,
+    *,
+    l_deg: float | None = None,
+    b_deg: float | None = None,
+    density_per_deg2: float | None = None,
+) -> float:
+    """Total probability that a FoV transit outside the gaps is kept.
+
+    Continuous model (``config.continuous``): ``min(1, exp(eta(G, l, b)))``; the sky term
+    needs ``l_deg`` and ``b_deg`` (raises if they are missing and ``sky_lmax > 0``).
+    Otherwise the binned model, ``1 - transit_loss_probability``.
+    """
+    cont = config.continuous
+    if cont is None:
+        return 1.0 - transit_loss_probability(g_mag, config, density_per_deg2=density_per_deg2)
+    eta = cont.coef_g[0] + float(g_polynomial_basis(g_mag, cont)[0] @ np.asarray(cont.coef_g[1:]))
+    if cont.sky_lmax > 0:
+        if l_deg is None or b_deg is None:
+            raise ValueError("the continuous loss model has a sky term; pass l_deg and b_deg")
+        eta += float(real_sph_harm_galactic(l_deg, b_deg, cont.sky_lmax)[0] @ np.asarray(cont.coef_sky))
+    return float(min(1.0, np.exp(eta)))
+
+
+def clustered_fraction(g_mag: float, config: EpochModelConfig) -> float:
+    """Fraction of the loss that comes from time-clustered episodes (0 without E4)."""
+    cl = config.clustered
+    if cl is None:
+        return 0.0
+    ramp = (g_mag - cl.g_start) / (cl.g_full - cl.g_start)
+    return float(cl.frac_max * np.clip(ramp, 0.0, 1.0))
+
+
+def loss_episode_mask(
+    t_day: NDArray[np.float64], covered_fraction: float, tau_day: float, rng: np.random.Generator
+) -> NDArray[np.bool_]:
+    """True where ``t_day`` falls inside a loss episode.
+
+    Episodes start as a Poisson process with rate ``lambda = -ln(1 - e) / tau`` and last
+    ``~ Exponential(tau)``, which covers a long-run fraction ``e = covered_fraction`` of
+    the time. Simulated from ``min(t) - 10 tau`` so episodes may start before the first
+    transit. Draw order: number of episodes, starts, durations.
+    """
+    t = np.asarray(t_day, dtype=np.float64)
+    if t.size == 0 or covered_fraction <= 0.0:
+        return np.zeros(t.shape, dtype=bool)
+    e = min(float(covered_fraction), 0.999)
+    lam = -np.log1p(-e) / tau_day
+    t0, t1 = float(t.min()) - 10.0 * tau_day, float(t.max())
+    n = int(rng.poisson(lam * (t1 - t0)))
+    starts = np.sort(rng.uniform(t0, t1, n))
+    ends = starts + rng.exponential(tau_day, n)
+    if n == 0:
+        return np.zeros(t.shape, dtype=bool)
+    return in_gaps(t, np.column_stack([starts, ends]))
+
+
 def thin_gost_mask(
     jd: NDArray[np.float64],
     config: EpochModelConfig,
@@ -324,12 +521,16 @@ def thin_gost_mask(
     g_mag: float,
     rng: np.random.Generator,
     density_per_deg2: float | None = None,
+    l_deg: float | None = None,
+    b_deg: float | None = None,
 ) -> NDArray[np.bool_]:
     """Boolean keep-mask over GOST rows: gaps removed, then whole transits dropped.
 
-    One uniform draw per FoV transit (in time order), so the loss is fully correlated
-    within a transit and independent between transits. The number of draws depends only
-    on the number of transits, which makes the stream reproducible for a seeded ``rng``.
+    Loss after the gaps is ``q = 1 - keep_probability``. A fraction
+    ``e = clustered_fraction(G) * q`` is lost in time-clustered episodes
+    (:func:`loss_episode_mask`); the rest independently per FoV transit with
+    ``p_ind = 1 - (1 - q) / (1 - e)``, so the expected total keep is ``1 - q``. Every row of
+    a transit shares its fate. Draw order: one uniform per transit, then the episodes.
     """
     t = np.asarray(jd, dtype=np.float64)
     keep = np.ones(t.shape, dtype=bool)
@@ -337,9 +538,15 @@ def thin_gost_mask(
         keep &= ~in_gaps(t, gaps_jd)
     ids = fov_transit_ids(t, config.transit_split_day)
     n_tr = int(ids.max()) + 1 if ids.size else 0
-    p = transit_loss_probability(g_mag, config, density_per_deg2=density_per_deg2)
+    q = 1.0 - keep_probability(g_mag, config, l_deg=l_deg, b_deg=b_deg, density_per_deg2=density_per_deg2)
+    e = clustered_fraction(g_mag, config) * q
+    p_ind = 1.0 - (1.0 - q) / (1.0 - e) if e < 1.0 else 1.0
     u = rng.uniform(0.0, 1.0, n_tr)
-    keep &= (u >= p)[ids]
+    keep &= (u >= p_ind)[ids]
+    if e > 0.0 and config.clustered is not None and n_tr:
+        t_mid = np.bincount(ids, weights=t, minlength=n_tr) / np.bincount(ids, minlength=n_tr)
+        lost = loss_episode_mask(t_mid, e, config.clustered.tau_day, rng)
+        keep &= ~lost[ids]
     return keep
 
 
@@ -354,6 +561,8 @@ class SourceEpochContext:
 
     g_mag: float
     density_per_deg2: float | None = None
+    l_deg: float | None = None
+    b_deg: float | None = None
 
 
 @contextlib.contextmanager
@@ -387,7 +596,7 @@ def gost_epoch_model(
         jd = np.asarray(tab[GOST_TIME_COLUMN], dtype=np.float64)
         mask = thin_gost_mask(
             jd, config, gaps, g_mag=source.g_mag, rng=rng,
-            density_per_deg2=source.density_per_deg2,
+            density_per_deg2=source.density_per_deg2, l_deg=source.l_deg, b_deg=source.b_deg,
         )
         return tab[mask]
 
@@ -452,3 +661,113 @@ def bright_star_excess_noise(
     n_tr = int(ids.max()) + 1 if ids.size else 0
     per_transit = rng.normal(0.0, sigma, n_tr)
     return per_transit[ids], sigma
+
+
+# --------------------------------------------------------------------------------------
+# Bright-star per-CCD excess noise (#398 / #400 N2) and the cascade wrapper
+# --------------------------------------------------------------------------------------
+
+#: Tag of the per-CCD excess-noise Generator.
+PER_CCD_NOISE_RNG_TAG: Final[int] = 3982
+
+#: Index of the RUWE entry in ``fit_full_astrometric_cascade``'s return vector, by the
+#: branch flag in element 0 (gaiamock_mod ``gaiamock-mod-v1``; see
+#: ``injection_test.parse_cascade_result``). The orbital branch (any other flag) has it
+#: at 22. Flag 0 (too few visibility periods) has none.
+CASCADE_RUWE_INDEX: Final[dict[float, int]] = {-1.0: 1, -7.0: 8, -9.0: 12}
+CASCADE_RUWE_INDEX_ORBITAL: Final[int] = 22
+
+
+def excess_noise_r2(g_mag: float, noise: PerCcdExcessNoiseConfig) -> float:
+    """``r2(G)``: excess variance in units of the stated per-CCD variance (0 at G >= g_max)."""
+    if not g_mag < noise.g_max:
+        return 0.0
+    return float(max(0.0, np.interp(g_mag, noise.knots_g, noise.knots_r2)))
+
+
+def per_ccd_excess_noise(
+    ast_err: NDArray[np.float64], g_mag: float, noise: PerCcdExcessNoiseConfig, rng: np.random.Generator
+) -> tuple[NDArray[np.float64], float]:
+    """White per-CCD noise ``N(0, r2(G) ast_err^2)`` and the RUWE scale ``k = sqrt(1 + r2)``.
+
+    Returns zeros and ``k = 1`` without drawing when ``r2 = 0``.
+    """
+    err = np.asarray(ast_err, dtype=np.float64)
+    r2 = excess_noise_r2(g_mag, noise)
+    if r2 <= 0.0:
+        return np.zeros(err.shape), 1.0
+    k = float(np.sqrt(1.0 + r2)) if noise.renormalize_ruwe else 1.0
+    return rng.normal(0.0, 1.0, err.size) * np.sqrt(r2) * err, k
+
+
+def rescale_cascade_ruwe(cascade: list[float], k: float) -> list[float]:
+    """Divide the RUWE entry of a cascade vector by ``k`` (no-op for k = 1 or flag 0)."""
+    out = [float(x) for x in cascade]
+    if k == 1.0 or not out:
+        return out
+    flag = out[0]
+    if flag == 0.0:
+        return out
+    idx = CASCADE_RUWE_INDEX.get(flag, CASCADE_RUWE_INDEX_ORBITAL)
+    if idx < len(out):
+        out[idx] = out[idx] / k
+    return out
+
+
+@dataclass(frozen=True)
+class CascadeRun:
+    """One wrapped gaiamock prediction + cascade."""
+
+    cascade: list[float]
+    n_obs: int
+    n_transits: int
+    n_visibility_periods: int
+    ruwe_scale: float
+
+
+def run_cascade(
+    gaiamock: ModuleType,
+    c_funcs: Any,
+    predict: Any,
+    config: EpochModelConfig,
+    source: SourceEpochContext,
+    *,
+    epoch_rng: np.random.Generator,
+    noise_rng: np.random.Generator,
+    ruwe_min: float,
+    skip_acceleration: bool,
+    gaps_jd: NDArray[np.float64] | None = None,
+    visibility_gap_day: float = 4.0,
+) -> CascadeRun:
+    """gaiamock prediction and cascade with the epoch model and the excess noise.
+
+    ``predict()`` is a zero-argument callable that calls one of gaiamock's
+    ``predict_astrometry_*`` functions and returns ``(t_ast_yr, psi, plx_factor, obs,
+    err)``. It runs inside :func:`gost_epoch_model`. Then the per-CCD excess noise is
+    added to ``obs`` and ``gaiamock.fit_full_astrometric_cascade`` runs with
+    ``ruwe_min * k``. The RUWE in the returned vector is divided by ``k``, which is the
+    same as computing RUWE with errors inflated by ``k`` (RUWE scales as 1/error). This is
+    the composition ``run_full_astrometric_cascade`` itself performs (predict, then fit),
+    with the noise inserted between the two calls. No gaiamock function is reimplemented.
+
+    The caller enters ``forward_model.seeded_global_rng`` around this call, exactly as for
+    a bare gaiamock call.
+    """
+    with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd):
+        t, psi, pf, obs, err = predict()
+    t = np.asarray(t, dtype=np.float64)
+    k = 1.0
+    if config.enabled and config.excess_noise is not None:
+        extra, k = per_ccd_excess_noise(err, source.g_mag, config.excess_noise, noise_rng)
+        obs = np.asarray(obs, dtype=np.float64) + extra
+    n_vis = n_visibility_periods_from_days(t * 365.25, visibility_gap_day)
+    n_tr = int(fov_transit_ids(t * 365.25, config.transit_split_day).max() + 1) if t.size else 0
+    cascade = gaiamock.fit_full_astrometric_cascade(
+        t_ast_yr=t, psi=psi, plx_factor=pf, ast_obs=obs, ast_err=err, c_funcs=c_funcs,
+        verbose=False, show_residuals=False, ruwe_min=ruwe_min * k,
+        skip_acceleration=skip_acceleration,
+    )
+    return CascadeRun(
+        cascade=rescale_cascade_ruwe(list(cascade), k), n_obs=int(t.size), n_transits=n_tr,
+        n_visibility_periods=n_vis, ruwe_scale=k,
+    )
