@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from darkhunter_pop.isochrone_mass import IsochroneMassConfig
 from darkhunter_pop.schemas import ActiveDRMode
 
 # JSON-scalar knobs on a cut / primary-mass block. Thresholds live in the
@@ -2656,6 +2657,10 @@ class PipelineConfig(BaseModel):
     spuriousness_model: SpuriousnessModelConfig = Field(
         default_factory=SpuriousnessModelConfig
     )
+    # MIST isochrone M1 (#418; docs/MOCK_POPULATION_SPEC.md §11). Used by the mock parent and,
+    # under mass_calibration.method = MIST_isochrone, by mass_derivation_bulk. ``mist_root``
+    # is host-specific (config/host_profiles/).
+    isochrone_mass: IsochroneMassConfig = Field(default_factory=IsochroneMassConfig)
     multi_solution_rates: MultiSolutionRatesConfig = Field(
         default_factory=MultiSolutionRatesConfig
     )

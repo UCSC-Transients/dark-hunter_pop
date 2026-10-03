@@ -20,6 +20,12 @@ mass_calibration:
   sigma_logR: 0.014
   santos_correction: true
   delta_M_Ch_msun: 0.0
+isochrone_mass:
+  # MIST isochrone M1 (#418; docs/MOCK_POPULATION_SPEC.md §11, ARCHITECTURE.md mass_derivation_bulk).
+  # mist_root is HOST-SPECIFIC (also set by config/host_profiles/laptop.yaml; ziggy/lux unknown).
+  # Every other key is at the schema default (darkhunter_pop.isochrone_mass.IsochroneMassConfig);
+  # provisional_* keys are open questions (MP-Q33-Q35), not decisions.
+  mist_root: /Users/rfoley/.isochrones
 mass_derivation:
   dark_companion_flux_ratio: 0.0
   uberms_m1_prior_max_msun: 3.0
