@@ -1,0 +1,908 @@
+{
+ "h5": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/output/gate390/injection_test_pilot.h5",
+ "n_systems": 270,
+ "n_realizations": 1350,
+ "n_errors": 0,
+ "attrs": {
+  "base_seed": 42,
+  "created_utc": "2026-10-02T22:22:13.460088+00:00",
+  "data_release": "dr3",
+  "enrichment_snapshot_id": "nss_enrichment_0a5d7e03-a8d2-11f1-b67b-bc97e148b76b-O",
+  "fit_function": "gaiamock_mod.fit_full_astrometric_cascade",
+  "gaiamock_git_commit": "dd30fdbf787eb96878734605ac077ac69bf28c84",
+  "gaiamock_mod_release": "gaiamock-mod-v1",
+  "gaiamock_mod_sha256": "71454d768f5eb5514555d1cee716a3eab89121815d55fb561ba13f013d7ef028",
+  "git_commit": "174e568fe3210400e3f1ed313c7a40e895f82733",
+  "injection_function": "gaiamock_mod.predict_astrometry_binary_in_terms_of_a0",
+  "issue": 390,
+  "n_realizations_per_system": 5,
+  "orbital_solution_cuts": "{\"a0_over_err_min\": 5.0, \"goodness_of_fit_f2_max\": 25.0, \"parallax_over_error_times_period_min_days\": 20000.0, \"a0_over_err_times_sqrt_period_min\": 158.0, \"sigma_e_ln_period_slope\": 0.079, \"sigma_e_intercept\": -0.244}",
+  "ruwe_min": 1.4,
+  "sample_seed": 390,
+  "seed_scheme": "numpy.random.SeedSequence(entropy=base_seed, spawn_key=(2, source_id, realization)).generate_state(2, uint32) -> (np.random.seed, libc srand) via forward_model.seeded_global_rng around predict_astrometry_binary_in_terms_of_a0 + fit_full_astrometric_cascade (#371, #390)",
+  "skip_acceleration": false,
+  "snapshot_id": "20260826T234425Z_3d3f740b080c",
+  "strata_edges": "{\"Orbital\": {\"g_mag\": [4.190117359161377, 13.151058197021484, 14.076407750447592, 18.367481231689453], \"log10_period\": [1.4744323273232605, 2.706201407068065, 2.858144090730036, 3.805175627072026], \"log10_significance\": [0.6990063674219505, 1.1980434957037522, 1.4352445319015283, 2.812253028731598]}, \"AstroSpectroSB1\": {\"g_mag\": [6.117520332336426, 10.948554356892904, 12.030011812845865, 13.743721008300781], \"log10_period\": [1.1879422465912697, 2.6080797399067266, 2.8271589828061727, 3.9972042664887257], \"log10_significance\": [0.6989855356392922, 1.462404500820934, 1.7394079829998237, 2.952999782339839]}}",
+  "tag": "pilot",
+  "visibility_query_utc": "2026-10-02T19:17:41.290088+00:00"
+ },
+ "cost": {
+  "cpu_s_mean_per_realization": 14.354082298518522,
+  "cpu_s_median_per_realization": 13.57782350000005,
+  "cpu_s_mean_orbital_branch": 17.19250597959184,
+  "cpu_s_mean_non_orbital": 0.009223605381167628,
+  "wall_s_mean_per_realization": 25.901846494498077,
+  "worker_peak_rss_gib": 0.22320556640625
+ },
+ "acceptance": {
+  "Orbital": {
+   "n": 1080,
+   "accepted": 794,
+   "fraction": 0.7351851851851852,
+   "lo68": 0.7215457309390612,
+   "hi68": 0.7483895142043244,
+   "weighted_fraction": 0.7278401239245754,
+   "orbital_branch_fraction": 0.8194444444444444,
+   "cut_pass_given_orbit": {
+    "cut_a0_over_err": 0.9548022598870056,
+    "cut_f2": 1.0,
+    "cut_parallax_over_error": 0.9548022598870056,
+    "cut_a0_over_err_sqrt_p": 0.9265536723163842,
+    "cut_sigma_e": 0.9830508474576272
+   }
+  },
+  "AstroSpectroSB1": {
+   "n": 270,
+   "accepted": 231,
+   "fraction": 0.8555555555555555,
+   "lo68": 0.8328487521888428,
+   "hi68": 0.8756383326820059,
+   "weighted_fraction": 0.8334658021334449,
+   "orbital_branch_fraction": 0.8962962962962963,
+   "cut_pass_given_orbit": {
+    "cut_a0_over_err": 0.9545454545454546,
+    "cut_f2": 1.0,
+    "cut_parallax_over_error": 0.987603305785124,
+    "cut_a0_over_err_sqrt_p": 0.9586776859504132,
+    "cut_sigma_e": 0.987603305785124
+   }
+  }
+ },
+ "pulls_accepted": {
+  "period:Orbital": {
+   "n": 794,
+   "median": 0.010722715488243885,
+   "sigma_mad": 0.902113122215398,
+   "mean_clipped": -0.04934223789720022,
+   "std_clipped": 0.9934644036725525,
+   "frac_outlier": 0.0
+  },
+  "period:Orbital:published_sigma": {
+   "n": 794,
+   "median": 0.009793304453634495,
+   "sigma_mad": 0.7687476854379953,
+   "mean_clipped": 0.02649909159589342,
+   "std_clipped": 0.8801164419151275,
+   "frac_outlier": 0.0012594458438287153
+  },
+  "eccentricity:Orbital": {
+   "n": 794,
+   "median": 0.09644718714771222,
+   "sigma_mad": 0.930197818535129,
+   "mean_clipped": 0.07210025529501148,
+   "std_clipped": 0.9545406411569467,
+   "frac_outlier": 0.0
+  },
+  "eccentricity:Orbital:published_sigma": {
+   "n": 784,
+   "median": 0.06017775956932553,
+   "sigma_mad": 0.7896853762218008,
+   "mean_clipped": 0.0768131529815981,
+   "std_clipped": 0.8975473461399069,
+   "frac_outlier": 0.0
+  },
+  "a0_mas:Orbital": {
+   "n": 794,
+   "median": 0.11854760135267568,
+   "sigma_mad": 0.9735270310144154,
+   "mean_clipped": 0.04888734843424894,
+   "std_clipped": 0.9909717202999622,
+   "frac_outlier": 0.0012594458438287153
+  },
+  "a0_mas:Orbital:published_sigma": {
+   "n": 794,
+   "median": 0.11274849637735165,
+   "sigma_mad": 0.865359854454472,
+   "mean_clipped": 0.1629644945607763,
+   "std_clipped": 0.9456164935832599,
+   "frac_outlier": 0.0012594458438287153
+  },
+  "parallax:Orbital": {
+   "n": 794,
+   "median": -0.03714273263192424,
+   "sigma_mad": 1.0052744127988804,
+   "mean_clipped": -0.019318384262611274,
+   "std_clipped": 0.9771476543545407,
+   "frac_outlier": 0.0
+  },
+  "parallax:Orbital:published_sigma": {
+   "n": 794,
+   "median": -0.031441474736291344,
+   "sigma_mad": 0.8690251196322938,
+   "mean_clipped": -0.008326025175229356,
+   "std_clipped": 0.9041067111106945,
+   "frac_outlier": 0.0
+  },
+  "cos_i:Orbital": {
+   "n": 784,
+   "median": 0.008410076685022208,
+   "sigma_mad": 0.8894420952227551,
+   "mean_clipped": -0.017570116166038457,
+   "std_clipped": 0.9396047322215911,
+   "frac_outlier": 0.0
+  },
+  "cos_i:Orbital:published_sigma": {
+   "n": 784,
+   "median": 0.008410076685022208,
+   "sigma_mad": 0.8894420952227551,
+   "mean_clipped": -0.017570116166038457,
+   "std_clipped": 0.9396047322215911,
+   "frac_outlier": 0.0
+  },
+  "period:AstroSpectroSB1": {
+   "n": 231,
+   "median": -0.018575607963687096,
+   "sigma_mad": 1.0991737708067333,
+   "mean_clipped": -0.06498302052187258,
+   "std_clipped": 1.0711034341626917,
+   "frac_outlier": 0.0
+  },
+  "period:AstroSpectroSB1:published_sigma": {
+   "n": 231,
+   "median": -0.018911513561142342,
+   "sigma_mad": 1.1944776636408356,
+   "mean_clipped": -0.0973153070576479,
+   "std_clipped": 1.3177477341386414,
+   "frac_outlier": 0.012987012987012988
+  },
+  "eccentricity:AstroSpectroSB1": {
+   "n": 231,
+   "median": 0.08081954054844068,
+   "sigma_mad": 1.0353105887394383,
+   "mean_clipped": 0.054534277706770405,
+   "std_clipped": 1.1087935977550025,
+   "frac_outlier": 0.0
+  },
+  "eccentricity:AstroSpectroSB1:published_sigma": {
+   "n": 231,
+   "median": 0.09731985844216207,
+   "sigma_mad": 1.2792421540628514,
+   "mean_clipped": 0.10662002293812535,
+   "std_clipped": 1.4973759589946394,
+   "frac_outlier": 0.021645021645021644
+  },
+  "a0_mas:AstroSpectroSB1": {
+   "n": 231,
+   "median": 0.2647527655508035,
+   "sigma_mad": 0.899000695838647,
+   "mean_clipped": 0.13157672001352763,
+   "std_clipped": 1.0057525269962906,
+   "frac_outlier": 0.0
+  },
+  "a0_mas:AstroSpectroSB1:published_sigma": {
+   "n": 231,
+   "median": 0.2603215610395952,
+   "sigma_mad": 1.079959600336534,
+   "mean_clipped": 0.27082723298511524,
+   "std_clipped": 1.222058733247061,
+   "frac_outlier": 0.008658008658008658
+  },
+  "parallax:AstroSpectroSB1": {
+   "n": 231,
+   "median": 0.03960255437531564,
+   "sigma_mad": 1.0016528119729977,
+   "mean_clipped": 0.016491299793873638,
+   "std_clipped": 0.9708506285409161,
+   "frac_outlier": 0.0
+  },
+  "parallax:AstroSpectroSB1:published_sigma": {
+   "n": 231,
+   "median": 0.03460002469721279,
+   "sigma_mad": 0.9193282703203565,
+   "mean_clipped": 0.061706949113231976,
+   "std_clipped": 0.9755143522806551,
+   "frac_outlier": 0.0
+  },
+  "cos_i:AstroSpectroSB1": {
+   "n": 231,
+   "median": 0.03744881193154533,
+   "sigma_mad": 0.9291424332503686,
+   "mean_clipped": 0.05120423732518746,
+   "std_clipped": 1.08046423266525,
+   "frac_outlier": 0.0
+  },
+  "cos_i:AstroSpectroSB1:published_sigma": {
+   "n": 231,
+   "median": 0.03744881193154533,
+   "sigma_mad": 0.9291424332503686,
+   "mean_clipped": 0.05120423732518746,
+   "std_clipped": 1.08046423266525,
+   "frac_outlier": 0.0
+  }
+ },
+ "sigma_ratio": {
+  "period_error:Orbital": {
+   "n": 794,
+   "median_ratio": 0.8659638524200449,
+   "p16_ratio": 0.5943257560513867,
+   "p84_ratio": 1.1445140325364782
+  },
+  "period_error:AstroSpectroSB1": {
+   "n": 231,
+   "median_ratio": 1.0716745523544935,
+   "p16_ratio": 0.7917133416028167,
+   "p84_ratio": 1.7144875558128025
+  },
+  "eccentricity_error:Orbital": {
+   "n": 784,
+   "median_ratio": 0.8912262898598031,
+   "p16_ratio": 0.673943817340703,
+   "p84_ratio": 1.1326830208015521
+  },
+  "eccentricity_error:AstroSpectroSB1": {
+   "n": 231,
+   "median_ratio": 1.0898623782250565,
+   "p16_ratio": 0.8455806656024807,
+   "p84_ratio": 1.923138969434281
+  },
+  "sigma_a0_mas:Orbital": {
+   "n": 794,
+   "median_ratio": 0.8903613807851773,
+   "p16_ratio": 0.6407089411007991,
+   "p84_ratio": 1.222374970124698
+  },
+  "sigma_a0_mas:AstroSpectroSB1": {
+   "n": 231,
+   "median_ratio": 1.121066971708325,
+   "p16_ratio": 0.8753713461868129,
+   "p84_ratio": 1.623421569839805
+  },
+  "parallax_error:Orbital": {
+   "n": 794,
+   "median_ratio": 0.8956951624919094,
+   "p16_ratio": 0.7215639832682814,
+   "p84_ratio": 1.0963651441082378
+  },
+  "parallax_error:AstroSpectroSB1": {
+   "n": 231,
+   "median_ratio": 0.9580177331050806,
+   "p16_ratio": 0.7535994262991004,
+   "p84_ratio": 1.1998236124684676
+  }
+ },
+ "significance_ruwe_f2": {
+  "significance:Orbital": {
+   "n": 885,
+   "median_ratio": 1.092754139478878,
+   "p16": 0.7653813725492574,
+   "p84": 1.5299978384105528
+  },
+  "significance:AstroSpectroSB1": {
+   "n": 242,
+   "median_ratio": 0.8797787877136277,
+   "p16": 0.6077999908284161,
+   "p84": 1.144046037300063
+  },
+  "ruwe:Orbital": {
+   "n": 1080,
+   "median_ratio": 0.9850923580516937,
+   "p16": 0.9003785177189948,
+   "p84": 1.095390435178432
+  },
+  "ruwe:AstroSpectroSB1": {
+   "n": 270,
+   "median_ratio": 1.0637715299294097,
+   "p16": 0.9256830787166834,
+   "p84": 1.2433482068031547
+  },
+  "goodness_of_fit:Orbital": {
+   "n": 885,
+   "median_difference": -1.1138020685849956,
+   "p16": -6.711915830194691,
+   "p84": 3.1096497258584814
+  },
+  "goodness_of_fit:AstroSpectroSB1": {
+   "n": 242,
+   "median_difference": -2.963723016838766,
+   "p16": -6.396566035596453,
+   "p84": 0.5242609966237826
+  }
+ },
+ "acceptance_curves": {
+  "log10_significance:Orbital": {
+   "centers": [
+    0.8737528493633913,
+    1.104531719308365,
+    1.2121536085890119,
+    1.299825220203813,
+    1.403025961493479,
+    1.5170702296936236,
+    1.6563847587919025,
+    2.0502294156738423
+   ],
+   "fraction": [
+    0.3466666666666667,
+    0.6787878787878788,
+    0.7354838709677419,
+    0.7448275862068966,
+    0.8222222222222222,
+    0.9481481481481482,
+    0.7739130434782608,
+    1.0
+   ],
+   "n": [
+    150.0,
+    165.0,
+    155.0,
+    145.0,
+    135.0,
+    135.0,
+    115.0,
+    80.0
+   ]
+  },
+  "log10_significance:AstroSpectroSB1": {
+   "centers": [
+    0.8737528493633913,
+    1.104531719308365,
+    1.2121536085890119,
+    1.299825220203813,
+    1.403025961493479,
+    1.5170702296936236,
+    1.6563847587919025,
+    2.0502294156738423
+   ],
+   "fraction": [
+    0.3333333333333333,
+    0.0,
+    0.06666666666666667,
+    0.96,
+    0.9666666666666667,
+    1.0,
+    1.0,
+    0.9111111111111111
+   ],
+   "n": [
+    15.0,
+    5.0,
+    15.0,
+    25.0,
+    30.0,
+    35.0,
+    55.0,
+    90.0
+   ]
+  },
+  "g_mag:Orbital": {
+   "centers": [
+    9.220409870147705,
+    11.654592514038086,
+    12.385323524475098,
+    12.991181135177612,
+    13.517391920089722,
+    13.938822746276855,
+    14.421959400177002,
+    15.668062687420166
+   ],
+   "fraction": [
+    0.8923076923076924,
+    0.72,
+    0.9142857142857143,
+    0.68125,
+    0.7151515151515152,
+    0.6647058823529411,
+    0.7705882352941177,
+    0.6764705882352942
+   ],
+   "n": [
+    65.0,
+    75.0,
+    105.0,
+    160.0,
+    165.0,
+    170.0,
+    170.0,
+    170.0
+   ]
+  },
+  "g_mag:AstroSpectroSB1": {
+   "centers": [
+    9.220409870147705,
+    11.654592514038086,
+    12.385323524475098,
+    12.991181135177612,
+    13.517391920089722,
+    13.938822746276855,
+    14.421959400177002,
+    15.668062687420166
+   ],
+   "fraction": [
+    0.96,
+    0.7894736842105263,
+    0.8461538461538461,
+    0.5,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   "n": [
+    100.0,
+    95.0,
+    65.0,
+    10.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "log10_period:Orbital": {
+   "centers": [
+    1.9939106941092355,
+    2.5004085375041676,
+    2.6650046461994927,
+    2.7347505977652373,
+    2.7912587710255896,
+    2.8526999649882656,
+    2.9193559912559435,
+    3.0921182884494813
+   ],
+   "fraction": [
+    0.8285714285714286,
+    0.8518518518518519,
+    0.776,
+    0.8068965517241379,
+    0.5935483870967742,
+    0.8074074074074075,
+    0.5407407407407407,
+    0.7172413793103448
+   ],
+   "n": [
+    105.0,
+    135.0,
+    125.0,
+    145.0,
+    155.0,
+    135.0,
+    135.0,
+    145.0
+   ]
+  },
+  "log10_period:AstroSpectroSB1": {
+   "centers": [
+    1.9939106941092355,
+    2.5004085375041676,
+    2.6650046461994927,
+    2.7347505977652373,
+    2.7912587710255896,
+    2.8526999649882656,
+    2.9193559912559435,
+    3.0921182884494813
+   ],
+   "fraction": [
+    0.9166666666666666,
+    1.0,
+    0.8666666666666667,
+    0.96,
+    1.0,
+    0.8857142857142857,
+    0.8571428571428571,
+    0.28
+   ],
+   "n": [
+    60.0,
+    35.0,
+    45.0,
+    25.0,
+    10.0,
+    35.0,
+    35.0,
+    25.0
+   ]
+  },
+  "abs_ecl_lat:Orbital": {
+   "centers": [
+    8.275949532026775,
+    24.21791394192448,
+    36.2395932459967,
+    43.26290104191929,
+    49.15921072642047,
+    54.31249810013518,
+    61.63856841827012,
+    77.15905093346923
+   ],
+   "fraction": [
+    0.6,
+    0.6451612903225806,
+    0.7166666666666667,
+    0.8076923076923077,
+    0.7714285714285715,
+    0.8666666666666667,
+    0.7692307692307693,
+    0.7142857142857143
+   ],
+   "n": [
+    130.0,
+    155.0,
+    120.0,
+    130.0,
+    140.0,
+    135.0,
+    130.0,
+    140.0
+   ]
+  },
+  "abs_ecl_lat:AstroSpectroSB1": {
+   "centers": [
+    8.275949532026775,
+    24.21791394192448,
+    36.2395932459967,
+    43.26290104191929,
+    49.15921072642047,
+    54.31249810013518,
+    61.63856841827012,
+    77.15905093346923
+   ],
+   "fraction": [
+    0.7142857142857143,
+    0.8,
+    0.9,
+    0.875,
+    0.6,
+    0.9714285714285714,
+    0.875,
+    1.0
+   ],
+   "n": [
+    35.0,
+    15.0,
+    50.0,
+    40.0,
+    25.0,
+    35.0,
+    40.0,
+    30.0
+   ]
+  }
+ },
+ "pulls_by_g": [
+  {
+   "bin": "G 7.2\u201312.5",
+   "param": "period",
+   "n": 387,
+   "median": -0.06728773699876804,
+   "sigma_mad": 1.0266107514509306,
+   "mean_clipped": -0.06503256696605648,
+   "std_clipped": 1.0470735516895187,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 7.2\u201312.5",
+   "param": "eccentricity",
+   "n": 387,
+   "median": 0.05058531334863837,
+   "sigma_mad": 0.96226300194279,
+   "mean_clipped": 0.024806763949542357,
+   "std_clipped": 1.020873188941259,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 7.2\u201312.5",
+   "param": "a0_mas",
+   "n": 387,
+   "median": 0.18008945669718374,
+   "sigma_mad": 0.8445775295896746,
+   "mean_clipped": 0.0737874331898134,
+   "std_clipped": 0.9715361346971805,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 7.2\u201312.5",
+   "param": "parallax",
+   "n": 387,
+   "median": 0.025496137173345576,
+   "sigma_mad": 1.0225669861166387,
+   "mean_clipped": 0.006998084990504696,
+   "std_clipped": 0.9838905718011401,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 7.2\u201312.5",
+   "param": "cos_i",
+   "n": 382,
+   "median": 0.026411815373899528,
+   "sigma_mad": 0.8909737512094282,
+   "mean_clipped": -0.00627640251618387,
+   "std_clipped": 1.006665915015458,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 12.5\u201313.9",
+   "param": "period",
+   "n": 317,
+   "median": 0.0726332330945729,
+   "sigma_mad": 0.9238913733398347,
+   "mean_clipped": 0.015606307533624658,
+   "std_clipped": 1.0437330525510158,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 12.5\u201313.9",
+   "param": "eccentricity",
+   "n": 317,
+   "median": 0.09475360820293655,
+   "sigma_mad": 0.9650615701703343,
+   "mean_clipped": 0.04716404054540833,
+   "std_clipped": 1.0044352720577006,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 12.5\u201313.9",
+   "param": "a0_mas",
+   "n": 317,
+   "median": 0.08973300043592716,
+   "sigma_mad": 0.9178759345881592,
+   "mean_clipped": 0.07295146592651487,
+   "std_clipped": 0.9773315825378329,
+   "frac_outlier": 0.0031545741324921135
+  },
+  {
+   "bin": "G 12.5\u201313.9",
+   "param": "parallax",
+   "n": 317,
+   "median": -0.08162844866352957,
+   "sigma_mad": 1.0464730851981459,
+   "mean_clipped": -0.03594896656015574,
+   "std_clipped": 1.002768454373212,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 12.5\u201313.9",
+   "param": "cos_i",
+   "n": 317,
+   "median": -0.017694101763616195,
+   "sigma_mad": 0.9077148489384929,
+   "mean_clipped": -0.01582677408610281,
+   "std_clipped": 0.9518351103948891,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 13.9\u201316.6",
+   "param": "period",
+   "n": 321,
+   "median": 0.0018213170626134962,
+   "sigma_mad": 0.8138755382591816,
+   "mean_clipped": -0.10582059409104264,
+   "std_clipped": 0.9298842656379454,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 13.9\u201316.6",
+   "param": "eccentricity",
+   "n": 321,
+   "median": 0.17388576330152747,
+   "sigma_mad": 0.8789267390560325,
+   "mean_clipped": 0.14110218801599916,
+   "std_clipped": 0.9382433658298621,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 13.9\u201316.6",
+   "param": "a0_mas",
+   "n": 321,
+   "median": 0.15779895686952858,
+   "sigma_mad": 1.0685677800595812,
+   "mean_clipped": 0.05468376870482183,
+   "std_clipped": 1.0403483367172108,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 13.9\u201316.6",
+   "param": "parallax",
+   "n": 321,
+   "median": -0.038177267852547644,
+   "sigma_mad": 0.9616330010775203,
+   "mean_clipped": -0.008852783002755438,
+   "std_clipped": 0.93949223694806,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "G 13.9\u201316.6",
+   "param": "cos_i",
+   "n": 316,
+   "median": 0.021461566745183916,
+   "sigma_mad": 0.9111592913759827,
+   "mean_clipped": 0.017303420551965112,
+   "std_clipped": 0.9562644693829702,
+   "frac_outlier": 0.0
+  }
+ ],
+ "pulls_by_nvis": [
+  {
+   "bin": "$N_{\\rm vis}$ 13\u201322",
+   "param": "period",
+   "n": 290,
+   "median": 0.07024895627232708,
+   "sigma_mad": 0.9669680900833254,
+   "mean_clipped": -0.042223765764707176,
+   "std_clipped": 1.0446355678067005,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 13\u201322",
+   "param": "eccentricity",
+   "n": 290,
+   "median": 0.16689729840290296,
+   "sigma_mad": 0.9668638888306165,
+   "mean_clipped": 0.18400230978190663,
+   "std_clipped": 0.9793419974098652,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 13\u201322",
+   "param": "a0_mas",
+   "n": 290,
+   "median": 0.18798778650270104,
+   "sigma_mad": 0.8238027738420127,
+   "mean_clipped": 0.12206848585841545,
+   "std_clipped": 1.0059402009067868,
+   "frac_outlier": 0.0034482758620689655
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 13\u201322",
+   "param": "parallax",
+   "n": 290,
+   "median": 0.055230238349971886,
+   "sigma_mad": 0.9582717902415722,
+   "mean_clipped": 0.005768280449326398,
+   "std_clipped": 1.023114870895024,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 13\u201322",
+   "param": "cos_i",
+   "n": 285,
+   "median": 0.06126348199422296,
+   "sigma_mad": 0.8064558175278993,
+   "mean_clipped": 0.06784264978083285,
+   "std_clipped": 0.9745338131168005,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 22\u201327",
+   "param": "period",
+   "n": 337,
+   "median": -0.08099232933217712,
+   "sigma_mad": 0.9805340972735851,
+   "mean_clipped": -0.08528558330529197,
+   "std_clipped": 1.0073142375349933,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 22\u201327",
+   "param": "eccentricity",
+   "n": 337,
+   "median": 0.05058531334863837,
+   "sigma_mad": 0.9164905299208943,
+   "mean_clipped": 0.003372733681488623,
+   "std_clipped": 0.9567460523120948,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 22\u201327",
+   "param": "a0_mas",
+   "n": 337,
+   "median": 0.0947499266213845,
+   "sigma_mad": 0.9329693245633872,
+   "mean_clipped": 0.0404390595066417,
+   "std_clipped": 0.9357385893093726,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 22\u201327",
+   "param": "parallax",
+   "n": 337,
+   "median": -0.00853981587826552,
+   "sigma_mad": 0.9704538000611767,
+   "mean_clipped": 0.020039950118362407,
+   "std_clipped": 0.9040150057724443,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 22\u201327",
+   "param": "cos_i",
+   "n": 337,
+   "median": -0.12031071228727738,
+   "sigma_mad": 0.8709238253248487,
+   "mean_clipped": -0.06305753447549389,
+   "std_clipped": 0.9821097271330197,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 27\u201331",
+   "param": "period",
+   "n": 398,
+   "median": 0.040851337549763125,
+   "sigma_mad": 0.8993236651781961,
+   "mean_clipped": -0.03317256528965091,
+   "std_clipped": 0.9908052060831306,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 27\u201331",
+   "param": "eccentricity",
+   "n": 398,
+   "median": 0.08427932208963296,
+   "sigma_mad": 0.9601873338907878,
+   "mean_clipped": 0.038562160218815304,
+   "std_clipped": 1.0223731446876532,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 27\u201331",
+   "param": "a0_mas",
+   "n": 398,
+   "median": 0.1280039103225003,
+   "sigma_mad": 1.0443488060581911,
+   "mean_clipped": 0.05089480945895469,
+   "std_clipped": 1.0344056594876998,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 27\u201331",
+   "param": "parallax",
+   "n": 398,
+   "median": -0.0962159716012702,
+   "sigma_mad": 1.1151051291211271,
+   "mean_clipped": -0.05013962656362145,
+   "std_clipped": 0.9988180883457846,
+   "frac_outlier": 0.0
+  },
+  {
+   "bin": "$N_{\\rm vis}$ 27\u201331",
+   "param": "cos_i",
+   "n": 393,
+   "median": 0.03281531118426818,
+   "sigma_mad": 0.9349882692654531,
+   "mean_clipped": -8.030107214190064e-05,
+   "std_clipped": 0.9638504583026362,
+   "frac_outlier": 0.0
+  }
+ ],
+ "nvis_outcomes": {
+  "nvis_median_difference": 2.0,
+  "nvis_p16_difference": 0.0,
+  "nvis_p84_difference": 4.0,
+  "outcomes:Orbital": {
+   "< 12 vis. periods": 0.0,
+   "5-par (RUWE < 1.4)": 0.020370370370370372,
+   "7-par accel.": 0.06018518518518518,
+   "9-par accel.": 0.1,
+   "orbit, failed cuts": 0.08425925925925926,
+   "orbit, accepted": 0.7351851851851852
+  },
+  "outcomes:AstroSpectroSB1": {
+   "< 12 vis. periods": 0.0,
+   "5-par (RUWE < 1.4)": 0.022222222222222223,
+   "7-par accel.": 0.018518518518518517,
+   "9-par accel.": 0.06296296296296296,
+   "orbit, failed cuts": 0.040740740740740744,
+   "orbit, accepted": 0.8555555555555555
+  }
+ },
+ "thiele_innes_roundtrip_max_abs_mas": 1.9984014443252818e-14,
+ "n_outside_fit_bounds": 0,
+ "n_sigma_cos_i_nan": 2,
+ "published_sigma_a0_cov_over_a0_over_significance_median": 1.0000000184841622
+}
