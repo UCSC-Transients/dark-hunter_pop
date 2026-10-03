@@ -1,0 +1,47 @@
+artifacts: output/proposal_set/decided_gen10_tune.h5, output/proposal_set/decided_gen11_partial.h5
+DIAGNOSTIC ONLY: pre-noise-fix (#398/#400), pre-Malmquist (#405) report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.
+decision_ref: Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1); decided: {"flux_sigma_dex": 0.1, "halbwachs_ipd_cstar_cuts": "applied_star_values", "light_split": "observed_g_is_system_total", "m1": "tag10_point_drop_unresolved", "mass_luminosity": "janssens2022", "parallax_floor_mas": 0.2, "truth_distance": "bailer_jones2021_geometric"}
+real comparison: DR3 Orbital+AstroSpectroSB1, parallax > 0.2 mas, TAG10 atmosphere (N=168025 of 168065); filter counts {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025}
+parent attrition: {"bailer_jones_distance": 200602, "finite_astrometry_photometry": 214666, "halbwachs_cstar": 164397, "halbwachs_ipd": 184531, "parallax_floor": 214666, "snapshot_rows": 214666, "tag10_atmosphere": 200602}
+draws: 156765; scale_to_full (N_full/N_snap): 1811.71
+per generation (generation, n_draws, accepted, ESS of its accepted draws under mixture weights): (10, 2500, 52, 13.60); (11, 154265, 3497, 500.27)
+accepted orbits: 3549; with nonzero MdS17 weight: 2775
+MdS17 Kish ESS: accepted 511.95; all draws 5818.57
+max weight share among accepted: 0.010
+expected accepted orbits relative to parent (MdS17, luminous): 1.174e+05 vs real 168025
+
+solution-type mix (raw proposal fraction | MdS17-weighted expected count):
+  insufficient_visibility      0.000 | 0
+  five_parameter               0.892 | 1.138e+08
+  seven_parameter              0.020 | 2.563e+05
+  nine_parameter               0.018 | 2.051e+05
+  twelve_parameter_orbital     0.023 | 1.174e+05
+  orbital_failed_cuts          0.047 | 1.399e+07
+  published acceleration (s>20; F2<22 for 7-par): raw 0.022 | weighted 2.012e+05
+
+per-panel ESS and KS (KS gated on spec §3.6):
+  P_orb_days: bins=20, max ESS_b=119.87, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 19 of 19 bins holding real data fail the §3.6 trust criterion
+  G_mag: bins=20, max ESS_b=87.18, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 18 of 18 bins holding real data fail the §3.6 trust criterion
+  inv_parallax_mas_inv: bins=20, max ESS_b=238.24, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 20 of 20 bins holding real data fail the §3.6 trust criterion
+  eccentricity: bins=20, max ESS_b=47.93, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 20 of 20 bins holding real data fail the §3.6 trust criterion
+  f_m_msun: bins=20, max ESS_b=149.87, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 20 of 20 bins holding real data fail the §3.6 trust criterion
+  cos_inclination: bins=20, max ESS_b=45.89, bins meeting sigma_MC/sigma_Poisson<0.1 (ESS_b >= N_b/0.1^2): 0/20; KS not computed: 20 of 20 bins holding real data fail the §3.6 trust criterion
+
+informational weighted KS for every panel (NOT a gate; ESS-limited):
+  P_orb_days: D=0.127, n_eff=510.4, p=1.28e-07
+  G_mag: D=0.125, n_eff=510.4, p=2.35e-07
+  inv_parallax_mas_inv: D=0.165, n_eff=510.4, p=1.6e-12
+  eccentricity: D=0.188, n_eff=510.4, p=4.42e-16
+  f_m_msun: D=0.249, n_eff=510.4, p=5.48e-28
+  cos_inclination: D=0.032, n_eff=510.4, p=0.66
+
+cost (CPU s per draw, gaiamock_mod, process_time in worker):
+  mean 0.95, median 0.00, p90 0.01, total 41.31 CPU h
+  five_parameter               n=139824 mean 0.00 s
+  seven_parameter              n= 3121 mean 0.01 s
+  nine_parameter               n= 2874 mean 0.01 s
+  twelve_parameter_orbital     n= 3549 mean 12.76 s
+  orbital_failed_cuts          n= 7397 mean 13.89 s
+  wall: 24.2 min at 2 workers
+  wall: nan min at None workers
+provisional: {"provisional_compact_mixture": "none", "provisional_eta_floor": -0.9, "provisional_low_mass_anchor_msun": 0.8, "provisional_low_mass_policy": "log_linear_to_zero", "provisional_low_mass_zero_msun": 0.08, "provisional_m1_interpolation": "linear_m1", "provisional_multiplicity": "poisson_intensity"}
