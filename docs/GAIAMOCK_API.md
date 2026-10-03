@@ -115,3 +115,25 @@ state is restored on exit. A worker process must enter the block itself. The sch
 (`MOCK_RNG_SEED_SCHEME`) and per-realization seeds are written to the
 `selection_function_astrometric` artifact (`mock_catalog/truth/rng_seed_*`) and the run
 manifest (`random_seeds["selection_function_astrometric.mock_rng"]`).
+
+## Epoch model around the GOST list (#400)
+
+`get_gost_one_position` returns GOST rows for the nearest of 3,072 HEALPix-16 positions,
+10 rows per FoV transit (SM + AF1–AF9; 9 in CCD row 4). `predict_astrometry_*` then drops
+each **row** with probability 0.1. El-Badry et al. (2024) §3.3 meant a 10% loss of FoV
+transits, but the unbinned overlay applies it per CCD row: no whole transits are lost, and
+the result reproduces DR3's ~8.7 AF CCDs per transit to 1–2%. GOST also knows nothing about
+DR3's data gaps. gaiamock therefore has ~11–13% more FoV transits and +2 visibility periods
+compared with DR3 (#400, #398; `docs/gate400`).
+
+`darkhunter_pop.epoch_model` corrects this **without editing or reimplementing gaiamock**.
+`gost_epoch_model(gaiamock, config, SourceEpochContext(g_mag), rng)` temporarily replaces
+the module attribute `gaiamock.get_gost_one_position` with a wrapper that calls the original
+and then (1) removes rows outside the AGIS window and inside the 138 published DR3
+astrometric gaps, and (2) drops whole FoV transits with a G-dependent probability calibrated on
+DR3. The original is restored on exit. Everything downstream, including the 10% row drop,
+noise and the cascade, is gaiamock's own code. The thinning uses its own seeded
+`Generator` (`epoch_model_rng`), so the #371 seeding is untouched. Config:
+`dr3.epoch_model` (off by default; `dr4.epoch_model: null`). Spec: `docs/EPOCH_MODEL_SPEC.md`.
+The patch is a module attribute, so it is process-local and not thread-safe; every pop driver
+already uses one process per worker.

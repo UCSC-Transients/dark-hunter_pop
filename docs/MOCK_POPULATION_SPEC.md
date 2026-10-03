@@ -462,6 +462,14 @@ skip_acceleration)` inside `forward_model.seeded_global_rng`, classified by
 function is reimplemented (docs/GAIAMOCK_API.md). Real proper motions are passed (the box prior
 passed 0).
 
+**Epoch model (#400, not yet chosen).** `docs/EPOCH_MODEL_SPEC.md` calibrates a statistical
+transit-loss model (published DR3 gaps + a G-dependent per-transit loss) that wraps gaiamock's
+GOST list through `epoch_model.gost_epoch_model`. It is off (`dr3.epoch_model.enabled: false`).
+If Ryan switches it on, the call above becomes
+`with seeded_global_rng(seeds, c_funcs), gost_epoch_model(gaiamock, em_cfg,
+SourceEpochContext(g_mag), epoch_model_rng(base_seed, stream, draw_index)):` in
+`proposal_set.simulate_one`, and every stored draw needs re-simulation.
+
 ## 5. Validation ladder (each rung gates the next)
 
 | Rung | What | Acceptance |
