@@ -1,8 +1,11 @@
-# #391 rung 2: MdS17-reweighted mock vs DR3. Run PAUSED; results superseded
+# #391 rung 2: MdS17-reweighted mock vs DR3. DIAGNOSTIC ONLY (pre-noise-fix, pre-Malmquist); run PAUSED
 
 Issue #391. Spec: `docs/MOCK_POPULATION_SPEC.md` (decisions §0.1). Code: PRs #395 and #397.
 
-**Status: plumbing and efficiency only, not a science result.** The full laptop run (generation 11)
+**Status: diagnostic only, not a science result.** The figures are **pre-noise-fix**: they use the
+old epoch and noise model, which #398 and #400 replace. They are also **pre-Malmquist**: the
+magnitude-limit weights of #405 for Gaia-star primaries are not yet applied. Both changes will move
+every panel. What remains valid is the plumbing and the measured ESS per CPU-hour. The full laptop run (generation 11)
 was **paused at 154,518 of 370,000 draws** on 2026-10-02 at 23:34 PDT. The pause followed Ryan's
 approval of the forward-model noise and epoch fixes (#398, #400; PR #404, `docs/gate399/README.md`).
 Any change to the epochs or the noise invalidates every stored draw. The full run restarts once the
@@ -17,7 +20,7 @@ new model lands. All outputs are kept.
 
 - Parent: `data/dr3/gaia_snapshots/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj`. That is
   K = 10⁶ and 214,666 rows. After the decided filters 164,397 are usable (attrition in
-  `rung2_paused_report.txt`), 519 of them flagged as giants.
+  `rung2_diag_pre_noisefix_report.txt`), 519 of them flagged as giants.
 - Generation 11 was assembled from its partial JSONL by `scripts/assemble_partial_generation.py`. It
   uses the contiguous prefix of completed draws (154,265), which is an iid sample of the proposal,
   so the mixture weights use n = 154,265. The 253 draws that finished past the prefix are left out.
@@ -43,11 +46,11 @@ new model lands. All outputs are kept.
   restart.
 - Largest weight share among accepted draws: 0.010, so no single draw dominates.
 
-## Rung-2 comparison (OLD noise model; plumbing check only)
+## Rung-2 comparison (diagnostic: pre-noise-fix, pre-Malmquist)
 
-![six-panel](rung2_paused_six_panel_mds17.png)
+![six-panel](rung2_diag_pre_noisefix_six_panel_mds17.png)
 
-![ESS per bin](rung2_paused_ess_per_bin.png)
+![ESS per bin](rung2_diag_pre_noisefix_ess_per_bin.png)
 
 - Real sample: DR3 Orbital + AstroSpectroSB1 with the mirror filters of spec §0.1 (ϖ > 0.2 mas, TAG10
   atmosphere), 168,025 of 168,065 rows.
@@ -65,17 +68,18 @@ new model lands. All outputs are kept.
   | e | 0.188 | 4.4e-16 |
   | f_m | 0.249 | 5.5e-28 |
   | cos i | 0.032 | 0.66 |
-- Qualitative, by eye, with the old noise model:
+- Qualitative, by eye (old noise model, no Malmquist weights):
   - cos i is reproduced, including the edge-on deficit.
   - P and G are close.
   - The mock is **more eccentric** than DR3, the same direction as El-Badry et al. (2024) Fig. 5.
   - f_m is cut off sharply near 0.06 M⊙. Luminous MS companions under q ≤ 1 with the Janssens
     mass–luminosity relation cannot produce larger photocentre mass functions. The real high-f_m
     tail needs the compact-object mixture (MP-Q17) or q > 1 / triples.
-  - 1/ϖ is somewhat closer in than the real sample.
+  - 1/ϖ is somewhat closer in than the real sample. This is exactly where the missing Malmquist
+    weights (#405) would act.
 - Solution-type mix (MdS17-weighted expected counts relative to the G < 19 parent): 1.17 × 10⁵
   accepted orbits vs 168,025 real; 2.0 × 10⁵ published accelerations. The real denominator is still
-  ELBADRY2024 Q7 / MP-Q20. Full table in `rung2_paused_report.txt`.
+  ELBADRY2024 Q7 / MP-Q20. Full table in `rung2_diag_pre_noisefix_report.txt`.
 
 ## Observations to carry forward
 

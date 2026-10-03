@@ -1,5 +1,5 @@
 artifacts: output/proposal_set/decided_gen10_tune.h5, output/proposal_set/decided_gen11_partial.h5
-PAUSED report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.
+DIAGNOSTIC ONLY: pre-noise-fix (#398/#400), pre-Malmquist (#405) report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.
 decision_ref: Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1); decided: {"flux_sigma_dex": 0.1, "halbwachs_ipd_cstar_cuts": "applied_star_values", "light_split": "observed_g_is_system_total", "m1": "tag10_point_drop_unresolved", "mass_luminosity": "janssens2022", "parallax_floor_mas": 0.2, "truth_distance": "bailer_jones2021_geometric"}
 real comparison: DR3 Orbital+AstroSpectroSB1, parallax > 0.2 mas, TAG10 atmosphere (N=168025 of 168065); filter counts {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025}
 parent attrition: {"bailer_jones_distance": 200602, "finite_astrometry_photometry": 214666, "halbwachs_cstar": 164397, "halbwachs_ipd": 184531, "parallax_floor": 214666, "snapshot_rows": 214666, "tag10_atmosphere": 200602}
