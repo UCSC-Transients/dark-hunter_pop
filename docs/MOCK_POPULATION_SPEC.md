@@ -811,6 +811,17 @@ relative to the G < 19 parent (CLAUDE.md normalization).
   visibly, or the test has no power. Results and figures are in `docs/gate405/`, with a small
   version in the required gate and a large one marked `slow`.
 
+### 9.7 Closed-loop result (docs/gate405)
+
+Large run: 336,543 synthetic parent rows. Without W the mock under-predicts parent twins by 12%
+(−15σ) and misses the volume-limited binary fraction by up to 34σ. With W the twin deficit is 3%
+and the total is within 0.65%. Handed the true distance and M1, W closes to MC noise (every
+|pull| ≤ 2.2 at 10⁶ primaries). The remaining percent-level residual comes from approximations
+A1 and A2. The M_G zero point is the sharpest open input: a −0.05 mag error undoes the correction
+(MP-Q25). A split normal with its mode at r_med (MP-Q30 b) measured worse than the Gaussian. The
+α0 / NSS-window counts barely move, because the Öpik boost lives in near-twins, which have small
+photocentre orbits.
+
 ## References
 
 - Bailer-Jones, C. A. L. et al. 2021, AJ 161, 147.

@@ -1,0 +1,78 @@
+# Closed-loop validation of the magnitude-limit conditioning weight (spec §9.6, #405).
+#
+# A SYNTHETIC universe, not a model of the Milky Way: every number below only has to make the
+# magnitude limit bind over a realistic range so the test has power. None is a pipeline setting,
+# and none feeds inference. The companion population is the rung-2 MdS17 luminous target
+# (target_fragment), so the injected truth is known exactly.
+
+closed_loop:
+  target_fragment: config/population/proposal_set_decided_tune.yaml   # target_mds17 + proposal
+  malmquist_config: config/population/malmquist.yaml
+  seed: 405
+  sizes:                         # primaries in the universe (before any selection)
+    small: 300000                # required gate
+    large: 3000000               # slow marker / docs/gate405 figures
+  disk:                          # exponential disk around the Sun (synthetic)
+    r0_pc: 8178.0
+    scale_length_pc: 2600.0
+    scale_height_pc: 300.0
+    r_min_pc: 5.0
+    r_max_pc: 8000.0
+  imf:                           # Kroupa (2001) broken power law, dN/dM ∝ M^-alpha
+    m_min_msun: 0.3
+    m_break_msun: 0.5
+    m_max_msun: 2.5
+    alpha_low: 1.3
+    alpha_high: 2.3
+  stars:
+    sigma_int_mag: 0.15          # truth: single-star M_G scatter about Janssens M_G(M1)
+    sigma_log_m1_dex: 0.02       # truth: scatter of the atmosphere-based M1 estimate
+  observation:
+    g_limit: 19.0                # Halbwachs et al. (2023) step (a)
+    parallax_floor_mas: 0.2      # MP-Q1
+    parallax_error:              # sigma_plx(G) = floor + amp * 10^(slope (G - 19)) (synthetic)
+      floor_mas: 0.02
+      amp_mas: 0.35
+      slope: 0.4
+    completeness:                # synthetic sky-dependent detection, S = 1/(1+exp((G-G50)/w))
+      enabled: true
+      g50_high_latitude: 20.3
+      crowding_depth_mag: 1.5    # G50 = g50_high_latitude - depth * exp(-|b| / scale)
+      crowding_scale_deg: 3.0
+      width_mag: 0.25
+    distance_posterior:          # geometric posterior, prior r^2 rho(r, l, b) (Bailer-Jones-like)
+      r_grid_min_pc: 5.0
+      r_grid_max_pc: 8000.0
+      n_grid: 400
+  target_overrides:              # applied to target_mds17 for BOTH the universe and the mock
+    # MP-Q11 provisional floor -0.9 gives e^eta with eta < -0.5 at short P, whose weights under
+    # the uniform-e proposal have infinite variance (filed as a #391 follow-up); -0.4 keeps the
+    # test's Monte Carlo noise finite. Same value on both sides, so the truth is still exact.
+    provisional_eta_floor: -0.4
+  mock:
+    draws_per_row: 10
+    proposal_generation: 0
+    proposal_overrides:          # efficiency only (spec §3.2: proposals never change the answer)
+      parent_uniform_fraction: 1.0     # every synthetic row equally likely
+      dark_fraction: 0.0               # target is luminous-only
+      relation_sigma_dex: 0.12
+      relation_weight: 0.95
+      e_cap: 0.99999                   # cover e_max(P) (the decided 0.95 truncates the target; #391 follow-up)
+      period_core_weight: 0.0          # log-uniform over MdS17's whole 0.2-8 (no gaiamock-driven core)
+      q_tied_weight: 0.95
+      q_min: 0.1
+  analysis:
+    g_bins: [6.0, 15.0, 16.5, 17.5, 18.25, 18.75, 19.0]
+    m1_bins: [0.3, 0.5, 0.8, 1.2, 1.7, 2.6]
+    log_p_bins: [0.2, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    q_bins: [0.1, 0.2, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0]
+    e_bins: [0.0, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0]
+    log_f_bins: [-8.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5, 0.5]
+    alpha0_bins_mas: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 100.0, 100000.0]
+    nss_window:                  # an NSS-orbit-like region of observed (alpha0, P)
+      alpha0_min_mas: 0.3
+      period_min_days: 30.0
+      period_max_days: 1600.0
+    m_abs_grid: [-6.0, 16.0, 441]   # V_S table (min, max, n)
+    n_volume_positions: 60000
+    n_bootstrap: 100
