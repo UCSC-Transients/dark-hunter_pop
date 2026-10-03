@@ -131,3 +131,19 @@ def test_hook_replaces_parent_flag() -> None:
 
     assert dataclasses.is_dataclass(ParentSnapshot)
     assert "is_giant" in {f.name for f in dataclasses.fields(ParentSnapshot)}
+
+
+@pytest.mark.unit
+def test_evolved_flux_ratio_splits_total_light() -> None:
+    from darkhunter_pop.proposal_set import janssens_absolute_g
+
+    mg2 = float(janssens_absolute_g([0.8])[0])
+    # system 3 mag brighter than the companion: x = 10^-1.2, f = x / (1 - x)
+    x = 10.0 ** (-0.4 * 3.0)
+    lf = gi.evolved_log10_flux_ratio([0.8], [mg2 - 3.0])[0]
+    assert lf == pytest.approx(math.log10(x / (1 - x)))
+    # L1 + L2 reproduces the system light
+    f = 10.0**lf
+    assert -2.5 * math.log10(10 ** (-0.4 * mg2) * (1 + 1 / f)) == pytest.approx(mg2 - 3.0)
+    # companion brighter than the whole system is impossible
+    assert np.isnan(gi.evolved_log10_flux_ratio([0.8], [mg2 + 0.1])[0])

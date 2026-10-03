@@ -391,3 +391,23 @@ def classify_parent(
     usable = np.asarray(parent.usable, bool)  # type: ignore[attr-defined]
     ridge = fit_ms_ridge(np.where(usable, cmd.mg0, np.nan), cmd.colour0, snr, cfg.ridge)
     return classify_evolved(cmd.mg0, cmd.colour0, cmd.sigma_mu, ridge, cfg.provisional_n_sigma), ridge
+
+
+def evolved_log10_flux_ratio(m2_msun: ArrayLike, mg0_system: ArrayLike) -> FloatArray:
+    """log10 f = log10(L2 / L1) in G for a main-sequence companion of an evolved primary.
+
+    Spec §10.4. Under MP-Q6 (the row's observed G is the total system light) the companion's
+    share of the dereddened system light is ``x = 10^{−0.4 (M_G^J(M2) − M_G0,sys)}`` with
+    ``M_G^J`` the Janssens et al. (2022) dwarf relation (MP-Q13; the companion of an evolved
+    primary is less massive and still on the main sequence), so ``f = x / (1 − x)``. Rows where
+    the companion alone would outshine the system (``x ≥ 1``) or ``M_G^J`` is undefined return
+    NaN; the target density is zero there. The 0.1 dex scatter of MP-Q13 is applied by the
+    caller around this centre, exactly as for the dwarf relation.
+    """
+    from darkhunter_pop.proposal_set import janssens_absolute_g
+
+    mg2 = janssens_absolute_g(m2_msun)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        x = 10.0 ** (-0.4 * (mg2 - np.asarray(mg0_system, dtype=np.float64)))
+        lf = np.log10(x / (1.0 - x))
+    return np.where(np.isfinite(x) & (x < 1.0), lf, np.nan)

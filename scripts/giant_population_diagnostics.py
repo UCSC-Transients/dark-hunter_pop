@@ -34,6 +34,7 @@ from darkhunter_pop.giants import (
     classify_parent,
     cmd_for_rows,
     cmd_radius_rsun,
+    evolved_log10_flux_ratio,
     load_giants_config,
     parent_row_cmd,
     roche_period_floor_days,
@@ -175,6 +176,20 @@ def main(argv: list[str] | None = None) -> int:
             f"  parent parallax/error in [{lo},{hi}): evolved {_bfrac(int(np.sum(pev & s)), int(s.sum()))}; "
             f"GSP-Phot log g<3.6 {np.mean(plogg[s] < 3.6):.4f}"
         )
+
+    # RUWE of the parent's own rows at fixed G: does an evolved primary need extra epoch noise?
+    pg = np.asarray(cols["phot_g_mean_mag"], float)
+    pruwe = np.asarray(cols["ruwe"], float)
+    rep += ["", "=== PARENT RUWE AT FIXED G (real stars' own RUWE; median and fraction > 1.4) ==="]
+    for lo in (8.0, 10.0, 12.0, 14.0, 16.0, 18.0):
+        sb = pc & (pg >= lo) & (pg < lo + 2.0) & np.isfinite(pruwe)
+        e_, d_ = sb & pev, sb & ~pev
+        if e_.sum() >= 20 and d_.sum() >= 20:
+            rep.append(
+                f"  G in [{lo:.0f},{lo + 2:.0f}): evolved N={int(e_.sum())} median {np.median(pruwe[e_]):.3f}, "
+                f">1.4 {np.mean(pruwe[e_] > 1.4):.4f} | dwarfs N={int(d_.sum())} median {np.median(pruwe[d_]):.3f}, "
+                f">1.4 {np.mean(pruwe[d_] > 1.4):.4f}"
+            )
 
     # ---------------- real side ----------------
     real = Table.read(args.real_snapshot, format="ascii.ecsv")
@@ -369,8 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     lf_dw = np.asarray(truth["log10_flux_ratio"], float)
     mg2 = janssens_absolute_g(m2)
     mg1_obs = pcmd.mg0[prow]
-    with np.errstate(invalid="ignore"):
-        lf_gi = -0.4 * (mg2 - mg1_obs)
+    lf_gi = evolved_log10_flux_ratio(m2, mg1_obs)
     ev_draw = mev & np.isfinite(lf_gi) & (w > 0)
     rel_dw = -0.4 * (mg2 - janssens_absolute_g(m1))
     with np.errstate(invalid="ignore"):
@@ -387,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         f"draws on evolved primaries with weight > 0: {int(ev_draw.sum())}",
         "log10 f, dwarf relation for both stars (current target), weighted p10/50/90: "
         + str(np.round(wq(rel_dw[ev_draw], w[ev_draw], (0.1, 0.5, 0.9)), 3).tolist()),
-        "log10 f, companion Janssens M_G over the primary's observed M_G0, weighted p10/50/90: "
+        "log10 f, evolved_log10_flux_ratio (companion share of the observed system light, spec §10.4), weighted p10/50/90: "
         + str(np.round(wq(lf_gi[ev_draw], w[ev_draw], (0.1, 0.5, 0.9)), 3).tolist()),
         "companion brightening delta = 2.5 log10(1 + f_obs) (mag), weighted p50/90/99: "
         + str(np.round(wq(delta_mag[ev_draw], w[ev_draw], (0.5, 0.9, 0.99)), 4).tolist()),
