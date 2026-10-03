@@ -59,6 +59,9 @@ fail (114 rows) for exact symmetry is MP-Q24.
 
 MP-Q7–Q12 and Q14–Q22 stay open. They can still be changed by reweighting.
 
+The magnitude-limit (Malmquist / Öpik) conditioning that Ryan made a condition of accepting
+Gaia-star primaries (#405) is derived in §9; its open choices are MP-Q25–Q32.
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -563,7 +566,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6 and Q13 decided, §0.1; none of the rest chosen)
+## 8. Open questions for Ryan (MP-Q1–Q6 and Q13 decided, §0.1; none of the rest chosen; MP-Q25–Q32 from §9)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -608,21 +611,247 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   25 are available), and the posterior-predictive acceptance thresholds.
 - **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
 - **MP-Q24 Real-side Halbwachs (b)/(c) residue**: remove the 114 real rows (0.06%) that fail the IPD/C\* cuts on DR3 values, for exact symmetry with the parent, or keep El-Badry et al. (2024)'s "no further cut"? Measured in §0.1.
+- **MP-Q25 σ_int and the zero point of M_G^J for TAG10 masses** (§9.3). This is the single-star
+  scatter at fixed M̂1 (age, [Fe/H] and TAG10 error), plus any offset between the Janssens M_G(M)
+  scale and TAG10's mass scale. Without an offset, ΔM would be biased for every row. Options:
+  (a) fit both from the parent's own ΔM distribution as a singles + binaries mixture per M̂1 bin,
+  truncated at each row's G = 19 boundary; (b) take them from isochrone spreads (MIST) for an
+  assumed age / [Fe/H] distribution; (c) fixed constants with the offset set to 0.
+- **MP-Q26 TAG10 on blended atmospheres** (§9.3 (A1), §9.4 item 2). Options: (a) ignore it, i.e.
+  (A1) as now; (b) measure the bias b(f) of M̂1 by running MSC / GSP-Phot + TAG10 on synthetic
+  blended spectra or photometry, then add p(M̂1 | M1, c) to W; (c) condition on the total light
+  only and invert M_G^J for the implied primary mass, which conflicts with MP-Q5's decision.
+- **MP-Q27 Resolved pairs and the IPD flags** (§9.1, §9.4 item 4). This decides which drawn
+  companions blend into G and which are consistent with the row's own `ipd_frac_multi_peak` /
+  `ipd_gof_harmonic_amplitude`. Options: (a) all blend and the IPD values carry no information
+  (now); (b) blend only below an angular-separation threshold set from Fabricius et al. (2021)'s
+  close-pair completeness (about 0.7–1.5″, contrast-dependent), with resolved companions given
+  f_b = 0; (c) also add p(ipd_s | c) as a likelihood term (needs an IPD model; none is published
+  for this purpose).
+- **MP-Q28 Giants** (`is_giant`, §0.1). M_G^J is a dwarf relation, so ΔM is meaningless for giants.
+  Options: (a) W = 1 for giants, the naive draw, flagged; (b) leave giants out of any statistic
+  that relies on W; (c) use a giant M_G(M1, log g) relation.
+- **MP-Q29 Extinction for ΔM** (ties to MP-Q14). `ag_gspphot` is fitted assuming a single star, so
+  it is biased for luminous binaries; Combined19 is a 3-D map, independent of the star. Options:
+  Combined19 at d̂ with its map σ; `ag_gspphot`; or restrict to low-extinction rows. ΔM, and so W,
+  **cannot be computed for real rows until this is chosen**.
+- **MP-Q30 Distance marginalization** (§9.3 (A2)). Options: (a) a Gaussian in μ from
+  r_lo / r_med / r_hi (now); (b) a skewed (split-normal) form from the same three quantiles;
+  (c) apply W only to rows with ϖ / σ_ϖ above a threshold and use W = 1 elsewhere. The closed loop
+  (§9.6, docs/gate405) measures the error of (a).
+- **MP-Q31 F > 1 under a Poisson intensity** (MP-Q9). Z_s needs a probability of no companion,
+  1 − F ≥ 0. Options: cap at one companion and rescale to a binary fraction; or keep the
+  intensity, with p(∅) = exp(−F) and a single-companion approximation, and record where F > 1.
+- **MP-Q32 Gaia completeness for the volume-limited diagnostic** (§9.4 item 4, §9.5). Options:
+  (a) install `gaiaunlimited` (a new dependency plus a downloaded HEALPix map) and use
+  Cantat-Gaudin et al. (2023); (b) skip the volume-limited diagnostic on real data, since the
+  forward model does not need it; (c) treat G < 19 as complete outside crowded fields and mask
+  those fields.
+
+## 9. Magnitude-limit (Malmquist / Öpik) conditioning (#405)
+
+Ryan accepts Gaia-star primaries (§0, §0.1) **only if the magnitude-limit bias is properly
+accounted for** (#405). This section derives the importance weight that does that, says exactly
+what is conditioned on what, and lists every choice the derivation and the cited papers do not
+fix (MP-Q25–Q31, §8). Nothing here changes a §0.1 decision.
+
+### 9.1 Model and notation
+
+- **System**: primary ψ = (M1, ε), where ε is the primary's offset from the single-star
+  mass–luminosity relation (age, [Fe/H]), so M_G,1 = M_G^J(M1) + ε with M_G^J the Janssens et al.
+  (2022) relation (MP-Q13) and ε ~ N(0, σ_int); companion state c ∈ {∅} ∪ C with
+  c = (M2, P, e, f, type, orientation); position r = (d, Ω).
+- **Universe**: intensity n(ψ, c, r) = ρ_*(r) φ(ψ) π(c | M1, θ), with π(∅ | M1) = 1 − F(M1) and
+  π(c | M1) = λ(c | M1, θ) on C, F = ∫ λ dc. At most one companion (triples off, §2.7), which
+  needs F ≤ 1 (MP-Q9, MP-Q31). λ is MdS17 (§2) plus the compact mixture (§2.6). MdS17's
+  frequencies are **volume-limited, Öpik-corrected** statistics: their §3.4 uses spectroscopic
+  surveys that already removed distant twins or used fixed-distance clusters, §5.2 drops the two
+  Sana et al. (2014) binaries that would fall below the H = 7.5 limit on the primary's light alone,
+  §7.1 notes the De Rosa et al. (2014) sample is volume-limited within 75 pc, and the solar-type
+  sample of §8 is the volume-limited Raghavan et al. (2010) sample. So π(c | M1) is the
+  per-primary companion distribution **before** any magnitude selection.
+- **Observables** of a `gaia_source` row: o = (G, ϖ_obs, a, Ω), with a the MSC / GSP-Phot
+  atmosphere. The pipeline derives M̂1 = TAG10(a) (§1.4, MP-Q5) and d̂ = the Bailer-Jones et al.
+  (2021) geometric distance from (ϖ_obs, Ω) (MP-Q4).
+- **Blended light**: G = M_G,1 − 2.5 log10(1 + f_b) + μ(d) + A_G(r), where μ = 5 log10(d / 10 pc)
+  and f_b = f when the pair is unresolved by Gaia (MP-Q27 for resolved pairs).
+- **Parent selection** S: G < 19, ϖ_obs > 0.2 mas, the Halbwachs (b)/(c) flags (§0.1) and Gaia's
+  source detection P_det(G, Ω) (crowding and scanning law; Cantat-Gaudin et al. 2023;
+  Boubert & Everall 2020). Every factor is a function of the row's observables: P(S | o).
+
+### 9.2 The identity that settles which factors enter
+
+The real parent is a Poisson draw with intensity
+n_par(o) = ∫ n(ψ, c, r) p(o | ψ, c, r) P(S | o) dψ dc dr. A mock draw keeps a row's o_s (real G,
+real distance, real sky position and real M̂1, §0.1 MP-Q4–Q6) and replaces its unknown companion
+state with a drawn c. The correct distribution for that c is
+
+  p(c | o_s, S) = P(S | o_s) p(c, o_s) / [P(S | o_s) p(o_s)] = **p(c | o_s)**.
+
+Because S depends on observables only and the mock conditions on **all** of them, **P(S | o)
+cancels**: no detection-volume ratio and no completeness map enters the per-row weight. The
+magnitude-limit bias does not go away; it lives entirely in the gap between p(c | o_s) and the
+volume-limited π(c | M̂1_s). A row that is over-luminous for its M̂1 at its distance is more
+likely to be a luminous binary, and the magnitude-limited parent contains more such rows near
+G = 19 because they **are** the parent. Averaging p(c | o_s) over the real rows reproduces the Öpik
+boost exactly (§9.5).
+
+Two consequences:
+
+1. **The naive mock is biased.** Drawing c ~ π(c | M̂1_s) and weighting by λ / q alone is
+   the volume-limited conditional. It ignores what G says about c at the row's distance, so it
+   under-predicts luminous companions in the parent wherever the magnitude limit binds.
+2. **The "detection-volume ratio" form is the other branch of MP-Q6.** If gaiamock were fed the
+   primary's own light plus the companion (G = G_1 − 2.5 log10(1 + f)), the row's G would not be
+   conditioned on and the weight would be p(c | M1, d, Ω, S) ∝ π(c | M1) P(S | M1, c, d, Ω): the
+   ratio of selection probabilities, which in a homogeneous Euclidean volume with no ϖ floor
+   becomes (1 + f)^{3/2} (Öpik 1923). Under MP-Q6 as decided (G = observed total light) that form
+   is **not** consistent; the companion must instead be made consistent with the observed G.
+
+### 9.3 The weight
+
+Exactly, p(c | o) = ∫ dψ dr ρ_* φ π(c | ψ) p(o | ψ, c, r) / Z(o). Three approximations make it
+computable. Each is named; where it is a choice, it is an open question.
+
+- **(A1) M1 = M̂1.** The atmosphere fixes the primary's mass: p(M̂1 | M1, c) is narrow and
+  unbiased compared with how fast φ and π vary. This is MP-Q5's decision (the TAG10 point value is
+  the truth M1 fed to gaiamock). TAG10 run on a blended atmosphere is not unbiased (MP-Q26).
+- **(A2) Distance.** p(μ | ϖ_obs, Ω) is the Bailer-Jones geometric posterior, taken as Gaussian in μ
+  with σ_μ = (5 / ln 10) (r_hi − r_lo) / (2 r_med) from `r_lo_geo`, `r_med_geo`, `r_hi_geo`
+  (16th / 50th / 84th percentiles). The **geometric** posterior uses no photometry
+  (Bailer-Jones et al. 2021), so it carries no single-star colour–magnitude assumption; the
+  photogeometric one does and must not be used here. Marginalizing d with the geometric posterior
+  is exact if its prior matches ρ_* along the line of sight. It is not exact when ϖ/σ_ϖ is small and
+  the posterior is skewed (MP-Q30).
+- **(A3) Extinction** A_G is known to σ_A (MP-Q14, MP-Q29).
+
+Then, for row s and companion c,
+
+  **p(c | o_s) = π(c | M̂1_s) × W_s(c),  W_s(c) = L_s(f_b(c)) / Z_s**
+
+  L_s(f) = N( ΔM_s + 2.5 log10(1 + f) ; 0, σ_s )
+
+  ΔM_s = G_s − μ(d̂_s) − A_G,s − M_G^J(M̂1_s)   (the row's luminosity excess; < 0 is over-luminous)
+
+  σ_s² = σ_int² + σ_μ,s² + σ_A,s² + (∂M_G^J / ∂log10 M1)² σ²_log M̂1,s
+
+  Z_s = (1 − F(M̂1_s)) L_s(0) + ∫ λ(c | M̂1_s, θ) L_s(f_b(c)) dc
+      = (1 − F_lum(M̂1_s)) L_s(0) + ∫ λ_f(log10 f | M̂1_s, θ) L_s(f) d log10 f.
+
+λ_f is the luminous part of λ marginalized onto log10 f (over M2, P, e and the f scatter at fixed
+M1); F_lum is its integral. Dark companions (WD with f = 0, NS, BH) have L_s(0), the same as a
+single star, so **they get no magnitude-limit boost**, which is physically right: they add no light
+(a luminous WD is MP-Q15). Z_s depends on θ through λ, so it is recomputed with the weights at every
+θ. It is a one-dimensional integral per row, evaluated on a grid in M1 (§9.6).
+
+With the proposal set (§3.4, §3.7) the full weight is
+
+  **w_i(θ) = (N_full / N_snap) λ(x_i | θ) W_{s(i)}(x_i; θ) / Σ_j n_j q_j(x_i)**
+
+and the per-row probability of having **no** companion is p(∅ | o_s) = (1 − F) L_s(0) / Z_s.
+Statistics that count systems (a binary fraction) need it. Σ_i w_i 1[O_i] stays an expected count
+relative to the G < 19 parent (CLAUDE.md normalization).
+
+### 9.4 The four effects in #405, one by one
+
+1. **Binary-fraction boost near the limit.** It is carried by L_s, with no separate factor. Rows
+   near G = 19 at large d are, as a population, more over-luminous, and W raises their companion
+   probability. The boost depends on the light a companion adds, so it is strong for twins
+   (f ≈ 1, 0.75 mag) and negligible for f ≲ 0.05.
+2. **M1 from blended light.** The data side and the mock apply TAG10 to the **same** row's
+   atmosphere, so the M2 inferred from a0 and M̂1 is computed the same way on both sides; that is
+   the consistency MP-Q5 asks for. What (A1) adds is that M̂1 is also the **truth** M1 behind the
+   orbit and the conditioning. TAG10 uses T_eff, log g and [M/H] (Torres et al. 2010), but
+   GSP-Phot's log g uses the parallax and G, so a companion's light leaks into log g and from there
+   into M̂1. The orbit scales only as a ∝ (M1 + M2)^{1/3}, so a 10% error in M1 changes a0 by about 3%;
+   the conditioning error enters through M_G^J(M̂1) and is absorbed in σ_s only if it is unbiased
+   (MP-Q26).
+3. **Distance prior and parallax-floor truncation.** The 0.2 mas floor is on the observed ϖ, so it
+   cancels like every other factor of S. The luminosity-dependent truncation it causes (bright
+   primaries reach ϖ = 0.2 mas before G = 19, so the Öpik boost switches off for them) is
+   reproduced automatically, because the rows are the truncated parent. The distance prior enters
+   only through (A2).
+4. **Gaia detection completeness.** It cancels in W because it depends on (G, Ω) only. It is needed
+   only to invert the parent back to a volume-limited population (§9.5), which is a diagnostic: the
+   forward model never needs it. The published DR3 parent source-detection model is
+   Cantat-Gaudin et al. (2023): S(G | M10) = 1 − ½ [tanh((x(M10) − G) / y(M10)) + 1]^{z(M10)}, with
+   M10 per HEALPix pixel. Over most of the sky M10 ≈ 19–21.5, so G < 19 is nearly complete outside
+   crowded fields. It is distributed in `gaiaunlimited`
+   (`gaiaunlimited.selectionfunctions.DR3SelectionFunctionTCG`; version 0.3.3 on PyPI, **not
+   installed**, needs `healpy` (already in `.venv`) and downloads `allsky_M10_hpx7.hdf5` on first
+   use). The Everall & Boubert series covers DR2 source detection (Boubert & Everall 2020, Paper II)
+   and the EDR3 **astrometry and RVS subsample** selection functions (Everall & Boubert 2022, Paper
+   V). Paper V is a subsample model, not the parent. Neither model covers **companion-dependent**
+   detection, meaning a close pair resolved into two sources (Fabricius et al. 2021: completeness
+   for close pairs drops below about 1.5″ and falls fast below 0.7″) or flagged by the IPD cuts
+   (MP-Q27). Installing it is MP-Q32.
+
+### 9.5 Checks the formula must pass
+
+- **Öpik limit.** In a homogeneous Euclidean volume, with σ_s → 0, a pure G limit and no floor,
+  average W over the parent rows at fixed M1. The parent's companion density is then
+  π(c) (1 + f)^{3/2} / ⟨(1 + f)^{3/2}⟩_π, the classical result: a system with flux ratio f is seen to
+  (1 + f)^{1/2} times the distance.
+- **No information, no correction.** As σ_s → ∞, W → 1 and the naive mock is recovered, correctly,
+  since then G says nothing about c and the cut does not prefer binaries.
+- **Volume-limited inversion (diagnostic).** n_vol(M1, c) ∝ Σ_i w_i / V_S(M̂1_i, c_i), with
+  V_S(M1, c) = ∫ dΩ ∫ dr r² ρ_*(r, Ω) ∫ dε N(ε; 0, σ_int) P(S | G(M1, ε, c, r), ϖ(r), Ω). Singles
+  enter with p(∅ | o_s) / V_S(M̂1_s, ∅). This needs ρ_*, the completeness and A_G. It is used only to
+  compare with MdS17 directly; the pipeline's normalization stays relative to the parent.
+
+### 9.6 Implementation and the closed-loop proof
+
+- `src/darkhunter_pop/malmquist.py` (pop side, numpy): ΔM_s, σ_s, the λ_f(log10 f | M1) grid and
+  Z_s for the MdS17 luminous target of `proposal_set.mds17_luminous_log_intensity`, log W per draw,
+  p(∅ | o_s), and V_S for the volume-limited diagnostic. A test checks that the grid integral
+  matches the target integrated directly, so the two cannot drift. `proposal_set.py` gets a small
+  documented hook that adds log W to the target. The rest of its interface is unchanged.
+- **Closed loop** (no gaiamock, numpy only): a synthetic exponential-disk universe with a Kroupa
+  primary IMF, Janssens M_G(M) with scatter σ_int, and MdS17 companions drawn from the same table and
+  provisional settings as the target. It is observed with G_total < 19, ϖ_obs > 0.2 mas and an
+  optional synthetic completeness; distances come from a geometric posterior with the true density
+  as prior, summarized as r_lo / r_med / r_hi exactly like Bailer-Jones. The synthetic parent then
+  goes through `proposal_set.sample_proposal` (as if `gaia_source` rows) and the weights. It must
+  recover (i) the parent's true companion statistics (binary fraction overall and versus G and M1;
+  log P, q, e, log f) and, after §9.5's 1/V_S, the injected volume-limited MdS17; and (ii) the
+  parent's distribution of observed system properties (the photocentre semi-major axis α0 and the
+  count in an NSS-like (α0, P) window). It is run **with and without** W: without W it must fail
+  visibly, or the test has no power. Results and figures are in `docs/gate405/`, with a small
+  version in the required gate and a large one marked `slow`.
+
+### 9.7 Closed-loop result (docs/gate405)
+
+Large run: 336,543 synthetic parent rows. Without W the mock under-predicts parent twins by 12%
+(−15σ) and misses the volume-limited binary fraction by up to 34σ. With W the twin deficit is 3%
+and the total is within 0.65%. Handed the true distance and M1, W closes to MC noise (every
+|pull| ≤ 2.2 at 10⁶ primaries). The remaining percent-level residual comes from approximations
+A1 and A2. The M_G zero point is the sharpest open input: a −0.05 mag error undoes the correction
+(MP-Q25). A split normal with its mode at r_med (MP-Q30 b) measured worse than the Gaussian. The
+α0 / NSS-window counts barely move, because the Öpik boost lives in near-twins, which have small
+photocentre orbits.
 
 ## References
 
 - Bailer-Jones, C. A. L. et al. 2021, AJ 161, 147.
+- Boubert, D. & Everall, A. 2020, MNRAS 497, 4246 (Completeness of the Gaia-verse II).
+- Cantat-Gaudin, T. et al. 2023, A&A 669, A55 (empirical Gaia DR3 selection function; `gaiaunlimited`).
+- Castro-Ginard, A. et al. 2024, A&A 688, A1 (RUWE detectability of unresolved binaries).
 - Choi, J. et al. 2016, ApJ 823, 102 (MIST).
 - El-Badry, K. et al. 2024, OJAp 7, 100 (arXiv:2411.00088).
 - Elvira, V., Martino, L., Luengo, D. & Bugallo, M. 2019, Statistical Science 34, 129.
+- Everall, A. & Boubert, D. 2022, MNRAS 509, 6205 (Completeness of the Gaia-verse V).
+- Fabricius, C. et al. 2021, A&A 649, A5 (Gaia EDR3 catalogue validation).
 - Gaia Collaboration, Arenou, F. et al. 2023, A&A 674, A34.
 - Halbwachs, J.-L. et al. 2023, A&A 674, A9 (arXiv:2206.05726).
 - Hesterberg, T. 1995, Technometrics 37, 185.
 - Janssens, S. et al. 2022, A&A 658, A129.
 - Moe, M. & Di Stefano, R. 2017, ApJS 230, 15 (arXiv:1606.05347).
+- Öpik, E. 1923, Publ. Tartu Obs. 25, 6.
 - Owen, A. & Zhou, Y. 2000, JASA 95, 135.
 - Pecaut, M. J. & Mamajek, E. E. 2013, ApJS 208, 9.
+- Raghavan, D. et al. 2010, ApJS 190, 1.
 - Riello, M. et al. 2021, A&A 649, A3.
+- Torres, G., Andersen, J. & Giménez, A. 2010, A&ARv 18, 67.
 - Veach, E. & Guibas, L. 1995, SIGGRAPH '95, 419.
 - Vehtari, A. et al. 2024, JMLR 25, 72 (Pareto-smoothed importance sampling).
 - Winters, J. G. et al. 2019, AJ 157, 216.
