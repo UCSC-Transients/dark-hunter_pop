@@ -306,6 +306,11 @@ def draw_companions(
     }
 
 
+#: Primaries per companion-drawing chunk (memory only; the draws do not depend on it
+#: beyond the RNG stream order).
+COMPANION_CHUNK: int = 100_000
+
+
 @dataclass
 class Universe:
     """All synthetic primaries (truth), positions and true system magnitudes."""
@@ -331,7 +336,9 @@ def make_universe(
     pos = draw_positions(n, cfg.disk, rng)
     m1 = draw_imf(n, cfg.imf, rng)
     eps = cfg.stars.sigma_int_mag * rng.standard_normal(n)
-    comp = draw_companions(m1, target, grid, rng)
+    # Chunked: the MdS17 density evaluations hold many full-length temporaries.
+    parts = [draw_companions(m1[a : a + COMPANION_CHUNK], target, grid, rng) for a in range(0, n, COMPANION_CHUNK)]
+    comp = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     f = np.where(comp["has_companion"], 10.0 ** comp["log10_f"], 0.0)
     g = ps.janssens_absolute_g(m1) + eps - 2.5 * np.log10(1.0 + f) + mq.distance_modulus(pos["distance_pc"])
     return Universe(m1=m1, eps=eps, comp=comp, pos=pos, g_true=g)
@@ -570,6 +577,7 @@ class CountComparison:
     corrected: FloatArray
     pull_naive: FloatArray
     pull_corrected: FloatArray
+    n_group: FloatArray | None = None  # rows per group (row-fraction comparisons only)
 
 
 def _row_sum(values: FloatArray, row: NDArray[np.int64], n_rows: int) -> FloatArray:
@@ -618,10 +626,11 @@ def compare_row_fraction(
     """Per-group counts of a per-row probability (e.g. P(has companion)) vs truth flags."""
     nb = edges.size - 1
     gb = np.searchsorted(edges, group_value, side="right") - 1
-    out = {k: np.zeros(nb) for k in ("truth", "naive", "corrected", "pull_naive", "pull_corrected")}
+    out = {k: np.zeros(nb) for k in ("truth", "naive", "corrected", "pull_naive", "pull_corrected", "n_group")}
     for b in range(nb):
         sel = gb == b
         n = int(sel.sum())
+        out["n_group"][b] = n
         t = truth_flag[sel].astype(float)
         out["truth"][b] = t.sum()
         for key, p in (("naive", p_naive), ("corrected", p_corr)):
@@ -796,18 +805,33 @@ class ClosedLoopResult:
     sigma_mu_quantiles: FloatArray
 
 
-def run_closed_loop(size: Literal["small", "large"] | int, cfg: ClosedLoopConfig | None = None) -> tuple[ClosedLoopResult, dict[str, Any]]:
-    """Build, observe, mock and compare. Returns the result and the raw arrays (for figures)."""
+def run_closed_loop(
+    size: Literal["small", "large"] | int,
+    cfg: ClosedLoopConfig | None = None,
+    *,
+    sigma_int_pipeline: float | None = None,
+    zero_point_pipeline: float | None = None,
+    oracle_distance: bool = False,
+    oracle_m1: bool = False,
+) -> tuple[ClosedLoopResult, dict[str, Any]]:
+    """Build, observe, mock and compare. Returns the result and the raw arrays (for figures).
+
+    By default the pipeline's MP-Q25 settings (σ_int, σ_logM1, zero point) equal the synthetic
+    truth, so the loop tests bookkeeping. ``sigma_int_pipeline`` / ``zero_point_pipeline``
+    misspecify them (the MP-Q25 sensitivity experiments). ``oracle_distance`` hands the
+    pipeline the true distance (σ_μ = 0; isolates approximation A2) and ``oracle_m1`` makes
+    M̂1 exact (σ_logM1 = 0; isolates A1).
+    """
     cfg = cfg or load_closed_loop_config()
+    if oracle_m1:
+        cfg = cfg.model_copy(update={"stars": cfg.stars.model_copy(update={"sigma_log_m1_dex": 0.0})})
     frag = closed_loop_fragment(cfg)
     mcfg = mq.load_malmquist_config(cfg.malmquist_config)
-    # The pipeline's provisional σ_int / σ_logM1 are set to the synthetic truth here: the loop
-    # tests bookkeeping, not the MP-Q25 choice (a misspecified σ is a separate experiment).
     mcfg = mcfg.model_copy(
         update={
-            "provisional_sigma_int_mag": cfg.stars.sigma_int_mag,
+            "provisional_sigma_int_mag": cfg.stars.sigma_int_mag if sigma_int_pipeline is None else sigma_int_pipeline,
             "provisional_sigma_log_m1_dex": cfg.stars.sigma_log_m1_dex,
-            "provisional_mg_zero_point_mag": 0.0,
+            "provisional_mg_zero_point_mag": 0.0 if zero_point_pipeline is None else zero_point_pipeline,
         }
     )
     grid = mq.build_flux_marginal(frag.target_mds17, mcfg.grid)
@@ -815,6 +839,9 @@ def run_closed_loop(size: Literal["small", "large"] | int, cfg: ClosedLoopConfig
     rng = np.random.default_rng(np.random.SeedSequence(cfg.seed, spawn_key=(405, n)))
     u = make_universe(n, cfg, frag.target_mds17, grid, rng)
     par = observe(u, cfg, rng)
+    if oracle_distance:
+        d_true = u.pos["distance_pc"][par.index]
+        par.r_lo, par.r_med, par.r_hi = d_true.copy(), d_true.copy(), d_true.copy()
     parent = parent_snapshot(u, par)
     mock = run_mock(parent, cfg, frag, mcfg, grid)
     an = cfg.analysis
