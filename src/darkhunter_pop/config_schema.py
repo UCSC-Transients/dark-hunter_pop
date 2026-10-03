@@ -2461,6 +2461,73 @@ class ExternalPhotometryCrossmatch(BaseModel):
         return self
 
 
+class EpochTransitLossConfig(BaseModel):
+    """Per-FoV-transit loss probability after the gaps (docs/EPOCH_MODEL_SPEC.md §3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    g_edges: list[float] = Field(..., min_length=2)
+    prob: list[float] = Field(..., min_length=1)
+    density_slope_per_dex: float = 0.0
+    density_ref_per_deg2: float = Field(1.0, gt=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochTransitLossConfig:
+        if len(self.prob) != len(self.g_edges) - 1:
+            raise ValueError("transit_loss.prob needs len(g_edges) - 1 entries")
+        if any(b <= a for a, b in zip(self.g_edges[:-1], self.g_edges[1:])):
+            raise ValueError("transit_loss.g_edges must increase")
+        if any(not (0.0 <= x < 1.0) for x in self.prob):
+            raise ValueError("transit_loss.prob must be in [0, 1)")
+        return self
+
+
+class EpochExcessNoiseConfig(BaseModel):
+    """El-Badry et al. (2024) Sect. 3.3.1 bright-star per-FoV-transit excess noise.
+
+    Used by the #400 validation only (``scripts/validate_epoch_model_400.py``); no
+    production path reads it while ``enabled`` is false (#398 option 3 is undecided).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    g_max: float = 13.0
+    sigma_max_mas: float = Field(0.04, ge=0)
+
+
+class EpochModelPathConfig(BaseModel):
+    """Pop-side statistical epoch model around gaiamock's GOST list (#400, #398).
+
+    docs/EPOCH_MODEL_SPEC.md. Path-specific (scanning law, data gaps, calibration on
+    the release's own counts); DR4 has its own block (null until calibrated).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    gap_table: str
+    gap_table_sha256: str
+    gap_source: str = ""
+    apply_gaps: bool = True
+    agis_window_obmt_rev: list[float] | None = None
+    obmt_reference_rev: float
+    obmt_reference_jd_tcb: float
+    obmt_rev_per_day: float = Field(..., gt=0)
+    transit_split_day: float = Field(..., gt=0)
+    transit_loss: EpochTransitLossConfig
+    calibration_snapshot: str | None = None
+    excess_noise: EpochExcessNoiseConfig = Field(default_factory=EpochExcessNoiseConfig)
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _window(self) -> EpochModelPathConfig:
+        w = self.agis_window_obmt_rev
+        if w is not None and (len(w) != 2 or not w[0] < w[1]):
+            raise ValueError("agis_window_obmt_rev must be [start, end] with start < end")
+        return self
+
+
 class DRPathConfig(BaseModel):
     """Gaia-mission / path-specific configuration for one data release."""
 
@@ -2527,6 +2594,9 @@ class DRPathConfig(BaseModel):
     selection_function_followup: DRSelectionFunctionFollowupPathConfig = Field(
         default_factory=DRSelectionFunctionFollowupPathConfig
     )
+    # Statistical epoch-loss model wrapped around gaiamock's GOST transit list
+    # (#400, docs/EPOCH_MODEL_SPEC.md). Null: gaiamock's epochs are used unchanged.
+    epoch_model: EpochModelPathConfig | None = None
 
     @model_validator(mode="after")
     def _validate_crossmatch_fanout_maskable_bands(self) -> DRPathConfig:
@@ -2639,6 +2709,7 @@ PATH_SPECIFIC_LEAF_KEYS: frozenset[str] = frozenset(
         "acceleration7_f2_max",
         "acceleration9_f2_max",
         "mock_g_mag_max",
+        "epoch_model",
     }
 )
 
