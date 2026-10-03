@@ -91,7 +91,7 @@ class MalmquistConfig(_Strict):
     provisional_sigma_log_m1_dex: float = Field(..., ge=0.0)  # MP-Q25 (TAG10 scatter)
     provisional_blending: Literal["all_unresolved"]  # MP-Q27
     provisional_giant_policy: Literal["unit_weight"]  # MP-Q28
-    provisional_distance_marginalization: Literal["gaussian_mu"]  # MP-Q30
+    provisional_distance_marginalization: Literal["gaussian_mu", "split_normal_mu"]  # MP-Q30
     provisional_frequency_above_one: Literal["clip_single_probability_at_zero"]  # MP-Q31
     slope_step_dex: float = Field(..., gt=0.0)  # finite-difference step for ∂M_G/∂log M1
     grid: FluxMarginalGridConfig
@@ -170,15 +170,49 @@ def row_sigma(
     return np.sqrt(var)
 
 
-def log_light_likelihood(delta_m: ArrayLike, log10_f: ArrayLike, sigma: ArrayLike) -> FloatArray:
-    """log L = log N(ΔM + 2.5 log10(1 + f); 0, σ). ``log10_f = -inf`` means f = 0."""
+def log_light_likelihood(
+    delta_m: ArrayLike,
+    log10_f: ArrayLike,
+    sigma: ArrayLike,
+    *,
+    sigma_mu_lo: ArrayLike | None = None,
+    sigma_mu_hi: ArrayLike | None = None,
+) -> FloatArray:
+    """log L = log ∫ N(ΔM(μ) + 2.5 log10(1 + f); 0, σ) p(μ) dμ. ``log10_f = -inf`` means f = 0.
+
+    Without ``sigma_mu_lo`` / ``sigma_mu_hi`` (MP-Q30 option ``gaussian_mu``) ``sigma`` is the
+    total σ_s and p(μ) is folded in as a Gaussian. With them (option ``split_normal_mu``)
+    ``sigma`` excludes the distance term and p(μ) is a split normal around μ(r_med) with
+    widths μ(r_med) − μ(r_lo) and μ(r_hi) − μ(r_med); the convolution is closed-form:
+    L = K Σ_side σ_side / sqrt(σ² + σ_side²) exp(−a² / 2(σ² + σ_side²)) Φ(±a σ_side / (σ sqrt(σ² + σ_side²))),
+    K = 2 / (sqrt(2π)(σ_lo + σ_hi)), a = ΔM_med + 2.5 log10(1 + f). Equal widths give the Gaussian.
+
+    Measured in the #405 closed loop (docs/gate405): this split normal, with its *mode* at
+    μ(r_med), does **worse** than ``gaussian_mu`` (its median is shifted when the widths
+    differ). A quantile-matched split normal is untested. MP-Q30 stays Ryan's choice.
+    """
+    from scipy.special import log_ndtr
+
     dm = np.asarray(delta_m, dtype=np.float64)
     lf = np.asarray(log10_f, dtype=np.float64)
     s = np.asarray(sigma, dtype=np.float64)
     with np.errstate(over="ignore"):
         boost = 2.5 * np.log10(1.0 + np.where(np.isfinite(lf), 10.0**lf, 0.0))
-    resid = (dm + boost) / s
-    return -0.5 * resid * resid - np.log(s) - 0.5 * math.log(2.0 * math.pi)
+    a = dm + boost
+    if sigma_mu_lo is None or sigma_mu_hi is None:
+        resid = a / s
+        return -0.5 * resid * resid - np.log(s) - 0.5 * math.log(2.0 * math.pi)
+    lo = np.asarray(sigma_mu_lo, dtype=np.float64)
+    hi = np.asarray(sigma_mu_hi, dtype=np.float64)
+    log_k = math.log(2.0) - 0.5 * math.log(2.0 * math.pi) - np.log(lo + hi)
+    # The distance spread y = μ − μ_med enters ΔM(μ) = ΔM_med − y. The y > 0 (far) side uses
+    # the r_hi width and is weighted by Φ(+a σ_hi / ...); the near side by Φ(−a σ_lo / ...).
+    v_hi = s * s + hi * hi
+    v_lo = s * s + lo * lo
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_hi = np.log(hi) - 0.5 * np.log(v_hi) - 0.5 * a * a / v_hi + log_ndtr(a * hi / (s * np.sqrt(v_hi)))
+        t_lo = np.log(lo) - 0.5 * np.log(v_lo) - 0.5 * a * a / v_lo + log_ndtr(-a * lo / (s * np.sqrt(v_lo)))
+    return log_k + np.logaddexp(t_hi, t_lo)
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +320,8 @@ def _log_terms(
     sigma: FloatArray,
     grid: FluxMarginalGrid,
     chunk: int,
+    mu_lo: FloatArray | None = None,
+    mu_hi: FloatArray | None = None,
 ) -> tuple[FloatArray, FloatArray, NDArray[np.bool_]]:
     """(log of the single term (1 − F)L(0), log Z, F > 1 flag), chunked over rows."""
     n = m1_msun.size
@@ -295,8 +331,15 @@ def _log_terms(
     for a in range(0, n, chunk):
         sl = slice(a, min(a + chunk, n))
         lam, f_lum = grid.interpolate(m1_msun[sl])
-        l0 = log_light_likelihood(delta_m[sl], -np.inf, sigma[sl])
-        lf = log_light_likelihood(delta_m[sl, None], grid.log_f[None, :], sigma[sl, None])
+        if mu_lo is None or mu_hi is None:
+            l0 = log_light_likelihood(delta_m[sl], -np.inf, sigma[sl])
+            lf = log_light_likelihood(delta_m[sl, None], grid.log_f[None, :], sigma[sl, None])
+        else:
+            l0 = log_light_likelihood(delta_m[sl], -np.inf, sigma[sl], sigma_mu_lo=mu_lo[sl], sigma_mu_hi=mu_hi[sl])
+            lf = log_light_likelihood(
+                delta_m[sl, None], grid.log_f[None, :], sigma[sl, None],
+                sigma_mu_lo=mu_lo[sl, None], sigma_mu_hi=mu_hi[sl, None],
+            )
         # Σ_b λ_b exp(lf_b) in log space, stabilized by the per-row maximum.
         mx = np.maximum(lf.max(axis=1), l0)
         lum = np.sum(lam * np.exp(lf - mx[:, None]), axis=1)
@@ -316,9 +359,14 @@ def log_conditioning_factor(
     grid: FluxMarginalGrid,
     *,
     is_giant: ArrayLike | None = None,
+    sigma_mu_lo: ArrayLike | None = None,
+    sigma_mu_hi: ArrayLike | None = None,
     chunk: int = 20_000,
 ) -> FloatArray:
     """log W_s(c) = log L_s(f) − log Z_s per draw (spec §9.3).
+
+    ``sigma_mu_lo`` / ``sigma_mu_hi`` select the split-normal distance marginalization
+    (MP-Q30 option ``split_normal_mu``; ``sigma`` then excludes the distance term).
 
     Add the result to the target log-intensity before
     :func:`darkhunter_pop.proposal_set.importance_weights`. Rows with a non-finite ΔM or σ
@@ -332,10 +380,16 @@ def log_conditioning_factor(
     ok = np.isfinite(dm) & np.isfinite(s) & (s > 0) & np.isfinite(m1)
     if is_giant is not None:
         ok &= ~np.asarray(is_giant, bool)
+    split = sigma_mu_lo is not None and sigma_mu_hi is not None
+    if split:
+        lo = np.broadcast_to(np.asarray(sigma_mu_lo, float), lf.shape)
+        hi = np.broadcast_to(np.asarray(sigma_mu_hi, float), lf.shape)
+        ok &= np.isfinite(lo) & np.isfinite(hi) & (lo > 0) & (hi > 0)
     out = np.zeros(lf.shape)
     if ok.any():
-        _, log_z, _ = _log_terms(m1[ok], dm[ok], s[ok], grid, chunk)
-        out[ok] = log_light_likelihood(dm[ok], lf[ok], s[ok]) - log_z
+        kw = {"sigma_mu_lo": lo[ok], "sigma_mu_hi": hi[ok]} if split else {}
+        _, log_z, _ = _log_terms(m1[ok], dm[ok], s[ok], grid, chunk, kw.get("sigma_mu_lo"), kw.get("sigma_mu_hi"))
+        out[ok] = log_light_likelihood(dm[ok], lf[ok], s[ok], **kw) - log_z
     return out
 
 
@@ -345,6 +399,8 @@ def log_no_companion_probability(
     sigma: ArrayLike,
     grid: FluxMarginalGrid,
     *,
+    sigma_mu_lo: ArrayLike | None = None,
+    sigma_mu_hi: ArrayLike | None = None,
     chunk: int = 20_000,
 ) -> tuple[FloatArray, NDArray[np.bool_]]:
     """log p(∅ | o_s) = log[(1 − F_lum) L_s(0) / Z_s] and the MP-Q31 flag (F_lum > 1).
@@ -353,7 +409,9 @@ def log_no_companion_probability(
     mixture, (1 − F) would include them.
     """
     m1 = np.asarray(m1_msun, float)
-    log_single, log_z, over = _log_terms(m1, np.asarray(delta_m, float), np.asarray(sigma, float), grid, chunk)
+    lo = None if sigma_mu_lo is None else np.broadcast_to(np.asarray(sigma_mu_lo, float), m1.shape)
+    hi = None if sigma_mu_hi is None else np.broadcast_to(np.asarray(sigma_mu_hi, float), m1.shape)
+    log_single, log_z, over = _log_terms(m1, np.asarray(delta_m, float), np.asarray(sigma, float), grid, chunk, lo, hi)
     return log_single - log_z, over
 
 
@@ -364,12 +422,24 @@ def log_no_companion_probability(
 
 @dataclass(frozen=True)
 class RowConditioning:
-    """Per parent row: ΔM_s, σ_s and the M1 the conditioning used."""
+    """Per parent row: ΔM_s, σ_s and the M1 the conditioning used.
+
+    Under ``split_normal_mu`` (MP-Q30), ``sigma`` excludes distance and ``sigma_mu_lo`` /
+    ``sigma_mu_hi`` carry the two-sided distance-modulus widths; under ``gaussian_mu`` they
+    are None and ``sigma`` is the total σ_s.
+    """
 
     delta_m: FloatArray
     sigma: FloatArray
     m1_msun: FloatArray
     is_giant: NDArray[np.bool_]
+    sigma_mu_lo: FloatArray | None = None
+    sigma_mu_hi: FloatArray | None = None
+
+    def mu_kwargs(self, idx: Any = slice(None)) -> dict[str, FloatArray]:
+        if self.sigma_mu_lo is None or self.sigma_mu_hi is None:
+            return {}
+        return {"sigma_mu_lo": self.sigma_mu_lo[idx], "sigma_mu_hi": self.sigma_mu_hi[idx]}
 
 
 def row_conditioning(
@@ -397,8 +467,20 @@ def row_conditioning(
     dm = luminosity_excess(
         cols["phot_g_mean_mag"], d, a_g_mag, m1, zero_point_mag=cfg.provisional_mg_zero_point_mag
     )
-    sig = row_sigma(m1, s_mu, np.broadcast_to(np.asarray(sigma_a_mag, float), m1.shape), cfg)
-    return RowConditioning(delta_m=dm, sigma=sig, m1_msun=m1, is_giant=np.asarray(parent.is_giant, bool))
+    s_a = np.broadcast_to(np.asarray(sigma_a_mag, float), m1.shape)
+    giant = np.asarray(parent.is_giant, bool)
+    if cfg.provisional_distance_marginalization == "split_normal_mu":
+        mu_med = distance_modulus(cols["r_med_geo"])
+        return RowConditioning(
+            delta_m=dm,
+            sigma=row_sigma(m1, np.zeros_like(m1), s_a, cfg),
+            m1_msun=m1,
+            is_giant=giant,
+            sigma_mu_lo=mu_med - distance_modulus(cols["r_lo_geo"]),
+            sigma_mu_hi=distance_modulus(cols["r_hi_geo"]) - mu_med,
+        )
+    sig = row_sigma(m1, s_mu, s_a, cfg)
+    return RowConditioning(delta_m=dm, sigma=sig, m1_msun=m1, is_giant=giant)
 
 
 def log_weight_for_draws(
@@ -428,6 +510,7 @@ def log_weight_for_draws(
         rows.sigma[r],
         grid,
         is_giant=rows.is_giant[r] if cfg.provisional_giant_policy == "unit_weight" else None,
+        **rows.mu_kwargs(r),
     )
 
 

@@ -542,7 +542,7 @@ def run_mock(
     n = [prop.n_draws]
     w_naive = ps.importance_weights(log_lam, [truth["log_q_total"]], n, scale_to_full=parent.scale_to_full)
     w_corr = ps.importance_weights(log_lam + log_w, [truth["log_q_total"]], n, scale_to_full=parent.scale_to_full)
-    lp_single, _ = mq.log_no_companion_probability(rows.m1_msun, rows.delta_m, rows.sigma, grid)
+    lp_single, _ = mq.log_no_companion_probability(rows.m1_msun, rows.delta_m, rows.sigma, grid, **rows.mu_kwargs())
     _, f_lum = grid.interpolate(rows.m1_msun)
     return MockResult(
         truth=truth,
@@ -713,7 +713,10 @@ def volume_comparison(
     tr = mock.truth
     row = np.asarray(tr["parent_row"], np.int64)
     rows = mock.rows
-    sig_m = np.sqrt(np.maximum(rows.sigma**2 - sigma_mu_rows(par) ** 2, 0.0))
+    if rows.sigma_mu_lo is None:
+        sig_m = np.sqrt(np.maximum(rows.sigma**2 - sigma_mu_rows(par) ** 2, 0.0))
+    else:
+        sig_m = rows.sigma  # split mode: σ already excludes distance
     m_single = ps.janssens_absolute_g(rows.m1_msun) + mcfg.provisional_mg_zero_point_mag
     lf = np.asarray(tr["log10_flux_ratio"], float)
     m_draw = m_single[row] - 2.5 * np.log10(1.0 + np.where(np.isfinite(lf), 10.0**lf, 0.0))
@@ -813,6 +816,7 @@ def run_closed_loop(
     zero_point_pipeline: float | None = None,
     oracle_distance: bool = False,
     oracle_m1: bool = False,
+    distance_marginalization: Literal["gaussian_mu", "split_normal_mu"] | None = None,
 ) -> tuple[ClosedLoopResult, dict[str, Any]]:
     """Build, observe, mock and compare. Returns the result and the raw arrays (for figures).
 
@@ -834,6 +838,8 @@ def run_closed_loop(
             "provisional_mg_zero_point_mag": 0.0 if zero_point_pipeline is None else zero_point_pipeline,
         }
     )
+    if distance_marginalization is not None:  # MP-Q30 experiment
+        mcfg = mcfg.model_copy(update={"provisional_distance_marginalization": distance_marginalization})
     grid = mq.build_flux_marginal(frag.target_mds17, mcfg.grid)
     n = cfg.sizes[size] if isinstance(size, str) else int(size)
     rng = np.random.default_rng(np.random.SeedSequence(cfg.seed, spawn_key=(405, n)))
