@@ -225,7 +225,7 @@ def _q(x: np.ndarray) -> dict[str, float]:
     return {"n": int(x.size), "median": float(p50), "p16": float(p16), "p84": float(p84)}
 
 
-def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str, np.ndarray]]:
+def _load_validation(inj390: Path, log: Path | list[Path], n_real: int) -> dict[str, dict[str, np.ndarray]]:
     """Per variant: a flat table aligned with (system_index, realization)."""
     with h5py.File(inj390, "r") as f:
         sids = f["systems/source_id"][:]
@@ -237,9 +237,13 @@ def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str
     out = {"baseline": base}
     index = {int(s): i for i, s in enumerate(sids)}
     rows: dict[str, list[dict[str, Any]]] = {}
-    for line in log.read_text().splitlines():
-        r = json.loads(line)
-        rows.setdefault(r.get("variant", "error"), []).append(r)
+    for lg in (log if isinstance(log, list) else [log]):
+        for line in Path(lg).read_text().splitlines():
+            r = json.loads(line)
+            if "error" in r and r.get("variant") not in ("epoch", "epoch_noise") and r["error"]:
+                rows.setdefault("error", []).append(r)
+                continue
+            rows.setdefault(r.get("variant", "error"), []).append(r)
     for variant, recs in rows.items():
         if variant == "error":
             out["errors"] = {"n": np.array([len(recs)])}
@@ -255,8 +259,9 @@ def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str
         tab["system_index"] = np.array([index[int(r["source_id"])] for r in recs])
         out[variant] = tab
     # pair the baseline with the re-run: keep only (system, realization) pairs present in it
-    if "epoch" in out:
-        done = set(zip(out["epoch"]["system_index"].astype(int), out["epoch"]["realization"].astype(int)))
+    ref = "v2" if "v2" in out else ("epoch" if "epoch" in out else None)
+    if ref is not None:
+        done = set(zip(out[ref]["system_index"].astype(int), out[ref]["realization"].astype(int)))
         keep = np.array([(int(a), int(b)) in done for a, b in zip(base["system_index"], base["realization"])])
         out["baseline"] = {k: v[keep] for k, v in base.items()}
     return out
@@ -268,7 +273,7 @@ def cmd_validation(args: argparse.Namespace) -> None:
     plt = require_pyplot()
     style, dpi = _style()
     fig_dir = Path(args.fig_dir)
-    data = _load_validation(Path(args.inj390), Path(args.log), args.n_realizations)
+    data = _load_validation(Path(args.inj390), [Path(x) for x in args.log], args.n_realizations)
     with h5py.File(args.inj390, "r") as f:
         truth = {k: f["systems/truth"][k][:] for k in f["systems/truth"]}
         stype = np.array([x.decode() for x in f["systems/nss_solution_type"][:]])
@@ -284,9 +289,10 @@ def cmd_validation(args: argparse.Namespace) -> None:
         o = np.argsort(cs)
         gost_tr = f["inj390/gost_ntr_raw"][:][o[np.searchsorted(cs[o], sids)]].astype(float)
     nvis_pub = truth["published_visibility_periods_used"].astype(float)
-    variants = [v for v in ("baseline", "epoch", "epoch_noise") if v in data]
-    labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model",
-              "epoch_noise": "epoch model + G < 13 excess noise"}
+    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2") if v in data]
+    labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model v1 (#412)",
+              "epoch_noise": "v1 + El-Badry U(0, 0.04) mas", "v2": "epoch model v2",
+              "v2_n2": "v2 + per-CCD bright noise (N2)"}
     summary: dict[str, Any] = {"n_realizations": args.n_realizations, "variants": {}}
     for v in variants:
         t = data[v]
@@ -311,6 +317,15 @@ def cmd_validation(args: argparse.Namespace) -> None:
                 / inflation_factor_from_f2(truth["goodness_of_fit"][si[acc]], nu_pub)
             )
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
+            # RUWE over every realization (all outcomes carry a RUWE except flag 0)
+            r["ruwe_ratio_all"] = _q(t["ruwe"][m_typ] / truth["ruwe"][si[m_typ]])
+            orbf = m_typ & (t["outcome"] == 12)
+            r["f2_median_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
+                mg = orbf & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                mp_ = (stype == typ) & (truth["g_mag"] >= lo) & (truth["g_mag"] < hi)
+                r["f2_median_by_g"][f"{lo}-{hi}"] = {"recovered": _q(t["goodness_of_fit"][mg]).get("median", float("nan")),
+                                                      "published": float(np.median(truth["goodness_of_fit"][mp_])) if mp_.any() else float("nan")}
             for lab, mg in (("g_lt_13", truth["g_mag"][si] < 13), ("g_ge_13", truth["g_mag"][si] >= 13)):
                 for name, rec_key, pub_key in SIGMA_PAIRS:
                     sel = acc & mg
@@ -363,8 +378,8 @@ def cmd_validation(args: argparse.Namespace) -> None:
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     for i, v in enumerate(variants):
-        if v == "epoch_noise":
-            continue  # same epochs as "epoch"
+        if v in ("epoch_noise", "v2_n2"):
+            continue  # same epochs as "epoch" / "v2"
         t = data[v]
         si = t["system_index"].astype(int)
         nv = t["n_visibility_periods"] if v == "baseline" else t["sim_n_visibility_periods"]
@@ -417,6 +432,48 @@ def cmd_validation(args: argparse.Namespace) -> None:
               "cap600+", round(o["acceleration_capture"]["600-1e+09"]["fraction"], 3))
 
 
+def cmd_single(args: argparse.Namespace) -> None:
+    """Single-star RUWE check: injected non-binary stars vs DR3 RUWE of the same stars."""
+    plt = require_pyplot()
+    style, dpi = _style()
+    with h5py.File(Path(args.snapshot) / "random.h5", "r") as f:
+        sid, ruwe_dr3, vp = f["source_id"][:], f["ruwe"][:], f["visibility_periods_used"][:]
+    idx = {int(s_): i for i, s_ in enumerate(sid)}
+    rows: dict[str, list[tuple[int, float, float, float]]] = {}
+    for line in Path(args.log).read_text().splitlines():
+        r = json.loads(line)
+        rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"]))
+    arr = {k: np.array(v) for k, v in rows.items()}
+    variants = [v for v in ("gaiamock", "v2", "v2_n2") if v in arr]
+    labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)"}
+    gbins = ((0, 13), (13, 17), (17, 19))
+    summary: dict[str, Any] = {"n_stars": int(arr[variants[0]].shape[0]), "bins": {}}
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
+    bins = np.linspace(0.7, 1.8, 56)
+    for ax, (lo, hi) in zip(axes, gbins):
+        a0 = arr[variants[0]]
+        m0 = (a0[:, 1] >= lo) & (a0[:, 1] < hi)
+        i0 = a0[m0, 0].astype(int)
+        _hist_step(ax, ruwe_dr3[i0], bins, 0, style, "DR3 RUWE (same stars, incl. binaries)")
+        b: dict[str, Any] = {"n": int(m0.sum()), "dr3": _q(ruwe_dr3[i0]), "dr3_frac_gt_1p4": float(np.mean(ruwe_dr3[i0] > 1.4))}
+        for j, v in enumerate(variants):
+            a = arr[v]
+            m = (a[:, 1] >= lo) & (a[:, 1] < hi)
+            _hist_step(ax, a[m, 2], bins, j + 1, style, labels[v])
+            b[v] = {"ruwe": _q(a[m, 2]), "frac_gt_1p4": float(np.mean(a[m, 2] > 1.4)),
+                    "nvis_minus_dr3_mean": float(np.mean(a[m, 3] - vp[a[m, 0].astype(int)]))}
+        summary["bins"][f"{lo}-{hi}"] = b
+        apply_axes_style(ax, style, xlabel="RUWE", ylabel="fraction of stars" if lo == 0 else None,
+                         title=f"{lo} < G < {hi} (N = {int(m0.sum()):,})")
+    axes[0].legend(prop=legend_prop(style), loc="upper right", frameon=False)
+    save_figure(fig, Path(args.fig_dir) / "single_star_ruwe.png", dpi=dpi)
+    path = Path(args.fig_dir) / "summary.json"
+    old = json.loads(path.read_text()) if path.exists() else {}
+    old["single_star_ruwe"] = summary
+    path.write_text(json.dumps(old, indent=1))
+    print(json.dumps(summary, indent=1))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(required=True)
@@ -426,12 +483,17 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_measurement)
     p = sub.add_parser("validation")
     p.add_argument("--inj390", required=True)
-    p.add_argument("--log", required=True)
+    p.add_argument("--log", required=True, nargs="+")
     p.add_argument("--snapshot", required=True)
     p.add_argument("--compare", required=True, help="output/gate400/epoch_compare.h5")
     p.add_argument("--n-realizations", type=int, default=3)
     p.add_argument("--fig-dir", default=str(REPO / "docs" / "gate400" / "figures"))
     p.set_defaults(func=cmd_validation)
+    p = sub.add_parser("single")
+    p.add_argument("--log", required=True)
+    p.add_argument("--snapshot", required=True)
+    p.add_argument("--fig-dir", default=str(REPO / "docs" / "gate400" / "figures"))
+    p.set_defaults(func=cmd_single)
     args = parser.parse_args(argv)
     args.func(args)
     return 0
