@@ -97,3 +97,30 @@ Worktree `../dark-hunter_pop-worktrees/mock-population-decisions-391/output/prop
 - `decided_gen11_partial.h5` (assembled)
 - `gen11.log`
 - `launch_gen11.sh`
+
+## 2026-10-03: decisions wired in; restart smoke (plumbing only)
+
+The 2026-10-03 decisions (spec §0.2) are implemented:
+- the bounded MdS17 eccentricity proposal (#409, #410);
+- the Malmquist weight (#405), with Combined19 A_G (MP-Q29), Gaussian distance marginalization (MP-Q30) and a fitted zero point and σ_int (MP-Q25);
+- the real-side IPD/C\* drop (MP-Q24: 168,025 → 167,911 rows, exactly the 114);
+- the ESS ≥ 30 shading and KS gate (MP-Q19);
+- the epoch-model hook (#400 E1);
+- BLAS pinning (verified: OpenBLAS and OpenMP at 1 thread in every worker) and `nice` (#408).
+
+**MP-Q25 fit (`malmquist_zero_point_fit.json`):** zp = −2.357 ± 0.006 mag and σ_int = 2.082 ± 0.007 mag on 161,776 RUWE < 1.4 dwarfs. The statistical error is far below the closed loop's 0.05 mag tolerance, but the fit is **not physically meaningful**:
+- ΔM runs from +0.64 mag at d < 0.5 kpc to −2.94 mag at 2–5 kpc.
+- It also runs from −3.0 mag at M1 < 0.6 M⊙ to +0.2 mag at M1 > 2 M⊙.
+- The causes are the TAG10 floor (#393) and evolved stars that MSC fits as dwarfs (MP-Q28).
+- Escalated as **#414**. With σ_int ≈ 2 mag the weight is nearly flat.
+
+**Smoke (generation 20, `config/population/proposal_set_restart_smoke.yaml`)** ran 1,000 draws with the #400 epoch model on, taken from its open branch (merged locally, not pushed), at 2 workers under `nice`:
+- 21 accepted orbits, ESS 5.5;
+- 0.78 CPU s per draw on average; a draw that reaches the orbital fit costs about 10 s (13 s before the epoch model);
+- 10.6 min wall, 0.22 CPU-h.
+
+Figures and the report are plumbing checks only (`smoke_epoch_report.txt`).
+
+**Projected full restart:** target accepted-set ESS ≈ 2,000.
+- Basis: the paused generation 11 ran at 12.3 ESS per CPU-h; the epoch model makes draws about 18% cheaper. The smoke itself gives about 25 ESS per CPU-h, but from only 21 accepted orbits.
+- Cost: ≈ 130 CPU-h (range 80–165), ≈ 16–21 h wall at 8 workers, ≈ 430k draws, ≈ 0.4 GB disk.
