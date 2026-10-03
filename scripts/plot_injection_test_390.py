@@ -138,7 +138,12 @@ def fig_pulls(d: dict[str, Any], sel: np.ndarray, path: Path, style: Any, dpi: i
     edges = np.linspace(-clip, clip, 31)
     width = edges[1] - edges[0]
     groups = [(TYPE_LABEL[t], sel & (d["sys_type"][d["si"]] == t)) for t in TYPES]
-    fig, axes = plt.subplots(1, len(PULL_PARAMS), figsize=(4.2 * len(PULL_PARAMS), 5.0))
+    fig, all_axes = plt.subplots(
+        1, len(PULL_PARAMS) + 1, figsize=(4.2 * len(PULL_PARAMS) + 2.6, 5.0),
+        gridspec_kw={"width_ratios": [1.0] * len(PULL_PARAMS) + [0.6]},
+    )
+    axes, legend_ax = all_axes[:-1], all_axes[-1]
+    legend_ax.axis("off")
     for ax, (name, sig, lab) in zip(axes, PULL_PARAMS):
         notes = []
         for gi, (glab, m) in enumerate(groups):
@@ -161,7 +166,10 @@ def fig_pulls(d: dict[str, Any], sel: np.ndarray, path: Path, style: Any, dpi: i
         ax.set_ylim(0, ax.get_ylim()[1] * 1.3)
         apply_axes_style(ax, style, xlabel=f"pull in {lab}",
                          ylabel="realizations" if ax is axes[0] else None)
-    axes[-1].legend(prop=legend_prop(style), loc="upper right", frameon=False)
+    for ax in axes:
+        ax.set_xticks([-4, -2, 0, 2, 4])
+    handles, labels = axes[0].get_legend_handles_labels()
+    legend_ax.legend(handles, labels, prop=legend_prop(style), loc="center left", frameon=False)
     save_figure(fig, path, dpi=dpi)
 
 
@@ -189,6 +197,7 @@ def fig_pulls_split(d: dict[str, Any], sel: np.ndarray, path: Path, style: Any, 
                         color=st["color"], alpha=0.35, edgecolor=st["color"], linewidth=st["linewidth"])
                 _norm_overlay(ax, len(p), width, style)
             ax.set_xlim(-clip, clip)
+            ax.set_xticks([-4, -2, 0, 2, 4])
             ax.text(0.03, 0.95, f"N={s.n}\nmed={s.median:+.2f}\n$\\sigma_{{\\rm MAD}}$={s.sigma_mad:.2f}",
                     transform=ax.transAxes, va="top", ha="left", fontfamily=style.font_family,
                     fontsize=style.tick_label_fontsize * 0.85)
@@ -277,9 +286,12 @@ def fig_sig_ruwe_f2(d: dict[str, Any], sel_orb: np.ndarray, path: Path, style: A
             from matplotlib.ticker import FuncFormatter
 
             fmt = FuncFormatter(lambda v, _pos: f"{v:g}")
+            minor_fmt = FuncFormatter(
+                lambda v, _pos: f"{v:g}" if f"{v:g}"[0] in "25" else ""
+            )
             for axis in (ax.xaxis, ax.yaxis):
                 axis.set_major_formatter(fmt)
-                axis.set_minor_formatter(fmt)
+                axis.set_minor_formatter(minor_fmt)
             ax.tick_params(axis="both", which="minor", labelsize=style.tick_label_fontsize * 0.8)
         apply_axes_style(ax, style, xlabel=f"published {lab}", ylabel=f"recovered {lab}")
     axes[0].legend(prop=legend_prop(style), loc="upper left", frameon=False)
