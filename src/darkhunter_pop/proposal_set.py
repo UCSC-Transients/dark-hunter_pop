@@ -25,6 +25,7 @@ starts with ``provisional_``. All are recorded in the artifact.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -32,7 +33,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, ContextManager, Literal, Mapping, Sequence
 
 import numpy as np
 import yaml
@@ -288,6 +289,10 @@ class ProposalConfig(_Strict):
     m1: Literal["tag10_point_drop_unresolved"]  # MP-Q5
     giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g)
     light_split: Literal["observed_g_is_system_total"]  # MP-Q6
+    # #400 E1 (decided 2026-10-03): ``dr3_config`` wraps every cascade call in the epoch
+    # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
+    # gaiamock's GOST list. Generation-time: it changes the epochs (spec §3.5).
+    epoch_model: Literal["off", "dr3_config"] = "off"
 
 
 class MdS17TargetConfig(_Strict):
@@ -840,16 +845,24 @@ def simulate_one(
     c_funcs: Any,
     cfg: ProposalConfig,
     cuts: OrbitalSolutionCutsConfig,
+    epoch_wrap: Callable[[Mapping[str, Any]], ContextManager[Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one stored draw through ``run_full_astrometric_cascade``, seeded per #371.
 
     Seeds: ``mock_global_rng_seeds(base_seed, PROPOSAL_RNG_STREAM_BASE + generation,
     draw_index)``, so a draw replays alone, independent of order or worker.
+
+    ``epoch_wrap(draw)`` (optional) returns a context manager entered around the cascade,
+    e.g. ``epoch_model.gost_epoch_model(...)`` with ``epoch_model_rng(base_seed, stream,
+    draw_index)`` (#400 hook). It must be given exactly when ``cfg.epoch_model != "off"``.
     """
+    if (epoch_wrap is None) != (cfg.epoch_model == "off"):
+        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch_wrap is {'missing' if epoch_wrap is None else 'given'}")
     stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
     seeds = mock_global_rng_seeds(cfg.base_seed, stream, int(draw["draw_index"]))
     t0 = time.process_time()
-    with seeded_global_rng(seeds, c_funcs):
+    wrap = epoch_wrap(draw) if epoch_wrap is not None else contextlib.nullcontext()
+    with wrap, seeded_global_rng(seeds, c_funcs):
         cascade = gaiamock.run_full_astrometric_cascade(
             ra=float(draw["ra_deg"]),
             dec=float(draw["dec_deg"]),
@@ -1087,15 +1100,31 @@ def read_proposal_artifact(path: str | Path) -> tuple[dict[str, NDArray[Any]], d
 # ---------------------------------------------------------------------------
 
 
+def load_real_input_columns(snapshot_dir: str | Path) -> dict[str, NDArray[Any]]:
+    """Load ``columns.h5`` from ``scripts/fetch_real_nss_input_columns.py`` (checksum verified)."""
+    import h5py
+
+    d = Path(snapshot_dir)
+    meta = yaml.safe_load((d / "meta.yaml").read_text())
+    got = _sha256(d / "columns.h5")
+    if got != meta["columns_h5_sha256"]:
+        raise ValueError(f"input-columns snapshot checksum mismatch: {got}")
+    with h5py.File(d / "columns.h5", "r") as h:
+        return {k: h[k][()] for k in h.keys()}
+
+
 def real_comparison_keep(
-    columns: Any, proposal: ProposalConfig
+    columns: Any,
+    proposal: ProposalConfig,
+    input_columns: Mapping[str, NDArray[Any]] | None = None,
 ) -> tuple[NDArray[np.bool_], dict[str, int]]:
     """Rows of the real comparison table kept to mirror the decided parent filters.
 
     Applies the same measured-parallax floor (MP-Q1) and the same no-atmosphere drop (MP-Q5:
-    neither an MSC nor a GSP-Phot atmosphere resolves) as the parent. The Halbwachs (b)/(c)
-    cuts are *not* applied here: they are NSS input filters, measured as implicit on the real
-    side (spec §0.1; their 0.06% residue is MP-Q24). Returns ``(mask, counts)``.
+    neither an MSC nor a GSP-Phot atmosphere resolves) as the parent. When ``input_columns``
+    is given (MP-Q24, decided 2026-10-03: drop the real rows failing the Halbwachs (b)/(c)
+    cuts, for symmetry), the same :func:`halbwachs_input_flags` are applied, joined by
+    ``source_id``; a row missing from ``input_columns`` fails. Returns ``(mask, counts)``.
     """
     from darkhunter_pop.mass_derivation import resolve_atmosphere_from_extras
 
@@ -1111,11 +1140,26 @@ def real_comparison_keep(
     with np.errstate(invalid="ignore"):
         floor = plx > proposal.parallax_floor_mas
     keep = floor & has_atm
-    return keep, {
+    counts = {
         "rows": int(n),
         "parallax_floor": int(floor.sum()),
         "parallax_floor_and_atmosphere": int(keep.sum()),
     }
+    if input_columns is not None:
+        sid = np.asarray(columns["source_id"], dtype=np.int64)
+        ref = np.asarray(input_columns["source_id"], dtype=np.int64)
+        order = np.argsort(ref)
+        pos = np.searchsorted(ref[order], sid)
+        pos_c = np.clip(pos, 0, max(ref.size - 1, 0))
+        found = (ref.size > 0) & (ref[order][pos_c] == sid)
+        idx = order[pos_c]
+        joined = {k: np.where(found, np.asarray(v, dtype=np.float64)[idx], np.nan)
+                  for k, v in input_columns.items() if k != "source_id"}
+        hf = halbwachs_input_flags(joined, proposal.halbwachs_cuts)
+        keep = keep & hf["halbwachs_ipd"] & hf["halbwachs_cstar"]
+        counts["missing_input_columns"] = int((~found).sum())
+        counts["and_halbwachs_ipd_cstar"] = int(keep.sum())
+    return keep, counts
 
 
 def weighted_ks(

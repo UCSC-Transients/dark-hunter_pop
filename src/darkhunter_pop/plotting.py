@@ -1022,6 +1022,7 @@ def plot_six_panel_grid(
     style: PlottingStyleConfig | None = None,
     series_weights: Mapping[str, Mapping[str, NDArray[np.floating] | Sequence[float]]]
     | None = None,
+    shade_ranges: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> Path | None:
     """Write a 2×3 grid of overlay histograms (selection-function validation style).
 
@@ -1042,6 +1043,10 @@ def plot_six_panel_grid(
     ``series_weights`` (optional) maps panel name → {series_label → per-value weights},
     same length as that series' values, for importance-weighted histograms (#391). A
     series without weights is unweighted. Non-finite values drop with their weights.
+
+    ``shade_ranges`` (optional) maps panel name → list of ``(lo, hi)`` x-intervals drawn as
+    light grey bands behind the data, e.g. bins whose effective sample size is below the
+    display minimum (#391 MP-Q19). The caption should say what the shading means.
     """
     if not panel_order:
         return None
@@ -1126,6 +1131,8 @@ def plot_six_panel_grid(
             series_index += 1
             drawn = True
             any_drawn = True
+        for x_lo, x_hi in (shade_ranges or {}).get(panel_name, ()):
+            axis.axvspan(x_lo, x_hi, color="0.85", alpha=0.6, linewidth=0, zorder=0)
         if axis_spec is not None:
             scale, lo, hi = axis_spec
             if scale == "log":
