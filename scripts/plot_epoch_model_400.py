@@ -294,6 +294,10 @@ def cmd_validation(args: argparse.Namespace) -> None:
             for name, rec_key, pub_key in SIGMA_PAIRS:
                 r[f"sigma_ratio_{name}"] = _q(t[rec_key][acc] / truth[pub_key][si[acc]])
             r["significance_ratio"] = _q(t["significance"][acc] / truth["significance"][si[acc]])
+            # #390's definition: every realization that reached the orbit fit
+            orb = m_typ & (t["outcome"] == 12)
+            r["significance_ratio_orbit_fit"] = _q(t["significance"][orb] / truth["significance"][si[orb]])
+            r["f2_recovered_minus_published_orbit_fit"] = _q(t["goodness_of_fit"][orb] - truth["goodness_of_fit"][si[orb]])
             r["f2_recovered_minus_published"] = _q(t["goodness_of_fit"][acc] - truth["goodness_of_fit"][si[acc]])
             nu_rec = t["n_obs"][acc] - 12
             nu_pub = n_good_pub[si[acc]] - 12
@@ -395,6 +399,8 @@ def cmd_validation(args: argparse.Namespace) -> None:
         print(v, "N", o["n"], "acc", round(o["accepted_fraction"], 3),
               {n: round(o[f"sigma_ratio_{n}"].get("median", np.nan), 3) for n, _, _ in SIGMA_PAIRS},
               "sig", round(o["significance_ratio"].get("median", np.nan), 3),
+              "sig_orbfit", round(o["significance_ratio_orbit_fit"].get("median", np.nan), 3),
+              "dF2_orbfit", round(o["f2_recovered_minus_published_orbit_fit"].get("median", np.nan), 2),
               "dF2", round(o["f2_recovered_minus_published"].get("median", np.nan), 2),
               "c", round(o["c_factor_ratio_recovered_over_published"].get("median", np.nan), 3),
               "nvis", o["nvis_sim_minus_published"].get("median"), round(o["nvis_sim_minus_published_mean"], 2),
