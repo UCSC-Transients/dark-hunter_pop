@@ -901,6 +901,40 @@ dr3:
     mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr3_accel_jerk_pinned
+  # Statistical epoch-loss model around gaiamock's GOST transit list (#400, #398;
+  # docs/EPOCH_MODEL_SPEC.md). Wraps gaiamock, never edits it. Off until Ryan
+  # chooses (spec §6); the calibration is recorded here so the choice is one flag.
+  epoch_model:
+    enabled: false
+    # ESA "Gaps in Gaia (E)DR3 data", Astrometry_EDR3.csv (138 gaps, OBMT rev),
+    # https://www.cosmos.esa.int/web/gaia/dr3-data-gaps, downloaded 2026-10-03.
+    gap_table: config/scanning_law/dr3_astrometry_gaps_edr3.csv
+    gap_table_sha256: e3bb06ba3a2cffd93bdf8336152b95d7cbd7ee6f192277bd70f6cea293777161
+    gap_source: "ESA Gaia (E)DR3 astrometry gap table; extends Lindegren et al. (2021) Table 1"
+    apply_gaps: true
+    # Lindegren et al. (2021) Sect. 2.2: AGIS used OBMT 1192.13-5230.09 rev.
+    agis_window_obmt_rev: [1192.13, 5230.09]
+    # Lindegren et al. (2021) Eq. 2: JD_TCB = 2457023.75 + (OBMT - 1717.6256) / 4.
+    obmt_reference_rev: 1717.6256
+    obmt_reference_jd_tcb: 2457023.75
+    obmt_rev_per_day: 4.0
+    # GOST rows closer than this are one FoV transit (10 rows span 45 s; transits
+    # are >= 1.76 h apart).
+    transit_split_day: 0.01
+    # Whole-transit loss after the gaps, calibrated on 94,635 random gaia_source stars
+    # (G < 19) against DR3 astrometric_matched_transits (docs/gate400, spec §3).
+    transit_loss:
+      g_edges: [3.0, 11.0, 13.0, 15.0, 16.0, 17.0, 17.5, 18.0, 18.5, 19.0]
+      prob: [0.038, 0.028, 0.034, 0.035, 0.044, 0.053, 0.052, 0.060, 0.073]
+      density_slope_per_dex: 0.0
+      density_ref_per_deg2: 31622.8
+    calibration_snapshot: 20261003T063811Z_epoch_counts_400
+    # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
+    excess_noise:
+      enabled: false
+      g_max: 13.0
+      sigma_max_mas: 0.04
+    provenance: "#400 calibration, scripts/measure_epoch_counts_400.py compare"
 dr4:
   mission_baseline_months: 66.0
   scanning_law_id: gaiadr4_pinned
@@ -968,3 +1002,5 @@ dr4:
     mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr4_accel_jerk_pinned
+  # DR4 epoch model: not calibrated (DR4 gaps and counts unpublished).
+  epoch_model: null
