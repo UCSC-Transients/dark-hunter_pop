@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         panel_order=SIX_PANEL_NAMES,
         dpi=int(cfg.diagnostics.figure_dpi),
         title=(
-            f"{lab} rung 2: DR3 Orbital+AstroSpectroSB1 (N={n_real})\n"
+            f"{lab}\nrung 2: DR3 Orbital+AstroSpectroSB1 (N={n_real})\n"
             f"vs MdS17-reweighted mock "
             f"(N_acc={n_acc}, MdS17 ESS={ess_acc:.1f})"
         ),
@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         ks_info[name] = weighted_ks(real_panels[name], mock_vals[name][acc], w[acc])
     fig.suptitle(
-        f"{lab}: effective sample size per six-panel bin ({n_acc} accepted, MdS17 ESS {ess_acc:.1f})",
+        f"{lab}\neffective sample size per six-panel bin ({n_acc} accepted, MdS17 ESS {ess_acc:.1f})",
         fontfamily=style.font_family, fontsize=style.title_fontsize,
     )
     fig.tight_layout()
