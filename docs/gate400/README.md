@@ -16,7 +16,7 @@ is listed for Ryan (spec §6). None has been chosen.
 | (c) residual | per-transit keep fraction after the gaps 0.96–0.97 at G < 16, falling to 0.93 at G = 18.5–19; weak in density, none in \|b\| or \|β\|; scan-direction "trend" is the 3,072-position GOST grid, not a loss |
 | model | gaps + per-transit loss p(G) = 0.028–0.073 (9 G bins), calibrated on 94,635 random stars; gaiamock's 10% row drop kept as the per-CCD term |
 | on the data | NSS: mean transits 48.3 vs DR3 48.6 (GOST 54.0); mean N_vis 23.14 vs 23.15 (GOST 25.40) |
-| validation | see "Validation" below |
+| validation (#390 set, 3,888 realizations) | Orbital σ ratio 0.89 → **0.98** (ϖ, a0), 0.87 → 0.97 (P); at G ≥ 13 **1.02–1.04**; CCD obs / DR3 1.129 → **1.004**; N_vis excess median +2 → **0** (mean +2.23 → −0.07); long-P acceleration capture **unchanged** (0.234 → 0.239); the El-Badry G < 13 U(0, 0.04) mas term is far too small to reproduce DR3's bright-star F2 |
 
 ## Measurement
 
@@ -60,7 +60,72 @@ from the GOST position (0.955–0.966), so the grid is unbiased.
 
 ## Validation
 
-(filled in from `scripts/plot_epoch_model_400.py validation`)
+`scripts/validate_epoch_model_400.py` re-ran the 1,296 #390 systems × 3 realizations (3,888;
+the #390 seeds; 0 errors; 179 min on 6 workers, BLAS pinned to 1 thread, see #408) through the
+wrapper. Variant **epoch** is the model alone (gaps + p(G), with gaiamock's 10% row drop kept).
+**epoch + noise** adds El-Badry et al. (2024) §3.3.1's G < 13 term to the same epochs:
+σ ~ U(0, 0.04) mas per source, then N(0, σ) common to each transit's CCDs, with stated errors
+unchanged. The 0.5 mas term for ξ > 0.5 needs the component separation and flux ratio, which a
+photocentre-orbit injection does not have, so it was **not applied** (spec §5). The baseline
+is the stored #390 result for the same (system, realization) pairs. Output
+`output/gate400/validation/realizations.jsonl` (sha256 `288affb4…978c`). Every number is in
+`figures/summary.json`.
+
+Orbital, median over accepted realizations (16–84%), recovered / published:
+
+| | #390 baseline | epoch | epoch + noise |
+|---|---|---|---|
+| accepted fraction | 0.741 | 0.679 | 0.679 |
+| σ_ϖ | 0.892 (0.71–1.08) | **0.980** (0.78–1.19) | 0.983 |
+| σ_a0 | 0.899 | **0.979** | 0.983 |
+| σ_P | 0.865 | **0.969** | 0.970 |
+| σ_e | 0.883 | **0.972** | 0.973 |
+| σ_ϖ, G < 13 / G ≥ 13 | 0.79 / 0.94 | 0.87 / **1.03** | 0.88 / 1.03 |
+| a0/σ_a0, all orbit fits (#390's definition) | 1.079 | **0.976** | 0.975 |
+| F2 recovered − published, all orbit fits | −1.15 | −1.20 | −1.17 |
+| c_recovered / c_published (Halbwachs Eq. 2) | 0.948 | 0.940 | 0.941 |
+| RUWE | 0.999 | 0.992 | 0.993 |
+| N_vis simulated − DR3, median (16–84%) / mean | +2 (0, +4) / +2.23 | **0 (−2, +2) / −0.07** | same epochs |
+| CCD obs / DR3 `n_good_obs_al` | 1.129 (0.96–1.31) | **1.004** (0.86–1.17) | same |
+| transits / DR3 `astrometric_matched_transits` | 1.114 (GOST) | **1.000** (0.85–1.16) | same |
+
+σ_ϖ ratio by G (`figures/validation_sigma_ratio.png`): baseline 0.72 / 0.74 / 0.82 / 0.95 / 0.95
+/ 0.92 for G < 11, 11–12, 12–13, 13–14, 14–15, > 15. With the epoch model: 0.79 / 0.80 / 0.90 /
+1.04 / 1.02 / 1.00. **Above G = 13 the epoch model closes the σ deficit.** Below G = 13 the
+remainder is the bright-star excess noise (#398 term (ii)).
+
+**The El-Badry et al. (2024) term does not reproduce DR3's bright-star excess in gaiamock_mod.**
+Median recovered F2 for orbit fits at G < 11 / 11–12 / 12–13 is 0.26 / 0.38 / 0.31 with the
+epoch model and 0.56 / 0.60 / 0.67 with the term added, against **8.5 / 8.5 / 5.7** published.
+The σ_ϖ ratio moves by only +0.005–0.014. U(0, 0.04) gives 0.023 mas rms per transit, while
+#399 estimated ~0.038 mas from the c ratio. Because the overlay fits unbinned CCDs, a per-transit
+offset raises χ²/ν by only σ_x²/σ_CCD² ≈ 0.03 at G ≈ 11 (σ_CCD = 0.135 mas). That is nine times
+less than in the paper's binned (N_bin = 8–9) likelihood, although the extra scatter in the
+parameters is the same. Reaching DR3's F2 ≈ 8.5 (χ²/ν ≈ 1.7 at ν ≈ 400) in the unbinned fit
+would need ~0.1 mas per transit, or an independent per-CCD excess. This bears on #398 option 3:
+the paper's value cannot be carried over to the unbinned overlay as is (option N2).
+
+AstroSpectroSB1 (astrometry-only refit, so σ above published is expected, #390): σ_a0 1.077 →
+1.197, σ_ϖ 0.917 → 1.013; N_vis median +2 → 0; CCD obs 1.128 → 1.006.
+
+**#399 long-period acceleration capture** (Orbital, accepted 7/9-parameter fraction;
+`figures/validation_capture_vs_period.png`):
+
+| P (d) | < 300 | 300–600 | 600–1000 | > 1000 | > 600 |
+|---|---|---|---|---|---|
+| #390 baseline | 0.006 | 0.051 | 0.233 | 0.241 | **0.234** (362/1,545) |
+| epoch | 0.021 | 0.054 | 0.236 | 0.256 | **0.239** (369/1,545) |
+| epoch + noise | 0.023 | 0.053 | 0.240 | 0.251 | **0.241** (373/1,545) |
+
+Correct epoch counts do **not** reduce capture. That fits #399's finding that the decision is
+set by the parallax criterion, whose ratio scales as σ^0.05. The 3–4 pp drop #399 predicted
+for its "DR3-matched" noise came mostly from the bright-star c-factor scaling, which neither
+variant reproduces here. Short-period capture rises from 0.6% to 2.1% (10 of 471): with fewer
+transits, a few short-period orbits are fit as accelerations.
+
+**Acceptance falls 0.741 → 0.679** (Orbital) and 0.880 → 0.826 (AstroSpectroSB1). Realistic
+epochs make published orbits harder to re-detect near threshold. The winner's-curse
+interpretation of #390 (finding 4) applies more strongly.
 
 ## Options for Ryan
 

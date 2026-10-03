@@ -216,8 +216,13 @@ The 1,296 systems × 3 realizations were re-run with the #390 seeds through the 
 σ ~ U(0, 0.04) mas drawn per source, then N(0, σ) common to the CCDs of each transit, with the
 stated errors unchanged. The paper's 0.5 mas term for marginally resolved epochs (ξ > 0.5)
 needs the component separation and flux ratio. The #390 truth is a photocentre orbit (a0
-only), so that term is undefined for this test and is not applied. Results:
-`docs/gate400/README.md`.
+only), so that term is undefined for this test and is not applied. Results
+(`docs/gate400/README.md`): with the model, Orbital recovered/published σ moves from 0.87–0.90 to
+0.97–0.98 overall, and to 1.02–1.04 at G ≥ 13. CCD observations / DR3 go from 1.129 to 1.004, and
+the visibility-period excess from +2 to 0 (median). Long-period acceleration capture is unchanged
+(0.234 → 0.239). The G < 13 remainder (σ_ϖ ratio 0.79–0.90) is bright-star excess noise, and
+the paper's U(0, 0.04) mas term raises the recovered F2 by only ~0.3 against a published
+5.7–8.5.
 
 ## 6. Options for Ryan (none chosen)
 
@@ -231,7 +236,7 @@ only), so that term is undefined for this test and is not applied. Results:
 | E6 | calibrate on random stars (now), or on NSS | NSS is selected on N; random is the unselected parent |
 | E7 | bin edges in G (now 9 bins from the calibration sample), or a smooth logistic | |
 | N1 | El-Badry σ ~ U(0, 0.04) drawn per source (validation default) or per transit | the paper is ambiguous |
-| N2 | add the G < 13 term to the mock (#398 option 3) | see #398 |
+| N2 | add a G < 13 term to the mock (#398 option 3) | the paper's U(0, 0.04) mas per transit is too small for the unbinned overlay (F2 +0.3 vs +5.7–8.5 needed); a value calibrated to DR3's F2 / c ratio (#399: ~0.038 mas rms) would be a new choice |
 
 ## 7. Limitations
 

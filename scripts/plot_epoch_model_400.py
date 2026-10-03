@@ -254,6 +254,11 @@ def _load_validation(inj390: Path, log: Path, n_real: int) -> dict[str, dict[str
                 continue
         tab["system_index"] = np.array([index[int(r["source_id"])] for r in recs])
         out[variant] = tab
+    # pair the baseline with the re-run: keep only (system, realization) pairs present in it
+    if "epoch" in out:
+        done = set(zip(out["epoch"]["system_index"].astype(int), out["epoch"]["realization"].astype(int)))
+        keep = np.array([(int(a), int(b)) in done for a, b in zip(base["system_index"], base["realization"])])
+        out["baseline"] = {k: v[keep] for k, v in base.items()}
     return out
 
 
@@ -306,6 +311,10 @@ def cmd_validation(args: argparse.Namespace) -> None:
                 / inflation_factor_from_f2(truth["goodness_of_fit"][si[acc]], nu_pub)
             )
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
+            for lab, mg in (("g_lt_13", truth["g_mag"][si] < 13), ("g_ge_13", truth["g_mag"][si] >= 13)):
+                for name, rec_key, pub_key in SIGMA_PAIRS:
+                    sel = acc & mg
+                    r[f"sigma_ratio_{name}_{lab}"] = _q(t[rec_key][sel] / truth[pub_key][si[sel]])
             r["sigma_ratio_parallax_vs_g"] = {}
             for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 14), (14, 15), (15, 25)):
                 mg = acc & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
