@@ -356,8 +356,12 @@ DR3's published Orbital c (Halbwachs Eq. 2) has a sharp step at G = 13 (median c
   `fit_full_astrometric_cascade`, and the RUWE entry of the returned vector is divided by k.
   RUWE scales as 1/error, so this is identical to computing RUWE with errors inflated by k.
 
-Ryan's condition is that nothing else breaks. The before/after results are in
-`docs/gate400/README.md` ("v2 validation").
+Ryan's condition was that nothing else breaks. **Verdict: not adopted**
+(`bright_excess_noise.enabled: false`; numbers in `docs/gate400/README.md`, "v2 validation").
+N2 matches F2 at G < 13 (8.8 / 9.2 / 6.1 vs DR3 8.5 / 8.5 / 5.7) and the σ ratios (0.85 → 1.06).
+But with RUWE renormalised, bright NSS RUWE falls to 0.87–0.91 × published, the orbit
+significance to 0.93 and acceptance to 0.661. Without renormalisation, single bright stars have
+RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 
 ### 8.6 Options remaining for Ryan (none chosen)
 
@@ -365,7 +369,9 @@ Ryan's condition is that nothing else breaks. The before/after results are in
 |---|---|---|
 | C1 | add a companion-induced transit loss as a function of the mock binary's own RUWE (two-pass: predict on GOST epochs, compute RUWE, thin again) | c = −0.0157 per ln RUWE: ~1.5% fewer transits at RUWE 3, 2.5% at RUWE 5 |
 | T1 | τ (episode duration) once the epoch-photometry times can be fetched | N_vis is flat in τ |
-| N2a | adopt N2 as configured / drop it / restrict it (see the validation verdict) | |
+| N2a | adopt N2 anyway (renormalised), accepting the −10% bright NSS RUWE and −6% significance | matches F2 and σ |
+| N2b | N2 for the NSS fits only: gate the cascade with gaiamock's `check_ruwe` on the data *without* the extra noise (`ruwe_min = 0` inside `fit_full_astrometric_cascade`, pop-side RUWE gate first). This models an AGIS vs NSS error-model difference; not yet run | composition of gaiamock calls, no reimplementation |
+| N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | current config |
 | R1 | random-star offset δ: leave unexplained, or investigate (sky distribution, ≥ 12 visibility periods, IPD harmonic amplitude, C*) | 1.3% |
 
 ### 8.7 Data: epoch-time snapshot
