@@ -106,7 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--artifact", type=Path, required=True, action="append")
     ap.add_argument("--parent-dir", type=Path, required=True)
     ap.add_argument("--real-snapshot", type=Path, required=True, help="uncut NSS snapshot query.ecsv")
-    ap.add_argument("--real-bj-dir", type=Path, required=True, help="fetch_nss_bailer_jones.py output dir")
+    ap.add_argument(
+        "--real-bj-dir", type=Path, default=None,
+        help="fetch_nss_bailer_jones.py output dir; without it the real side uses the inverse NSS parallax",
+    )
     ap.add_argument("--flame-snapshot", type=Path, default=None, help="flame_enrichment query.ecsv")
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
@@ -200,30 +203,55 @@ def main(argv: list[str] | None = None) -> int:
     real = real[np.sort(first)]
     keep, kcounts = real_comparison_keep(real, gen_cfgs[0])
     real = real[keep]
-    meta = yaml.safe_load((args.real_bj_dir / "meta.yaml").read_text())
-    with h5py.File(args.real_bj_dir / "rows.h5", "r") as h:
-        bj = {k: h[k][()] for k in h.keys()}
-    order = np.argsort(bj["source_id"])
     sid = np.asarray(real["source_id"], np.int64)
-    pos = np.searchsorted(bj["source_id"], sid, sorter=order)
-    pos = np.clip(pos, 0, order.size - 1)
-    matched = bj["source_id"][order[pos]] == sid
-    idx = order[pos]
+    if args.real_bj_dir is not None:
+        meta = yaml.safe_load((args.real_bj_dir / "meta.yaml").read_text())
+        with h5py.File(args.real_bj_dir / "rows.h5", "r") as h:
+            bj = {k: h[k][()] for k in h.keys()}
+        order = np.argsort(bj["source_id"])
+        pos = np.clip(np.searchsorted(bj["source_id"], sid, sorter=order), 0, order.size - 1)
+        matched = bj["source_id"][order[pos]] == sid
+        idx = order[pos]
 
-    def bjcol(name: str) -> np.ndarray:
-        return np.where(matched, bj[name][idx], np.nan)
+        def bjcol(name: str) -> np.ndarray:
+            return np.where(matched, bj[name][idx], np.nan)
 
-    rcmd = cmd_for_rows(
-        bjcol("phot_g_mean_mag"), bjcol("bp_rp"), bjcol("l"), bjcol("b"),
-        bjcol("r_med_geo"), bjcol("r_lo_geo"), bjcol("r_hi_geo"), cfg, gcfg,
-    )
+        rcmd = cmd_for_rows(
+            bjcol("phot_g_mean_mag"), bjcol("bp_rp"), bjcol("l"), bjcol("b"),
+            bjcol("r_med_geo"), bjcol("r_lo_geo"), bjcol("r_hi_geo"), cfg, gcfg,
+        )
+        dist_note = f"Bailer-Jones geometric, matched {int(matched.sum())} ({meta['rows_h5_sha256'][:12]}, {meta['query_date']})"
+    else:
+        # Fallback (archive join timed out): distance = 1000 / NSS parallax, 16/84 from parallax ± error.
+        from astropy.coordinates import SkyCoord
+        import astropy.units as au
+
+        def fcol(name: str) -> np.ndarray:
+            return np.ma.filled(np.ma.asarray(real[name], float), np.nan)
+
+        plx, eplx = fcol("parallax"), fcol("parallax_error")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r_med = np.where(plx > 0, 1000.0 / plx, np.nan)
+            r_lo = np.where(plx > 0, 1000.0 / (plx + eplx), np.nan)
+            r_hi = np.where(plx - eplx > 0, 1000.0 / (plx - eplx), np.nan)
+        gal = SkyCoord(ra=fcol("ra") * au.deg, dec=fcol("dec") * au.deg).galactic
+        rcmd = cmd_for_rows(
+            fcol("g_mag"), fcol("bp_mag") - fcol("rp_mag"), gal.l.deg, gal.b.deg,
+            r_med, r_lo, r_hi, cfg, gcfg,
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rsnr = plx / eplx
+        dist_note = (
+            "inverse NSS parallax (Bailer-Jones join timed out on the Gaia archive); real parallax/error "
+            f"p5/p50 = {np.nanpercentile(rsnr, 5):.1f}/{np.nanpercentile(rsnr, 50):.1f}"
+        )
     rcls = classify_evolved(rcmd.mg0, rcmd.colour0, rcmd.sigma_mu, ridge, gcfg.provisional_n_sigma)
     rlogg = np.ma.filled(np.ma.asarray(real["logg_gspphot"], float), np.nan)
     rtype = np.asarray(real["nss_solution_type"]).astype(str)
     rep += [
         "",
         f"real {'+'.join(types)}: {len(real)} after mirror filters {kcounts} and {n_dup} duplicate source_id rows (#221) dropped; "
-        f"Bailer-Jones matched {int(matched.sum())} ({meta['rows_h5_sha256'][:12]}, {meta['query_date']}); "
+        f"distance: {dist_note}; "
         f"CMD-classified {int(rcls.classified.sum())}",
         f"real evolved (CMD): {_bfrac(int(rcls.evolved.sum()), int(rcls.classified.sum()))}",
         f"real GSP-Phot log g < 3.6: {_bfrac(int(np.sum(rlogg < 3.6)), int(np.sum(np.isfinite(rlogg))))}",
@@ -265,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         ("mock accepted (MdS17 weight)", pcmd.colour0[prow[am]], pcmd.mg0[prow[am]], mev[am], w[am]),
     ]
     for ax, (ttl, x, y, ev, ww) in zip(axs, panels_cmd):
-        h = ax.hist2d(x, y, bins=[np.linspace(-0.2, 3.2, 120), np.linspace(-4, 13, 140)], weights=ww, cmap="Greys", cmin=1e-30)
+        h = ax.hist2d(x, y, bins=[np.linspace(-0.2, 3.2, 120), np.linspace(-4, 13, 140)], weights=ww, cmap="Greys", cmin=1e-30, norm="log")
         ax.plot(cc, r_c, color=series_style(0, style)["color"], lw=2, label="MS ridge (measured)")
         ax.plot(cc, r_c - K.TWIN_BRIGHTENING_MAG, color=series_style(1, style)["color"], lw=2, ls="--", label="twin line")
         ax.plot(cc, thr_c, color=series_style(2, style)["color"], lw=2, ls=":", label=f"evolved cut (n_sigma={gcfg.provisional_n_sigma:g}, sigma_mu=0)")
@@ -276,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         ax.set_ylim(13, -4)
         del h
     axs[0].legend(loc="lower left", fontsize=style.tick_label_fontsize - 1)
-    fig.suptitle(f"{args.label}\nDereddened CMD (Combined19 + Babusiaux et al. 2018 law, Bailer-Jones geometric distance)", fontsize=style.title_fontsize)
+    fig.suptitle(f"{args.label}\nDereddened CMD (Combined19 + Babusiaux et al. 2018 law); parent/mock: Bailer-Jones geometric distance; real: {dist_note.split(';')[0]}", fontsize=style.title_fontsize)
     fig.tight_layout()
     save_figure(fig, args.out_dir / "giants_cmd.png", dpi=int(cfg.diagnostics.figure_dpi))
 
