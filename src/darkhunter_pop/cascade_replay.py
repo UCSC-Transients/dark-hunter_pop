@@ -48,6 +48,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from darkhunter_pop.forward_model import GlobalRNGSeeds, seeded_global_rng
+from darkhunter_pop.injection_test import campbell_from_thiele_innes
+from darkhunter_pop.nss_covariance import reconstruct_nss_covariance
 
 #: Thresholds hard-wired in ``gaiamock_mod.fit_full_astrometric_cascade``
 #: (El-Badry et al. 2024 Eqs. 12-13; Halbwachs et al. 2023 Sects. 2.2.2, 4.2, 4.3).
@@ -398,3 +400,144 @@ def forced_orbit_fit(
             skip_acceleration=True,
         )
     return [float(x) for x in res]
+
+
+#: Published parameters redrawn by :func:`draw_truths_from_published_covariance`.
+#: Position (ra, dec) is held fixed: a sub-mas offset does not enter gaiamock's
+#: AL signal and does not change the scanning law lookup.
+PERTURBED_PARAMETERS: Final[tuple[str, ...]] = (
+    "parallax",
+    "pmra",
+    "pmdec",
+    "a_thiele_innes",
+    "b_thiele_innes",
+    "f_thiele_innes",
+    "g_thiele_innes",
+    "eccentricity",
+    "period",
+    "t_periastron",
+)
+
+
+def draw_truths_from_published_covariance(
+    gaiamock: ModuleType,
+    row: Mapping[str, Any],
+    values: Mapping[str, float],
+    n_draws: int,
+    rng: np.random.Generator,
+    *,
+    ecc_max: float,
+    max_tries: int = 100,
+) -> list[dict[str, float]] | None:
+    """Truth vectors drawn from the published solution's full NSS covariance.
+
+    The #390 test injects the published orbit as if it were the truth. The real
+    truth differs from it by the published measurement error, and a system whose
+    acceleration decision sits near a threshold can flip across it within that
+    error. Drawing truths from ``N(published, C_published)`` (the full covariance,
+    ``nss_covariance.reconstruct_nss_covariance``) marginalizes over that.
+
+    Parameters
+    ----------
+    gaiamock
+        Imported ``gaiamock_mod`` (Thiele-Innes -> Campbell via ``get_Campbell_elements``).
+    row
+        Published NSS row with ``corr_vec`` / ``bit_index`` and the parameter columns.
+    values
+        The injection truth for the published point (``PublishedTruth.values``).
+    n_draws
+        Number of truths to return.
+    rng
+        Generator for the draws.
+    ecc_max
+        Draws with ``e < 0``, ``e >= ecc_max``, ``P <= 0`` or ``parallax <= 0`` are
+        rejected and redrawn (truncated Gaussian); pass gaiamock's fit bound.
+    max_tries
+        Rejection-sampling budget per returned draw.
+
+    Returns
+    -------
+    list[dict] or None
+        ``n_draws`` value dicts (same keys as ``values``) or ``None`` when the
+        covariance cannot be rebuilt. Never falls back to a diagonal.
+    """
+    sol_type = str(row.get("nss_solution_type", "")).strip('"')
+    res = reconstruct_nss_covariance(row, nss_solution_type=sol_type)
+    if res.parameter_set is None:
+        return None
+    names = list(res.parameter_set.names)
+    if not all(n in names for n in PERTURBED_PARAMETERS):
+        return None
+    idx = [names.index(n) for n in PERTURBED_PARAMETERS]
+    mean = np.asarray(res.parameter_set.values, dtype=np.float64)[idx]
+    cov = np.asarray(res.parameter_set.covariance, dtype=np.float64)[np.ix_(idx, idx)]
+    if not np.all(np.isfinite(cov)):
+        return None
+    out: list[dict[str, float]] = []
+    tries = 0
+    while len(out) < n_draws:
+        tries += 1
+        if tries > max_tries * n_draws:
+            raise RuntimeError("rejection sampling budget exhausted")
+        x = rng.multivariate_normal(mean, cov, method="eigh")
+        d = dict(zip(PERTURBED_PARAMETERS, (float(v) for v in x)))
+        if not (0.0 <= d["eccentricity"] < ecc_max and d["period"] > 0 and d["parallax"] > 0):
+            continue
+        v = dict(values)
+        v.update(d)
+        a0, big_omega, small_omega, inc = campbell_from_thiele_innes(
+            gaiamock, d["a_thiele_innes"], d["b_thiele_innes"], d["f_thiele_innes"], d["g_thiele_innes"]
+        )
+        v.update(a0_mas=a0, Omega_rad=big_omega, omega_rad=small_omega, inc_rad=inc)
+        out.append(v)
+    return out
+
+
+def fov_transit_groups(t_ast_yr: NDArray[np.float64], *, max_gap_s: float) -> NDArray[np.int64]:
+    """Index of the field-of-view transit each CCD observation belongs to.
+
+    gaiamock_mod's epochs are unbinned CCD transits; consecutive CCDs of one FOV
+    transit are seconds apart, consecutive FOV transits >= ~1.5 h apart. A gap larger
+    than ``max_gap_s`` (in time order) starts a new group. Input order is preserved in
+    the output (gaiamock's GOST epochs are not always time-sorted).
+    """
+    t_s = np.asarray(t_ast_yr, dtype=np.float64) * 365.25 * 86400.0
+    order = np.argsort(t_s, kind="stable")
+    sorted_groups = np.concatenate([[0], np.cumsum(np.diff(t_s[order]) > max_gap_s)])
+    groups = np.empty(len(t_s), dtype=np.int64)
+    groups[order] = sorted_groups
+    return groups
+
+
+def fov_correlated_noise(
+    epochs: ReplayedEpochs,
+    *,
+    correlated_fraction: float,
+    rng: np.random.Generator,
+    max_gap_s: float,
+) -> NDArray[np.float64]:
+    """Diagnostic noise with the same per-CCD variance, part of it common to a FOV transit.
+
+    ``n = sqrt(1 - f) * n_gaiamock + sqrt(f) * sigma * z_FOV`` with ``z_FOV ~ N(0, 1)``
+    drawn once per FOV transit and ``sigma`` the realized per-CCD noise rms. The total
+    per-CCD variance (hence RUWE, F2 and the fitter's ``c`` factor in expectation) is
+    unchanged, but the common part does not average down within a transit, so the
+    scatter of fitted parameters exceeds the formal (independence-assuming) errors.
+    Used only to ask how DR3-like correlated attitude/calibration noise would move the
+    cascade decision; it is not part of the forward model.
+
+    Parameters
+    ----------
+    correlated_fraction
+        ``f`` in [0, 1].
+    rng
+        Generator for ``z_FOV``.
+    max_gap_s
+        FOV grouping threshold (:func:`fov_transit_groups`).
+    """
+    if not (0.0 <= correlated_fraction <= 1.0):
+        raise ValueError(f"correlated_fraction must be in [0, 1], got {correlated_fraction}")
+    groups = fov_transit_groups(epochs.t_ast_yr, max_gap_s=max_gap_s)
+    sigma = float(np.sqrt(np.mean(epochs.noise**2)))
+    z = rng.standard_normal(int(groups.max()) + 1)[groups]
+    return np.sqrt(1.0 - correlated_fraction) * epochs.noise + np.sqrt(correlated_fraction) * sigma * z

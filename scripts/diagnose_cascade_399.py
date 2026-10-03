@@ -292,6 +292,128 @@ def cmd_matched(args: argparse.Namespace) -> None:
     print(f"wrote {path} in {(time.time()-t0)/60:.1f} min", flush=True)
 
 
+#: Realization-index offset for the truth-draw noise seeds (distinct from 0..24 above).
+TRUTH_DRAW_REALIZATION_OFFSET = 1000
+
+
+def _truth_task(task: tuple[dict[str, Any], dict[str, float], int, int, int, float]) -> list[dict[str, Any]]:
+    row, values, sys_idx, n_draws, base_seed, ecc_max = task
+    gm, c = _W["gm"], _W["c"]
+    sid = int(row["source_id"])
+    rng = np.random.default_rng(np.random.SeedSequence(399, spawn_key=(sid,)))
+    truths = cr.draw_truths_from_published_covariance(gm, row, values, n_draws, rng, ecc_max=ecc_max)
+    if truths is None:
+        return [{"system_index": sys_idx, "draw": -1}]
+    out = []
+    for k, v in enumerate(truths):
+        seeds = it.injection_rng_seeds(base_seed, sid, TRUTH_DRAW_REALIZATION_OFFSET + k)
+        ep = cr.replay_injection_epochs(gm, c, v, seeds, data_release="dr3")
+        st = cr.linear_cascade_statistics(gm, ep.t_ast_yr, ep.psi, ep.plx_factor, ep.observed, ep.ast_err)
+        rec: dict[str, Any] = {"system_index": sys_idx, "draw": k, "branch": cr.predicted_branch(st, ruwe_min=_W["ruwe_min"]),
+                               "a0_mas": v["a0_mas"], "period": v["period"], "eccentricity": v["eccentricity"],
+                               "parallax": v["parallax"]}
+        for fld in STAT_FIELDS:
+            rec[fld] = getattr(st, fld)
+        out.append(rec)
+    return out
+
+
+def cmd_truth_draws(args: argparse.Namespace) -> None:
+    sys.path.insert(0, str(REPO / "scripts"))
+    import run_injection_test_390 as rit  # the #390 published-orbit cache reader
+
+    truth, real, attrs = _load(Path(args.input))
+    pub, _ = rit._load_published(Path(args.published_dir))
+    key = {(int(s), str(t)): j for j, (s, t) in enumerate(zip(pub["source_id"], pub["nss_solution_type"]))}
+    keys = ("ra", "dec", "parallax", "pmra", "pmdec", "period", "t_periastron", "eccentricity",
+            "Omega_rad", "inc_rad", "omega_rad", "a0_mas", "g_mag")
+    tasks = []
+    for i in range(len(truth["source_id"])):
+        if truth["period"][i] < args.min_period:
+            continue
+        j = key[(int(truth["source_id"][i]), str(truth["nss_solution_type"][i]))]
+        row = rit._row_mapping(pub, j)
+        tasks.append((row, {k: float(truth[k][i]) for k in keys}, i, args.n_draws, int(attrs["base_seed"]),
+                      float(it.GAIAMOCK_FIT_ECC_MAX)))
+    print(f"{len(tasks)} systems x {args.n_draws} truth draws; workers={args.workers}", flush=True)
+    t0 = time.time()
+    rows: list[dict[str, Any]] = []
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(args.workers, initializer=_init, initargs=([(1.0, 1.0)], float(attrs["ruwe_min"]))) as pool:
+        for recs in pool.imap_unordered(_truth_task, tasks, chunksize=2):
+            rows.extend(recs)
+    no_cov = sorted({d["system_index"] for d in rows if d["draw"] < 0})
+    rows = [d for d in rows if d["draw"] >= 0]
+    rows.sort(key=lambda d: (d["system_index"], d["draw"]))
+    out = Path(args.out)
+    path = out / "truth_draws.h5"
+    with h5py.File(path, "w") as h:
+        for k in rows[0]:
+            h.create_dataset(k, data=np.array([d[k] for d in rows]))
+        h.attrs["no_covariance_system_index"] = json.dumps(no_cov)
+        h.attrs["truth_rng"] = "default_rng(SeedSequence(399, spawn_key=(source_id,))) multivariate_normal(eigh)"
+        h.attrs["noise_seeds"] = f"injection_rng_seeds(base_seed, source_id, {TRUTH_DRAW_REALIZATION_OFFSET} + draw)"
+        h.attrs["perturbed"] = json.dumps(list(cr.PERTURBED_PARAMETERS))
+        h.attrs["input_sha256"] = it_sha(Path(args.input))
+        h.attrs["git_commit"] = _git_commit()
+    print(f"wrote {path} ({len(rows)} rows, {len(no_cov)} systems without covariance) in "
+          f"{(time.time()-t0)/60:.1f} min", flush=True)
+
+
+def _fov_task(task: tuple[dict[str, float], list[tuple[int, int, int, int]], list[float], float]) -> list[dict[str, Any]]:
+    values, items, fractions, max_gap_s = task
+    gm, c = _W["gm"], _W["c"]
+    out = []
+    for sys_idx, r, nseed, cseed in items:
+        seeds = GlobalRNGSeeds(numpy_seed=nseed, c_rand_seed=cseed)
+        ep = cr.replay_injection_epochs(gm, c, values, seeds, data_release="dr3")
+        rec: dict[str, Any] = {"system_index": sys_idx, "realization": r}
+        for v, fr in enumerate(fractions):
+            rng = np.random.default_rng(np.random.SeedSequence(nseed, spawn_key=(v,)))
+            noise = cr.fov_correlated_noise(ep, correlated_fraction=fr, rng=rng, max_gap_s=max_gap_s)
+            st = cr.linear_cascade_statistics(gm, ep.t_ast_yr, ep.psi, ep.plx_factor, ep.signal + noise, ep.ast_err)
+            rec[f"branch__{v}"] = cr.predicted_branch(st, ruwe_min=_W["ruwe_min"])
+            for fld in STAT_FIELDS:
+                rec[f"{fld}__{v}"] = getattr(st, fld)
+        out.append(rec)
+    return out
+
+
+def cmd_fov(args: argparse.Namespace) -> None:
+    truth, real, attrs = _load(Path(args.input))
+    fractions = [float(x) for x in args.fractions.split(",")]
+    base_seed = int(attrs["base_seed"])
+    keys = ("ra", "dec", "parallax", "pmra", "pmdec", "period", "t_periastron", "eccentricity",
+            "Omega_rad", "inc_rad", "omega_rad", "a0_mas", "g_mag")
+    tasks = []
+    for i in range(len(truth["source_id"])):
+        if truth["period"][i] < args.min_period:
+            continue
+        items = []
+        for r in range(args.n_realizations):
+            s = it.injection_rng_seeds(base_seed, int(truth["source_id"][i]), r)
+            items.append((i, r, s.numpy_seed, s.c_rand_seed))
+        tasks.append(({k: float(truth[k][i]) for k in keys}, items, fractions, args.max_gap_s))
+    print(f"{len(tasks)} systems x {args.n_realizations} realizations x fractions {fractions}", flush=True)
+    t0 = time.time()
+    rows: list[dict[str, Any]] = []
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(args.workers, initializer=_init, initargs=([(1.0, 1.0)], float(attrs["ruwe_min"]))) as pool:
+        for recs in pool.imap_unordered(_fov_task, tasks, chunksize=2):
+            rows.extend(recs)
+    rows.sort(key=lambda d: (d["system_index"], d["realization"]))
+    path = Path(args.out) / "fov_correlated.h5"
+    with h5py.File(path, "w") as h:
+        for k in rows[0]:
+            h.create_dataset(k, data=np.array([d[k] for d in rows]))
+        h.attrs["fractions"] = json.dumps(fractions)
+        h.attrs["max_gap_s"] = args.max_gap_s
+        h.attrs["z_rng"] = "default_rng(SeedSequence(numpy_seed, spawn_key=(variant,)))"
+        h.attrs["input_sha256"] = it_sha(Path(args.input))
+        h.attrs["git_commit"] = _git_commit()
+    print(f"wrote {path} in {(time.time()-t0)/60:.1f} min", flush=True)
+
+
 def it_sha(path: Path) -> str:
     import hashlib
 
@@ -374,6 +496,19 @@ def main() -> None:
     c.add_argument("--extra-min-period", type=float, default=600.0)
     c.add_argument("--workers", type=int, default=1)
     c.set_defaults(func=cmd_matched)
+    d = sub.add_parser("truth-draws")
+    d.add_argument("--published-dir", default=str(PRIMARY / "output" / "gate390"))
+    d.add_argument("--min-period", type=float, default=600.0)
+    d.add_argument("--n-draws", type=int, default=25)
+    d.add_argument("--workers", type=int, default=1)
+    d.set_defaults(func=cmd_truth_draws)
+    e = sub.add_parser("fov-correlated")
+    e.add_argument("--fractions", default="0,0.1,0.25,0.5")
+    e.add_argument("--max-gap-s", type=float, default=60.0)
+    e.add_argument("--min-period", type=float, default=600.0)
+    e.add_argument("--n-realizations", type=int, default=25)
+    e.add_argument("--workers", type=int, default=1)
+    e.set_defaults(func=cmd_fov)
     b = sub.add_parser("orbit")
     b.add_argument("--min-period", type=float, default=600.0)
     b.add_argument("--max", type=int, default=400)
