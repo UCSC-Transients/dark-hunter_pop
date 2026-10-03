@@ -37,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--data-root", type=Path, required=True)
     ap.add_argument("--types", nargs="+", default=["Orbital", "AstroSpectroSB1"])
+    ap.add_argument(
+        "--from-table", type=Path, default=None,
+        help="use an already-fetched result of the same ADQL (ECSV) instead of querying; recorded in meta",
+    )
+    ap.add_argument("--from-table-query-date", default=None, help="UTC ISO date the --from-table query ran")
     args = ap.parse_args(argv)
     import h5py
     from astroquery.gaia import Gaia
@@ -44,7 +49,15 @@ def main(argv: list[str] | None = None) -> int:
     adql = build_adql(tuple(args.types))
     print(adql)
     when = dt.datetime.now(dt.timezone.utc)
-    t = Gaia.launch_job_async(adql).get_results()
+    if args.from_table is not None:
+        from astropy.table import Table
+
+        t = Table.read(args.from_table, format="ascii.ecsv")
+        missing = [c for c in COLUMNS if c not in t.colnames]
+        if missing:
+            raise SystemExit(f"{args.from_table} lacks columns {missing}")
+    else:
+        t = Gaia.launch_job_async(adql).get_results()
     _, first = np.unique(np.asarray(t["source_id"], dtype=np.int64), return_index=True)
     t = t[np.sort(first)]  # one row per source (a source may carry several solution types)
     out = args.data_root / "dr3" / "gaia_snapshots" / f"{when.strftime('%Y%m%dT%H%M%SZ')}_nss_orbit_input_columns"
@@ -56,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
             h.create_dataset(c, data=data)
     digest = hashlib.sha256(h5.read_bytes()).hexdigest()
     meta = {"snapshot_kind": "nss_orbit_input_columns", "issue": 391, "decision": "MP-Q24",
-            "query_date": when.isoformat(), "adql": adql, "n_rows": int(len(t)), "columns": list(COLUMNS),
+            "query_date": (args.from_table_query_date or when.isoformat()), "adql": adql,
+            "from_table": (None if args.from_table is None else str(args.from_table)), "n_rows": int(len(t)), "columns": list(COLUMNS),
             "columns_h5_sha256": digest}
     (out / "meta.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))
     print(f"wrote {len(t)} rows to {out}")
