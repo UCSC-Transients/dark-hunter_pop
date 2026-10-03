@@ -13,6 +13,8 @@ calibration is swapped (``sigma_logM``, ``M_MIN``, ``M_TOV`` prior, Santos on/of
 
 from __future__ import annotations
 
+import math
+
 from typing import Final
 
 import numpy as np
@@ -110,6 +112,32 @@ RIELLO2021_CSTAR_GREEN: Final[tuple[float, float, float, float]] = (1.162004, 0.
 RIELLO2021_CSTAR_RED: Final[tuple[float, float, float, float]] = (1.057572, 0.140537, 0.0, 0.0)
 # sigma_C*(G) = s0 + s1 * G^s2
 RIELLO2021_SIGMA_CSTAR: Final[tuple[float, float, float]] = (0.0059898, 8.817481e-12, 7.618399)
+
+# ---------------------------------------------------------------------------
+# Andrae et al. (2018, A&A 616, A8) Gaia G-band bolometric correction, Eq. 7 / Table 4:
+# BC_G(Teff) = sum_i a_i (Teff - TEFF_SUN)^i, separate fits for 4000-8000 K and
+# 3300-4000 K (a0 of the cool fit set for continuity at 4000 K). Their solar reference
+# values (Table 3): Teff = 5772 K, M_bol = 4.74 mag. Used only for the CMD radius of
+# giant primaries (docs/MOCK_POPULATION_SPEC.md §10, MP-Q28).
+# ---------------------------------------------------------------------------
+
+ANDRAE2018_BCG_WARM: Final[tuple[float, float, float, float, float]] = (
+    6.000e-02, 6.731e-05, -6.647e-08, 2.859e-11, -7.197e-15,
+)
+ANDRAE2018_BCG_COOL: Final[tuple[float, float, float, float, float]] = (
+    1.749e00, 1.977e-03, 3.737e-07, -8.966e-11, -4.183e-14,
+)
+ANDRAE2018_BCG_TEFF_RANGE_K: Final[tuple[float, float, float]] = (3300.0, 4000.0, 8000.0)
+ANDRAE2018_TEFF_SUN_K: Final[float] = 5772.0
+ANDRAE2018_MBOL_SUN: Final[float] = 4.74
+
+#: Maximum G-band brightening a single luminous companion can add (an equal-light twin):
+#: 2.5 log10(2) mag. Pure arithmetic, not a choice.
+TWIN_BRIGHTENING_MAG: Final[float] = 2.5 * math.log10(2.0)
+
+#: Eggleton (1983, ApJ 268, 368) Roche-lobe radius r_L / a = A q^(2/3) / (B q^(2/3) + ln(1 + q^(1/3))),
+#: q = M_donor / M_accretor; accurate to 1% for all q.
+EGGLETON1983_RL: Final[tuple[float, float]] = (0.49, 0.6)
 
 # ---------------------------------------------------------------------------
 # Spectroscopic binary mass-function conversion (P in days, K in km/s → Msun).
