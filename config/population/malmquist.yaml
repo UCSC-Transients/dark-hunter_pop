@@ -1,0 +1,25 @@
+# Magnitude-limit (Malmquist / Öpik) conditioning weight (docs/MOCK_POPULATION_SPEC.md §9, #405).
+#
+# W_s(c) = L_s(f) / Z_s multiplies the target intensity for a companion drawn on parent row s.
+# Every provisional_* key is an OPEN question for Ryan (spec §8, MP-Q25–Q31), not a decision.
+# Not under config/fragments/ (load_config merges those into PipelineConfig).
+
+malmquist:
+  provisional_sigma_int_mag: 0.15            # MP-Q25: single-star M_G scatter at fixed M1
+  provisional_mg_zero_point_mag: 0.0         # MP-Q25: offset added to Janssens M_G(M1)
+  provisional_sigma_log_m1_dex: 0.02         # MP-Q25: TAG10 M1 scatter, propagated via dM_G/dlogM
+  provisional_blending: all_unresolved       # MP-Q27
+  provisional_giant_policy: unit_weight      # MP-Q28
+  provisional_distance_marginalization: gaussian_mu   # MP-Q30
+  provisional_frequency_above_one: clip_single_probability_at_zero  # MP-Q31
+  slope_step_dex: 0.01                       # numerical step only
+  grid:                                      # quadrature for lambda_f(log f | M1); numerical only
+    log_m1_min: -1.1                         # 0.08 Msun (MdS17 low-mass policy zero point)
+    log_m1_max: 1.6                          # 40 Msun (MdS17 domain top)
+    n_m1: 109
+    n_log_q: 120
+    n_log_p: 156
+    n_hermite: 9
+    log_f_min: -12.0
+    log_f_max: 1.0
+    n_log_f: 260
