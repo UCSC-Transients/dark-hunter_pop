@@ -56,7 +56,7 @@ the random 10% drop (`scripts/measure_epoch_counts_400.py gost`).
 `Astrometry_EDR3.csv`: 138 gaps in OBMT revolutions, extending Lindegren et al. (2021) Table 1
 (26 gaps > 1 rev) with internal sources. Downloaded 2026-10-03, sha256
 `e3bb06ba3a2cffd93bdf8336152b95d7cbd7ee6f192277bd70f6cea293777161`, stored verbatim at
-`config/scanning_law/dr3_astrometry_gaps_edr3.csv`. OBMT is converted with Lindegren et al.
+`config/gaia_gaps/dr3_astrometry_gaps_edr3.csv`. OBMT is converted with Lindegren et al.
 (2021) Eq. 2, JD_TCB = 2457023.75 + (OBMT − 1717.6256)/4. The AGIS window is OBMT
 1192.13–5230.09 (Lindegren et al. 2021 §2.2).
 

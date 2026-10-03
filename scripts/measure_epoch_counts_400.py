@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("compare")
     p.add_argument("--out", required=True)
     p.add_argument("--snapshot", required=True)
-    p.add_argument("--gap-table", default="config/scanning_law/dr3_astrometry_gaps_edr3.csv")
+    p.add_argument("--gap-table", default="config/gaia_gaps/dr3_astrometry_gaps_edr3.csv")
     p.add_argument("--alt-gap-table", default=None, help="e.g. scanninglaw's 25-gap list (ESA CSV header)")
     p.add_argument("--agis-window", nargs=2, type=float, default=[1192.13, 5230.09],
                    help="OBMT revolutions (dr3.epoch_model.agis_window_obmt_rev)")

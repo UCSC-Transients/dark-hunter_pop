@@ -908,7 +908,7 @@ dr3:
     enabled: false
     # ESA "Gaps in Gaia (E)DR3 data", Astrometry_EDR3.csv (138 gaps, OBMT rev),
     # https://www.cosmos.esa.int/web/gaia/dr3-data-gaps, downloaded 2026-10-03.
-    gap_table: config/scanning_law/dr3_astrometry_gaps_edr3.csv
+    gap_table: config/gaia_gaps/dr3_astrometry_gaps_edr3.csv
     gap_table_sha256: e3bb06ba3a2cffd93bdf8336152b95d7cbd7ee6f192277bd70f6cea293777161
     gap_source: "ESA Gaia (E)DR3 astrometry gap table; extends Lindegren et al. (2021) Table 1"
     apply_gaps: true
