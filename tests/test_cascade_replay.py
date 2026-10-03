@@ -166,3 +166,44 @@ def test_common_rescaling_leaves_statistics_invariant(gm_cf: tuple[Any, Any]) ->
     b = cr.linear_cascade_statistics(gm, ep.t_ast_yr, ep.psi, ep.plx_factor, k * ep.observed, k * ep.ast_err)
     for f in ("ruwe", "s9", "f2_9", "plx_snr9", "s7", "f2_7", "plx_snr7"):
         assert getattr(a, f) == pytest.approx(getattr(b, f), rel=1e-9)
+
+
+@pytest.mark.unit
+def test_fov_transit_groups_handles_unsorted_times() -> None:
+    sec = 1.0 / (365.25 * 86400.0)
+    t = np.array([0.0, 5.0, 10.0, 7000.0, 7005.0, 20000.0]) * sec
+    perm = np.array([3, 0, 5, 1, 4, 2])
+    g = cr.fov_transit_groups(t[perm], max_gap_s=60.0)
+    expected = np.array([0, 0, 0, 1, 1, 2])[perm]
+    assert np.array_equal(g, expected)
+
+
+@pytest.mark.unit
+def test_fov_correlated_noise_limits() -> None:
+    rng = np.random.default_rng(3)
+    n_fov, per = 400, 9
+    sec = 1.0 / (365.25 * 86400.0)
+    t = (np.repeat(np.arange(n_fov) * 7000.0, per) + np.tile(np.arange(per) * 5.0, n_fov)) * sec
+    noise = rng.normal(0, 0.1, n_fov * per)
+    ep = cr.ReplayedEpochs(t_ast_yr=t, psi=np.zeros_like(t), plx_factor=np.zeros_like(t),
+                           observed=noise, signal=np.zeros_like(t), noise=noise, ast_err=np.full_like(t, 0.1))
+    n0 = cr.fov_correlated_noise(ep, correlated_fraction=0.0, rng=np.random.default_rng(1), max_gap_s=60.0)
+    assert np.allclose(n0, noise)
+    n1 = cr.fov_correlated_noise(ep, correlated_fraction=1.0, rng=np.random.default_rng(1), max_gap_s=60.0)
+    assert np.allclose(n1.reshape(n_fov, per).std(axis=1), 0.0)  # fully common within a transit
+    nh = cr.fov_correlated_noise(ep, correlated_fraction=0.5, rng=np.random.default_rng(1), max_gap_s=60.0)
+    assert np.std(nh) == pytest.approx(np.std(noise), rel=0.1)  # per-CCD variance preserved
+    with pytest.raises(ValueError):
+        cr.fov_correlated_noise(ep, correlated_fraction=1.5, rng=np.random.default_rng(1), max_gap_s=60.0)
+
+
+@pytest.mark.unit
+def test_truth_draws_refuse_without_covariance() -> None:
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(get_Campbell_elements=lambda a, b, f, g: (1.0, 0.0, 0.0, 1.0))
+    row = dict(_ROW)  # no corr_vec / bit_index -> covariance cannot be rebuilt
+    out = cr.draw_truths_from_published_covariance(
+        fake, row, {"a0_mas": 1.0}, 5, np.random.default_rng(0), ecc_max=0.99
+    )
+    assert out is None

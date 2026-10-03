@@ -281,14 +281,15 @@ Full report: `docs/gate399/README.md`. Measured by replaying every #390 realizat
   noise × 1.11: 0.223 / 0.237; DR3-matched noise (epoch count + bright-star excess, below):
   0.193 / 0.212; truth drawn from the published covariance: 0.208 / 0.223; noise × 0.5:
   0.168 / 0.188.
-- **Skipped orbit.** With the acceleration branch forced off on the same data, most captured
-  realizations give an orbit that passes every Eq. 18-22 cut (see the report for the final
-  fraction).
+- **Skipped orbit.** With the acceleration branch forced off on the same data, 85% (254/300) of
+  captured P > 600 d realizations give an orbit that passes every Eq. 18-22 cut, so long-period
+  acceptance would be ~0.85 instead of 0.66 without the acceleration branch. That is DR3's rule
+  at work, not a gaiamock difference.
 - **Residual.** About 0.19-0.21 survives every correction. Per-system capture is bimodal: 74 of
   515 long-period Orbital systems are captured in ≥ 90% of 25 realizations. A re-injection of a
   *selected* sample cannot by itself separate a forward-model defect from the expected
   re-injection capture of a sample conditioned on DR3 not capturing it; that needs the
-  population-level orbit : acceleration comparison (Q7 / Q7b).
+  population-level orbit : acceleration comparison (Q7 / Q7b, #402).
 - **σ deficit (#398) is explained.** Recovered/published σ (median 0.89 for ϖ and a0, 0.86 for P)
   becomes 1.02 / 1.02 / 0.99 after two terms: gaiamock has 13% more CCD observations than DR3's
   `astrometric_n_good_obs_al` (×√1.13), and DR3's goodness-of-fit inflation c (Halbwachs Eq. 2) is

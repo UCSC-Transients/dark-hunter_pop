@@ -73,10 +73,11 @@ coverage, which causes many long-period sources to receive acceleration solution
 DR3 selection function.
 
 **Conclusion (b):** the rule is not the difference. Forcing the orbit on the same data shows
-what the rule costs: of the FORCED_N captured P > 600 d realizations, **FORCED_PASS** give an
-orbit that passes every Eq. 18-22 cut (median a0/σa0 FORCED_S, F2 FORCED_F2, |ΔP|/P FORCED_DP;
+what the rule costs: of the 300 captured P > 600 d realizations, **0.85 (254/300; 68% interval 0.82-0.87)** give an
+orbit that passes every Eq. 18-22 cut (median a0/σa0 17.1, F2 0.3, |ΔP|/P 2.2%; failing cuts are mostly a0/σa0 (89% pass) and 158/√P (89% pass);
 `figures/forced_orbit.png`). Had the cascade tried the orbit, most would have been accepted
-orbits, as DR3 published them.
+orbits, as DR3 published them: long-period Orbital acceptance would be ~0.66 + 0.23 × 0.85 ≈ 0.85
+instead of 0.66.
 
 ### 2. What decides it: the parallax criterion
 
@@ -162,7 +163,7 @@ Two mechanisms widen the per-system spread and so make winner's curse more plaus
 
 **Classification of the residual: undecided between (ii) and (iii).** Re-injecting a selected
 sample cannot settle it. The decisive test is population-level: the mock's long-period
-orbit : acceleration ratio against DR3's, which needs the `nss_acceleration_astro` snapshot (spec
+orbit : acceleration ratio against DR3's, which needs the `nss_acceleration_astro` snapshot (#402; spec
 Q7 / Q7b, #341). The #391 full run already contains everything the mock side of that comparison
 needs.
 
@@ -226,7 +227,7 @@ noise. Both are fully quantified, and together they close the σ deficit to ≤ 
 | B. Bound it with a pop-side post-cascade rule | e.g. fit the orbit for accepted accelerations and keep it when it passes Eqs. 18-22. Not DR3's rule, so only as a sensitivity bound | **partial re-simulation**: only the acceleration-outcome draws need the orbit fit. They replay exactly from the stored seeds (`run_full_astrometric_cascade(..., skip_acceleration=True)` under `seeded_global_rng`; the same replay reproduced 20/20 orbits here) at ~11 CPU s each. Any rule that reads the 9-par statistics of a 7-par winner also needs the cheap linear replay, because the vector stores only the winner's statistics |
 | C. Correct the noise first (see #398 options) | removes ~3-4 pp of capture | **full re-simulation** (every draw's epochs change) |
 | D. Upstream gaiamock_mod change | thinning to DR3's transit count and the bright-star term, inside gaiamock_mod | **full re-simulation** |
-| E. Decide after the population-level test | run Q7b first; it alone separates (ii) from (iii) | reusable (the test uses the stored outcomes) |
+| E. Decide after the population-level test (#402) | run Q7b first; it alone separates (ii) from (iii) | reusable (the test uses the stored outcomes) |
 
 **#398**
 

@@ -861,25 +861,25 @@
  "forced_orbit": {
   "n_control": 20,
   "n_control_reproduced_bit_for_bit": 20,
-  "n_captured_refit": 138,
-  "would_pass_all_orbital_cuts": 0.855072463768116,
+  "n_captured_refit": 300,
+  "would_pass_all_orbital_cuts": 0.8466666666666667,
   "interval": [
-   0.8225503087408543,
-   0.8824856624821673
+   0.8247152022167061,
+   0.8663146981155196
   ],
-  "orbit_s_median": 18.026190963454944,
-  "orbit_f2_median": 0.035129963798279984,
-  "acceleration_s_median": 17.03846140997517,
-  "acceleration_f2_median": 11.05172041528084,
-  "abs_dP_over_P_median": 0.024312826279219022,
+  "orbit_s_median": 17.065435840643318,
+  "orbit_f2_median": 0.3285690316560601,
+  "acceleration_s_median": 16.793031584623655,
+  "acceleration_f2_median": 11.188318604667673,
+  "abs_dP_over_P_median": 0.021894696792026977,
   "cut_pass_fractions": {
-   "cut_a0_over_err": 0.8985507246376812,
+   "cut_a0_over_err": 0.89,
    "cut_f2": 1.0,
-   "cut_parallax_over_error": 0.9565217391304348,
-   "cut_a0_over_err_sqrt_p": 0.8913043478260869,
-   "cut_sigma_e": 0.9782608695652174
+   "cut_parallax_over_error": 0.9633333333333334,
+   "cut_a0_over_err_sqrt_p": 0.8866666666666667,
+   "cut_sigma_e": 0.96
   },
-  "cpu_s_median": 11.494547999999998
+  "cpu_s_median": 11.189283000000003
  },
  "dr3_matched_k_c_by_G": {
   "g_edges": [
