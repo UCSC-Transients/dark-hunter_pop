@@ -62,6 +62,25 @@ MP-Q7–Q12 and Q14–Q22 stay open. They can still be changed by reweighting.
 The magnitude-limit (Malmquist / Öpik) conditioning that Ryan made a condition of accepting
 Gaia-star primaries (#405) is derived in §9; its open choices are MP-Q25–Q32.
 
+### 0.2 Decisions of 2026-10-03 (Ryan, #391 comment 5971280434)
+
+Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5971280434.
+
+| Question | Decision | Implementation (PR for #391 / #405 / #409 / #410) |
+|---|---|---|
+| MP-Q24 | Drop the 114 real rows failing the IPD / C\* cuts (symmetry) | `scripts/fetch_real_nss_input_columns.py` snapshots the columns; `proposal_set.real_comparison_keep(..., input_columns)` applies `halbwachs_input_flags` joined by `source_id` (missing rows fail) |
+| MP-Q19 | Minimum ESS per bin = 30, for display shading and the KS gate | `config/population/rung2_validation.yaml`. Bins with ESS_b < 30 are shaded grey. The weighted KS is computed only over the bins with ESS_b ≥ 30, and the report states the fraction of the real sample inside them. The §3.6 MC-noise rule stays the criterion for rungs 3–5 |
+| MP-Q29 | Combined19 extinction for ΔM | `proposal_set.combined19_a_g`: mwdust Combined19 at (l, b, Bailer-Jones d), A_G = 2.8 E(B−V) (El-Badry et al. 2024 §3). σ_A = 0, because the extinction scatter is absorbed into the fitted σ_int |
+| MP-Q25 | Fit σ_int and the M_G zero point on the parent's RUWE < 1.4 stars | `scripts/fit_malmquist_zero_point.py` → `proposal_set.fit_mg_zero_point` (Gaussian ML, bootstrap errors, giants excluded). **Result (docs/gate391/malmquist_zero_point_fit.json): zp = −2.357 ± 0.006 mag, σ_int = 2.082 ± 0.007 mag on 161,776 stars.** The statistical precision is far inside the closed loop's 0.05 mag tolerance, but the fit is dominated by systematics: median ΔM runs from +0.64 (d < 0.5 kpc) to −2.94 mag (2–5 kpc), and from −3.0 (M1 < 0.6) to +0.2 (M1 > 2). Causes are the TAG10 floor (#393) and evolved stars fitted by MSC as dwarfs (MP-Q28). Escalated as **#414**. The values are recorded in `config/population/malmquist_decided.yaml` with that warning |
+| MP-Q30 | Gaussian distance marginalization | `gaussian_mu`, enforced by `proposal_set.malmquist_log_weight` |
+| MP-Q26 | Ignore the TAG10 blended-light bias for now; document it | Not modelled. TAG10 run on an unresolved pair's blended atmosphere is biased; the conditioning uses M̂1 as if unbiased. Revisit with #393 / #414 |
+| MP-Q32 | Install `gaiaunlimited` for the volume-limited diagnostic | Installed in the shared `.venv` (0.3.3, numpy kept at 1.26.4; it pulled in pandas 3.0.6, xarray, astromet, astropy_healpix 1.1.3). New `pyproject` extra `volume_diagnostic` |
+| MP-Q27 | Later | `provisional_blending: all_unresolved` unchanged |
+| MP-Q28 | Giants: match the real giant population | Owned by another agent. The hook is `malmquist` `provisional_giant_policy: unit_weight` plus `ParentSnapshot.is_giant` |
+| #409 / #410 | Fix the eccentricity proposal coverage and the η floor | §3.2: new `eccentricity.shape: mds17_bounded` |
+| #400 E1 | Epoch model on | `proposal.epoch_model: dr3_config` wraps each cascade call in `epoch_model.gost_epoch_model` (runner hook; `dr3.epoch_model` with `enabled` forced on) |
+| #408 | `threadpoolctl` and `nice` | The runner pins every BLAS/OpenMP pool to one thread per worker, verifies it with `threadpool_info` (recorded per worker in the artifact), and applies `os.nice(10)` |
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -343,7 +362,7 @@ puts mass:
 | q(log M2) | mixture of log-uniform components on [M2_min, M2_max] covering BDs to BHs, plus a component tied to M1 (log q uniform on [log q_min, 0]) |
 | q(f) | point mass at f = 0 with probability ρ_dark (dark companions), else log-uniform on [f_min, f_max] |
 | q(log P) | mixture: log-uniform on the detectable range plus a defensive log-uniform on MdS17's 0.2–8 |
-| q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4), else U(0, e_cap) |
+| q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4). Otherwise (since #409/#410, `shape: mds17_bounded`) a mixture of: a power law (η_q + 1) e^η_q / E^(η_q+1) with η_q = the target η floor; U(0, E), where E = e_max(P) from Eq. 3 (the target's own support); and a defensive U(0, 0.999) for alternative models (MP-Q12). The weights are bounded by (η+1)/((η_q+1) w_floor) near e = 0 and (η+1)/w_support elsewhere. The pilot and paused-run `U(0, e_cap)` truncated the target above 0.95 (~6% of companions, #409) and had infinite-variance weights for η < −0.5 (#410) |
 | geometry | isotropic, identical to the target (§2.8) |
 
 All proposal settings are in config (`config/population/proposal_set_pilot.yaml`, merging into
@@ -558,7 +577,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6 and Q13 decided, §0.1; none of the rest chosen; MP-Q25–Q32 from §9)
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q25–Q32 from §9)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -590,10 +609,7 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   solar-type primaries have WD companions)?
 - **MP-Q18 MdS17's C_evol** and the 5–30% of apparent primaries that are original secondaries
   (§2): ignored in v1?
-- **MP-Q19 Rung-2 acceptance**: by eye only (as the paper), or a quantitative statistic (weighted KS
-  or per-bin pulls with MC error) with a threshold; and the minimum ESS_b for drawing a rung-2 bin,
-  given the 0.1 MC-noise rule needs ESS_b ≥ 100 N_b (infeasible for luminous bins on the laptop).
-  Inherits ELBADRY2024 Q10.
+- **MP-Q19**: decided 2026-10-03, see §0.2.
 - **MP-Q20 Solution-type mix denominator**: inherits ELBADRY2024 Q7, Q7a–c (needs an
   `nss_acceleration_astro` snapshot).
 - **MP-Q21 AstroSpectroSB1**: compared together with Orbital (as El-Badry did), or is the RV-chain
@@ -602,17 +618,9 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   f_logP anchors, γ_largeq, F_twin, η), their priors (the published 1σ of Eqs. 8, 12, 16, 19, 24,
   25 are available), and the posterior-predictive acceptance thresholds.
 - **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
-- **MP-Q24 Real-side Halbwachs (b)/(c) residue**: remove the 114 real rows (0.06%) that fail the IPD/C\* cuts on DR3 values, for exact symmetry with the parent, or keep El-Badry et al. (2024)'s "no further cut"? Measured in §0.1.
-- **MP-Q25 σ_int and the zero point of M_G^J for TAG10 masses** (§9.3). This is the single-star
-  scatter at fixed M̂1 (age, [Fe/H] and TAG10 error), plus any offset between the Janssens M_G(M)
-  scale and TAG10's mass scale. Without an offset, ΔM would be biased for every row. Options:
-  (a) fit both from the parent's own ΔM distribution as a singles + binaries mixture per M̂1 bin,
-  truncated at each row's G = 19 boundary; (b) take them from isochrone spreads (MIST) for an
-  assumed age / [Fe/H] distribution; (c) fixed constants with the offset set to 0.
-- **MP-Q26 TAG10 on blended atmospheres** (§9.3 (A1), §9.4 item 2). Options: (a) ignore it, i.e.
-  (A1) as now; (b) measure the bias b(f) of M̂1 by running MSC / GSP-Phot + TAG10 on synthetic
-  blended spectra or photometry, then add p(M̂1 | M1, c) to W; (c) condition on the total light
-  only and invert M_G^J for the implied primary mass, which conflicts with MP-Q5's decision.
+- **MP-Q24**: decided 2026-10-03, see §0.2.
+- **MP-Q25**: decided 2026-10-03, see §0.2.
+- **MP-Q26**: decided 2026-10-03, see §0.2.
 - **MP-Q27 Resolved pairs and the IPD flags** (§9.1, §9.4 item 4). This decides which drawn
   companions blend into G and which are consistent with the row's own `ipd_frac_multi_peak` /
   `ipd_gof_harmonic_amplitude`. Options: (a) all blend and the IPD values carry no information
@@ -623,22 +631,12 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
 - **MP-Q28 Giants** (`is_giant`, §0.1). M_G^J is a dwarf relation, so ΔM is meaningless for giants.
   Options: (a) W = 1 for giants, the naive draw, flagged; (b) leave giants out of any statistic
   that relies on W; (c) use a giant M_G(M1, log g) relation.
-- **MP-Q29 Extinction for ΔM** (ties to MP-Q14). `ag_gspphot` is fitted assuming a single star, so
-  it is biased for luminous binaries; Combined19 is a 3-D map, independent of the star. Options:
-  Combined19 at d̂ with its map σ; `ag_gspphot`; or restrict to low-extinction rows. ΔM, and so W,
-  **cannot be computed for real rows until this is chosen**.
-- **MP-Q30 Distance marginalization** (§9.3 (A2)). Options: (a) a Gaussian in μ from
-  r_lo / r_med / r_hi (now); (b) a skewed (split-normal) form from the same three quantiles;
-  (c) apply W only to rows with ϖ / σ_ϖ above a threshold and use W = 1 elsewhere. The closed loop
-  (§9.6, docs/gate405) measures the error of (a).
+- **MP-Q29**: decided 2026-10-03, see §0.2.
+- **MP-Q30**: decided 2026-10-03, see §0.2.
 - **MP-Q31 F > 1 under a Poisson intensity** (MP-Q9). Z_s needs a probability of no companion,
   1 − F ≥ 0. Options: cap at one companion and rescale to a binary fraction; or keep the
   intensity, with p(∅) = exp(−F) and a single-companion approximation, and record where F > 1.
-- **MP-Q32 Gaia completeness for the volume-limited diagnostic** (§9.4 item 4, §9.5). Options:
-  (a) install `gaiaunlimited` (a new dependency plus a downloaded HEALPix map) and use
-  Cantat-Gaudin et al. (2023); (b) skip the volume-limited diagnostic on real data, since the
-  forward model does not need it; (c) treat G < 19 as complete outside crowded fields and mask
-  those fields.
+- **MP-Q32**: decided 2026-10-03, see §0.2.
 
 ## 9. Magnitude-limit (Malmquist / Öpik) conditioning (#405)
 
