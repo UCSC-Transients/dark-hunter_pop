@@ -1,10 +1,12 @@
 # Epoch model: statistical transit loss around gaiamock's GOST list — spec
 
 Issues: **#400** (gaiamock has more visibility periods and transits than DR3) and the epoch
-part of **#398** (recovered σ ~11% below DR3). Status: **spec for Ryan's approval.** The model
-is implemented and calibrated, and it is **off** (`dr3.epoch_model.enabled: false`) until Ryan
-chooses among the §6 options. The measurements and the before/after validation are in
-`docs/gate400/README.md`.
+part of **#398** (recovered σ ~11% below DR3). Status: **Ryan decided the §6 options on
+2026-10-03** (https://github.com/UCSC-Transients/dark-hunter_pop/issues/400#issuecomment-5971280727):
+E1 on, E3 Galactic sky dependence, E4 clustered faint losses, E6 NSS calibration, E7 continuous
+in G, and N2 tried under the condition that nothing else breaks. §8 specifies and calibrates the
+resulting **v2** model, which is **on** (`dr3.epoch_model.enabled: true`). §1–§7 document the
+#412 v1 measurement it builds on. Measurements and validation: `docs/gate400/README.md`.
 
 Related: `docs/gate399/README.md` (the #398 decomposition that found the ~11% transit excess),
 `docs/gate390/README.md` (the injection set), `docs/GAIAMOCK_API.md` (what must not be
@@ -249,6 +251,132 @@ the paper's U(0, 0.04) mas term raises the recovered F2 by only ~0.3 against a p
   per-transit independence is assumed. The N_vis test supports it for G < 16.
 - The random sample excludes 2-parameter solutions (stars with < 9 visibility periods or poor
   astrometry), so the faintest bins are mildly biased high in keep fraction.
+
+## 8. v2: Ryan's decisions (2026-10-03)
+
+### 8.1 E6: calibrating on NSS stars without circularity
+
+The keep probability is calibrated on the 16,930 NSS stars (Orbital + AstroSpectroSB1). Two
+routes could make it circular:
+
+1. **Selection on N.** An NSS star is published only when its orbit is significant, and
+   significance ∝ √N, so NSS stars could be biased toward more transits. Test: at fixed G the
+   keep fraction does **not** rise toward the detection threshold. By s / threshold
+   (1–1.5, 1.5–2, 2–4, > 4), it is 0.975 / 0.966 / 0.973 / 0.979 at 13 < G < 15, with similar
+   patterns in the other bins (`keep_fit.json` → `circularity`). Selection on N is not
+   measurable, so no correction is applied.
+2. **Losses caused by the companion.** At fixed G the keep fraction falls with RUWE
+   (13 < G < 15: 0.982 at RUWE 1.4–2 → 0.955 at RUWE > 5; G < 11: 0.979 → 0.929). A large
+   photocentre orbit makes transits look like outliers to the single-star AGIS solution, which
+   then does not use them. That is a loss caused by the companion, not by the star's own
+   observation, and the mock's binaries must not inherit it as an average. The fit therefore
+   carries a nuisance term c · ln(RUWE / 1.4) for the NSS stars (c = −0.0157 ± 0.0033), and the
+   **adopted model is the NSS keep at RUWE = 1.4**, the NSS input threshold (Halbwachs et al.
+   2023 §1.2). That is the star's own loss. Companion-induced losses are option **C1** (§8.6).
+
+Random stars (G < 19, `ipd_frac_multi_peak` ≤ 2, the part of the parent's Halbwachs (b) cut in
+the snapshot) enter the same fit with a free offset δ = −0.0133 ± 0.0035 in log keep. They fix
+only the **shape** at G > 16.5, where there are almost no NSS stars. The level is the NSS one.
+The offset is not explained by the IPD cut (13 < G < 15: 0.966 all random stars, 0.969 with
+IPD ≤ 2) and is recorded as is.
+
+### 8.2 E7 and E3: continuous in G, smooth in Galactic (l, b)
+
+Quasi-Poisson GLM with a log link, per star: E[k] = n · exp(η), where k is DR3
+`astrometric_matched_transits` and n is the nearest-position GOST transits after the window
+and gaps. The dispersion is φ ≈ 2.1, dominated by the GOST grid's per-star scatter, so the
+comparisons use QAIC with a common φ.
+
+η = Σ_{j≤d} a_j x^j + Σ_{1≤ℓ≤ℓmax} Σ_m b_{ℓm} Y_{ℓm}(l, b) [+ c ln(RUWE/1.4)] [+ δ·random],
+with x = (clip(G, 6, 19) − 14)/4 and Y_{ℓm} the orthonormal real spherical harmonics in
+Galactic coordinates.
+
+- **E7, G basis.** On NSS alone, the cubic polynomial beats the 8-bin step model by ΔQAIC = 24
+  with half the parameters (bins8 62470.9, poly1 62466.5, poly2 62451.5, **poly3 62446.7**,
+  poly4 62448.6). In the joint NSS + random fit, **poly4** is best (363061.5 vs 363072.2 for
+  poly3, 363096.2 for 11 bins). Residuals of observed/model per G bin are within ±1% from
+  G = 9 to 19 for both samples (NSS 0.994–1.008; random 0.982–1.015), except G < 9 (+2.3%,
+  261 NSS stars). **Adopted: degree 4.**
+- **E3, sky order.** QAIC keeps improving up to ℓ = 8. That is local structure, not a smooth
+  sky trend: 5-fold cross-validation over HEALPix-nside-4 sky blocks gives a deviance minimum at
+  **ℓmax = 2** (33186 vs 33215 at ℓ = 0, rising to 34481 at ℓ = 8). **Adopted: ℓmax = 2**
+  (8 coefficients). The sky term has an rms of 0.015 in log keep.
+- **Aliasing check (GOST grid).** (i) Refitting with a bilinearly interpolated GOST count
+  (4 nearest grid positions) as the denominator lowers φ from 2.05 to 1.46 but leaves the sky
+  term unchanged (correlation 0.976, rms 0.0164 vs 0.0149). (ii) The grid-error proxy
+  ln(n_nearest/n_interp) has an rms of 0.108 per star, but only 0.0028 projects onto ℓ ≤ 2.
+  Even fully correlated, the grid could account for ≤ 20% of the fitted sky amplitude. The
+  ℓ ≤ 2 term is not grid aliasing.
+- **Density.** The sky term replaces the per-dex density slope (E3 asked for Galactic
+  coordinates). Density is not used.
+
+Adopted coefficients: `dr3.epoch_model.transit_loss.continuous` (from
+`scripts/calibrate_epoch_model_400.py keep`; standard errors in `keep_fit.json`).
+
+### 8.3 E4: time-clustered loss for faint stars
+
+Loss after the gaps, q = 1 − p_keep, is split. A fraction f(G)·q is lost in **episodes**: a
+Poisson process in time with durations ~ Exponential(τ), covering a long-run fraction
+e = f q of the time, so every transit inside an episode is lost. The rest is lost
+independently per transit with p_ind = 1 − (1 − q)/(1 − e), so the expected keep is unchanged.
+
+- **f(G)** is fitted to the random stars' visibility-period excess (DR3 `visibility_periods_used`
+  vs one model draw per star, 4,000 stars per bin, random offset applied). With f = 0 the excess
+  is +0.09 (15–16), +0.24 (16–17), +0.29 (17–18), +0.40 (18–19). It vanishes for
+  f ≈ 0.25 / 0.5 / 0.5 / 0.5 (|excess| ≤ 0.03), for any τ between 0.5 and 8 d. Adopted: a linear
+  ramp from 0 at G = 14.5 to f_max = 0.5 at G = 16.5. Transit totals are unchanged
+  (model/DR3 0.991–1.004).
+- **τ** is not constrained by N_vis (the excess is flat for τ = 0.5–8 d). It needs per-transit
+  times. DR3 publishes them only as epoch photometry, for variability candidates
+  (`scripts/fetch_epoch_photometry_400.py`, matched-transit times). The archive returned HTTP 500
+  and statement timeouts on 2026-10-03 for every query of that kind (§8.7). **τ = 2 d is
+  provisional** until the gap-length distribution can be compared.
+
+### 8.4 E1: on
+
+`dr3.epoch_model.enabled: true`. Through `epoch_model.run_cascade` / `gost_epoch_model`, every
+gaiamock call that is wrapped gets the v2 epochs. `proposal_set.simulate_one` (#391) is not
+edited here; the hook is in §4.
+
+### 8.5 N2: bright-star excess noise for the unbinned overlay
+
+DR3's published Orbital c (Halbwachs Eq. 2) has a sharp step at G = 13 (median c² − 1:
+0.54 at G 5–9, 0.68 / 0.79 / 0.96 / 0.77 / 0.53 / 0.38 from 9 to 13 in steps, then 0.00 at
+13–15; 0.03 at 15–17). gaiamock's own c ≈ 1.0. The term:
+
+- **white per-CCD** noise N(0, r²(G) σ_stated²), with r²(G) linearly interpolated through
+  those medians for G < 13 and zero above. Stated errors are unchanged, so F2 and c rise as in
+  DR3's NSS fits. Per-CCD white noise is the form that matches the measured c ratio
+  (1.22–1.34) *and* the σ deficit (0.79–0.90) together. A per-transit common offset large
+  enough to reach F2 ≈ 8 would inflate the true parameter scatter about 2.7× (9 CCDs share it)
+  while c rises only 1.3×.
+- **RUWE renormalisation.** RUWE and the cascade's RUWE > 1.4 test are divided by
+  k = √(1 + r²), the analogue of DR3's RUWE normalisation u0(G, C) (Lindegren et al. 2021).
+  This is done without reimplementing anything: `ruwe_min · k` is passed to
+  `fit_full_astrometric_cascade`, and the RUWE entry of the returned vector is divided by k.
+  RUWE scales as 1/error, so this is identical to computing RUWE with errors inflated by k.
+
+Ryan's condition is that nothing else breaks. The before/after results are in
+`docs/gate400/README.md` ("v2 validation").
+
+### 8.6 Options remaining for Ryan (none chosen)
+
+| | option | note |
+|---|---|---|
+| C1 | add a companion-induced transit loss as a function of the mock binary's own RUWE (two-pass: predict on GOST epochs, compute RUWE, thin again) | c = −0.0157 per ln RUWE: ~1.5% fewer transits at RUWE 3, 2.5% at RUWE 5 |
+| T1 | τ (episode duration) once the epoch-photometry times can be fetched | N_vis is flat in τ |
+| N2a | adopt N2 as configured / drop it / restrict it (see the validation verdict) | |
+| R1 | random-star offset δ: leave unexplained, or investigate (sky distribution, ≥ 12 visibility periods, IPD harmonic amplitude, C*) | 1.3% |
+
+### 8.7 Data: epoch-time snapshot
+
+`scripts/fetch_epoch_photometry_400.py` would snapshot `gaia_source` rows with
+`has_epoch_photometry` in a `random_index` slice, plus the DataLink `EPOCH_PHOTOMETRY` (RAW)
+G-band transit times for 1,500 faint (G > 17) and 1,000 brighter stars. `n_transits` equals
+`matched_transits` (checked on 3 stars), so these are matched-transit times. The source query
+failed on 2026-10-03 with HTTP 500 (statement timeout); even `SELECT TOP 3 source_id FROM
+gaiadr3.vari_summary` timed out. A retry loop ran in the background; see the gate report for
+the outcome.
 
 ## References
 
