@@ -1,0 +1,49 @@
+{
+  "zero_point_mag": -2.356960271406261,
+  "sigma_int_mag": 2.0816097607109008,
+  "zero_point_err_mag": 0.005950077708794208,
+  "sigma_int_err_mag": 0.006689922460632751,
+  "n_stars": 161776,
+  "median_mag": -2.085922755887842,
+  "robust_sigma_mag": 1.9931509048430824,
+  "by_m1_bin": [
+    {
+      "m1_lo": 0.0,
+      "m1_hi": 0.6,
+      "n": 27774,
+      "median": -3.0422969903256534,
+      "robust_sigma": 2.630579928815381
+    },
+    {
+      "m1_lo": 0.6,
+      "m1_hi": 0.8,
+      "n": 101427,
+      "median": -2.445415721738396,
+      "robust_sigma": 1.942691004440995
+    },
+    {
+      "m1_lo": 0.8,
+      "m1_hi": 1.2,
+      "n": 30428,
+      "median": -1.0262457096859716,
+      "robust_sigma": 0.9654161434448201
+    },
+    {
+      "m1_lo": 1.2,
+      "m1_hi": 2.0,
+      "n": 1776,
+      "median": -0.4571315210805049,
+      "robust_sigma": 0.9710659632034312
+    },
+    {
+      "m1_lo": 2.0,
+      "m1_hi": 100.0,
+      "n": 371,
+      "median": 0.22434890342707225,
+      "robust_sigma": 1.0502274227015567
+    }
+  ],
+  "parent_dir": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/data/dr3/gaia_snapshots/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj",
+  "malmquist_config": "config/population/malmquist_decided.yaml",
+  "decision_ref": "#391 issuecomment-5971280434 (MP-Q25, MP-Q29)"
+}
