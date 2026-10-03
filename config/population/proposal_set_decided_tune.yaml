@@ -1,37 +1,34 @@
-# Importance-reweighted mock proposal set (docs/MOCK_POPULATION_SPEC.md §3, #391).
+# Decided proposal set, TUNING generation 10 (docs/MOCK_POPULATION_SPEC.md §0.1, §3.7, #391).
 #
-# Pilot config, deliberately NOT under config/fragments/ (load_config merges those into
-# PipelineConfig) and NOT in config/config.yaml. It is read by
-# darkhunter_pop.proposal_set.load_proposal_set_fragment for the pilot only. It merges into
-# selection_function_astrometric.proposal_set / population_model.moe_distefano when the
-# stage integration lands (spec §3.8).
-#
-# Proposal settings change efficiency, never the answer (any θ is a reweighting). Every key
-# named provisional_* is a placeholder for an open question in spec §8 (MP-Q*). It is NOT a
-# decision, and it is recorded in the artifact and figure captions.
+# Generation-time settings are Ryan's decisions of 2026-10-02
+# (https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5963152741).
+# Proposal knobs start from pilot generation 1 (the efficient one, spec §7.1); dark draws are
+# cut to 10% (they cost an orbit fit and carry zero rung-2 weight) and the parallax tilt is 1.5.
+# Not under config/fragments/ (load_config merges those into PipelineConfig).
+# Keys still named provisional_* are reweightable open questions (spec §8), not decisions.
 
 proposal:
-  generation: 0
-  n_draws: 2000
+  generation: 10
+  n_draws: 2500
   base_seed: 391
   data_release: dr3
   ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
   skip_acceleration: false
   parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
     uniform_fraction: 0.2
-    parallax_power: 2.0
+    parallax_power: 1.5
     parallax_cap_mas: 10.0
   m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
-    q_tied_weight: 0.75
-    q_min: 0.05
+    q_tied_weight: 0.9
+    q_min: 0.08
     q_max: 1.0
     m2_min_msun: 0.05
     m2_max_msun: 50.0
   flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
-    dark_fraction: 0.2
+    dark_fraction: 0.1
     relation: janssens2022
-    relation_weight: 0.7
-    relation_sigma_dex: 0.5
+    relation_weight: 0.9
+    relation_sigma_dex: 0.15
     log_f_min: -5.0
     log_f_max: 0.5
   period:                            # log P mixture: core + MdS17-wide defensive component
@@ -46,16 +43,15 @@ proposal:
   acceleration_publication:          # El-Badry et al. (2024) §5.2.1
     significance_min: 20.0
     f2_max_seven_parameter: 22.0
-  # Generation-time settings exactly as the PILOT ran them (spec §7, provisional; keys renamed
-  # when the decisions of spec §0.1 landed). The decided runs use proposal_set_decided_*.yaml.
-  decision_ref: "pilot provisional settings (spec §7), not decisions"
+  # Generation-time decisions (spec §0.1).
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1)"
   parallax_floor_mas: 0.2                           # MP-Q1
-  halbwachs_ipd_cstar_cuts: not_applied             # MP-Q3
-  halbwachs_cuts:                                   # unused when not_applied
-    ipd_frac_multi_peak_max: 2.0
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0                    # step (b), <=
     ipd_gof_harmonic_amplitude_max: 0.1
     cstar_nsigma: 1.645
-  truth_distance: measured_parallax                 # MP-Q4
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
   m1: tag10_point_drop_unresolved                   # MP-Q5
   giant_flag_logg_max: 3.6                          # flag only
   light_split: observed_g_is_system_total           # MP-Q6
@@ -68,6 +64,6 @@ target_mds17:                        # rung 2: MdS17 at published parameters, lu
   provisional_low_mass_anchor_msun: 0.8
   provisional_low_mass_zero_msun: 0.08
   provisional_multiplicity: poisson_intensity       # MP-Q9
-  mass_luminosity: janssens2022                     # MP-Q13 (same value later decided, spec §0.1)
-  flux_sigma_dex: 0.1                               # MP-Q13
+  mass_luminosity: janssens2022                     # MP-Q13, decided (spec §0.1)
+  flux_sigma_dex: 0.1                               # MP-Q13, decided
   provisional_compact_mixture: none                 # MP-Q17

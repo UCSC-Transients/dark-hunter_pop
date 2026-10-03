@@ -18,8 +18,9 @@ luminous-companion target intensity used for rung 2, the weights and the ESS.
 What does not: anything gaiamock owns (docs/GAIAMOCK_API.md); the compact-object
 mixture (``population_model``); the stage wiring (a follow-up, spec §3.8).
 
-Every choice the spec leaves open (§8, MP-Q*) is an explicit config field whose name
-starts with ``provisional_`` and whose value is recorded in the artifact.
+Generation-time choices are decided (spec §0.1) and named without a prefix; every
+reweightable choice the spec still leaves open (§8, MP-Q*) is a config field whose name
+starts with ``provisional_``. All are recorded in the artifact.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ import yaml
 from numpy.typing import ArrayLike, NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from darkhunter_pop import constants
 from darkhunter_pop import moe_distefano as mds
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import OrbitalSolutionCutsConfig, PipelineConfig
@@ -99,24 +101,40 @@ GAIA_SOURCE_PARENT_COLUMNS: tuple[str, ...] = (
     "mh_gspphot_lower",
 )
 
+#: Bailer-Jones et al. (2021) geometric distances (``external.gaiaedr3_distance``, pc).
+BAILER_JONES_COLUMNS: tuple[str, ...] = ("r_med_geo", "r_lo_geo", "r_hi_geo")
+
 _AP_COLUMNS = frozenset(c for c in GAIA_SOURCE_PARENT_COLUMNS if "msc" in c or "gspphot" in c)
 
 
-def build_gaia_source_parent_adql(*, k: int, parallax_floor_mas: float, g_max: float) -> str:
+def build_gaia_source_parent_adql(
+    *, k: int, parallax_floor_mas: float, g_max: float, include_bailer_jones: bool = False
+) -> str:
     """ADQL for the uniform ``random_index < k`` parent subsample (spec §1.3).
 
     Only G and parallax are selected on. RUWE, visibility periods and the Halbwachs et al.
-    (2023) IPD / C* columns are fetched but never cut on (they are outcomes or MP-Q3).
+    (2023) IPD / C* columns are fetched but never cut on in the query (RUWE and visibility
+    are outcomes; the IPD / C* cuts are applied as recorded flags, spec §0.1 MP-Q3).
+    ``include_bailer_jones`` adds the geometric distances (spec §0.1 MP-Q4) by a LEFT JOIN,
+    so rows without a distance survive the query and are counted when dropped.
     """
     if k <= 0 or k > GAIA_SOURCE_TOTAL_ROWS:
         raise ValueError(f"k must be in (0, {GAIA_SOURCE_TOTAL_ROWS}], got {k}")
-    cols = ",\n  ".join(
-        (f"ap.{c}" if c in _AP_COLUMNS else f"gs.{c}") for c in GAIA_SOURCE_PARENT_COLUMNS
+    names = [(f"ap.{c}" if c in _AP_COLUMNS else f"gs.{c}") for c in GAIA_SOURCE_PARENT_COLUMNS]
+    if include_bailer_jones:
+        names += [f"bj.{c}" for c in BAILER_JONES_COLUMNS]
+    cols = ",\n  ".join(names)
+    bj_join = (
+        "LEFT JOIN external.gaiaedr3_distance AS bj ON gs.source_id = bj.source_id\n"
+        if include_bailer_jones
+        else ""
     )
     return (
         f"SELECT\n  {cols}\n"
         "FROM gaiadr3.gaia_source AS gs\n"
         "LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON gs.source_id = ap.source_id\n"
+        + bj_join
+        + 
         f"WHERE gs.random_index < {int(k)}\n"
         f"  AND gs.phot_g_mean_mag < {float(g_max)!r}\n"
         f"  AND gs.parallax > {float(parallax_floor_mas)!r}"
@@ -190,6 +208,14 @@ class AccelerationPublicationConfig(_Strict):
     f2_max_seven_parameter: float
 
 
+class HalbwachsCutsConfig(_Strict):
+    """Halbwachs et al. (2023) §1.2 NSS input steps (b) and (c) (spec §0.1, MP-Q3)."""
+
+    ipd_frac_multi_peak_max: float  # step (b): <=
+    ipd_gof_harmonic_amplitude_max: float  # step (b): <
+    cstar_nsigma: float  # step (c): |C*| < nsigma * sigma_C*
+
+
 class ProposalConfig(_Strict):
     generation: int = Field(..., ge=0)
     n_draws: int = Field(..., ge=1)
@@ -204,11 +230,16 @@ class ProposalConfig(_Strict):
     eccentricity: EccentricityProposalConfig
     acceleration_publication: AccelerationPublicationConfig
     # Generation-time open questions (spec §3.5, §7). Recorded in the artifact.
-    provisional_parallax_floor_mas: float = Field(..., gt=0.0)  # MP-Q1
-    provisional_halbwachs_ipd_cstar_cuts: Literal["not_applied"]  # MP-Q3
-    provisional_truth_parallax: Literal["measured_parallax"]  # MP-Q4
-    provisional_m1: Literal["tag10_point_drop_unresolved"]  # MP-Q5
-    provisional_light_split: Literal["observed_g_is_system_total"]  # MP-Q6
+    # Decided 2026-10-02 (spec §0.1; #391 comment 5963152741), or the pilot's provisional
+    # placeholders for reading pilot artifacts. ``decision_ref`` names the source.
+    decision_ref: str
+    parallax_floor_mas: float = Field(..., gt=0.0)  # MP-Q1
+    halbwachs_ipd_cstar_cuts: Literal["applied_star_values", "not_applied"]  # MP-Q3
+    halbwachs_cuts: HalbwachsCutsConfig
+    truth_distance: Literal["bailer_jones2021_geometric", "measured_parallax"]  # MP-Q4
+    m1: Literal["tag10_point_drop_unresolved"]  # MP-Q5
+    giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g)
+    light_split: Literal["observed_g_is_system_total"]  # MP-Q6
 
 
 class MdS17TargetConfig(_Strict):
@@ -221,8 +252,8 @@ class MdS17TargetConfig(_Strict):
     provisional_low_mass_anchor_msun: float = Field(..., gt=0.0)
     provisional_low_mass_zero_msun: float = Field(..., gt=0.0)
     provisional_multiplicity: Literal["poisson_intensity"]  # MP-Q9
-    provisional_mass_luminosity: Literal["janssens2022"]  # MP-Q13
-    provisional_flux_sigma_dex: float = Field(..., gt=0.0)  # MP-Q13
+    mass_luminosity: Literal["janssens2022"]  # MP-Q13, decided (spec §0.1)
+    flux_sigma_dex: float = Field(..., gt=0.0)  # MP-Q13, decided (spec §0.1)
     provisional_compact_mixture: Literal["none"]  # MP-Q17
 
     @model_validator(mode="after")
@@ -260,16 +291,22 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
 
 @dataclass(frozen=True)
 class ParentSnapshot:
-    """A ``gaia_source`` parent subsample with data-side TAG10 M1 per row.
+    """A ``gaia_source`` parent subsample with data-side TAG10 M1 and recorded filters.
 
-    ``usable`` marks rows the proposal may draw (finite astrometry and photometry, an
-    M1 from TAG10, parallax above the provisional floor). ``scale_to_full`` is
-    ``N_full / N_snap = GAIA_SOURCE_TOTAL_ROWS / K``.
+    ``usable`` marks rows the proposal may draw: the AND of every entry of ``flags`` that
+    the proposal's decided settings require (spec §0.1). ``flags`` always holds every
+    per-row filter so attrition can be reported. ``truth_parallax_mas`` is the parallax
+    handed to gaiamock (Bailer-Jones geometric, or measured, per ``truth_distance``).
+    ``scale_to_full`` is ``N_full / N_snap = GAIA_SOURCE_TOTAL_ROWS / K``.
     """
 
     columns: Mapping[str, NDArray[Any]]
     m1_msun: FloatArray
     m1_source: NDArray[np.str_]
+    atmosphere_logg: FloatArray
+    truth_parallax_mas: FloatArray
+    is_giant: NDArray[np.bool_]
+    flags: Mapping[str, NDArray[np.bool_]]
     usable: NDArray[np.bool_]
     meta: Mapping[str, Any]
     scale_to_full: float
@@ -279,14 +316,24 @@ class ParentSnapshot:
     def n_rows(self) -> int:
         return int(self.m1_msun.size)
 
+    def attrition(self) -> dict[str, int]:
+        """Cumulative rows surviving each required flag, in ``flags`` order."""
+        keep = np.ones(self.n_rows, dtype=bool)
+        out = {"snapshot_rows": self.n_rows}
+        for name, flag in self.flags.items():
+            keep &= flag
+            out[name] = int(keep.sum())
+        return out
+
 
 def tag10_m1_for_rows(
     columns: Mapping[str, NDArray[Any]], config: PipelineConfig
-) -> tuple[FloatArray, NDArray[np.str_]]:
+) -> tuple[FloatArray, NDArray[np.str_], FloatArray]:
     """M1 per row via ``mass_derivation`` (MSC → GSP-Phot → TAG10), exactly as the data side.
 
-    Rows with no resolvable atmosphere get NaN and source ``"none"``. ``mass_derivation``
-    is imported and called, never modified.
+    Returns ``(m1, source, logg)``: ``logg`` is the log g of the atmosphere TAG10 used
+    (for the giant flag). Rows with no resolvable atmosphere get NaN and source ``"none"``.
+    ``mass_derivation`` is imported and called, never modified.
     """
     from darkhunter_pop.mass_derivation import (
         derive_tag10_m1_r1,
@@ -296,6 +343,7 @@ def tag10_m1_for_rows(
     n = int(np.asarray(columns["source_id"]).size)
     names = [c for c in GAIA_SOURCE_PARENT_COLUMNS if c in _AP_COLUMNS]
     m1 = np.full(n, np.nan)
+    logg = np.full(n, np.nan)
     src = np.full(n, "none", dtype="<U8")
     arrays = {c: np.asarray(columns[c], dtype=np.float64) for c in names}
     for i in range(n):
@@ -311,7 +359,50 @@ def tag10_m1_for_rows(
         if np.isfinite(val) and val > 0:
             m1[i] = val
             src[i] = atm.source
-    return m1, src
+            logg[i] = float(atm.logg)
+    return m1, src, logg
+
+
+def corrected_flux_excess(bp_rp: ArrayLike, excess_factor: ArrayLike) -> FloatArray:
+    """Riello et al. (2021) Eq. 6 corrected BP/RP flux excess C*; NaN without a colour."""
+    x = np.asarray(bp_rp, dtype=np.float64)
+    c = np.asarray(excess_factor, dtype=np.float64)
+    lo, hi = constants.RIELLO2021_CSTAR_X_BREAKS
+
+    def poly(co: tuple[float, float, float, float]) -> FloatArray:
+        return co[0] + co[1] * x + co[2] * x**2 + co[3] * x**3
+
+    corr = np.where(
+        x < lo,
+        poly(constants.RIELLO2021_CSTAR_BLUE),
+        np.where(x < hi, poly(constants.RIELLO2021_CSTAR_GREEN), poly(constants.RIELLO2021_CSTAR_RED)),
+    )
+    return c - corr
+
+
+def sigma_cstar(g_mag: ArrayLike) -> FloatArray:
+    """Riello et al. (2021) Eq. 18: 1σ scatter of C* at magnitude G."""
+    s0, s1, s2 = constants.RIELLO2021_SIGMA_CSTAR
+    return s0 + s1 * np.asarray(g_mag, dtype=np.float64) ** s2
+
+
+def halbwachs_input_flags(
+    columns: Mapping[str, NDArray[Any]], cuts: HalbwachsCutsConfig
+) -> dict[str, NDArray[np.bool_]]:
+    """Halbwachs et al. (2023) §1.2 steps (b) and (c) per row, from the star's own values.
+
+    Missing values fail (the condition cannot hold), e.g. no BP/RP means no C*.
+    """
+    def col(name: str) -> FloatArray:
+        return np.asarray(columns[name], dtype=np.float64)
+
+    with np.errstate(invalid="ignore"):
+        ipd = (col("ipd_frac_multi_peak") <= cuts.ipd_frac_multi_peak_max) & (
+            col("ipd_gof_harmonic_amplitude") < cuts.ipd_gof_harmonic_amplitude_max
+        )
+        cs = corrected_flux_excess(col("bp_rp"), col("phot_bp_rp_excess_factor"))
+        cst = np.abs(cs) < cuts.cstar_nsigma * sigma_cstar(col("phot_g_mean_mag"))
+    return {"halbwachs_ipd": ipd & np.isfinite(col("ipd_frac_multi_peak")), "halbwachs_cstar": cst & np.isfinite(cs)}
 
 
 def _sha256(path: Path) -> str:
@@ -325,14 +416,19 @@ def _sha256(path: Path) -> str:
 def load_parent_snapshot(
     snapshot_dir: str | Path,
     config: PipelineConfig,
+    proposal: ProposalConfig,
     *,
-    parallax_floor_mas: float,
     m1_cache: bool = True,
 ) -> ParentSnapshot:
-    """Load ``parent.h5`` + ``meta.yaml``, verify the checksum, attach TAG10 M1.
+    """Load ``parent.h5`` + ``meta.yaml``, verify the checksum, attach M1 and filters.
 
-    ``m1_cache`` stores the per-row M1 beside the snapshot (``m1_tag10_<cfg>.npz``, keyed
-    by the ``mass_calibration`` section) so repeated loads skip the per-row TAG10 loop.
+    Required filters, in order (each a ``flags`` entry; spec §0.1): finite astrometry and
+    photometry; measured parallax > ``parallax_floor_mas`` (MP-Q1); an M1 from TAG10
+    (MP-Q5); a Bailer-Jones geometric distance when ``truth_distance`` asks for it (MP-Q4);
+    the Halbwachs (b) and (c) cuts when applied (MP-Q3). ``is_giant`` is only a flag.
+
+    ``m1_cache`` stores per-row M1 beside the snapshot (``m1_tag10_<cfg>.npz``, keyed by
+    the ``mass_calibration`` section) so repeated loads skip the per-row TAG10 loop.
     """
     import h5py
 
@@ -347,22 +443,45 @@ def load_parent_snapshot(
     mc_blob = json.dumps(config.mass_calibration.model_dump(mode="json"), sort_keys=True)
     mc_key = hashlib.sha256(mc_blob.encode()).hexdigest()[:10]
     cache = d / f"m1_tag10_{mc_key}.npz"
-    if m1_cache and cache.exists():
+    if m1_cache and cache.exists() and "atmosphere_logg" in np.load(cache).files:
         z = np.load(cache)
-        m1, src = z["m1_msun"], z["m1_source"]
+        m1, src, logg = z["m1_msun"], z["m1_source"], z["atmosphere_logg"]
     else:
-        m1, src = tag10_m1_for_rows(cols, config)
+        m1, src, logg = tag10_m1_for_rows(cols, config)
         if m1_cache:
-            np.savez(cache, m1_msun=m1, m1_source=src)
+            np.savez(cache, m1_msun=m1, m1_source=src, atmosphere_logg=logg)
     finite = np.ones(m1.size, dtype=bool)
     for name in ("ra", "dec", "parallax", "pmra", "pmdec", "phot_g_mean_mag"):
         finite &= np.isfinite(np.asarray(cols[name], dtype=np.float64))
-    usable = finite & np.isfinite(m1) & (np.asarray(cols["parallax"]) > parallax_floor_mas)
+    plx = np.asarray(cols["parallax"], dtype=np.float64)
+    flags: dict[str, NDArray[np.bool_]] = {
+        "finite_astrometry_photometry": finite,
+        "parallax_floor": plx > proposal.parallax_floor_mas,
+        "tag10_atmosphere": np.isfinite(m1),
+    }
+    if proposal.truth_distance == "bailer_jones2021_geometric":
+        if "r_med_geo" not in cols:
+            raise ValueError(f"{d} has no Bailer-Jones distances; refetch with --bailer-jones")
+        r = np.asarray(cols["r_med_geo"], dtype=np.float64)
+        flags["bailer_jones_distance"] = np.isfinite(r) & (r > 0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            truth_plx = np.where(flags["bailer_jones_distance"], 1000.0 / r, np.nan)
+    else:
+        truth_plx = plx
+    if proposal.halbwachs_ipd_cstar_cuts == "applied_star_values":
+        flags.update(halbwachs_input_flags(cols, proposal.halbwachs_cuts))
+    usable = np.logical_and.reduce(list(flags.values()))
+    with np.errstate(invalid="ignore"):
+        giant = np.isfinite(logg) & (logg < proposal.giant_flag_logg_max)
     k = int(meta["random_index_max_exclusive"])
     return ParentSnapshot(
         columns=cols,
         m1_msun=np.asarray(m1, dtype=np.float64),
         m1_source=np.asarray(src),
+        atmosphere_logg=np.asarray(logg, dtype=np.float64),
+        truth_parallax_mas=np.asarray(truth_plx, dtype=np.float64),
+        is_giant=giant,
+        flags=flags,
         usable=usable,
         meta=meta,
         scale_to_full=float(meta["gaia_source_total_rows"]) / float(k),
@@ -544,7 +663,11 @@ def sample_proposal(
         "source_id": np.asarray(cols["source_id"], dtype=np.int64)[row],
         "ra_deg": np.asarray(cols["ra"], float)[row],
         "dec_deg": np.asarray(cols["dec"], float)[row],
-        "parallax_mas": np.asarray(cols["parallax"], float)[row],
+        # Truth parallax fed to gaiamock (spec §0.1 MP-Q4); the measured one is kept too.
+        "parallax_mas": np.asarray(parent.truth_parallax_mas, float)[row],
+        "measured_parallax_mas": np.asarray(cols["parallax"], float)[row],
+        "is_giant": np.asarray(parent.is_giant, bool)[row],
+        "atmosphere_logg": np.asarray(parent.atmosphere_logg, float)[row],
         "pmra_masyr": np.asarray(cols["pmra"], float)[row],
         "pmdec_masyr": np.asarray(cols["pmdec"], float)[row],
         "phot_g_mean_mag": np.asarray(cols["phot_g_mean_mag"], float)[row],
@@ -711,7 +834,7 @@ def mds17_luminous_log_intensity(
         mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
     )
     rel = relation_log10_flux_ratio(m1, m2)
-    sig = target.provisional_flux_sigma_dex
+    sig = target.flux_sigma_dex
     with np.errstate(invalid="ignore"):
         pf = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
     pf = np.where(np.isfinite(pf) & ~dark, pf, 0.0)
@@ -852,3 +975,70 @@ def read_proposal_artifact(path: str | Path) -> tuple[dict[str, NDArray[Any]], d
         attrs = {k: h.attrs[k] for k in h.attrs.keys()}
     outcome["solution_type"] = np.char.decode(outcome["solution_type"].astype("S32"), "ascii")
     return truth, outcome, attrs
+
+
+# ---------------------------------------------------------------------------
+# Real comparison sample filters and the weighted KS statistic (rung 2)
+# ---------------------------------------------------------------------------
+
+
+def real_comparison_keep(
+    columns: Any, proposal: ProposalConfig
+) -> tuple[NDArray[np.bool_], dict[str, int]]:
+    """Rows of the real comparison table kept to mirror the decided parent filters.
+
+    Applies the same measured-parallax floor (MP-Q1) and the same no-atmosphere drop (MP-Q5:
+    neither an MSC nor a GSP-Phot atmosphere resolves) as the parent. The Halbwachs (b)/(c)
+    cuts are *not* applied here: they are NSS input filters, measured as implicit on the real
+    side (spec §0.1; their 0.06% residue is MP-Q24). Returns ``(mask, counts)``.
+    """
+    from darkhunter_pop.mass_derivation import resolve_atmosphere_from_extras
+
+    names = set(getattr(columns, "colnames", None) or columns.keys())
+    plx = np.ma.filled(np.ma.asarray(columns["parallax"], dtype=np.float64), np.nan)
+    ap_names = [c for c in GAIA_SOURCE_PARENT_COLUMNS if c in _AP_COLUMNS and c in names]
+    arrays = {c: np.ma.filled(np.ma.asarray(columns[c], dtype=np.float64), np.nan) for c in ap_names}
+    n = plx.size
+    has_atm = np.zeros(n, dtype=bool)
+    for i in range(n):
+        extras = {c: float(arrays[c][i]) for c in ap_names if np.isfinite(arrays[c][i])}
+        has_atm[i] = resolve_atmosphere_from_extras(extras) is not None
+    with np.errstate(invalid="ignore"):
+        floor = plx > proposal.parallax_floor_mas
+    keep = floor & has_atm
+    return keep, {
+        "rows": int(n),
+        "parallax_floor": int(floor.sum()),
+        "parallax_floor_and_atmosphere": int(keep.sum()),
+    }
+
+
+def weighted_ks(
+    real: ArrayLike, mock: ArrayLike, mock_weights: ArrayLike
+) -> tuple[float, float, float]:
+    """Two-sample KS between an unweighted real sample and a weighted mock.
+
+    Returns ``(D, n_eff, p)``: ``D`` is the sup distance between the empirical CDFs (mock CDF
+    weighted), ``n_eff = n_real ESS / (n_real + ESS)`` with the mock's Kish ESS, and ``p`` the
+    asymptotic Kolmogorov tail at ``sqrt(n_eff) D``. Non-finite values are dropped.
+    """
+    from scipy.special import kolmogorov
+
+    r = np.asarray(real, float)
+    m = np.asarray(mock, float)
+    w = np.asarray(mock_weights, float)
+    r = np.sort(r[np.isfinite(r)])
+    ok = np.isfinite(m) & np.isfinite(w) & (w > 0)
+    m, w = m[ok], w[ok]
+    if r.size == 0 or m.size == 0:
+        return float("nan"), 0.0, float("nan")
+    order = np.argsort(m)
+    m, w = m[order], w[order]
+    grid = np.concatenate([r, m])
+    cdf_r = np.searchsorted(r, grid, side="right") / r.size
+    cw = np.concatenate([[0.0], np.cumsum(w)]) / w.sum()
+    cdf_m = cw[np.searchsorted(m, grid, side="right")]
+    d = float(np.max(np.abs(cdf_r - cdf_m)))
+    ess = kish_ess(w)
+    n_eff = r.size * ess / (r.size + ess)
+    return d, float(n_eff), float(kolmogorov(np.sqrt(n_eff) * d))

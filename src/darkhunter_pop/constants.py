@@ -98,6 +98,20 @@ SANTOS2013_S1: Final[float] = -0.575
 SANTOS2013_S0: Final[float] = 0.701
 
 # ---------------------------------------------------------------------------
+# Riello et al. (2021, A&A 649, A3) corrected BP/RP flux excess factor C* (Eq. 6, Table 2)
+# and its 1-sigma scatter sigma_C*(G) (Eq. 18). Literature-fixed; used for the Halbwachs
+# et al. (2023) §1.2 NSS input cut |C*| < 1.645 sigma_C* (docs/MOCK_POPULATION_SPEC.md §0.1).
+# C* = C - (a0 + a1 x + a2 x^2 + a3 x^3), x = BP - RP, piecewise in x.
+# ---------------------------------------------------------------------------
+
+RIELLO2021_CSTAR_X_BREAKS: Final[tuple[float, float]] = (0.5, 4.0)
+RIELLO2021_CSTAR_BLUE: Final[tuple[float, float, float, float]] = (1.154360, 0.033772, 0.032277, 0.0)
+RIELLO2021_CSTAR_GREEN: Final[tuple[float, float, float, float]] = (1.162004, 0.011464, 0.049255, -0.005879)
+RIELLO2021_CSTAR_RED: Final[tuple[float, float, float, float]] = (1.057572, 0.140537, 0.0, 0.0)
+# sigma_C*(G) = s0 + s1 * G^s2
+RIELLO2021_SIGMA_CSTAR: Final[tuple[float, float, float]] = (0.0059898, 8.817481e-12, 7.618399)
+
+# ---------------------------------------------------------------------------
 # Spectroscopic binary mass-function conversion (P in days, K in km/s → Msun).
 # f = SPECTROSCOPIC_MASS_FUNCTION_DAY_KMS * K^3 * P * (1-e^2)^{3/2}
 # Derived from G + Msun via astropy — not a choosable threshold.
