@@ -17,7 +17,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--with-artifacts",
         action="store_true",
-        help="Also delete HDF5 paths recorded in the run file",
+        help=(
+            "Also delete HDF5 artifacts this run produced: only paths under "
+            "<artifact_root>/<run_id>/ that no other run file references. "
+            "Copied-forward / shared artifacts are kept and listed."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print exactly what would be deleted and kept; delete nothing",
+    )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=None,
+        help="Directory of run files scanned for shared artifacts (default: the run file's own directory)",
     )
     parser.add_argument(
         "--force",
@@ -30,11 +45,14 @@ def main(argv: list[str] | None = None) -> int:
             args.run_file,
             with_artifacts=args.with_artifacts,
             force=args.force,
+            dry_run=args.dry_run,
+            runs_dir=args.runs_dir,
         )
     except Exception as exc:  # noqa: BLE001 — CLI boundary
         print(f"purge_run: {exc}", file=sys.stderr)
         return 1
-    print(f"purged {args.run_file}")
+    if not args.dry_run:
+        print(f"purged {args.run_file}")
     return 0
 
 

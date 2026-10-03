@@ -510,6 +510,18 @@ later without restructuring anything else.
     `gaiamock.get_companion_mass_from_mass_function` is stored separately.
   - The stage artifact persists both samples (`six_panel_samples/{mock,real}`); `diagnostics`
     plots exactly those arrays. There is no reference-fixture fallback on the science path.
+- **Mock population (#391, `docs/MOCK_POPULATION_SPEC.md`)**: the mock input is an
+  **importance-reweighted proposal set**, replacing the `mock_population` box prior once wired in.
+  Primaries are real `gaia_source` stars (a uniform `random_index` subsample of the G < 19 parent of
+  the NSS astrometric input, Halbwachs et al. 2023 §1.2; RUWE > 1.4 and ≥ 12 visibility periods are
+  simulated by the cascade, never pre-selected), with M1 from the data-side TAG10 path. Companions
+  follow Moe & Di Stefano (2017) plus the WD/NS/BH mixture of `population_model`. One broad
+  proposal q(x) is run through `gaiamock_mod` once; truth, seeds (#371), cascade outcome,
+  accepted/published flags and the fitted solution with σ are stored for every draw. Any θ is a
+  reweighting w = λ(x|θ)/q(x), scaled to the parent; ESS per bin gates trust
+  (ESS_b ≥ N_b / `mc_noise_threshold`²); under-covered regions get top-up draws combined with
+  deterministic-mixture weights. Choices that change the gaiamock input (parent cuts, truth
+  parallax, M1, light split) are fixed at generation and cannot be reweighted.
 - No emulator in v1 — call `gaiamock` directly, profile, add an emulator only if profiling shows
   it's needed.
 - **DR4 dual mode**: (a) fast — Gaia's own DR4 NSS catalog directly; (b) complete — `gaiamock`'s
@@ -588,6 +600,11 @@ Hierarchical multiplicity → type mixture:
   scaled. GP-on-log(dN/dM) built and compared as a second, swappable model. Auxiliary distributions
   (M1, P, e) stay parametric, swappable families (Kroupa IMF / Moe & Di Stefano / flat-in-log-P /
   optional SN-kick-informed eccentricity — a named model-comparison hypothesis in `inference`).
+  Since #391, M1 is not drawn from an IMF: it comes from the real parent star (TAG10). The
+  luminous-companion (P, q, e) densities are Moe & Di Stefano (2017) Eqs. 2–23, with the published
+  coefficients as config defaults (`population_model.moe_distefano`) that become free parameters
+  at validation rung 3; `population_model` evaluates λ(x|θ) on the stored proposal-set truth
+  (`docs/MOCK_POPULATION_SPEC.md` §2–§3). Open choices are MP-Q1–Q23 there.
 
 ### `sensitivity_analysis`
 
@@ -866,7 +883,13 @@ either as the parent query would under-count the parent.
 - If zero incomplete runs and `--run-file` omitted: create a new run.
 - Selection among runs uses the **run_id timestamp inside the file**, never filesystem mtime.
 - `scripts/purge_run.py`: default deletes the run YAML only; `--with-artifacts` also deletes
-  recorded HDF5 paths; refuse purging completed runs unless `--force`.
+  the HDF5 artifacts **this run produced** — only recorded paths under
+  `{artifact_root}/{this run_id}/` that no other run file in the runs directory references.
+  Copied-forward (parent) artifacts, shared artifacts and paths outside `artifact_root` are
+  kept and listed as "kept, owned by <run_id>" / "kept, also referenced by <run_id>" /
+  "kept, outside artifact_root" (#376). The delete/keep plan is printed before anything is
+  deleted; `--dry-run` prints it and deletes nothing. Refuse purging completed runs unless
+  `--force`.
 
 **Required screen output at run start**: before any stage executes, print a run plan — which run
 file is used/created, and for every stage whether it will run or be skipped and why

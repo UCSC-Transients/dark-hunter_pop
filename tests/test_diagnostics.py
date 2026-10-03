@@ -1240,3 +1240,24 @@ def test_hydration_error_recorded_as_skip(tmp_path: Path) -> None:
     assert "elbadry_six_panel: skipped (hydration failed" in format_diagnostics_stage_report(
         result
     )
+
+
+@pytest.mark.unit
+def test_six_panel_grid_series_weights(tmp_path: Path) -> None:
+    """Importance weights (#391) change the drawn histogram; mismatched lengths refuse."""
+    rng = np.random.default_rng(2)
+    vals = rng.uniform(0.0, 1.0, 200)
+    panels = {name: {"mock": vals} for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    axes = {name: ("linear", 0.0, 1.0) for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    weights = {name: {"mock": np.where(vals < 0.5, 1.0, 0.0)} for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    out = plot_six_panel_grid(
+        panels, tmp_path / "w.png", panel_order=DEFAULT_ELBADRY_PANEL_ORDER,
+        panel_axes=axes, dpi=40, max_bins=4, series_weights=weights,
+    )
+    assert out is not None and out.is_file()
+    bad = {name: {"mock": np.ones(3)} for name in DEFAULT_ELBADRY_PANEL_ORDER}
+    with pytest.raises(ValueError, match="series_weights"):
+        plot_six_panel_grid(
+            panels, tmp_path / "bad.png", panel_order=DEFAULT_ELBADRY_PANEL_ORDER,
+            panel_axes=axes, dpi=40, max_bins=4, series_weights=bad,
+        )

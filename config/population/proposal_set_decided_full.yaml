@@ -1,0 +1,71 @@
+# Decided proposal set, FULL laptop generation 11 (docs/MOCK_POPULATION_SPEC.md §0.1, §3.7, #391).
+#
+# Generation-time settings are Ryan's decisions of 2026-10-02
+# (https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5963152741).
+# Proposal knobs are identical to tuning generation 10 (proposal_set_decided_tune.yaml), which
+# measured 13.6 MdS17 ESS of accepted orbits per 2,500 draws (≈ 19 ESS per CPU-h). Sized for an
+# accepted-set ESS of ≈ 2,000: 370,000 draws (approved full laptop run, #391 issuecomment-5963152741).
+# Combined with generation 10 by deterministic-mixture weights (spec §3.7); draw_index from 2,500.
+# Not under config/fragments/ (load_config merges those into PipelineConfig).
+# Keys still named provisional_* are reweightable open questions (spec §8), not decisions.
+
+proposal:
+  generation: 11
+  n_draws: 370000
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
+    uniform_fraction: 0.2
+    parallax_power: 1.5
+    parallax_cap_mas: 10.0
+  m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
+    q_tied_weight: 0.9
+    q_min: 0.08
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+  flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
+    dark_fraction: 0.1
+    relation: janssens2022
+    relation_weight: 0.9
+    relation_sigma_dex: 0.15
+    log_f_min: -5.0
+    log_f_max: 0.5
+  period:                            # log P mixture: core + MdS17-wide defensive component
+    core_weight: 0.8
+    core_log_p_min: 1.0
+    core_log_p_max: 4.0
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:
+    e_cap: 0.95
+    circular_period_days: 2.0        # MdS17 §2: P <= 2 d circular (matches the target)
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  # Generation-time decisions (spec §0.1).
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1)"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0                    # step (b), <=
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
+  m1: tag10_point_drop_unresolved                   # MP-Q5
+  giant_flag_logg_max: 3.6                          # flag only
+  light_split: observed_g_is_system_total           # MP-Q6
+
+target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1           # MP-Q10
+  provisional_eta_floor: -0.9                       # MP-Q11
+  provisional_low_mass_policy: log_linear_to_zero   # MP-Q7 (El-Badry et al. 2024 §3)
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity       # MP-Q9
+  mass_luminosity: janssens2022                     # MP-Q13, decided (spec §0.1)
+  flux_sigma_dex: 0.1                               # MP-Q13, decided
+  provisional_compact_mixture: none                 # MP-Q17

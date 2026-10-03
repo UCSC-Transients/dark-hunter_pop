@@ -228,12 +228,16 @@ def test_purge_refuses_completed_without_force(tmp_path: Path) -> None:
             }
         }
     )
-    path = tmp_path / f"{manifest.run_id}.yaml"
+    runs_dir = tmp_path / "runs"
+    path = runs_dir / f"{manifest.run_id}.yaml"
     save_run_manifest(manifest, path)
-    art = tmp_path / "out.h5"
+    art_root = tmp_path / "output"
+    art = art_root / manifest.run_id / "data_acquisition" / "out.h5"
+    art.parent.mkdir(parents=True)
     art.write_bytes(b"data")
     manifest = manifest.model_copy(
         update={
+            "artifact_root": str(art_root),
             "stages": {
                 "data_acquisition": StageRecord(
                     stage_name="data_acquisition",
@@ -835,3 +839,144 @@ def test_running_or_failed_record_with_leftover_file_plans_run_not_cached(
         }
     )
     assert plan_stage(spec, completed, cfg).action is StageAction.SKIP_CACHED
+
+
+# ---------------------------------------------------------------------------
+# #376: purge deletes only artifacts the run itself produced
+# ---------------------------------------------------------------------------
+
+
+def _purge_fixture_run(
+    runs_dir: Path,
+    art_root: Path,
+    run_id: str,
+    artifacts: dict[str, Path],
+    *,
+    parent_run_id: str | None = None,
+) -> Path:
+    from darkhunter_pop.schemas import StageRecord
+
+    cfg = load_config()
+    manifest = create_run_manifest(cfg).model_copy(
+        update={
+            "run_id": run_id,
+            "parent_run_id": parent_run_id,
+            "artifact_root": str(art_root),
+            "stages": {
+                name: StageRecord(
+                    stage_name=name,
+                    status=StageStatus.RUNNING,
+                    artifact_path=str(path),
+                )
+                for name, path in artifacts.items()
+            },
+        }
+    )
+    return save_run_manifest(manifest, runs_dir / f"{run_id}.yaml")
+
+
+def _write(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"h5")
+    return path
+
+
+def test_purge_child_keeps_parent_copied_forward_artifacts(tmp_path: Path) -> None:
+    runs_dir, art_root = tmp_path / "runs", tmp_path / "output"
+    parent_id, child_id = "20260930-022223-aaaaaaa", "20261001-072350-bbbbbbb"
+    parent_art = _write(art_root / parent_id / "data_acquisition" / "p.h5")
+    child_art = _write(art_root / child_id / "inference" / "c.h5")
+    _purge_fixture_run(runs_dir, art_root, parent_id, {"data_acquisition": parent_art})
+    child_run = _purge_fixture_run(
+        runs_dir,
+        art_root,
+        child_id,
+        {"data_acquisition": parent_art, "inference": child_art},
+        parent_run_id=parent_id,
+    )
+    # Parent file purged from the listing too: ownership is by path, not by sharing.
+    (runs_dir / f"{parent_id}.yaml").rename(tmp_path / "parent_aside.yaml")
+
+    lines: list[str] = []
+    plan = purge_run(child_run, with_artifacts=True, dry_run=True, emit=lines.append)
+    assert plan is not None
+    assert [p for _, p in plan.delete] == [child_art.resolve()]
+    assert [(s, r) for s, _, r in plan.kept] == [
+        ("data_acquisition", f"kept, owned by {parent_id}")
+    ]
+    text = "\n".join(lines)
+    assert "would delete 1 artifact(s)" in text
+    assert f"kept, owned by {parent_id}" in text
+    assert child_run.exists() and child_art.exists() and parent_art.exists()
+
+    lines.clear()
+    purge_run(child_run, with_artifacts=True, emit=lines.append)
+    assert lines and lines[0].startswith("purge plan")  # printed before deleting
+    assert not child_run.exists()
+    assert not child_art.exists()
+    assert parent_art.exists()
+
+
+def test_purge_keeps_artifact_referenced_by_another_run(tmp_path: Path) -> None:
+    runs_dir, art_root = tmp_path / "runs", tmp_path / "output"
+    run_a, run_b = "20261001-000000-aaaaaaa", "20261002-000000-bbbbbbb"
+    shared = _write(art_root / run_a / "population_model" / "s.h5")
+    own = _write(art_root / run_a / "inference" / "o.h5")
+    path_a = _purge_fixture_run(
+        runs_dir, art_root, run_a, {"population_model": shared, "inference": own}
+    )
+    # run_b records run_a's artifact.
+    _purge_fixture_run(runs_dir, art_root, run_b, {"population_model": shared})
+    plan = purge_run(path_a, with_artifacts=True, emit=None)
+    assert plan is not None
+    assert [p for _, p in plan.delete] == [own.resolve()]
+    assert plan.kept[0][2] == f"kept, also referenced by {run_b}"
+    assert shared.exists()
+    assert not own.exists()
+
+
+def test_purge_never_deletes_outside_artifact_root(tmp_path: Path) -> None:
+    runs_dir, art_root = tmp_path / "runs", tmp_path / "output"
+    run_id = "20261001-000000-ccccccc"
+    outside = _write(tmp_path / "elsewhere" / run_id / "data_acquisition" / "x.h5")
+    # A symlink inside the run's own dir pointing outside is also not owned.
+    link = art_root / run_id / "sample_selection" / "link.h5"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    run_path = _purge_fixture_run(
+        runs_dir,
+        art_root,
+        run_id,
+        {"data_acquisition": outside, "sample_selection": link},
+    )
+    plan = purge_run(run_path, with_artifacts=True, emit=None)
+    assert plan is not None
+    assert plan.delete == []
+    reasons = {stage: r for stage, _, r in plan.kept}
+    assert reasons["data_acquisition"].startswith("kept, outside artifact_root")
+    # The symlink resolves to the same outside file: kept (deduplicated).
+    assert reasons["sample_selection"] == "duplicate entry in this run file"
+    assert outside.exists()
+    assert link.is_symlink()
+    assert not run_path.exists()
+
+
+def test_purge_cli_dry_run_lists_and_deletes_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import importlib.util
+
+    runs_dir, art_root = tmp_path / "runs", tmp_path / "output"
+    run_id = "20261001-000000-ddddddd"
+    own = _write(art_root / run_id / "inference" / "o.h5")
+    run_path = _purge_fixture_run(runs_dir, art_root, run_id, {"inference": own})
+    script = Path(__file__).resolve().parents[1] / "scripts" / "purge_run.py"
+    spec = importlib.util.spec_from_file_location("purge_run_cli", script)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main([str(run_path), "--with-artifacts", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "would delete 1 artifact(s)" in out
+    assert str(own.resolve()) in out
+    assert own.exists() and run_path.exists()
