@@ -142,6 +142,36 @@ def _single(task: tuple[int, float, float, float]) -> list[dict[str, Any]]:
     return out
 
 
+U0_STREAM = 6  # SeedSequence stream for the u0 calibration singles
+
+
+def _u0_star(task: tuple[int, int, float, float, float]) -> list[dict[str, Any]]:
+    """One mock single star for the u0 calibration: v2 epochs + bright noise, gaiamock UWE."""
+    from darkhunter_pop.epoch_model import (
+        PER_CCD_NOISE_RNG_TAG, SourceEpochContext, epoch_model_rng, gost_epoch_model, per_ccd_excess_noise,
+    )
+    from darkhunter_pop.forward_model import mock_global_rng_seeds, seeded_global_rng
+
+    ib, j, ra, dec, g = task
+    gm, cf = _W["gm"], _W["c_funcs"]
+    lg, bg = _galactic(ra, dec)
+    src = SourceEpochContext(g_mag=float(g), l_deg=lg, b_deg=bg)
+    em = dataclasses.replace(_W["em_n2"], enabled=True, ruwe_u0=None)
+    idx = ib * 100_000 + j
+    seeds = mock_global_rng_seeds(_W["base_seed"], U0_STREAM, idx)
+    with seeded_global_rng(seeds, cf), gost_epoch_model(
+        gm, em, src, epoch_model_rng(_W["base_seed"], U0_STREAM, idx), gaps_jd=_W["gaps"]
+    ):
+        t, psi, pf, obs, err = gm.predict_astrometry_single_source(
+            ra=ra, dec=dec, parallax=1.0, pmra=0.0, pmdec=0.0, phot_g_mean_mag=g, data_release="dr3")
+    if em.excess_noise is not None:
+        extra, _ = per_ccd_excess_noise(err, g, em.excess_noise,
+                                        epoch_model_rng(_W["base_seed"], U0_STREAM, idx, tag=PER_CCD_NOISE_RNG_TAG))
+        obs = obs + extra
+    uwe = float(gm.check_ruwe(t, psi, pf, obs, err)[0]) if len(t) > 6 else float("nan")
+    return [{"bin": ib, "j": j, "g": g, "uwe": uwe, "n_obs": int(len(t)), "blas_threads": _W["threads"]}]
+
+
 def _pool_run(fn: Any, tasks: list[Any], log: Path, workers: int, initargs: tuple[Any, ...]) -> None:
     ctx = mp.get_context("spawn")
     t0 = time.time()
@@ -150,7 +180,7 @@ def _pool_run(fn: Any, tasks: list[Any], log: Path, workers: int, initargs: tupl
             for rec in recs:
                 fh.write(json.dumps(rec) + "\n")
             fh.flush()
-            if (i + 1) % 100 == 0:
+            if (i + 1) % max(100, len(tasks) // 50) == 0:
                 free = shutil.disk_usage(log.parent).free / 2**30
                 print(f"  {i + 1}/{len(tasks)} tasks, {(time.time() - t0) / 60:.1f} min, disk free {free:.1f} GiB", flush=True)
                 if free < 3.0:
@@ -218,6 +248,41 @@ def cmd_single(args: argparse.Namespace) -> None:
     _pool_run(_single, tasks, log, args.workers, initargs)
 
 
+def cmd_u0(args: argparse.Namespace) -> None:
+    """Mock single stars on a G grid at random snapshot positions, for u0_mock(G)."""
+    import h5py
+
+    from darkhunter_pop.config_loader import load_config
+
+    cfg = load_config()
+    em = cfg.dr3.epoch_model
+    if em is None or em.bright_excess_noise is None:
+        raise SystemExit("dr3.epoch_model.bright_excess_noise must be configured (it may be disabled)")
+    em_on = em.model_copy(update={"enabled": True,
+                                  "bright_excess_noise": em.bright_excess_noise.model_copy(update={"enabled": True})})
+    pop = cfg.selection_function_astrometric.mock_population
+    cuts = cfg.dr3.selection_function_astrometric.orbital_solution_cuts
+    initargs = (int(pop.random_seed), cuts.model_dump_json(), em_on.model_dump_json(), pop.ruwe_min, pop.skip_acceleration)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    with h5py.File(Path(args.snapshot) / "random.h5", "r") as f:
+        ra, dec = f["ra"][:], f["dec"][:]
+    rng = np.random.default_rng(args.seed)
+    edges = np.round(np.arange(args.g_min, args.g_max + 1e-9, args.g_step), 4)
+    tasks = []
+    for ib, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+        rows = rng.integers(0, ra.size, args.n_per_bin)
+        gs = rng.uniform(lo, hi, args.n_per_bin)
+        tasks += [(ib, j, float(ra[r]), float(dec[r]), float(g)) for j, (r, g) in enumerate(zip(rows, gs))]
+    log = out / "u0_singles.jsonl"
+    if log.exists():
+        raise SystemExit(f"{log} exists; refusing to mix runs")
+    (out / "u0_meta.json").write_text(json.dumps({"issue": 400, "edges": edges.tolist(), "n_per_bin": args.n_per_bin,
+                                                   "seed": args.seed, "epoch_model": json.loads(em_on.model_dump_json())}, indent=1))
+    print(f"{len(tasks)} mock singles, workers={args.workers}", flush=True)
+    _pool_run(_u0_star, tasks, log, args.workers, initargs)
+
+
 def main(argv: list[str] | None = None) -> int:
     P = Path("/Users/rfoley/darkhunter/pop/dark-hunter_pop")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -236,6 +301,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=4001)
     p.add_argument("--workers", type=int, default=6)
     p.set_defaults(func=cmd_single)
+    p = sub.add_parser("u0")
+    p.add_argument("--snapshot", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400"))
+    p.add_argument("--out", default=str(P / "output/gate400/u0"))
+    p.add_argument("--g-min", type=float, default=4.0)
+    p.add_argument("--g-max", type=float, default=19.0)
+    p.add_argument("--g-step", type=float, default=0.2)
+    p.add_argument("--n-per-bin", type=int, default=1500)
+    p.add_argument("--seed", type=int, default=4006)
+    p.add_argument("--workers", type=int, default=6)
+    p.set_defaults(func=cmd_u0)
     args = parser.parse_args(argv)
     args.func(args)
     return 0
