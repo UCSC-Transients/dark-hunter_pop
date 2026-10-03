@@ -319,6 +319,13 @@ def cmd_validation(args: argparse.Namespace) -> None:
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
             # RUWE over every realization (all outcomes carry a RUWE except flag 0)
             r["ruwe_ratio_all"] = _q(t["ruwe"][m_typ] / truth["ruwe"][si[m_typ]])
+            r["ruwe_ratio_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
+                mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                entry = {"renormalized": _q(t["ruwe"][mg] / truth["ruwe"][si[mg]])}
+                if "ruwe_scale" in t:
+                    entry["unrenormalized"] = _q(t["ruwe"][mg] * t["ruwe_scale"][mg] / truth["ruwe"][si[mg]])
+                r["ruwe_ratio_by_g"][f"{lo}-{hi}"] = entry
             orbf = m_typ & (t["outcome"] == 12)
             r["f2_median_by_g"] = {}
             for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
@@ -442,7 +449,7 @@ def cmd_single(args: argparse.Namespace) -> None:
     rows: dict[str, list[tuple[int, float, float, float]]] = {}
     for line in Path(args.log).read_text().splitlines():
         r = json.loads(line)
-        rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"]))
+        rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"], r.get("ruwe_scale", 1.0)))
     arr = {k: np.array(v) for k, v in rows.items()}
     variants = [v for v in ("gaiamock", "v2", "v2_n2") if v in arr]
     labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)"}
@@ -461,6 +468,8 @@ def cmd_single(args: argparse.Namespace) -> None:
             m = (a[:, 1] >= lo) & (a[:, 1] < hi)
             _hist_step(ax, a[m, 2], bins, j + 1, style, labels[v])
             b[v] = {"ruwe": _q(a[m, 2]), "frac_gt_1p4": float(np.mean(a[m, 2] > 1.4)),
+                    "ruwe_unrenormalized": _q(a[m, 2] * a[m, 4]),
+                    "frac_gt_1p4_unrenormalized": float(np.mean(a[m, 2] * a[m, 4] > 1.4)),
                     "nvis_minus_dr3_mean": float(np.mean(a[m, 3] - vp[a[m, 0].astype(int)]))}
         summary["bins"][f"{lo}-{hi}"] = b
         apply_axes_style(ax, style, xlabel="RUWE", ylabel="fraction of stars" if lo == 0 else None,
