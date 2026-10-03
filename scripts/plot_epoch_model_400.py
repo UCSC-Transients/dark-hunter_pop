@@ -62,9 +62,14 @@ def _hist_step(ax: Any, x: np.ndarray, bins: np.ndarray, i: int, style: Any, lab
 
 
 def _model_draws(
-    g: np.lib.npyio.NpzFile, pix: np.ndarray, gmag: np.ndarray, cfg: em.EpochModelConfig, seed: int
+    g: np.lib.npyio.NpzFile, pix: np.ndarray, gmag: np.ndarray, cfg: em.EpochModelConfig, seed: int,
+    l_deg: np.ndarray | None = None, b_deg: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Per star: transits and visibility periods from gaps + calibrated loss (one draw)."""
+    """Per star: transits and visibility periods from the configured model (one draw).
+
+    Same logic as ``epoch_model.thin_gost_mask`` at the transit level: gaps, then the
+    clustered episodes and the independent per-transit loss.
+    """
     off, tm = g["offsets"], g["t_mid"]
     gaps = em.gap_intervals_jd(cfg)
     keep_gap = ~em.in_gaps(tm, gaps)
@@ -73,8 +78,14 @@ def _model_draws(
     nvis = np.zeros(pix.size, dtype=np.int64)
     for i, (p, gm) in enumerate(zip(pix, gmag)):
         t = tm[off[p]:off[p + 1]][keep_gap[off[p]:off[p + 1]]]
-        pl = em.transit_loss_probability(float(gm), cfg)
-        t = t[rng.uniform(size=t.size) >= pl]
+        lb = {} if l_deg is None else {"l_deg": float(l_deg[i]), "b_deg": float(b_deg[i])}
+        q = 1.0 - em.keep_probability(float(gm), cfg, **lb)
+        e = em.clustered_fraction(float(gm), cfg) * q
+        p_ind = 1.0 - (1.0 - q) / (1.0 - e)
+        k = rng.uniform(size=t.size) >= p_ind
+        if e > 0 and cfg.clustered is not None:
+            k &= ~em.loss_episode_mask(t, e, cfg.clustered.tau_day, rng)
+        t = t[k]
         ntr[i] = t.size
         nvis[i] = em.n_visibility_periods_from_days(t, 4.0)
     return ntr, nvis
@@ -122,7 +133,13 @@ def cmd_measurement(args: argparse.Namespace) -> None:
                            "inj390/all": "#390 injection set"}[key])
     edges = np.asarray(cfg.transit_loss_g_edges)
     keep = 1 - np.asarray(cfg.transit_loss_prob)
-    ax.stairs(keep, edges, baseline=None, color="k", linewidth=2.5, label="calibrated model (config)")
+    ax.stairs(keep, edges, baseline=None, color="0.5", linewidth=2.0, label="v1 binned (#412, random stars)")
+    if cfg.continuous is not None:
+        gg = np.linspace(3.0, 19.0, 200)
+        cc = cfg.continuous
+        eta = cc.coef_g[0] + em.g_polynomial_basis(gg, cc) @ np.asarray(cc.coef_g[1:])
+        ax.plot(gg, np.minimum(1.0, np.exp(eta)), color="k", linewidth=2.5,
+                label="v2 continuous, NSS at RUWE 1.4 (sky average)")
     apply_axes_style(ax, style, xlabel="G (mag)", ylabel="DR3 transits / GOST transits after gaps",
                      title="Per-transit keep fraction after the published gaps")
     ax.set_ylim(0.85, 1.07)
@@ -156,7 +173,11 @@ def cmd_measurement(args: argparse.Namespace) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(13, 10))
     for col, name in enumerate(("random", "nss")):
         d = data[name]
-        ntr_m, nvis_m = _model_draws(g, d["pix"], d["phot_g_mean_mag"], cfg, seed=400 + col)
+        with h5py.File(Path(dec["snapshot"]) / f"{name}.h5", "r") as fs:
+            lb = {int(a): (x, y) for a, x, y in zip(fs["source_id"][:], fs["l"][:], fs["b"][:])}
+        lg = np.array([lb[int(s_)][0] for s_ in d["source_id"]])
+        bg = np.array([lb[int(s_)][1] for s_ in d["source_id"]])
+        ntr_m, nvis_m = _model_draws(g, d["pix"], d["phot_g_mean_mag"], cfg, seed=400 + col, l_deg=lg, b_deg=bg)
         dr3_tr = d["dr3_astrometric_matched_transits"]
         dr3_vp = d["dr3_visibility_periods_used"]
         b_tr = np.arange(0, 121, 3)
@@ -420,6 +441,36 @@ def cmd_validation(args: argparse.Namespace) -> None:
                      title="Orbital: long-period acceleration capture (#399)")
     ax.legend(prop=legend_prop(style), loc="upper left", frameon=False)
     save_figure(fig, fig_dir / "validation_capture_vs_period.png", dpi=dpi)
+
+    # N2 check: F2 and RUWE ratio by G (Orbital)
+    gk = ("0-11", "11-12", "12-13", "13-25")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+    pubf2 = [summary["variants"]["baseline"]["Orbital"]["f2_median_by_g"][k]["published"] for k in gk]
+    axes[0].plot(np.arange(4), pubf2, color="k", marker="*", markersize=16, linestyle="none", label="DR3 published")
+    j = 0
+    for v in variants:
+        if v in ("epoch", "epoch_noise"):
+            continue
+        st = series_style(j + 1, style)
+        o = summary["variants"][v]["Orbital"]
+        axes[0].plot(np.arange(4) + 0.08 * j, [o["f2_median_by_g"][k]["recovered"] for k in gk], color=st["color"],
+                     marker=st["marker"], linestyle="none", markersize=st["markersize"] + 2, label=labels[v])
+        axes[1].plot(np.arange(4) + 0.08 * j, [o["ruwe_ratio_by_g"][k]["renormalized"].get("median", np.nan) for k in gk],
+                     color=st["color"], marker=st["marker"], linestyle="none", markersize=st["markersize"] + 2,
+                     label=labels[v] + (" (RUWE renormalised)" if v == "v2_n2" else ""))
+        if v == "v2_n2":
+            axes[1].plot(np.arange(4) + 0.08 * j + 0.04, [o["ruwe_ratio_by_g"][k]["unrenormalized"].get("median", np.nan) for k in gk],
+                         color=st["color"], marker="x", linestyle="none", markersize=st["markersize"] + 4,
+                         label=labels[v] + " (not renormalised)")
+        j += 1
+    axes[1].axhline(1.0, color="0.4", linestyle=":", linewidth=1.5)
+    for ax in axes:
+        ax.set_xticks(np.arange(4), ["< 11", "11-12", "12-13", "> 13"])
+    apply_axes_style(axes[0], style, xlabel="G (mag)", ylabel="median F2 (orbit fits)", title="Orbital: goodness of fit")
+    apply_axes_style(axes[1], style, xlabel="G (mag)", ylabel="median recovered / published RUWE", title="Orbital: RUWE")
+    axes[0].legend(prop=legend_prop(style), loc="center right", frameon=False)
+    axes[1].legend(prop=legend_prop(style), loc="upper right", frameon=False, fontsize=11)
+    save_figure(fig, fig_dir / "validation_n2_f2_ruwe.png", dpi=dpi)
 
     path = fig_dir / "summary.json"
     old = json.loads(path.read_text()) if path.exists() else {}
