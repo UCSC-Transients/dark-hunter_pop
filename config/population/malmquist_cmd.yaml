@@ -1,0 +1,28 @@
+# 2-D CMD magnitude-limit (Malmquist / Öpik) weight (docs/MOCK_POPULATION_SPEC.md §11.4, #418).
+#
+# Ryan 2026-10-03: the weight is the stellar-locus binary check in the dereddened CMD, with the
+# companion shifting BOTH M_G and BP-RP (MIST) and extinction as its own vector. The single-star
+# locus is the measured MS ridge shared with the giants classifier (config/population/giants.yaml,
+# ridge.ruwe_max). Every provisional_* key is an open question (MP-Q27, MP-Q37, MP-Q38), not a
+# decision. Schema: darkhunter_pop.malmquist_cmd.CmdMalmquistConfig. Not under config/fragments/.
+
+malmquist_cmd:
+  provisional_giant_policy: unit_weight      # spec §10.6 (determined: W = 1 for CMD-evolved rows)
+  provisional_outside_ridge: unit_weight     # MP-Q38
+  provisional_blending: all_unresolved       # MP-Q27
+  sigma_a_mag: 0.0                           # MP-Q29 decided (Combined19, sigma_A = 0)
+  companion_colour:                          # MP-Q37: MIST MS colours at a fiducial ([Fe/H], age)
+    provisional_mode: fiducial_ms
+    fiducial_feh_dex: -0.1                   # = isochrone_mass [Fe/H] prior mean
+    fiducial_log_age: 9.6
+  grid:                                      # quadrature for lambda_qf(log q, log f | M1); numerical only
+    log_m1_min: -1.1
+    log_m1_max: 1.6
+    n_m1: 109
+    n_log_q_fine: 120
+    n_log_q_bins: 30
+    n_log_p: 156
+    n_hermite: 9
+    log_f_min: -5.0                          # fainter companions binned here (2.5 log10(1+f) < 1e-5 mag)
+    log_f_max: 0.5
+    n_log_f: 110

@@ -80,6 +80,9 @@ class RidgeConfig(_Strict):
     clip_iterations: int = Field(..., ge=0)
     min_rows_per_bin: int = Field(..., ge=10)
     min_parallax_over_error: float = Field(..., ge=0.0)
+    #: Measure the ridge on rows with RUWE below this only (#418: one ridge shared with the
+    #: 2-D Malmquist weight, from single-star-like rows). ``None`` keeps every row (#413).
+    ruwe_max: float | None = Field(None, gt=0.0)
 
     @model_validator(mode="after")
     def _order(self) -> RidgeConfig:
@@ -173,12 +176,18 @@ class MSRidge:
 
 
 def fit_ms_ridge(
-    mg0: ArrayLike, colour0: ArrayLike, parallax_over_error: ArrayLike, cfg: RidgeConfig
+    mg0: ArrayLike,
+    colour0: ArrayLike,
+    parallax_over_error: ArrayLike,
+    cfg: RidgeConfig,
+    *,
+    ruwe: ArrayLike | None = None,
 ) -> MSRidge:
     """Measure the MS ridge (smoothed mode of M_G0) and its faint-side width per colour bin.
 
     Only rows with finite CMD values and ``parallax_over_error ≥ cfg.min_parallax_over_error``
-    and ``cfg.mag_min < M_G0 < cfg.mag_max`` are used. Binaries only brighten a star, so the
+    and ``cfg.mag_min < M_G0 < cfg.mag_max`` are used; when ``cfg.ruwe_max`` is set, also only
+    rows with ``ruwe < cfg.ruwe_max`` (``ruwe`` is then required). Binaries only brighten a star, so the
     faint side (``M_G0`` above the mode, within ``faint_window_mag``) holds singles plus noise;
     its width is the RMS about the mode, iteratively clipped at ``clip_sigma``. Bins with fewer
     than ``min_rows_per_bin`` rows are dropped. Raises if fewer than two bins remain.
@@ -191,6 +200,10 @@ def fit_ms_ridge(
             np.isfinite(m) & np.isfinite(c) & (snr >= cfg.min_parallax_over_error)
             & (m > cfg.mag_min) & (m < cfg.mag_max)
         )
+        if cfg.ruwe_max is not None:
+            if ruwe is None:
+                raise ValueError("ridge.ruwe_max is set but no ruwe values were given")
+            base &= np.asarray(ruwe, dtype=np.float64) < cfg.ruwe_max
     n_bins = int(round((cfg.colour_max - cfg.colour_min) / cfg.colour_step))
     edges = cfg.colour_min + cfg.colour_step * np.arange(n_bins + 1)
     hist_edges = np.arange(cfg.mag_min, cfg.mag_max + cfg.hist_step_mag, cfg.hist_step_mag)
@@ -381,7 +394,9 @@ def classify_parent(
 ) -> tuple[EvolvedClassification, MSRidge]:
     """Measure the MS ridge on the parent's usable rows and classify every parent row.
 
-    The ridge uses only ``parent.usable`` rows (the rows the mock draws from). The returned
+    The ridge uses only ``parent.usable`` rows (the rows the mock draws from), and only those
+    with RUWE < ``cfg.ridge.ruwe_max`` when it is set (#418: the same ridge feeds the 2-D
+    Malmquist weight, :mod:`darkhunter_pop.malmquist_cmd`). The returned
     ``evolved`` array is the drop-in replacement for ``parent.is_giant`` (module docstring).
     """
     cmd = parent_row_cmd(parent, pipeline_config, cfg) if cmd is None else cmd
@@ -389,7 +404,8 @@ def classify_parent(
     with np.errstate(divide="ignore", invalid="ignore"):
         snr = np.asarray(cols["parallax"], float) / np.asarray(cols["parallax_error"], float)
     usable = np.asarray(parent.usable, bool)  # type: ignore[attr-defined]
-    ridge = fit_ms_ridge(np.where(usable, cmd.mg0, np.nan), cmd.colour0, snr, cfg.ridge)
+    ruwe = np.asarray(cols["ruwe"], float) if cfg.ridge.ruwe_max is not None else None
+    ridge = fit_ms_ridge(np.where(usable, cmd.mg0, np.nan), cmd.colour0, snr, cfg.ridge, ruwe=ruwe)
     return classify_evolved(cmd.mg0, cmd.colour0, cmd.sigma_mu, ridge, cfg.provisional_n_sigma), ridge
 
 

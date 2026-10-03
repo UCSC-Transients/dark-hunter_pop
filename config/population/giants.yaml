@@ -29,4 +29,7 @@ giants:
     clip_iterations: 5
     min_rows_per_bin: 200
     min_parallax_over_error: 10.0   # ridge and width measured on well-measured distances only
+    # #418: one ridge shared by this classifier and the 2-D Malmquist weight
+    # (config/population/malmquist_cmd.yaml), measured on single-star-like rows (Ryan: RUWE < 1.4).
+    ruwe_max: 1.4
   provisional_n_sigma: 3.0           # MP-Q28 option: margin beyond the twin line, in ridge sigma
