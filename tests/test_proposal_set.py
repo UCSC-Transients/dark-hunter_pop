@@ -345,3 +345,192 @@ def test_weighted_ks() -> None:
     assert d_good < 0.05 < d_bad
     assert p_good > 0.01 > p_bad
     assert 0 < n_eff < 4000
+
+
+# ---------------------------------------------------------------------------
+# #409 / #410: bounded MdS17-support eccentricity proposal
+# ---------------------------------------------------------------------------
+
+RESTART = "config/population/proposal_set_restart_smoke.yaml"
+
+
+def _ecc_cfg() -> ps.EccentricityProposalConfig:
+    return ps.load_proposal_set_fragment(RESTART).proposal.eccentricity
+
+
+@pytest.mark.physics
+def test_bounded_ecc_proposal_covers_mds17_support_and_normalizes() -> None:
+    from darkhunter_pop import moe_distefano as mds
+
+    cfg = _ecc_cfg()
+    table = mds.load_mds17_table()
+    for p in (3.0, 30.0, 500.0, 5000.0, 1e6):
+        emax = float(mds.e_max(p, table))
+        assert float(cfg.e_max(p)) == pytest.approx(emax)
+        e = np.linspace(1e-9, emax * (1 - 1e-9), 2001)
+        assert np.all(np.isfinite(ps.log_q_ecc(e, np.full_like(e, p), cfg)))  # q > 0 on the whole support
+        if emax > 0.95:  # the region #409 found uncovered
+            hi = e[e > 0.95]
+            assert hi.size and np.all(np.isfinite(ps.log_q_ecc(hi, np.full_like(hi, p), cfg)))
+        from scipy.integrate import quad
+
+        def dens(x: float, period: float = p) -> float:
+            return float(np.exp(ps.log_q_ecc(np.array([x]), np.array([period]), cfg))[0])
+
+        brk = sorted({emax, cfg.defensive_e_max})
+        total = sum(quad(dens, a0, b0, limit=400)[0] for a0, b0 in zip([0.0] + brk[:-1], brk))
+        assert total == pytest.approx(1.0, abs=1e-4)
+
+
+@pytest.mark.physics
+def test_bounded_ecc_weights_are_bounded() -> None:
+    from darkhunter_pop import moe_distefano as mds
+
+    cfg = _ecc_cfg()
+    tgt = ps.load_proposal_set_fragment(RESTART).target_mds17
+    table = mds.load_mds17_table()
+    floor = tgt.provisional_eta_floor
+    worst = 0.0
+    for m1 in (0.8, 1.0, 3.0, 8.0):
+        for p in (2.5, 4.0, 10.0, 100.0, 1e3, 1e5):
+            emax = float(mds.e_max(p, table))
+            e = np.geomspace(1e-12, emax * (1 - 1e-12), 4001)
+            pe = mds.e_density(e, m1, p, table, m1_interpolation="linear_m1", eta_floor=floor)
+            q = np.exp(ps.log_q_ecc(e, np.full_like(e, p), cfg))
+            worst = max(worst, float(np.max(pe / q)))
+    # analytic bound: (eta+1)/((eta_q+1) floor_weight) near e = 0, (eta+1)/support_weight elsewhere
+    bound = 2.0 / ((cfg.floor_eta + 1.0) * cfg.floor_weight)
+    assert worst < bound
+
+
+@pytest.mark.physics
+def test_bounded_ecc_importance_sampling_matches_quadrature() -> None:
+    # #410 acceptance: IS of ∫ p_e de = 1 at fixed M1 with a few draws per row, eta < -0.5 included.
+    from darkhunter_pop import moe_distefano as mds
+
+    cfg = _ecc_cfg()
+    table = mds.load_mds17_table()
+    rng = np.random.default_rng(410)
+    periods = 10.0 ** rng.uniform(0.35, 4.0, 20_000)  # includes log P < 1.4 where eta < -0.5
+    e = ps.sample_ecc(periods, cfg, rng)
+    w = mds.e_density(e, 1.0, periods, table, m1_interpolation="linear_m1", eta_floor=-0.9) / np.exp(
+        ps.log_q_ecc(e, periods, cfg)
+    )
+    mean, err = w.mean(), w.std() / np.sqrt(w.size)
+    assert abs(mean - 1.0) < 4 * err + 1e-3
+    assert err < 0.01  # finite, small variance
+
+
+@pytest.mark.unit
+def test_check_eccentricity_bounded() -> None:
+    cfg = _ecc_cfg()
+    ps.check_eccentricity_bounded(cfg, -0.9)
+    with pytest.raises(ValueError):
+        ps.check_eccentricity_bounded(cfg, -0.95)  # target floor below the proposal power law
+    old = ps.load_proposal_set_fragment(DECIDED).proposal.eccentricity
+    assert old.shape == "uniform"
+    with pytest.raises(ValueError, match="#409"):
+        ps.check_eccentricity_bounded(old, -0.9)
+
+
+@pytest.mark.unit
+def test_uniform_ecc_sampling_unchanged_for_old_artifacts() -> None:
+    old = ps.load_proposal_set_fragment(DECIDED).proposal.eccentricity
+    p = np.array([1.0, 50.0, 500.0])
+    a = ps.sample_ecc(p, old, np.random.default_rng(1))
+    b = np.where(p <= old.circular_period_days, 0.0, np.random.default_rng(1).uniform(0.0, old.e_cap, size=3))
+    np.testing.assert_array_equal(a, b)
+
+
+@pytest.mark.unit
+def test_epoch_wrap_must_match_config() -> None:
+    prop = ps.load_proposal_set_fragment(RESTART).proposal
+    assert prop.epoch_model == "dr3_config"
+    with pytest.raises(ValueError, match="epoch_wrap is missing"):
+        ps.simulate_one({"generation": 20, "draw_index": 0}, gaiamock=_FakeGaiamock(), c_funcs=None,
+                        cfg=prop, cuts=None, epoch_wrap=None)  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+def test_real_comparison_keep_applies_input_cuts() -> None:
+    prop = ps.load_proposal_set_fragment(DECIDED).proposal
+    green = 1.162004 + 0.011464 * 0.8 + 0.049255 * 0.64 - 0.005879 * 0.512
+    cols = {
+        "source_id": np.array([1, 2, 3, 4]),
+        "parallax": np.array([1.0, 1.0, 1.0, 1.0]),
+        "teff_msc1": np.full(4, 5800.0), "logg_msc1": np.full(4, 4.4), "mh_msc": np.zeros(4),
+    }
+    inp = {
+        "source_id": np.array([3, 1, 2]),  # row 4 missing -> fails
+        "ipd_frac_multi_peak": np.array([0.0, 0.0, 5.0]),
+        "ipd_gof_harmonic_amplitude": np.array([0.01, 0.01, 0.01]),
+        "bp_rp": np.full(3, 0.8), "phot_bp_rp_excess_factor": np.full(3, green),
+        "phot_g_mean_mag": np.full(3, 12.0),
+    }
+    keep, counts = ps.real_comparison_keep(cols, prop, inp)
+    assert keep.tolist() == [True, False, True, False]
+    assert counts["missing_input_columns"] == 1 and counts["and_halbwachs_ipd_cstar"] == 2
+
+
+def _synthetic_parent_for_malmquist(n: int = 4000, zp: float = 0.3, sig: float = 0.2, seed: int = 9) -> ps.ParentSnapshot:
+    rng = np.random.default_rng(seed)
+    m1 = rng.uniform(0.9, 1.4, n)
+    r = rng.uniform(100.0, 400.0, n)
+    mg = ps.janssens_absolute_g(m1) + zp + rng.normal(0.0, sig, n)
+    g = mg + 5 * np.log10(r) - 5
+    cols = {
+        "source_id": np.arange(n), "phot_g_mean_mag": g, "ruwe": np.where(rng.uniform(size=n) < 0.9, 1.0, 2.0),
+        "r_med_geo": r, "r_lo_geo": r * 0.999, "r_hi_geo": r * 1.001, "l": np.zeros(n), "b": np.full(n, 30.0),
+        "parallax": 1000.0 / r, "ra": rng.uniform(0, 360, n), "dec": rng.uniform(-60, 60, n),
+        "pmra": np.zeros(n), "pmdec": np.zeros(n),
+    }
+    giant = np.zeros(n, bool)
+    giant[:10] = True
+    return ps.ParentSnapshot(
+        columns=cols, m1_msun=m1, m1_source=np.full(n, "MSC"), atmosphere_logg=np.full(n, 4.4),
+        truth_parallax_mas=1000.0 / r, is_giant=giant, flags={"all": np.ones(n, bool)}, usable=np.ones(n, bool),
+        meta={"parent_h5_sha256": "x"}, scale_to_full=1.0, path=Path("."),
+    )
+
+
+@pytest.mark.physics
+def test_zero_point_fit_recovers_known_values() -> None:
+    import yaml
+
+    from darkhunter_pop.malmquist import MalmquistConfig
+
+    raw = yaml.safe_load(Path("config/population/malmquist_decided.yaml").read_text())
+    mcfg = MalmquistConfig.model_validate(raw["malmquist"] | {"provisional_sigma_log_m1_dex": 0.0})
+    ext = ps.ParentExtinctionConfig.model_validate(raw["extinction"])
+    fit = ps.ZeroPointFitConfig.model_validate(raw["zero_point_fit"] | {"n_bootstrap": 20})
+    parent = _synthetic_parent_for_malmquist()
+    res = ps.fit_mg_zero_point(parent, np.zeros(parent.n_rows), mcfg, fit, ext)
+    assert res.zero_point_mag == pytest.approx(0.3, abs=4 * res.zero_point_err_mag + 0.005)
+    assert res.sigma_int_mag == pytest.approx(0.2, abs=4 * res.sigma_int_err_mag + 0.005)
+    assert 0 < res.zero_point_err_mag < 0.02
+    assert res.n_stars < parent.n_rows  # RUWE >= 1.4 and giants excluded
+
+
+@pytest.mark.api
+def test_malmquist_weight_assembly() -> None:
+    import yaml
+
+    from darkhunter_pop.malmquist import MalmquistConfig
+
+    raw = yaml.safe_load(Path("config/population/malmquist_decided.yaml").read_text())
+    small = raw["malmquist"] | {"grid": raw["malmquist"]["grid"] | {"n_m1": 8, "n_log_q": 16, "n_log_p": 16, "n_log_f": 40},
+                                "provisional_sigma_int_mag": 0.2, "provisional_mg_zero_point_mag": 0.3}
+    mcfg = MalmquistConfig.model_validate(small)
+    ext = ps.ParentExtinctionConfig.model_validate(raw["extinction"])
+    parent = _synthetic_parent_for_malmquist(n=300)
+    prop = ps.load_proposal_set_fragment(RESTART).proposal.model_copy(update={"n_draws": 400})
+    tgt = ps.load_proposal_set_fragment(RESTART).target_mds17
+    truth = ps.sample_proposal(parent, prop)
+    lw, counts = ps.malmquist_log_weight(truth, parent, tgt, mcfg, np.zeros(parent.n_rows), ext)
+    assert lw.shape == (400,) and np.all(np.isfinite(lw))
+    giant_draws = parent.is_giant[truth["parent_row"]]
+    assert np.all(lw[giant_draws] == 0.0)  # MP-Q28 hook: giants unit weight
+    assert counts["unit_weight_giant"] == int(giant_draws.sum())
+    with pytest.raises(ValueError, match="MP-Q30"):
+        ps.malmquist_log_weight(truth, parent, tgt, mcfg.model_copy(update={"provisional_distance_marginalization": "split_normal_mu"}),
+                                np.zeros(parent.n_rows), ext)

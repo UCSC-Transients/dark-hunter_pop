@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -39,7 +40,12 @@ from darkhunter_pop.plotting import (
 )
 from darkhunter_pop.proposal_set import (
     MdS17TargetConfig,
+    ParentExtinctionConfig,
     ProposalConfig,
+    check_eccentricity_bounded,
+    combined19_a_g,
+    load_real_input_columns,
+    malmquist_log_weight,
     load_parent_snapshot,
     log_q_total_for,
     real_comparison_keep,
@@ -85,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     ap.add_argument("--label", default="PILOT", help="figure/report label, e.g. PILOT or RUNG 2")
     ap.add_argument("--prefix", default="pilot", help="output filename prefix")
+    ap.add_argument("--malmquist", type=Path, default=None,
+                    help="decided Malmquist config (#405 weight added to the target); omit = no weight")
+    ap.add_argument("--real-input-columns", type=Path, default=None,
+                    help="snapshot from fetch_real_nss_input_columns.py (MP-Q24 real-side IPD/C* drop)")
+    ap.add_argument("--rung2", type=Path, default=Path("config/population/rung2_validation.yaml"))
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -118,6 +129,29 @@ def main(argv: list[str] | None = None) -> int:
     stype = np.asarray(outcome["solution_type"]).astype(str)
 
     log_lam = mds17_luminous_log_intensity(truth, target)
+    ecc_shapes = sorted({gc.eccentricity.shape for gc in gen_cfgs})
+    for gc in gen_cfgs:
+        if gc.eccentricity.shape != "uniform":
+            check_eccentricity_bounded(gc.eccentricity, target.provisional_eta_floor)
+    malm_counts: dict[str, int] | None = None
+    zp_note = "no Malmquist weight"
+    if args.malmquist is not None:
+        import yaml as _yaml
+
+        from darkhunter_pop.malmquist import MalmquistConfig
+
+        mraw = _yaml.safe_load(args.malmquist.read_text())
+        mcfg = MalmquistConfig.model_validate(mraw["malmquist"])
+        ext = ParentExtinctionConfig.model_validate(mraw["extinction"])
+        a_g = combined19_a_g(parent, ext)
+        lw_m, malm_counts = malmquist_log_weight(truth, parent, target, mcfg, a_g, ext)
+        log_lam = log_lam + lw_m
+        zp_note = (
+            f"Malmquist weight (#405) with zp={mcfg.provisional_mg_zero_point_mag:+.3f} mag, "
+            f"sigma_int={mcfg.provisional_sigma_int_mag:.3f} mag (MP-Q25 fit, see #414), Combined19 A_G"
+        )
+    rung2 = __import__("yaml").safe_load(args.rung2.read_text())["rung2"]
+    min_ess = float(rung2["min_ess_per_bin"])
     log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]
     w = importance_weights(
         log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=scale
@@ -138,24 +172,36 @@ def main(argv: list[str] | None = None) -> int:
     is_type = np.isin(np.asarray(real_table["nss_solution_type"]).astype(str), list(real_types))
     real_sel = real_table[is_type]
     # Mirror the decided parent filters on the real side (spec §0.1: MP-Q1, MP-Q5).
-    keep, real_counts = real_comparison_keep(real_sel, gen_cfgs[0])
+    in_cols = load_real_input_columns(args.real_input_columns) if args.real_input_columns else None
+    keep, real_counts = real_comparison_keep(real_sel, gen_cfgs[0], in_cols)
     real_panels, n_real = build_elbadry2024_comparison_panels(
         real_sel[keep], nss_solution_types=real_types, gaiamock=gm
     )
     real_label = (
         f"DR3 Orbital+AstroSpectroSB1, parallax > {gen_cfgs[0].parallax_floor_mas} mas, "
-        f"TAG10 atmosphere (N={n_real} of {real_counts['rows']})"
+        f"TAG10 atmosphere{', Halbwachs IPD/C* (MP-Q24)' if in_cols is not None else ''} "
+        f"(N={n_real} of {real_counts['rows']})"
     )
 
     mock_vals = mock_panel_values(truth, outcome)
     axes_cfg = {k: (v.scale, v.xmin, v.xmax) for k, v in cfg.diagnostics.elbadry_six_panel_axes.items()}
-    n_bins = 20
+    n_bins = int(rung2["n_bins"])
 
     lam_orbit = float(np.sum(w[acc]))
     ess_acc = kish_ess(w[acc])
     n_acc = int(acc.sum())
     n_acc_wpos = int(np.sum(acc & (w > 0)))
     thr = float(cfg.physics.mc_noise_threshold)
+
+    # Per-panel bins, ESS and the MP-Q19 display/KS minimum (decided: ESS_b >= min_ess).
+    panel_bins: dict[str, tuple[np.ndarray, Any]] = {}
+    shade: dict[str, list[tuple[float, float]]] = {}
+    for name in SIX_PANEL_NAMES:
+        sc, lo, hi = axes_cfg[name]
+        edges = six_panel_bin_edges(lo, hi, scale=sc, n_bins=n_bins)
+        bw = binned_weights(mock_vals[name][acc], w[acc], edges)
+        panel_bins[name] = (edges, bw)
+        shade[name] = [(float(edges[i]), float(edges[i + 1])) for i in range(n_bins) if bw.ess[i] < min_ess]
 
     panels = {}
     weights = {}
@@ -189,7 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         + "; ".join(f"{k}={v}" for k, v in decided.items())
         + ". Reweightable provisional settings, not decisions: "
         + "; ".join(f"{k.removeprefix('provisional_')}={v}" for k, v in provisional.items())
-        + f". Bins meeting the spec §3.6 trust criterion are listed in {args.prefix}_report.txt."
+        + f". {zp_note}. Eccentricity proposal: {ecc_shapes}. Grey bands: bins with MdS17 ESS < {min_ess:g} "
+        f"(MP-Q19), excluded from the KS gate; details in {args.prefix}_report.txt."
     )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     plot_six_panel_grid(
@@ -209,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
         caption=caption,
         style=cfg.plotting,
         series_weights=weights,
+        shade_ranges=shade,
     )
 
     # --- ESS per six-panel bin ---
@@ -219,14 +267,14 @@ def main(argv: list[str] | None = None) -> int:
     ks_info: dict[str, tuple[float, float, float]] = {}
     for ax, name in zip(np.ravel(axs), SIX_PANEL_NAMES):
         sc, lo, hi = axes_cfg[name]
-        edges = six_panel_bin_edges(lo, hi, scale=sc, n_bins=n_bins)
-        bw = binned_weights(mock_vals[name][acc], w[acc], edges)
+        edges, bw = panel_bins[name]
         raw = np.histogram(mock_vals[name][acc], bins=edges)[0]
         s0, s1 = series_style(0, style), series_style(1, style)
         ax.stairs(np.maximum(bw.ess, 1e-1), edges, color=s0["color"], linestyle=s0["linestyle"],
                   linewidth=s0["linewidth"], label="ESS (MdS17 weights)")
         ax.stairs(np.maximum(raw, 1e-1), edges, color=s1["color"], linestyle=s1["linestyle"],
                   linewidth=s1["linewidth"], label="accepted draws")
+        ax.axhline(min_ess, color="0.4", linestyle=":", linewidth=1.5, label=f"MP-Q19 minimum ESS {min_ess:g}")
         ax.set_yscale("log")
         ax.set_ylim(0.5, max(2.0, raw.max() * 2.0))
         if sc == "log":
@@ -234,22 +282,25 @@ def main(argv: list[str] | None = None) -> int:
         ax.set_xlim(lo, hi)
         apply_axes_style(ax, style, xlabel=PANEL_LABELS[name], ylabel="draws per bin")
         ax.legend(loc="best", fontsize=style.tick_label_fontsize)
-        trusted_mask = bw.trusted(thr)
-        trusted = int(np.sum(trusted_mask))
-        real_counts_b = np.histogram(real_panels[name], bins=edges)[0]
-        need = real_counts_b > 0
-        adequate = bool(np.all(trusted_mask[need])) if need.any() else False
-        if adequate:
-            d, n_eff, pval = weighted_ks(real_panels[name], mock_vals[name][acc], w[acc])
-            ks_txt = f"weighted KS D={d:.3f}, n_eff={n_eff:.1f}, p={pval:.3g}"
+        trusted = int(np.sum(bw.trusted(thr)))
+        good = bw.ess >= min_ess
+        # MP-Q19 KS gate: compare real and mock only inside the bins with ESS_b >= min_ess.
+        rv = np.asarray(real_panels[name], float)
+        mv = np.asarray(mock_vals[name][acc], float)
+        rb = np.digitize(rv, edges) - 1
+        mb = np.digitize(mv, edges) - 1
+        r_in = (rb >= 0) & (rb < n_bins) & good[np.clip(rb, 0, n_bins - 1)]
+        m_in = (mb >= 0) & (mb < n_bins) & good[np.clip(mb, 0, n_bins - 1)]
+        frac_real = float(r_in.mean()) if rv.size else float("nan")
+        if good.any() and r_in.any() and m_in.any():
+            d, n_eff, pval = weighted_ks(rv[r_in], mv[m_in], w[acc][m_in])
+            ks_txt = (f"KS over the {int(good.sum())} bins with ESS >= {min_ess:g} "
+                      f"(holding {frac_real:.1%} of the real sample): D={d:.3f}, n_eff={n_eff:.1f}, p={pval:.3g}")
         else:
-            ks_txt = (
-                f"KS not computed: {int(np.sum(need & ~trusted_mask))} of {int(need.sum())} bins "
-                "holding real data fail the §3.6 trust criterion"
-            )
+            ks_txt = f"KS not computed: no bin reaches ESS >= {min_ess:g}"
         lines.append(
-            f"{name}: bins={n_bins}, max ESS_b={bw.ess.max():.2f}, bins meeting "
-            f"sigma_MC/sigma_Poisson<{thr} (ESS_b >= N_b/{thr}^2): {trusted}/{n_bins}; {ks_txt}"
+            f"{name}: bins={n_bins}, max ESS_b={bw.ess.max():.2f}, bins with ESS >= {min_ess:g}: {int(good.sum())}/{n_bins}; "
+            f"(spec §3.6 sigma_MC/sigma_Poisson<{thr}: {trusted}/{n_bins}); {ks_txt}"
         )
         ks_info[name] = weighted_ks(real_panels[name], mock_vals[name][acc], w[acc])
     fig.suptitle(
@@ -282,8 +333,9 @@ def main(argv: list[str] | None = None) -> int:
         report.append(f"  {lab:28s} {sel.mean():.3f} | {np.sum(w[sel]):.4g}")
     pub = np.asarray(outcome["published_acceleration"], bool)
     report.append(f"  published acceleration (s>20; F2<22 for 7-par): raw {pub.mean():.3f} | weighted {np.sum(w[pub]):.4g}")
-    report += ["", "per-panel ESS and KS (KS gated on spec §3.6):"] + ["  " + ln for ln in lines]
-    report += ["", "informational weighted KS for every panel (NOT a gate; ESS-limited):"]
+    report += [f"Malmquist: {zp_note}; unit-weight counts {malm_counts}", f"eccentricity proposal shapes: {ecc_shapes}"]
+    report += ["", f"per-panel ESS and KS (KS gated on MP-Q19, ESS_b >= {min_ess:g}):"] + ["  " + ln for ln in lines]
+    report += ["", "informational weighted KS over the full panel range (NOT a gate):"]
     report += [f"  {k}: D={v[0]:.3f}, n_eff={v[1]:.1f}, p={v[2]:.3g}" for k, v in ks_info.items()]
     report += [
         "",
