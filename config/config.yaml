@@ -962,6 +962,15 @@ dr3:
       knots_g: [8.494034, 9.602653, 10.576412, 11.279750, 11.780147, 12.275054, 12.772286]
       knots_r2: [0.538285, 0.678118, 0.794198, 0.962945, 0.768383, 0.534535, 0.376680]
       renormalize_ruwe: true
+    # #400 N2-u0 (Ryan 2026-10-03): DR3-like RUWE = UWE / u0_mock(G). u0_mock is the 41st
+    # percentile of mock single-star UWE per 0.25-mag G bin (Lindegren 2018 TN LL-124),
+    # mock singles run through the v2 epochs + bright_excess_noise. When enabled it
+    # replaces bright_excess_noise.renormalize_ruwe. Spec §8.8.
+    ruwe_u0:
+      enabled: false
+      table: config/epoch_model/dr3_ruwe_u0_mock.csv
+      table_sha256: 8731b93be639a364c16ad2ffcd48d7e26837bf6857ed5ff0e4125f8312a63269
+      provenance: "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
     # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
     excess_noise:
       enabled: false

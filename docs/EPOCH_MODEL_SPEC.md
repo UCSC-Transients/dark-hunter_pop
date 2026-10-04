@@ -372,6 +372,7 @@ RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 | N2a | adopt N2 anyway (renormalised), accepting the −10% bright NSS RUWE and −6% significance | matches F2 and σ |
 | N2b | N2 for the NSS fits only: gate the cascade with gaiamock's `check_ruwe` on the data *without* the extra noise (`ruwe_min = 0` inside `fit_full_astrometric_cascade`, pop-side RUWE gate first). This models an AGIS vs NSS error-model difference; not yet run | composition of gaiamock calls, no reimplementation |
 | N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | current config |
+| N2d | adopt N2-u0 (§8.8): per-CCD bright noise + RUWE = UWE / u0_mock(G) | better than v2 on F2, σ, significance by G, overall and faint RUWE, single-star RUWE peak, #403 rate; worse on bright NSS RUWE at 12–13 (1.01 → 0.91) and AstroSpectroSB1 astrometry-only σ |
 | R1 | random-star offset δ: leave unexplained, or investigate (sky distribution, ≥ 12 visibility periods, IPD harmonic amplitude, C*) | 1.3% |
 
 ### 8.7 Data: epoch-time snapshot
@@ -384,6 +385,47 @@ failed on 2026-10-03 with HTTP 500 (statement timeout); even `SELECT TOP 3 sourc
 gaiadr3.vari_summary` timed out. A retry loop then ran from 11:28 to 16:18 PDT and failed on
 all 10 attempts (HTTP 500, statement timeouts, socket timeouts). No epoch-time snapshot exists,
 so τ stays provisional (option T1). The script is ready to rerun as is.
+
+### 8.8 N2-u0: bright-star noise with DR3's RUWE definition (Ryan, 2026-10-03)
+
+DR3's RUWE is UWE / u0(G, C). Lindegren (2018, GAIA-C3-TN-LU-LL-124 §4) defines u0 as the
+**41st percentile** of UWE in magnitude–colour bins of the full sample, a proxy for the mode
+of well-behaved single stars, smoothed in G and C. Lindegren et al. (2021) carried the same
+empirical scaling into EDR3. The normalisation absorbs any excess noise that single stars of a
+given G share, including the bright-star excess.
+
+**Mock u0.**
+- Sample: 36,000 mock single stars, 600 per 0.25-mag bin over 4 ≤ G ≤ 19, at random
+  `gaia_source` snapshot positions (`validate_epoch_model_v2_400.py u0`).
+- Processing: `predict_astrometry_single_source` with the v2 epoch model and the N2 per-CCD
+  noise; UWE from gaiamock's `check_ruwe`.
+- Statistic: u0_mock(G) is the 41st percentile per bin (`calibrate_epoch_model_400.py
+  u0-table`).
+- Colour axis: collapsed, because gaiamock's per-CCD noise has no colour term.
+- Table: `config/epoch_model/dr3_ruwe_u0_mock.csv`, with a provenance header and its sha256 in
+  config.
+- Values: u0 = 1.19–1.32 at G < 12, 1.11 at 12.9, then 0.94–0.99 at G ≥ 13. gaiamock's own
+  single-star UWE peaks slightly below 1 there.
+- Calibrated once and statistical: there is no per-star lookup.
+
+**Gate without editing gaiamock.**
+- `fit_full_astrometric_cascade` tests its UWE against `ruwe_min` internally, and
+  RUWE > 1.4 ⇔ UWE > 1.4 u0(G). So `run_cascade` passes `ruwe_min · u0(G)` and divides the
+  returned RUWE by u0(G).
+- The gate is therefore applied to the renormalised RUWE exactly, with no need to disable it
+  and re-apply it pop-side.
+
+**Relation to #403.** The mock's input gate is now on a DR3-style normalised RUWE, as DR3's NSS
+input was (EDR3 RUWE > 1.4). The 5-parameter outcome rate of re-injected Orbital solutions
+halves (v2 3.4% → 1.7%; at G > 15, 5.0% → 2.8%). The remainder is the expected winner's curse:
+published sources are conditioned on RUWE > 1.4. DR3's later F2 ≤ 0 single-star re-acceptance
+(Halbwachs et al. 2023 §3.3; 28 of 4.1 M sources) is a different rule and is still not
+modelled. **#403 is resolved in definition, not completely.**
+
+**Verdict: not adopted under the strict rule** (`ruwe_u0.enabled: false`,
+`bright_excess_noise.enabled: false`). It matches as well as or better than v2 on almost
+everything (`docs/gate400/README.md`, "N2-u0"), but bright NSS RUWE at 12 < G < 13 gets worse
+(1.01 → 0.91). Recommended for Ryan's decision as option **N2d**.
 
 ## References
 
