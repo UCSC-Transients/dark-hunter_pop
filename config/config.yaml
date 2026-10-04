@@ -911,7 +911,7 @@ dr3:
   # docs/EPOCH_MODEL_SPEC.md). Wraps gaiamock, never edits it. Off until Ryan
   # chooses (spec §6); the calibration is recorded here so the choice is one flag.
   epoch_model:
-    enabled: false
+    enabled: true  # Ryan 2026-10-03, #400 E1
     # ESA "Gaps in Gaia (E)DR3 data", Astrometry_EDR3.csv (138 gaps, OBMT rev),
     # https://www.cosmos.esa.int/web/gaia/dr3-data-gaps, downloaded 2026-10-03.
     gap_table: config/gaia_gaps/dr3_astrometry_gaps_edr3.csv
@@ -930,17 +930,50 @@ dr3:
     # Whole-transit loss after the gaps, calibrated on 94,635 random gaia_source stars
     # (G < 19) against DR3 astrometric_matched_transits (docs/gate400, spec §3).
     transit_loss:
+      # Ryan 2026-10-03 (#400 E6, E7, E3): continuous in G, calibrated on NSS stars at
+      # RUWE = 1.4, with a Galactic (l, b) real-harmonic sky term (ell <= 2, chosen by
+      # sky-blocked cross-validation). Fit: scripts/calibrate_epoch_model_400.py keep.
+      # log p_keep = coef_g . [1, x, ..., x^4] + coef_sky . Y(l, b), x = (clip(G) - g_ref) / g_scale.
+      model: continuous
+      continuous:
+        g_clip: [6.000000, 19.000000]
+        g_ref: 14.0
+        g_scale: 4.0
+        coef_g: [-0.014901, -0.012067, -0.004129, 0.001194, -0.010059]
+        sky_lmax: 2
+        coef_sky: [-0.005009, -0.002109, 0.017786, 0.000976, -0.011094, 0.000506, -0.003450, 0.019254]
+      # binned #412 calibration (random stars), kept for reference; unused when model is continuous
       g_edges: [3.0, 11.0, 13.0, 15.0, 16.0, 17.0, 17.5, 18.0, 18.5, 19.0]
       prob: [0.038, 0.028, 0.034, 0.035, 0.044, 0.053, 0.052, 0.060, 0.073]
       density_slope_per_dex: 0.0
       density_ref_per_deg2: 31622.8
     calibration_snapshot: 20261003T063811Z_epoch_counts_400
+    # Ryan 2026-10-03 (#400 E4): time-clustered loss episodes for faint stars. frac_max
+    # and the ramp make the random-star visibility-period excess vanish at G > 15
+    # (spec §4.3); tau_day from the epoch-time gap lengths (spec §4.3).
+    clustered_loss:
+      enabled: true
+      g_start: 14.5
+      g_full: 16.5
+      frac_max: 0.5
+      tau_day: 2.0
+    # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
+    # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
+    # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but
+    # lowers bright NSS RUWE by 9-13% (spec §8.5, docs/gate400 "v2 validation"); Ryan's
+    # condition was that nothing else breaks. Kept calibrated so the choice is one flag.
+    bright_excess_noise:
+      enabled: false
+      g_max: 13.0
+      knots_g: [8.494034, 9.602653, 10.576412, 11.279750, 11.780147, 12.275054, 12.772286]
+      knots_r2: [0.538285, 0.678118, 0.794198, 0.962945, 0.768383, 0.534535, 0.376680]
+      renormalize_ruwe: true
     # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
     excess_noise:
       enabled: false
       g_max: 13.0
       sigma_max_mas: 0.04
-    provenance: "#400 calibration, scripts/measure_epoch_counts_400.py compare"
+    provenance: "#400 v2 (Ryan 2026-10-03 E1/E3/E4/E6/E7/N2); scripts/calibrate_epoch_model_400.py"
 dr4:
   mission_baseline_months: 66.0
   scanning_law_id: gaiadr4_pinned

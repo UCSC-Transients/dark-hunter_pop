@@ -26,6 +26,9 @@ def _cfg(**kw: Any) -> em.EpochModelConfig:
     base = load_config().dr3.epoch_model
     assert base is not None
     out = dataclasses.replace(em.epoch_model_config_from_mapping(base), enabled=True)
+    if any(k_.startswith("transit_loss") for k_ in kw):
+        # binned-model tests: switch off the continuous / clustered parts
+        kw = {"continuous": None, "clustered": None, **kw}
     return dataclasses.replace(out, **kw) if kw else out
 
 
@@ -203,7 +206,8 @@ def test_bright_star_excess_noise() -> None:
 def test_config_paths_dr3_set_dr4_null() -> None:
     cfg = load_config()
     assert cfg.dr3.epoch_model is not None and cfg.dr4.epoch_model is None
-    assert cfg.dr3.epoch_model.enabled is False
+    assert cfg.dr3.epoch_model.enabled is True  # Ryan 2026-10-03, #400 E1
+    assert cfg.dr3.epoch_model.transit_loss.model == "continuous"
     tl = cfg.dr3.epoch_model.transit_loss
     assert len(tl.prob) == len(tl.g_edges) - 1
 
@@ -232,9 +236,114 @@ def test_real_gaiamock_wrapper_only_changes_transits() -> None:
     full = _cfg()
     gaps = em.gap_intervals_jd(full)
     with seeded_global_rng(seeds, cf), em.gost_epoch_model(
-        gm, full, em.SourceEpochContext(12.0), np.random.default_rng(0)
+        gm, full, em.SourceEpochContext(12.0, l_deg=250.0, b_deg=-30.0), np.random.default_rng(0)
     ):
         thin = gm.predict_astrometry_binary_in_terms_of_a0(**args)
     jd = thin[0] * 365.25 + 2457389.0  # gaiamock rescale_times_astrometry for DR3
     assert not em.in_gaps(jd, gaps).any()
     assert len(thin[0]) < len(bare[0])
+
+
+# --------------------------------------------------------------------------------------
+# v2 (Ryan 2026-10-03): continuous + sky keep, clustered loss, per-CCD excess noise
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_real_harmonics_orthonormal() -> None:
+    rng = np.random.default_rng(0)
+    z = rng.uniform(-1, 1, 200_000)
+    l_deg, b_deg = rng.uniform(0, 360, z.size), np.degrees(np.arcsin(z))
+    Y = em.real_sph_harm_galactic(l_deg, b_deg, 2)
+    gram = 4 * np.pi * (Y.T @ Y) / z.size
+    np.testing.assert_allclose(gram, np.eye(8), atol=0.03)
+
+
+@pytest.mark.unit
+def test_continuous_keep_matches_formula_and_caps() -> None:
+    cfg = _cfg()
+    cont = cfg.continuous
+    assert cont is not None
+    g, l_deg, b_deg = 14.7, 100.0, 20.0
+    x = (np.clip(g, *cont.g_clip) - cont.g_ref) / cont.g_scale
+    eta = sum(c * x**i for i, c in enumerate(cont.coef_g)) + float(
+        em.real_sph_harm_galactic(l_deg, b_deg, cont.sky_lmax)[0] @ np.asarray(cont.coef_sky))
+    assert em.keep_probability(g, cfg, l_deg=l_deg, b_deg=b_deg) == pytest.approx(min(1.0, np.exp(eta)))
+    with pytest.raises(ValueError, match="sky term"):
+        em.keep_probability(g, cfg)
+    big = dataclasses.replace(cfg, continuous=dataclasses.replace(cont, coef_g=(1.0,) + cont.coef_g[1:]))
+    assert em.keep_probability(g, big, l_deg=l_deg, b_deg=b_deg) == 1.0
+
+
+@pytest.mark.unit
+def test_clustered_fraction_ramp() -> None:
+    cfg = _cfg(clustered=em.ClusteredLossConfig(g_start=14.5, g_full=16.5, frac_max=0.5, tau_day=2.0))
+    assert em.clustered_fraction(14.0, cfg) == 0.0
+    assert em.clustered_fraction(15.5, cfg) == pytest.approx(0.25)
+    assert em.clustered_fraction(19.0, cfg) == pytest.approx(0.5)
+    assert em.clustered_fraction(19.0, _cfg(clustered=None)) == 0.0
+
+
+@pytest.mark.unit
+def test_episode_mask_covers_expected_fraction() -> None:
+    t = np.linspace(0.0, 1000.0, 200_001)
+    rng = np.random.default_rng(5)
+    frac = np.mean([em.loss_episode_mask(t, 0.1, 2.0, rng).mean() for _ in range(40)])
+    assert frac == pytest.approx(0.1, abs=0.01)
+    assert not em.loss_episode_mask(t, 0.0, 2.0, rng).any()
+
+
+@pytest.mark.unit
+def test_thin_mask_total_keep_with_clustering() -> None:
+    cfg = _cfg(clustered=em.ClusteredLossConfig(g_start=14.5, g_full=16.5, frac_max=0.5, tau_day=2.0),
+               apply_gaps=False)
+    jd = _transits(20_000, step=0.2)
+    p = em.keep_probability(18.0, cfg, l_deg=10.0, b_deg=-5.0)
+    keeps = [em.thin_gost_mask(jd, cfg, np.zeros((0, 2)), g_mag=18.0, rng=np.random.default_rng(s),
+                               l_deg=10.0, b_deg=-5.0).reshape(-1, 10)[:, 0].mean() for s in range(10)]
+    assert np.mean(keeps) == pytest.approx(p, abs=0.006)
+
+
+@pytest.mark.unit
+def test_excess_noise_and_ruwe_rescale() -> None:
+    nz = em.PerCcdExcessNoiseConfig(g_max=13.0, knots_g=(10.0, 12.0), knots_r2=(0.8, 0.4))
+    assert em.excess_noise_r2(11.0, nz) == pytest.approx(0.6)
+    assert em.excess_noise_r2(9.0, nz) == pytest.approx(0.8)
+    assert em.excess_noise_r2(13.0, nz) == 0.0
+    err = np.full(100_000, 0.13)
+    extra, k = em.per_ccd_excess_noise(err, 11.0, nz, np.random.default_rng(1))
+    assert k == pytest.approx(np.sqrt(1.6))
+    assert np.std(extra) == pytest.approx(np.sqrt(0.6) * 0.13, rel=0.01)
+    zero, k0 = em.per_ccd_excess_noise(err, 14.0, nz, np.random.default_rng(1))
+    assert k0 == 1.0 and not zero.any()
+    vec5 = [-1.0, 2.0] + [0.0] * 21
+    assert em.rescale_cascade_ruwe(vec5, 2.0)[1] == 1.0
+    vec7 = [-7.0] + [0.0] * 7 + [3.0] + [0.0] * 14
+    assert em.rescale_cascade_ruwe(vec7, 1.5)[8] == pytest.approx(2.0)
+    vecorb = [1.0] * 22 + [4.0]
+    assert em.rescale_cascade_ruwe(vecorb, 2.0)[22] == 2.0
+    assert em.rescale_cascade_ruwe([0.0] * 23, 2.0) == [0.0] * 23
+
+
+@pytest.mark.gaiamock
+@pytest.mark.skipif(not is_overlay_ready(), reason="gaiamock_mod overlay not installed")
+def test_run_cascade_disabled_equals_bare_gaiamock() -> None:
+    from darkhunter_pop.forward_model import GlobalRNGSeeds, seeded_global_rng
+    from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
+
+    gm = import_gaiamock_mod()
+    cf = gm.read_in_C_functions()
+    seeds = GlobalRNGSeeds(numpy_seed=11, c_rand_seed=12)
+    kw = dict(ra=40.0, dec=10.0, parallax=3.0, pmra=1.0, pmdec=2.0, period=300.0, Tp=5.0, ecc=0.2,
+              omega=0.3, inc=1.2, w=0.4, a0_mas=0.05, phot_g_mean_mag=11.0, data_release="dr3", c_funcs=cf)
+    with seeded_global_rng(seeds, cf):
+        t, psi, pf, obs, err = gm.predict_astrometry_binary_in_terms_of_a0(**kw)
+        bare = gm.fit_full_astrometric_cascade(t, psi, pf, obs, err, cf, ruwe_min=1.4)
+    off = dataclasses.replace(_cfg(), enabled=False)
+    with seeded_global_rng(seeds, cf):
+        run = em.run_cascade(gm, cf, lambda: gm.predict_astrometry_binary_in_terms_of_a0(**kw), off,
+                             em.SourceEpochContext(11.0, l_deg=1.0, b_deg=2.0),
+                             epoch_rng=np.random.default_rng(0), noise_rng=np.random.default_rng(1),
+                             ruwe_min=1.4, skip_acceleration=False)
+    np.testing.assert_array_equal(np.asarray(run.cascade, dtype=float), np.asarray(bare, dtype=float))
+    assert run.ruwe_scale == 1.0 and run.n_obs == len(t)
