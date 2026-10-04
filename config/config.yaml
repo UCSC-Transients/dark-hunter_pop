@@ -15,7 +15,9 @@ gaiamock:
   mod_sha256: null
   git_commit: null
 mass_calibration:
-  method: TAG10
+  # Ryan 2026-10-04 (#418): MIST isochrone M1 in the pipeline (docs/MOCK_POPULATION_SPEC.md §0.4, §11.9).
+  # TAG10 remains available (method: TAG10); literature samples keep their own M1.
+  method: MIST_isochrone
   sigma_logM: 0.027
   sigma_logR: 0.014
   santos_correction: true
