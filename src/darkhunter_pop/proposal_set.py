@@ -863,6 +863,9 @@ def sample_proposal(
         "source_id": np.asarray(cols["source_id"], dtype=np.int64)[row],
         "ra_deg": np.asarray(cols["ra"], float)[row],
         "dec_deg": np.asarray(cols["dec"], float)[row],
+        # #421: galactic (l, b) for the #400 v2 epoch model's sky term (NaN if the parent lacks them).
+        "l_deg": np.asarray(cols["l"], float)[row] if "l" in cols else np.full(n, np.nan),
+        "b_deg": np.asarray(cols["b"], float)[row] if "b" in cols else np.full(n, np.nan),
         # Truth parallax fed to gaiamock (spec §0.1 MP-Q4); the measured one is kept too.
         "parallax_mas": np.asarray(parent.truth_parallax_mas, float)[row],
         "measured_parallax_mas": np.asarray(cols["parallax"], float)[row],

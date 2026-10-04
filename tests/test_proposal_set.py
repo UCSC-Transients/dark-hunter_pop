@@ -534,3 +534,23 @@ def test_malmquist_weight_assembly() -> None:
     with pytest.raises(ValueError, match="MP-Q30"):
         ps.malmquist_log_weight(truth, parent, tgt, mcfg.model_copy(update={"provisional_distance_marginalization": "split_normal_mu"}),
                                 np.zeros(parent.n_rows), ext)
+
+
+@pytest.mark.unit
+def test_epoch_hook_passes_galactic_position_for_v2_sky_term(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#421: the runner's epoch wrapper hands (l, b) from the draw to the epoch model."""
+    import importlib.util
+
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.config_loader import load_config
+
+    spec = importlib.util.spec_from_file_location("run_proposal_pilot", Path("scripts/run_proposal_pilot.py"))
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    seen: list[em.SourceEpochContext] = []
+    monkeypatch.setattr(em, "gost_epoch_model", lambda gm, cfg, source, rng, gaps_jd=None: seen.append(source))
+    frag = ps.load_proposal_set_fragment("config/population/proposal_set_restart_smoke.yaml")
+    wrap = mod.build_epoch_wrap(load_config(), frag.proposal, None)
+    wrap({"generation": 20, "draw_index": 3, "phot_g_mean_mag": 15.0, "l_deg": 120.0, "b_deg": -30.0})
+    assert (seen[0].g_mag, seen[0].l_deg, seen[0].b_deg) == (15.0, 120.0, -30.0)
