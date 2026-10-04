@@ -340,6 +340,12 @@ def cmd_validation(args: argparse.Namespace) -> None:
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
             # RUWE over every realization (all outcomes carry a RUWE except flag 0)
             r["ruwe_ratio_all"] = _q(t["ruwe"][m_typ] / truth["ruwe"][si[m_typ]])
+            oc = t["outcome"][m_typ]
+            r["outcome_fractions"] = {str(c): float(np.mean(oc == c)) for c in (0, 5, 7, 9, 12)}
+            r["five_par_fraction_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 13), (13, 15), (15, 25)):
+                mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                r["five_par_fraction_by_g"][f"{lo}-{hi}"] = float(np.mean(t["outcome"][mg] == 5)) if mg.any() else float("nan")
             r["ruwe_ratio_by_g"] = {}
             for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
                 mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
