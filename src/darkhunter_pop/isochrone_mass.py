@@ -46,8 +46,20 @@ from typing import Any, Literal, Mapping
 import numpy as np
 import yaml
 from numpy.typing import ArrayLike, NDArray
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from darkhunter_pop import constants
+
+# Config classes live in ``config_schema`` (data model, infra; importing the config never pulls
+# this module into every stage's dependency hash). Re-exported here for callers.
+from darkhunter_pop.config_schema import (
+    AgePriorConfig,
+    CmdMapConfig,
+    FehPriorConfig,
+    ImfPriorConfig,
+    IsochroneLikelihoodConfig,
+    IsochroneMassConfig,
+    MistGridConfig,
+)
 
 FloatArray = NDArray[np.float64]
 BoolArray = NDArray[np.bool_]
@@ -89,120 +101,6 @@ MOMENT_CHANNELS: tuple[str, ...] = (
 #: Bumped whenever the per-star outputs change, so result caches keyed by
 #: :func:`config_key` are rebuilt.
 RESULT_SCHEMA_VERSION: int = 2
-
-
-# ---------------------------------------------------------------------------
-# Config (``isochrone_mass`` section of PipelineConfig)
-# ---------------------------------------------------------------------------
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class MistGridConfig(_Strict):
-    """Which MIST files and which part of the grid to read (numerical/data choices)."""
-
-    iso_subdir: str = "mist/MIST_v1.2_vvcrit0.4_full_isos"
-    iso_filename_template: str = "MIST_v1.2_feh_{feh}_afe_p0.0_vvcrit0.4_full.iso"
-    bc_subdir: str = "BC/mist"
-    bc_filename_template: str = "feh{feh}.UBVRIplus"
-    #: Gaia DR3 = EDR3 passbands (Riello et al. 2021).
-    band_g: str = "Gaia_G_EDR3"
-    band_bp: str = "Gaia_BP_EDR3"
-    band_rp: str = "Gaia_RP_EDR3"
-    feh_values: tuple[float, ...] = (-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5)
-    log_age_min: float = 8.0
-    log_age_max: float = 10.15
-    #: MIST phases kept: 0 MS, 2 SGB+RGB, 3 CHeB, 4 EAGB, 5 TPAGB (PMS −1 and post-AGB/WD 6, 9 dropped).
-    phases: tuple[int, ...] = (0, 2, 3, 4, 5)
-    #: EEP-matched linear sub-steps between adjacent isochrones (age) and [Fe/H] files.
-    n_age_substeps: int = Field(4, ge=1)
-    n_feh_substeps: int = Field(5, ge=1)
-
-    @model_validator(mode="after")
-    def _order(self) -> MistGridConfig:
-        if self.log_age_min >= self.log_age_max:
-            raise ValueError("log_age_min must be < log_age_max")
-        if list(self.feh_values) != sorted(self.feh_values) or len(self.feh_values) < 2:
-            raise ValueError("feh_values must be increasing with at least two entries")
-        return self
-
-
-class CmdMapConfig(_Strict):
-    """Fine (C0, M_G0) map the prior-weighted isochrone points are deposited into."""
-
-    colour_min: float = -0.6
-    colour_max: float = 4.6
-    colour_step: float = Field(0.01, gt=0)
-    mag_min: float = -4.0
-    mag_max: float = 16.0
-    mag_step: float = Field(0.02, gt=0)
-
-
-class ImfPriorConfig(_Strict):
-    """Kroupa (2001) broken power law ξ(M) ∝ M^−α in initial mass (α breaks in M⊙)."""
-
-    kind: Literal["kroupa2001"] = "kroupa2001"
-    breaks_msun: tuple[float, ...] = (0.08, 0.5)
-    alphas: tuple[float, ...] = (0.3, 1.3, 2.3)
-
-    @model_validator(mode="after")
-    def _len(self) -> ImfPriorConfig:
-        if len(self.alphas) != len(self.breaks_msun) + 1:
-            raise ValueError("need one more slope than breaks")
-        return self
-
-
-class AgePriorConfig(_Strict):
-    """Age prior. ``uniform_linear``: constant star-formation rate between the grid ends."""
-
-    kind: Literal["uniform_linear", "uniform_log"] = "uniform_linear"
-
-
-class FehPriorConfig(_Strict):
-    """[Fe/H] prior: Gaussian (solar-neighbourhood-like). Values are provisional (MP-Q33)."""
-
-    kind: Literal["gaussian"] = "gaussian"
-    mean_dex: float = -0.1
-    sigma_dex: float = Field(0.25, gt=0)
-
-
-class IsochroneLikelihoodConfig(_Strict):
-    """Per-star Gaussian likelihood widths, diagonal in (C0, M_G0).
-
-    σ_C² = colour_floor² + (σ_E(B−V) k_E)², σ_M² = σ_μ² + mag_floor² + (σ_E(B−V) k_A)²
-    with the E(B−V) error ``ebv_fractional_sigma × E(B−V)``. The floors stand for photometric
-    calibration and model (isochrone + BC) systematics; they are provisional (MP-Q34).
-    """
-
-    provisional_colour_floor_mag: float = Field(0.02, gt=0)
-    provisional_mag_floor_mag: float = Field(0.05, gt=0)
-    provisional_ebv_fractional_sigma: float = Field(0.0, ge=0)
-    #: Stars whose prior-predictive density at y is below this (per mag²) get no M1
-    #: (off the isochrone grid: white dwarfs, hot subdwarfs, bad photometry).
-    min_log10_evidence: float = -4.0
-    #: Kernel half-width in σ (numerical only).
-    kernel_n_sigma: float = Field(6.0, gt=2)
-    chunk_rows: int = Field(2000, ge=10)
-
-
-class IsochroneMassConfig(_Strict):
-    """``isochrone_mass`` section (spec §11). ``mist_root`` is host-specific (host profiles)."""
-
-    mist_root: str | None = None
-    cache_subdir: str = "isochrone_mist"
-    grid: MistGridConfig = MistGridConfig()
-    cmd_map: CmdMapConfig = CmdMapConfig()
-    imf: ImfPriorConfig = ImfPriorConfig()
-    age: AgePriorConfig = AgePriorConfig()
-    provisional_feh_prior: FehPriorConfig = FehPriorConfig()
-    likelihood: IsochroneLikelihoodConfig = IsochroneLikelihoodConfig()
-    #: Which M1 summary feeds point uses (mock truth M1 and bulk M1): the posterior mean of
-    #: M1 or exp of the mean of ln M1 (MP-Q35, provisional).
-    provisional_point_estimate: Literal["mean", "log_mean"] = "mean"
-    #: Candidates per isochrone batch in ``mass_derivation_bulk`` (memory only).
-    batch_rows: int = Field(20000, ge=1)
 
 
 def load_isochrone_config(path: str | Path, key: str = "isochrone_mass") -> IsochroneMassConfig:
