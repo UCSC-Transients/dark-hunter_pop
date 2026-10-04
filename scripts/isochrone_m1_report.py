@@ -327,7 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     apply_axes_style(axes[0], style)
     h_edges = np.linspace(-4, 3, 141)
     axes[1].hist(dm2[sel], bins=h_edges, histtype="step", lw=2.5, color=series_style(1, style)["color"], label="2-D ridge residual")
-    axes[1].hist(np.clip(dm1_t[sel], -4, 3), bins=h_edges, histtype="step", lw=2.5, color=series_style(0, style)["color"], label="1-D, TAG10 M1")
+    out_frac = float(np.mean((dm1_t[sel] < h_edges[0]) | (dm1_t[sel] > h_edges[-1])))
+    axes[1].hist(dm1_t[sel], bins=h_edges, histtype="step", lw=2.5, color=series_style(0, style)["color"],
+                 label=f"1-D, TAG10 M1 ({100 * out_frac:.0f}% off scale)")
     axes[1].set_xlabel(r"$\Delta M$ (mag; < 0 over-luminous)")
     axes[1].set_ylabel("rows")
     axes[1].legend()
