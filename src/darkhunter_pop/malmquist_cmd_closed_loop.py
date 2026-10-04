@@ -276,7 +276,7 @@ def run_cmd_mock(
     # 2-D §11.4 weight
     rt = mc.RidgeTables.from_ridge(pipe.ridge)
     cc = cmcfg.companion_colour
-    ms = mc.ms_colours(native, cc.fiducial_feh_dex, cc.fiducial_log_age)
+    ms = mc.ms_colour_bank(native, pipe.post.feh_mean, pipe.post.log_age_mean, cc)  # MP-Q37 coeval
     rows = mc.cmd_rows(pipe.colour0, pipe.mg0, pipe.sigma_mu, parent.m1_msun, rt, evolved=pipe.evolved,
                        a_g=pipe.a_g_hat, e_bp_rp=pipe.e_br_hat)
     qf = mc.build_qf_grid(frag.target_mds17, cmcfg.grid)

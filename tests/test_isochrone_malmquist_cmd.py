@@ -319,3 +319,63 @@ def test_cmd_closed_loop_small() -> None:
     assert cl.max_abs_pull(res, "none") > 8.0
     assert cl.max_abs_pull(res, "two_d") < 0.75 * cl.max_abs_pull(res, "none")
     assert abs(res.tables["q"]["pull_two_d"][-1]) < 3.0
+
+
+@pytest.mark.unit
+def test_ms_colour_bank_groups_rows_and_fiducial_mode() -> None:
+    """MP-Q37 coeval: rows get their own isochrone's colours; fiducial mode is one group."""
+    from types import SimpleNamespace
+
+    feh = np.array([-0.5, -0.5, 0.2, np.nan])
+    age = np.array([9.5, 9.5, 9.0, np.nan])
+    fake = SimpleNamespace(feh=np.array([-1.0, 0.0, 0.5]), log_age=np.array([9.0, 9.5, 10.0]))
+    calls: list[tuple[float, float]] = []
+
+    def fake_ms(grid, f, a):  # type: ignore[no-untyped-def]
+        calls.append((round(f, 3), round(a, 3)))
+        return _toy_ms()
+
+    import darkhunter_pop.malmquist_cmd as mcm
+
+    orig = mcm.ms_colours
+    mcm.ms_colours = fake_ms  # type: ignore[assignment]
+    try:
+        bank = mc.ms_colour_bank(fake, feh, age, mc.CompanionColourConfig())  # type: ignore[arg-type]
+        assert bank.row_group[0] == bank.row_group[1] != bank.row_group[2]
+        assert (-0.5, 9.5) in calls and (0.2, 9.0) in calls and (-0.06, 9.5) in calls  # NaN row: fiducial
+        one = mc.ms_colour_bank(fake, feh, age, mc.CompanionColourConfig(mode="fiducial_ms"))  # type: ignore[arg-type]
+        assert len(one.groups) == 1 and np.all(one.row_group == 0)
+    finally:
+        mcm.ms_colours = orig  # type: ignore[assignment]
+
+
+@pytest.mark.unit
+def test_evolved_flux_proposal_centre_is_used_by_sampler_and_density() -> None:
+    """MP-Q28d: evolved rows' relation centre is the §10.4 relation, identically in the
+    sampler and in log_q_total_for (so the importance weights stay exact)."""
+    from dataclasses import replace
+
+    from darkhunter_pop import giants as gi
+
+    frag = ps.load_proposal_set_fragment("config/population/proposal_set_isochrone_smoke.yaml")
+    prop = frag.proposal.model_copy(update={"n_draws": 400})
+    assert prop.flux.evolved_rows_centre == "evolved_relation"
+    n = 50
+    rng = np.random.default_rng(5)
+    cols = {"source_id": np.arange(n), "ra": rng.uniform(0, 360, n), "dec": rng.uniform(-60, 60, n),
+            "l": rng.uniform(0, 360, n), "b": rng.uniform(-60, 60, n), "parallax": rng.uniform(0.5, 5, n),
+            "pmra": np.zeros(n), "pmdec": np.zeros(n), "phot_g_mean_mag": rng.uniform(10, 18, n)}
+    giant = np.arange(n) < 20
+    parent = ps.ParentSnapshot(columns=cols, m1_msun=rng.uniform(0.8, 1.5, n), m1_source=np.full(n, "MIST"),
+                               atmosphere_logg=np.full(n, 4.0), truth_parallax_mas=cols["parallax"], is_giant=giant,
+                               flags={"ok": np.ones(n, bool)}, usable=np.ones(n, bool), meta={}, scale_to_full=1.0,
+                               path=Path("synthetic"), cmd={"mg0": np.where(giant, 0.5, 5.0)})
+    truth = ps.sample_proposal(parent, prop)
+    again = ps.log_q_total_for(truth, parent, prop)
+    np.testing.assert_allclose(again, truth["log_q_total"], rtol=1e-12)
+    r = truth["parent_row"]
+    sel = giant[r] & ~truth["is_dark"]
+    centre = gi.evolved_log10_flux_ratio(truth["m2_msun"][sel], 0.5)
+    near = np.abs(truth["log10_flux_ratio"][sel] - centre) < 0.6
+    assert near.mean() > 0.7  # most evolved-row luminous draws sit on the evolved relation
+    _ = replace

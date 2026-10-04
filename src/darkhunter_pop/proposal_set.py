@@ -183,6 +183,34 @@ class FluxProposalConfig(_Strict):
     relation_sigma_dex: float = Field(..., gt=0.0)
     log_f_min: float
     log_f_max: float
+    #: MP-Q28d (decided 2026-10-04): centre the relation component of CMD-evolved rows on the
+    #: §10.4 evolved relation ``giants.evolved_log10_flux_ratio(M2, M_G0,sys)``. Generation-time
+    #: (coverage); the default keeps older artifacts' densities unchanged.
+    evolved_rows_centre: Literal["dwarf_relation", "evolved_relation"] = "dwarf_relation"
+
+
+def proposal_relation_centre(
+    m1_msun: ArrayLike,
+    m2_msun: ArrayLike,
+    rows: NDArray[np.int64],
+    parent: Any,
+    cfg: FluxProposalConfig,
+) -> FloatArray:
+    """log10 f centre of the flux proposal's relation component per draw (MP-Q28d).
+
+    The dwarf relation, except on CMD-evolved rows of an isochrone-mode parent when
+    ``cfg.evolved_rows_centre == "evolved_relation"``; NaN where neither is defined (the
+    relation component then moves to the uniform one, in the sampler and the density alike).
+    """
+    rel = relation_log10_flux_ratio(m1_msun, m2_msun)
+    if cfg.evolved_rows_centre == "evolved_relation" and getattr(parent, "cmd", None) is not None:
+        from darkhunter_pop.giants import evolved_log10_flux_ratio
+
+        evo = np.asarray(parent.is_giant, bool)[rows]
+        mg0 = np.asarray(parent.cmd["mg0"], float)[rows]
+        rel_e = evolved_log10_flux_ratio(m2_msun, np.where(evo, mg0, 0.0))
+        rel = np.where(evo, rel_e, rel)
+    return np.asarray(rel, float)
 
 
 class PeriodProposalConfig(_Strict):
@@ -687,13 +715,20 @@ def log_q_log_m2(log_m2: ArrayLike, log_m1: ArrayLike, cfg: M2ProposalConfig) ->
 
 
 def log_q_flux(
-    log10_f: ArrayLike, is_dark: ArrayLike, m1_msun: ArrayLike, m2_msun: ArrayLike, cfg: FluxProposalConfig
+    log10_f: ArrayLike,
+    is_dark: ArrayLike,
+    m1_msun: ArrayLike,
+    m2_msun: ArrayLike,
+    cfg: FluxProposalConfig,
+    *,
+    centre: ArrayLike | None = None,
 ) -> FloatArray:
     """log proposal for the flux ratio: log(ρ_dark) for dark draws, else log of the
-    luminous mixture density per dex of f times (1 - ρ_dark)."""
+    luminous mixture density per dex of f times (1 - ρ_dark). ``centre`` overrides the
+    relation centre (:func:`proposal_relation_centre`, MP-Q28d)."""
     lf = np.asarray(log10_f, float)
     dark = np.asarray(is_dark, bool)
-    rel = relation_log10_flux_ratio(m1_msun, m2_msun)
+    rel = relation_log10_flux_ratio(m1_msun, m2_msun) if centre is None else np.asarray(centre, float)
     sig = cfg.relation_sigma_dex
     with np.errstate(invalid="ignore"):
         gauss = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
@@ -818,7 +853,7 @@ def sample_proposal(
     # Flux ratio
     fc = cfg.flux
     dark = rng.uniform(size=n) < fc.dark_fraction
-    rel = relation_log10_flux_ratio(m1, m2)
+    rel = proposal_relation_centre(m1, m2, row, parent, fc)
     use_rel = (rng.uniform(size=n) < fc.relation_weight) & np.isfinite(rel)
     log_f = np.where(
         use_rel,
@@ -852,7 +887,7 @@ def sample_proposal(
     log_q = {
         "log_q_parent": np.log(qs[row]),
         "log_q_log_m2": log_q_log_m2(log_m2, log_m1, m2c),
-        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc),
+        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc, centre=rel),
         "log_q_log_p": log_q_log_p(log_p, pc),
         "log_q_ecc": log_q_ecc(ecc, period, ec),
     }
@@ -906,7 +941,8 @@ def log_q_total_for(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot, c
     return (
         lqs
         + log_q_log_m2(np.log10(m2), np.log10(m1), cfg.m2)
-        + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux)
+        + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux,
+                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux))
         + log_q_log_p(np.log10(np.asarray(truth["period_days"], float)), cfg.period)
         + log_q_ecc(truth["eccentricity"], truth["period_days"], cfg.eccentricity)
     )
@@ -1541,7 +1577,10 @@ def malmquist_cmd_log_weight(
     ))
     grid = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
     cc = cmcfg.companion_colour
-    ms = mc.ms_colours(grid, cc.fiducial_feh_dex, cc.fiducial_log_age)
+    iso = parent.isochrone or {}
+    ms = mc.ms_colour_bank(  # MP-Q37 (decided): coeval, the row's own isochrone
+        grid, np.asarray(iso.get("feh_mean", np.full(parent.n_rows, np.nan)), float),
+        np.asarray(iso.get("log_age_mean", np.full(parent.n_rows, np.nan)), float), cc)
     rows = mc.cmd_rows(
         parent.cmd["colour0"], parent.cmd["mg0"], parent.cmd["sigma_mu"], parent.m1_msun, ridge,
         evolved=parent.is_giant, a_g=parent.cmd["a_g"], e_bp_rp=parent.cmd["e_bp_rp"],

@@ -8,7 +8,7 @@
 
 malmquist_cmd:
   single_star_density:                       # MP-Q39 (docs/gate418: the Gaussian ridge leaves singles' bright tail out)
-    provisional_model: mist_density_ridge_anchored   # or gaussian_ridge (§11.4 as first specified)
+    provisional_model: mist_density_ridge_anchored   # MP-Q39 DECIDED 2026-10-04 (spec §0.4); key name kept
     colour_smoothing_mag: 0.02
     mag_floor_mag: 0.05
     sigma_levels_min_mag: 0.05               # numerical: tabulated M smoothings
@@ -19,10 +19,11 @@ malmquist_cmd:
   provisional_outside_ridge: unit_weight     # MP-Q38
   provisional_blending: all_unresolved       # MP-Q27
   sigma_a_mag: 0.0                           # MP-Q29 decided (Combined19, sigma_A = 0)
-  companion_colour:                          # MP-Q37: MIST MS colours at a fiducial ([Fe/H], age)
-    provisional_mode: fiducial_ms
-    fiducial_feh_dex: -0.1                   # = isochrone_mass [Fe/H] prior mean
+  companion_colour:                          # MP-Q37 DECIDED 2026-10-04: coeval (row's own isochrone)
+    mode: coeval
+    fiducial_feh_dex: -0.06                  # only for rows without a posterior (= MDF prior mean)
     fiducial_log_age: 9.6
+    feh_step_dex: 0.05
   grid:                                      # quadrature for lambda_qf(log q, log f | M1); numerical only
     log_m1_min: -1.1
     log_m1_max: 1.6

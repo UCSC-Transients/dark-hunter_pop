@@ -1,4 +1,4 @@
-# ISOCHRONE-PARENT SMOKE, generation 21 (#418; Ryan 2026-10-03: MIST isochrone M1 on both sides,
+# ISOCHRONE-PARENT SMOKE, generation 22 (MP-Q28d evolved-row flux centre; MP-Q37 coeval colours) (#418; Ryan 2026-10-03: MIST isochrone M1 on both sides,
 # 2-D CMD Malmquist weight). Otherwise identical to proposal_set_restart_smoke.yaml (#391; decisions
 # of 2026-10-02 and 2026-10-03,
 # https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5971280434).
@@ -8,7 +8,7 @@
 # Keys still named provisional_* are reweightable open questions (spec §8), not decisions.
 
 proposal:
-  generation: 21
+  generation: 22
   n_draws: 1000
   base_seed: 391
   data_release: dr3
@@ -29,8 +29,9 @@ proposal:
     relation: janssens2022
     relation_weight: 0.9
     relation_sigma_dex: 0.15
-    log_f_min: -5.0
+    log_f_min: -7.0                  # MP-Q28d: evolved-row targets reach ~1e-6 (spec §10.4, §11.9)
     log_f_max: 0.5
+    evolved_rows_centre: evolved_relation   # MP-Q28d (decided 2026-10-04)
   period:                            # log P mixture: core + MdS17-wide defensive component
     core_weight: 0.8
     core_log_p_min: 1.0
