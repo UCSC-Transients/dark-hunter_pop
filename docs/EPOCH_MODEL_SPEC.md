@@ -371,8 +371,8 @@ RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 | T1 | τ (episode duration) once the epoch-photometry times can be fetched | N_vis is flat in τ |
 | N2a | adopt N2 anyway (renormalised), accepting the −10% bright NSS RUWE and −6% significance | matches F2 and σ |
 | N2b | N2 for the NSS fits only: gate the cascade with gaiamock's `check_ruwe` on the data *without* the extra noise (`ruwe_min = 0` inside `fit_full_astrometric_cascade`, pop-side RUWE gate first). This models an AGIS vs NSS error-model difference; not yet run | composition of gaiamock calls, no reimplementation |
-| N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | current config |
-| N2d | adopt N2-u0 (§8.8): per-CCD bright noise + RUWE = UWE / u0_mock(G) | better than v2 on F2, σ, significance by G, overall and faint RUWE, single-star RUWE peak, #403 rate; worse on bright NSS RUWE at 12–13 (1.01 → 0.91) and AstroSpectroSB1 astrometry-only σ |
+| N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | superseded by N2d |
+| N2d | **ADOPTED 2026-10-03 (Ryan: "Switch it on")**: N2-u0 (§8.8), per-CCD bright noise + RUWE = UWE / u0_mock(G); accepted regression: NSS RUWE 0.91 at 12 < G < 13 | better than v2 on F2, σ, significance by G, overall and faint RUWE, single-star RUWE peak, #403 rate; worse on bright NSS RUWE at 12–13 (1.01 → 0.91) and AstroSpectroSB1 astrometry-only σ |
 | R1 | random-star offset δ: leave unexplained, or investigate (sky distribution, ≥ 12 visibility periods, IPD harmonic amplitude, C*) | 1.3% |
 
 ### 8.7 Data: epoch-time snapshot
@@ -422,10 +422,14 @@ published sources are conditioned on RUWE > 1.4. DR3's later F2 ≤ 0 single-sta
 (Halbwachs et al. 2023 §3.3; 28 of 4.1 M sources) is a different rule and is still not
 modelled. **#403 is resolved in definition, not completely.**
 
-**Verdict: not adopted under the strict rule** (`ruwe_u0.enabled: false`,
-`bright_excess_noise.enabled: false`). It matches as well as or better than v2 on almost
-everything (`docs/gate400/README.md`, "N2-u0"), but bright NSS RUWE at 12 < G < 13 gets worse
-(1.01 → 0.91). Recommended for Ryan's decision as option **N2d**.
+**Validation verdict:** under the strict rule it was not adopted at first. It matches as well
+as or better than v2 on almost everything (`docs/gate400/README.md`, "N2-u0"), but bright
+NSS RUWE at 12 < G < 13 gets worse (1.01 → 0.91).
+
+**Decision: N2d adopted, 2026-10-03 (Ryan: "Switch it on").** Both `bright_excess_noise.enabled`
+and `ruwe_u0.enabled` are true. The one accepted regression is NSS RUWE at 12 < G < 13 at
+0.91 × published (v2: 1.01). The astrometry-only AstroSpectroSB1 refit's bright σ ratio
+(1.28–1.52) is also noted; its published σ used RVs.
 
 ### 8.9 The insufficient-visibility channel (#428, measured; nothing changed)
 

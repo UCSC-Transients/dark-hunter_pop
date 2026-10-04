@@ -959,11 +959,10 @@ dr3:
       tau_day: 2.0
     # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
     # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
-    # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but
-    # lowers bright NSS RUWE by 9-13% (spec §8.5, docs/gate400 "v2 validation"); Ryan's
-    # condition was that nothing else breaks. Kept calibrated so the choice is one flag.
+    # renormalised by sqrt(1 + r2) unless ruwe_u0 is enabled (then RUWE = UWE / u0).
+    # ON since 2026-10-03 as part of N2d (Ryan: "Switch it on"; spec §8.6, §8.8).
     bright_excess_noise:
-      enabled: false
+      enabled: true
       g_max: 13.0
       knots_g: [8.494034, 9.602653, 10.576412, 11.279750, 11.780147, 12.275054, 12.772286]
       knots_r2: [0.538285, 0.678118, 0.794198, 0.962945, 0.768383, 0.534535, 0.376680]
@@ -972,8 +971,10 @@ dr3:
     # percentile of mock single-star UWE per 0.25-mag G bin (Lindegren 2018 TN LL-124),
     # mock singles run through the v2 epochs + bright_excess_noise. When enabled it
     # replaces bright_excess_noise.renormalize_ruwe. Spec §8.8.
+    # ON since 2026-10-03 (N2d, Ryan: "Switch it on"). Accepted regression: bright NSS
+    # RUWE at 12 < G < 13 is 0.91 x published (v2: 1.01); docs/gate400 "N2-u0".
     ruwe_u0:
-      enabled: false
+      enabled: true
       table: config/epoch_model/dr3_ruwe_u0_mock.csv
       table_sha256: 8731b93be639a364c16ad2ffcd48d7e26837bf6857ed5ff0e4125f8312a63269
       provenance: "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
