@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     base = load_config(host_profile=args.host_profile)
     kt = yaml.safe_load(args.known_truth.read_text())
     bh = {int(s["source_id"]): s["name"] for s in kt["systems"]}
+    bh_m1 = {s["name"]: (s.get("published_m1_msun"), s.get("published_m1_sigma_msun")) for s in kt["systems"]}
     k = max(1, int(args.subsample))
 
     t0 = time.time()
@@ -86,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
                 bh_rows[name] = {"in_artifact": False}
                 continue
             upd, reason, m2_pre, _ = md.process_bulk_candidate(cands[0], cfg, api)
-            row: dict[str, Any] = {"in_artifact": True, "skip_reason": reason, "m2_pre_cut": m2_pre}
+            row: dict[str, Any] = {"in_artifact": True, "skip_reason": reason, "m2_pre_cut": m2_pre,
+                                   "published_m1": bh_m1[name][0], "published_m1_sigma": bh_m1[name][1]}
             if upd is not None:
                 a, b = upd.m1.marginal("M1"), upd.m2.marginal("M2")
                 row.update({"m1": a.value, "m1_sigma": a.sigma, "m2": b.value, "m2_sigma": b.sigma})
