@@ -1543,7 +1543,9 @@ class IsochroneLikelihoodConfig(_IsoStrict):
 
     provisional_colour_floor_mag: float = Field(0.02, gt=0)
     provisional_mag_floor_mag: float = Field(0.05, gt=0)
-    provisional_ebv_fractional_sigma: float = Field(0.0, ge=0)
+    # MP-Q34 provisional: 0.1 cuts the parent's off-grid rows from 11,306 to 7,827 (0.2: 5,024)
+    # and moves the other rows' M1 by a median 0.0009 dex (docs/gate418).
+    provisional_ebv_fractional_sigma: float = Field(0.1, ge=0)
     #: Stars whose prior-predictive density at y is below this (per mag²) get no M1
     #: (off the isochrone grid: white dwarfs, hot subdwarfs, bad photometry).
     min_log10_evidence: float = -4.0

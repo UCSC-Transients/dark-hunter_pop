@@ -7,6 +7,14 @@
 # decision. Schema: darkhunter_pop.malmquist_cmd.CmdMalmquistConfig. Not under config/fragments/.
 
 malmquist_cmd:
+  single_star_density:                       # MP-Q39 (docs/gate418: the Gaussian ridge leaves singles' bright tail out)
+    provisional_model: mist_density_ridge_anchored   # or gaussian_ridge (§11.4 as first specified)
+    colour_smoothing_mag: 0.02
+    mag_floor_mag: 0.05
+    sigma_levels_min_mag: 0.05               # numerical: tabulated M smoothings
+    sigma_levels_max_mag: 2.5
+    n_sigma_levels: 18
+    anchor_to_ridge: true                    # shift the MIST density so its mode is the measured ridge
   provisional_giant_policy: unit_weight      # spec §10.6 (determined: W = 1 for CMD-evolved rows)
   provisional_outside_ridge: unit_weight     # MP-Q38
   provisional_blending: all_unresolved       # MP-Q27

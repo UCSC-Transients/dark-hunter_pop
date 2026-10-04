@@ -50,19 +50,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--size", default="small")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate418"))
     ap.add_argument("--host-profile", default="laptop")
+    ap.add_argument("--single-star-model", default=None, choices=["gaussian_ridge", "mist_density_ridge_anchored"],
+                    help="override malmquist_cmd.single_star_density.provisional_model (MP-Q39)")
+    ap.add_argument("--tag", default="", help="suffix for output names")
     args = ap.parse_args(argv)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     pc = load_config(host_profile=args.host_profile)
     t0 = time.time()
     size = args.size if args.size in ("small", "large") else int(args.size)
-    res, raw = cl.run_cmd_closed_loop(size, pipeline_config=pc)
+    res, raw = cl.run_cmd_closed_loop(size, pipeline_config=pc, single_star_model=args.single_star_model)
     wall = time.time() - t0
     out = {
         "size": res.size, "wall_seconds": wall, "counts": res.counts, "unit_weight_rows": res.unit_counts,
         "m1_hat_vs_true": res.m1_hat_vs_true, "total": res.total, "ess": res.ess, "tables": res.tables,
         "max_abs_pull": {k: cl.max_abs_pull(res, k) for k in ("none", "one_d", "two_d")},
     }
-    tag = f"closed_loop_cmd_{res.size}"
+    tag = f"closed_loop_cmd_{res.size}{('_' + args.tag) if args.tag else ''}"
     (args.out_dir / f"{tag}.json").write_text(json.dumps(out, indent=1, default=float))
     style = resolve_plotting_style(pc.plotting)
     plt = require_pyplot()

@@ -67,6 +67,9 @@ class CmdClosedLoopConfig(_Strict):
     #: Numerical overrides of the giants ridge settings for the (much smaller) synthetic parent,
     #: e.g. ``min_rows_per_bin``; the estimator itself is unchanged.
     ridge_overrides: dict[str, float] = Field(default_factory=dict)
+    #: Primaries are prior-weighted MIST points with (sub-stepped) phase <= this: 0 = MS only,
+    #: 3 = MS + SGB/RGB + core-He burning (evolved rows then get W = 1, spec §10.6).
+    universe_max_phase: float = Field(0.4, ge=0)
 
 
 def load_cmd_closed_loop_config(path: str | Path = "config/population/malmquist_cmd_closed_loop.yaml") -> CmdClosedLoopConfig:
@@ -95,11 +98,11 @@ class CmdUniverse:
 
 
 def _sample_primaries(
-    pts: im.PriorPoints, n: int, m_lo: float, m_hi: float, rng: np.random.Generator
+    pts: im.PriorPoints, n: int, m_lo: float, m_hi: float, rng: np.random.Generator, max_phase: float = 0.4
 ) -> dict[str, FloatArray]:
     v = pts.values
     m = v["star_mass"]
-    ok = (v["phase"] < 0.5) & (m >= m_lo) & (m <= m_hi)
+    ok = (v["phase"] <= max_phase) & (m >= m_lo) & (m <= m_hi)
     idx = np.flatnonzero(ok)
     p = pts.weight[idx] / pts.weight[idx].sum()
     pick = idx[rng.choice(idx.size, size=n, p=p)]
@@ -145,7 +148,7 @@ def make_cmd_universe(
     rng: np.random.Generator,
 ) -> CmdUniverse:
     pos = mcl.draw_positions(n, base.disk, rng)
-    pr = _sample_primaries(pts, n, base.imf.m_min_msun, base.imf.m_max_msun, rng)
+    pr = _sample_primaries(pts, n, base.imf.m_min_msun, base.imf.m_max_msun, rng, cfg.universe_max_phase)
     m1 = pr["m1"]
     parts = [mcl.draw_companions(m1[a:a + mcl.COMPANION_CHUNK], target, grid1d, rng) for a in range(0, n, mcl.COMPANION_CHUNK)]
     comp = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
@@ -242,6 +245,7 @@ def run_cmd_mock(
     cmcfg: mc.CmdMalmquistConfig,
     grid1d: mq.FluxMarginalGrid,
     native: im.NativeGrid,
+    cmap: im.CmdMap,
 ) -> CmdMock:
     parent = pipe.parent
     prop = mcl.closed_loop_proposal(frag, base, parent.n_rows)
@@ -266,8 +270,11 @@ def run_cmd_mock(
     rows = mc.cmd_rows(pipe.colour0, pipe.mg0, pipe.sigma_mu, parent.m1_msun, rt, evolved=pipe.evolved,
                        a_g=pipe.a_g_hat, e_bp_rp=pipe.e_br_hat)
     qf = mc.build_qf_grid(frag.target_mds17, cmcfg.grid)
-    norm = mc.row_normalization(rows, qf, rt, ms, cmcfg)
-    lw2 = mc.log_weight_for_draws(truth, rows, norm, rt, ms, cmcfg)
+    dens = None
+    if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
+        dens = mc.build_single_star_density(cmap, cmcfg.single_star_density, pipe.ridge)
+    norm = mc.row_normalization(rows, qf, rt, ms, cmcfg, dens=dens)
+    lw2 = mc.log_weight_for_draws(truth, rows, norm, rt, ms, cmcfg, dens=dens)
     w["two_d"] = ps.importance_weights(log_lam + lw2, lq, n, scale_to_full=1.0)
     p_single["two_d"] = np.where(rows.unit_weight, p_single["none"], np.exp(norm.log_p_single))
     return CmdMock(truth=truth, w=w, p_single=p_single, unit_counts=rows.counts())
@@ -323,6 +330,7 @@ def run_cmd_closed_loop(
     *,
     data_root: str | Path | None = None,
     pipeline_config: Any = None,
+    single_star_model: Literal["gaussian_ridge", "mist_density_ridge_anchored"] | None = None,
 ) -> tuple[CmdClosedLoopResult, dict[str, Any]]:
     """Build, observe, run the pipeline, mock and compare (spec §11.5)."""
     from darkhunter_pop.config_loader import load_config
@@ -344,7 +352,10 @@ def run_cmd_closed_loop(
     rng = np.random.default_rng(np.random.SeedSequence(cfg.seed, spawn_key=(418, n)))
     uc = make_cmd_universe(n, base, cfg, frag.target_mds17, grid1d, native, pts, rng)
     pipe = run_pipeline_on_parent(uc, base, cfg, model, gcfg, rng)
-    mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native)
+    if single_star_model is not None:
+        cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(
+            update={"provisional_model": single_star_model})})
+    mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native, model.cmap)
     u, par = uc.base, pipe.par
     pi = par.index
     use = pipe.parent.usable

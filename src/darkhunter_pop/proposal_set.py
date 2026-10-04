@@ -1514,8 +1514,14 @@ def malmquist_cmd_log_weight(
         m1_msun=rows.m1_msun, unit_weight=rows.unit_weight | ~used, unit_reason=rows.unit_reason,
     )
     qf = mc.build_qf_grid(target, cmcfg.grid)
-    norm = mc.row_normalization(rows_used, qf, ridge, ms, cmcfg)
-    lw = mc.log_weight_for_draws(truth, rows_used, norm, ridge, ms, cmcfg)
+    dens = None
+    if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
+        model = im.build_model(config.isochrone_mass, config.paths.data_root)
+        dens = mc.build_single_star_density(model.cmap, cmcfg.single_star_density, giants.MSRidge(
+            colour=np.asarray(rd["colour"], float), mag=np.asarray(rd["mag"], float),
+            sigma=np.asarray(rd["sigma"], float), n_rows=np.asarray(rd["n_rows"], np.int64)))
+    norm = mc.row_normalization(rows_used, qf, ridge, ms, cmcfg, dens=dens)
+    lw = mc.log_weight_for_draws(truth, rows_used, norm, ridge, ms, cmcfg, dens=dens)
     reasons = rows.unit_reason[r]
     counts = {str(k): int(v) for k, v in zip(*np.unique(reasons, return_counts=True))}
     return lw, {"draws": int(r.size), "by_row_reason": counts}
