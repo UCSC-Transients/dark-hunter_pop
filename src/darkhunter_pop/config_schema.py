@@ -2620,6 +2620,17 @@ class EpochBrightExcessNoiseConfig(BaseModel):
     renormalize_ruwe: bool = True
 
 
+class EpochRuweU0Config(BaseModel):
+    """Mock RUWE normalisation u0(G) emulating DR3's RUWE = UWE / u0 (#400 N2-u0; §8.8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    table: str
+    table_sha256: str
+    provenance: str = ""
+
+
 class EpochTransitLossConfig(BaseModel):
     """Per-FoV-transit loss probability after the gaps (docs/EPOCH_MODEL_SPEC.md §3)."""
 
@@ -2681,6 +2692,7 @@ class EpochModelPathConfig(BaseModel):
     excess_noise: EpochExcessNoiseConfig = Field(default_factory=EpochExcessNoiseConfig)
     clustered_loss: EpochClusteredLossConfig | None = None
     bright_excess_noise: EpochBrightExcessNoiseConfig | None = None
+    ruwe_u0: EpochRuweU0Config | None = None
     provenance: str = ""
 
     @model_validator(mode="after")

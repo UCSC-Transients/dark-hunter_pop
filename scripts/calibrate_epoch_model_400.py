@@ -282,6 +282,55 @@ def cmd_noise(args: argparse.Namespace) -> None:
     print(json.dumps(out, indent=1))
 
 
+def cmd_u0_table(args: argparse.Namespace) -> None:
+    """u0_mock(G): the 41st percentile of mock single-star UWE per G bin (Lindegren 2018 TN LL-124).
+
+    Input: ``validate_epoch_model_v2_400.py u0`` output. Writes the CSV calibration table
+    (comment header with provenance) and ``u0_fit.json`` (percentiles, medians, counts).
+    No smoothing beyond the bins: the mock has no colour axis and enough stars per bin
+    (the binomial error of a 41st percentile with N = 600 is ~0.2% of u0).
+    """
+    import datetime as dt
+    import hashlib
+
+    src = Path(args.singles)
+    meta = json.loads((src.parent / "u0_meta.json").read_text())
+    edges = np.asarray(meta["edges"], dtype=float)
+    rows = [json.loads(x) for x in src.read_text().splitlines()]
+    b = np.array([r["bin"] for r in rows])
+    u = np.array([r["uwe"] for r in rows], dtype=float)
+    centres, p41, med, n = [], [], [], []
+    for ib in range(edges.size - 1):
+        m = (b == ib) & np.isfinite(u)
+        if m.sum() < 50:
+            continue
+        centres.append(0.5 * (edges[ib] + edges[ib + 1]))
+        p41.append(float(np.percentile(u[m], args.percentile)))
+        med.append(float(np.median(u[m])))
+        n.append(int(m.sum()))
+    digest = hashlib.sha256(src.read_bytes()).hexdigest()
+    out = Path(args.table)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    header = [
+        "# u0_mock(G) for DR3-like RUWE = UWE / u0 in the pop mock (#400 N2-u0; docs/EPOCH_MODEL_SPEC.md §8.8)",
+        f"# statistic: {args.percentile:g}th percentile of mock single-star UWE per G bin (Lindegren 2018, GAIA-C3-TN-LU-LL-124 §4)",
+        "# mock singles: gaiamock_mod predict_astrometry_single_source at random gaia_source positions,",
+        "#   v2 epoch model + bright per-CCD excess noise (dr3.epoch_model), UWE from gaiamock check_ruwe",
+        f"# source: {src.name} sha256 {digest}; {meta['n_per_bin']} stars per {edges[1] - edges[0]:g}-mag bin, seed {meta['seed']}",
+        f"# created {dt.datetime.now(dt.timezone.utc).isoformat()} by scripts/calibrate_epoch_model_400.py u0-table",
+        "# colour axis collapsed: gaiamock's per-CCD noise has no colour dependence",
+    ]
+    lines = header + ["g,u0"] + [f"{c:.3f},{v:.5f}" for c, v in zip(centres, p41)]
+    out.write_text("\n".join(lines) + "\n")
+    table_sha = hashlib.sha256(out.read_bytes()).hexdigest()
+    res = {"g": centres, "u0_p41": p41, "median": med, "n": n, "table": str(out), "table_sha256": table_sha,
+           "singles_sha256": digest, "percentile": args.percentile}
+    (Path(args.out) / "u0_fit.json").write_text(json.dumps(res, indent=1))
+    print(json.dumps({k: res[k] for k in ("table", "table_sha256")}, indent=1))
+    for c, a, m_, k_ in zip(centres, p41, med, n):
+        print(f"{c:6.3f} p41={a:.4f} median={m_:.4f} n={k_}")
+
+
 def main(argv: list[str] | None = None) -> int:
     P = Path("/Users/rfoley/darkhunter/pop/dark-hunter_pop")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -303,6 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--g-edges", nargs="+", type=float, default=[5, 9, 10, 11, 11.5, 12, 12.5, 13, 13.5, 14, 15, 17])
     p.add_argument("--g-max", type=float, default=13.0)
     p.set_defaults(func=cmd_noise)
+    p = sub.add_parser("u0-table", parents=[common])
+    p.add_argument("--singles", default=str(P / "output/gate400/u0/u0_singles.jsonl"))
+    p.add_argument("--table", default=str(REPO / "config/epoch_model/dr3_ruwe_u0_mock.csv"))
+    p.add_argument("--percentile", type=float, default=41.0)
+    p.set_defaults(func=cmd_u0_table)
     args = parser.parse_args(argv)
     Path(args.out).mkdir(parents=True, exist_ok=True)
     args.func(args)

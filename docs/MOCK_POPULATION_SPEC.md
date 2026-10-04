@@ -602,7 +602,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q38 from §11)
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -654,7 +654,7 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   f_b = 0; (c) also add p(ipd_s | c) as a likelihood term (needs an IPD model; none is published
   for this purpose).
 - **MP-Q28a, b, c, f**: decided 2026-10-03, see §0.3.
-- **MP-Q33–Q38** (isochrone M1 and the 2-D weight, #418): options in §11.8.
+- **MP-Q33–Q39** (isochrone M1 and the 2-D weight, #418): options in §11.8.
 - **MP-Q28 Giants**: decided 2026-10-03 (match the real giant population); treatment and the
   remaining options MP-Q28a–g are in §10 (#413). Original framing: (`is_giant`, §0.1). M_G^J is a dwarf relation, so ΔM is meaningless for giants.
   Options: (a) W = 1 for giants, the naive draw, flagged; (b) leave giants out of any statistic
@@ -1113,7 +1113,9 @@ two-star fit. Whether to add a calibrated metallicity likelihood is MP-Q33.
 Here k_A = A_G / E(B−V) and k_E = E(BP−RP) / E(B−V) are the per-star values of the Babusiaux law.
 The floors stand in for photometric calibration, bolometric-correction and isochrone
 systematics. ε is the fractional E(B−V) error. Defaults: σ_C,floor = 0.02, σ_M,floor = 0.05 mag
-and ε = 0, the last consistent with MP-Q29's σ_A = 0. All three are provisional (MP-Q34).
+and ε = 0.1. All three are provisional (MP-Q34). ε = 0 (MP-Q29's σ_A = 0) left 11,306 parent rows
+off the grid, mostly with high E(B−V). ε = 0.1 leaves 7,827 and moves the other rows' M1 by a median
+0.0009 dex (ε = 0.2: 5,024).
 Projecting the extinction vector onto each axis separately drops its (C0, M_G0) correlation; that
 approximation is recorded, and it vanishes at ε = 0.
 
@@ -1240,6 +1242,25 @@ Then
   closed loop gives the universe's companions the primary's true age and [Fe/H], so it measures the
   fiducial's cost.
 
+**Single-star density (MP-Q39, found in the closed loop, `docs/gate418/`).** The Gaussian
+N(M − R(C); 0, σ_R(C)) treats single stars as symmetric about the ridge, with σ_R taken from the
+faint side. Real single stars at fixed colour are not symmetric. Turnoff stars, subgiants and the
+[Fe/H] spread give them a bright-side tail. In the MIST closed loop the faint-side RMS is
+0.46–0.66 mag and the bright-side RMS is 1.0–1.3 mag. The ridge form then leaves the brightest
+companions (twins, log f > −0.5) about as under-predicted as no weight at all. The option
+`mist_density_ridge_anchored` uses the full prior-predictive single-star CMD density
+φ(C, M) of `isochrone_mass` (every kept phase) in place of the Gaussian. It is shifted in M per
+colour so that its mode sits on the measured ridge, which is still the one ridge shared with the
+§10.2 classifier. It is convolved with the row's σ_M, and it carries the colour Jacobian of the
+light subtraction:
+
+  L_s(c) = φ(C_1, M_1 | σ_M) / |J|,   J = ∂C_s/∂C_1 = (1 − x_BP) h′(C_1) − (1 − x_RP)(h′(C_1) − 1)
+
+with h(C) = (BP − G)(C) on the MIST single-star relation. J = 1 without a companion, and
+J ≈ 1 − x for a companion with the primary's colour. The colour density of single stars, which
+the ridge form drops, then enters too. The extinction-error projection σ_A enters only the
+Gaussian form, and MP-Q29 set σ_A = 0. Which form to use is MP-Q39 (§11.8).
+
 Code: `darkhunter_pop.malmquist_cmd` (new), next to `malmquist` (the 1-D weight, kept for the
 #405 tests and comparisons). The hook in `proposal_set` mirrors `malmquist_log_weight`.
 
@@ -1265,6 +1286,25 @@ It is run with no W, the 1-D W of §9.3 (now fed the isochrone M̂1) and the 2-D
 §9.6. Acceptance mirrors #405: in the small run (required gate) every 2-D-W parent pull is ≤ 3
 and the no-W run fails visibly (some |pull| > 5). The large run and the figures go in
 `docs/gate418/`.
+
+**Result (small run: 10⁶ primaries → 40,151 usable parent rows; `docs/gate418/closed_loop_cmd_small_*.json`).**
+The universe has MS, SGB/RGB and core-He-burning primaries. Evolved companions use the §10.4
+flux relation, and the synthetic E(B−V) is known to 5%. The table gives max |pull| over the parent
+statistics.
+
+| weight | total binaries (truth 20,702) | twins (q > 0.95) | brightest log f bin | max \|pull\| |
+|---|---|---|---|---|
+| none | 20,024 (pull −2.3; CMD-dwarf rows −7.7) | −2.6 (dwarf rows −9.7) | −10.8 | 10.8 |
+| 1-D (§9.3, isochrone M̂1) | 25,028 (+12.9) | +14.2 | +36.1 | 36.1 |
+| 2-D, Gaussian ridge | 20,832 (+0.4) | −2.1 (dwarf rows −6.2) | −2.3 | 5.7 |
+| 2-D, MIST density anchored | 20,528 (−0.6) | +0.6 (dwarf rows +1.6) | +2.0 | 7.4 |
+
+The 1-D weight cannot be used with a CMD-derived M̂1. Its ΔM compares the CMD with the Janssens
+relation at a mass inferred from the same CMD. Both 2-D forms remove most of the naive bias, and
+the MIST density closes the twins. Neither form meets the ≤ 3 acceptance yet. Single bins remain
+off at 4–7σ: log f in [−1, −0.5], q in 0.5–0.85 and the α0 tail. The suspected causes are the
+fiducial companion colours (MP-Q37), M̂1 = blended-light mass (§11.3), and the pipeline's
+σ_A = 0 against a 5% truth error. None is retuned.
 
 ### 11.6 What replaces the MP-Q25 fit
 
@@ -1312,7 +1352,7 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
   - M1 against eclipsing-binary dynamical masses (DEBCat, Southworth 2015);
   - the M1 bias from blended light.
 
-### 11.8 Options for Ryan (MP-Q33–Q38; none chosen)
+### 11.8 Options for Ryan (MP-Q33–Q39; none chosen)
 
 - **MP-Q33, [Fe/H] prior and metallicity data**:
   - (a) N(−0.1, 0.25 dex), the provisional setting;
@@ -1320,7 +1360,7 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
     |z|-dependent thin/thick-disk mixture;
   - (c) add a GSP-Phot [M/H] likelihood with the Andrae et al. (2023) calibration where it is
     reliable.
-- **MP-Q34, likelihood floors**: σ_C,floor = 0.02 mag, σ_M,floor = 0.05 mag and ε = 0 now.
+- **MP-Q34, likelihood floors**: σ_C,floor = 0.02 mag, σ_M,floor = 0.05 mag and ε = 0.1 now (0 or 0.2 measured).
   Alternatively use the per-star BP/RP flux errors (needs a re-query of the flux_over_error
   columns), or a fractional E(B−V) error (Combined19 publishes no per-sightline error).
 - **MP-Q35, the M1 point**: the posterior mean (now), 10^⟨log10 M1⟩, or a posterior draw per
@@ -1329,6 +1369,9 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
   (generation-time).
 - **MP-Q37, companion colours**: a fiducial MIST MS ([Fe/H] prior mean, log age 9.6; now), or the
   row's posterior (age, [Fe/H]).
+- **MP-Q39, single-star density in W** (§11.4): `mist_density_ridge_anchored` (provisional
+  default; it closes the twins) or `gaussian_ridge` (the first §11.4 form). An empirical
+  asymmetric density deconvolved from RUWE < 1.4 rows is a third option, not implemented.
 - **MP-Q38, rows outside the ridge's colour range** (about 5% of the parent, mostly bluer than
   C0 = 0.35): W = 1 (now), or extend R(C0) with the MIST single-star locus offset to match the
   measured ridge where they overlap.
