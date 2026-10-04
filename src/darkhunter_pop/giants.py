@@ -352,7 +352,7 @@ def cmd_for_rows(
     r_lo_pc: ArrayLike,
     r_hi_pc: ArrayLike,
     pipeline_config: object,
-    cfg: GiantsConfig,
+    cfg: GiantsConfig | None,
     *,
     ebv: ArrayLike | None = None,
 ) -> RowCMD:
@@ -361,7 +361,8 @@ def cmd_for_rows(
     ``pipeline_config`` is the :class:`~darkhunter_pop.config_schema.PipelineConfig`; its
     ``sample_selection.dust_maps`` supplies ``r_v`` and the band-law coefficients (#295).
     Pass a precomputed ``ebv`` to skip the map lookup. Rows where the law does not converge
-    get NaN (reported by the caller, never passed through).
+    get NaN (reported by the caller, never passed through). ``cfg`` is not used by the
+    computation (kept for the callers of #413); ``mass_derivation`` passes None (#418).
     """
     from darkhunter_pop.elbadry2026_selection import gaia_band_extinction_babusiaux2018
 

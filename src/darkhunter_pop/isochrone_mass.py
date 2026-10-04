@@ -201,6 +201,8 @@ class IsochroneMassConfig(_Strict):
     #: Which M1 summary feeds point uses (mock truth M1 and bulk M1): the posterior mean of
     #: M1 or exp of the mean of ln M1 (MP-Q35, provisional).
     provisional_point_estimate: Literal["mean", "log_mean"] = "mean"
+    #: Candidates per isochrone batch in ``mass_derivation_bulk`` (memory only).
+    batch_rows: int = Field(20000, ge=1)
 
 
 def load_isochrone_config(path: str | Path, key: str = "isochrone_mass") -> IsochroneMassConfig:
