@@ -1,0 +1,156 @@
+{
+ "baseline_gaussian_mu": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 59410.72928830678,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": -1.6329879009380623,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 4.04160634669887,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": -0.36839712740241637,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 5.036811166807942,
+  "vol_max_abs_z_naive": 22.051647400559695,
+  "byG_pull_corrected": [
+   -2.1,
+   -4.0,
+   0.4,
+   1.5,
+   -0.6,
+   2.2
+  ]
+ },
+ "split_normal_mu": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 58514.957603131596,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": -5.919752804104205,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 11.036762514918387,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": -6.882797399453006,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 7.020258957207568,
+  "vol_max_abs_z_naive": 22.051647400559723,
+  "byG_pull_corrected": [
+   -1.5,
+   -2.9,
+   -1.7,
+   -3.1,
+   -4.8,
+   -0.6
+  ]
+ },
+ "sigma_int_0.25": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 59026.723367683095,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": -3.5771876608209654,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 7.9863596072419005,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": -4.592031070003425,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 6.43237350557239,
+  "vol_max_abs_z_naive": 22.008780768036488,
+  "byG_pull_corrected": [
+   -4.4,
+   -5.0,
+   -0.2,
+   0.9,
+   -0.8,
+   2.1
+  ]
+ },
+ "sigma_int_0.08": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 59645.36529790258,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": -0.539004142594679,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 3.447249899612426,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": 1.6446286598848914,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 4.040661833394426,
+  "vol_max_abs_z_naive": 22.086860533852825,
+  "byG_pull_corrected": [
+   -0.9,
+   -3.4,
+   0.7,
+   1.8,
+   -0.5,
+   2.2
+  ]
+ },
+ "zero_point_+0.05": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 60328.76495973502,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": 2.4946588171001354,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 4.832142151997924,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": 4.457609470643473,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 2.7261619369843584,
+  "vol_max_abs_z_naive": 22.133128901477342,
+  "byG_pull_corrected": [
+   0.6,
+   -1.4,
+   1.9,
+   2.8,
+   0.4,
+   2.7
+  ]
+ },
+ "zero_point_-0.05": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 58545.7893502278,
+  "naive": 58722.4631513735,
+  "pull_total_corrected": -5.75809315652229,
+  "pull_total_naive": -5.41745841947217,
+  "max_abs_pull_corrected": 10.538292851659829,
+  "max_abs_pull_naive": 9.167944322293392,
+  "twin_bin_pull_corrected": -5.344575590505132,
+  "twin_bin_pull_naive": -7.819019388988009,
+  "vol_max_abs_z_corrected": 9.662942325158179,
+  "vol_max_abs_z_naive": 21.9635335090555,
+  "byG_pull_corrected": [
+   -4.9,
+   -6.6,
+   -1.2,
+   0.2,
+   -1.5,
+   1.7
+  ]
+ },
+ "oracle_distance_and_m1": {
+  "n_parent": 111585,
+  "truth": 59767.0,
+  "corrected": 59867.593599714266,
+  "naive": 58719.85526798113,
+  "pull_total_corrected": 0.31790769988495565,
+  "pull_total_naive": -5.431483845480376,
+  "max_abs_pull_corrected": 2.1590068286000004,
+  "max_abs_pull_naive": 9.046309746256632,
+  "twin_bin_pull_corrected": 1.1842373932475243,
+  "twin_bin_pull_naive": -7.602331357536899,
+  "vol_max_abs_z_corrected": 1.8036973529976736,
+  "vol_max_abs_z_naive": 22.65431299338047,
+  "byG_pull_corrected": [
+   1.0,
+   -0.9,
+   0.1,
+   1.2,
+   -1.1,
+   -0.2
+  ]
+ }
+}

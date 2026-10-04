@@ -344,6 +344,34 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
   the config `sigma_logM`.
   **Santos et al. (2013) correction** (coefficients named constants; enable via config, default
   on): `M_corrected = 0.791·M_TAG10² − 0.575·M_TAG10 + 0.701`.
+- **Isochrone M1 (#418; a design change, behind a switch that is off by default).** Ryan decided
+  (2026-10-03) that M1 comes from MIST isochrones on the dereddened CMD, for the mock parent and
+  the data side alike (`docs/MOCK_POPULATION_SPEC.md` §0.3, §11). The switch is a new value,
+  `mass_calibration.method: MIST_isochrone`. The default stays `TAG10` until Ryan flips it after
+  reviewing the re-measurements in `docs/gate418/`. Under the switch:
+  - **Model.** MIST v1.2 (v/v_crit 0.4) full isochrones with UBVRIplus Gaia (EDR3 = DR3)
+    bolometric corrections, from `isochrone_mass.mist_root`. That path is host-specific (host
+    profiles) and is read in place; the parsed grid is cached under `<data_root>/isochrone_mist/`
+    with a checksum. Priors are config: Kroupa (2001) IMF, constant SFR over 0.1–14.1 Gyr, and a
+    Gaussian [Fe/H] prior (provisional). Spec §11.2.
+  - **Inputs per candidate.** G, BP−RP and (l, b). The distance is Bailer-Jones geometric when
+    present, else 1 / ϖ_NSS. Extinction is Combined19 E(B−V) with the Babusiaux et al. (2018)
+    Gaia law, the same code as the parent (`giants.cmd_for_rows`).
+  - **Output.** The `M1` ParameterSet holds the posterior M1 point and its posterior σ;
+    `R1 = 10^⟨log10 R⟩`. Provenance is `isochrone_mist_v1.2`. The extras record ⟨log10 M1⟩,
+    σ_log M1, the initial mass, the maximum past radius, P(evolved), ⟨log age⟩, ⟨[Fe/H]⟩ and the
+    prior-predictive density.
+  - **Skips.** A candidate with no CMD (`no_cmd`) or off the isochrone grid (`m1_off_grid`) is
+    skipped and counted in the funnel. It is never extrapolated and never given a fallback mass.
+  - **TAG10 is untouched**, and it remains the default path. #393 (Santos floor) and #380 (Gaussian
+    M1 draws) still apply to it. #323 (TAG10 outside its calibration range) is resolved for the
+    switch path, where out-of-range is `m1_off_grid`.
+  - **Literature reproduction paths keep their own M1** (column ownership). Their counts must be
+    unchanged under the switch. Forward-model paths that read the pipeline's bulk M1 change, and
+    their counts are reported.
+  - **Blended light.** The fit assumes a single star, so a luminous companion biases M1. The mock
+    applies the same estimator (MOCK_POPULATION_SPEC §11.3), so the M1 → M2 mapping matches between
+    the mock and the data.
 - **Companion mass and its uncertainty (#374).** The central `M2` is the `gaiamock_mod`
   `get_companion_mass_from_mass_function` inversion at the best-fit Thiele–Innes `a0`, period
   and parallax, with the TAG10 `M1` and `mass_derivation.dark_companion_flux_ratio`.
@@ -883,7 +911,13 @@ either as the parent query would under-count the parent.
 - If zero incomplete runs and `--run-file` omitted: create a new run.
 - Selection among runs uses the **run_id timestamp inside the file**, never filesystem mtime.
 - `scripts/purge_run.py`: default deletes the run YAML only; `--with-artifacts` also deletes
-  recorded HDF5 paths; refuse purging completed runs unless `--force`.
+  the HDF5 artifacts **this run produced** — only recorded paths under
+  `{artifact_root}/{this run_id}/` that no other run file in the runs directory references.
+  Copied-forward (parent) artifacts, shared artifacts and paths outside `artifact_root` are
+  kept and listed as "kept, owned by <run_id>" / "kept, also referenced by <run_id>" /
+  "kept, outside artifact_root" (#376). The delete/keep plan is printed before anything is
+  deleted; `--dry-run` prints it and deletes nothing. Refuse purging completed runs unless
+  `--force`.
 
 **Required screen output at run start**: before any stage executes, print a run plan — which run
 file is used/created, and for every stage whether it will run or be skipped and why

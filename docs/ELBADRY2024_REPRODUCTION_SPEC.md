@@ -262,6 +262,41 @@ With the DR3 scanning law, gaiamock gives ≥ 12 visibility periods everywhere i
 real 0.648 "insufficient_visibility" is the #341 mapping (SB1 / EB → that bin), not a physical
 fraction. The gate now fails honestly (max |Δ| = 0.83) until Q7 is settled.
 
+### 8.4 #399 / #398: long-period acceleration capture and the σ deficit (measured, not decided)
+
+Full report: `docs/gate399/README.md`. Measured by replaying every #390 realization bit for bit
+(6,480/6,480 cascade outcomes reproduced) and recomputing what the cascade discarded.
+
+- **Decision rule.** `gaiamock_mod.fit_full_astrometric_cascade` applies DR3's documented rule
+  exactly: 9-parameter model first, then 7-parameter, each accepted on s > 12, F2 < 25 and
+  ϖ/σϖ > 2.1 s^1.05 (9-par) or 1.2 s^1.05 (7-par), and no orbit is fitted after an acceptance
+  (Halbwachs et al. 2023 §2.2.2, §4.2, §4.3 item 1; this paper Eqs. 12-13 and §4.2). The DR3
+  re-parameterisation of the acceleration terms (Halbwachs Eqs. 6-7) leaves s, F2 and ϖ/σϖ
+  unchanged (same model column space). No pop-side bug was found.
+- **What decides it.** For P > 600 d the deciding test is mostly the parallax criterion. Of the
+  realizations that reached the orbit, 48% failed the 9-parameter test on ϖ/σϖ alone; captured
+  9-parameter realizations sit at ϖ/σϖ / (2.1 s^1.05) = 1.19 (median). That ratio scales as
+  σ^0.05, so the capture rate barely depends on the noise level.
+- **Noise (#398) explains little.** Capture at 600-1000 / > 1000 d: baseline 0.230 / 0.240;
+  noise × 1.11: 0.223 / 0.237; DR3-matched noise (epoch count + bright-star excess, below):
+  0.193 / 0.212; truth drawn from the published covariance: 0.208 / 0.223; noise × 0.5:
+  0.168 / 0.188.
+- **Skipped orbit.** With the acceleration branch forced off on the same data, 85% (254/300) of
+  captured P > 600 d realizations give an orbit that passes every Eq. 18-22 cut, so long-period
+  acceptance would be ~0.85 instead of 0.66 without the acceleration branch. That is DR3's rule
+  at work, not a gaiamock difference.
+- **Residual.** About 0.19-0.21 survives every correction. Per-system capture is bimodal: 74 of
+  515 long-period Orbital systems are captured in ≥ 90% of 25 realizations. A re-injection of a
+  *selected* sample cannot by itself separate a forward-model defect from the expected
+  re-injection capture of a sample conditioned on DR3 not capturing it; that needs the
+  population-level orbit : acceleration comparison (Q7 / Q7b, #402).
+- **σ deficit (#398) is explained.** Recovered/published σ (median 0.89 for ϖ and a0, 0.86 for P)
+  becomes 1.02 / 1.02 / 0.99 after two terms: gaiamock has 13% more CCD observations than DR3's
+  `astrometric_n_good_obs_al` (×√1.13), and DR3's goodness-of-fit inflation c (Halbwachs Eq. 2) is
+  1.22-1.34 × gaiamock's at G < 13 and 1.00 at G ≥ 13 (the missing bright-star excess noise, §3).
+
+Options are listed in the report and in Q13-Q14 below. None has been chosen.
+
 ## 9. Open questions for Ryan (nothing below has been chosen)
 
 - **Q1 Galaxia.** Which Galaxia build and parameter file? Lam et al. (2020) used the PopSyCLE fork,
@@ -294,6 +329,13 @@ fraction. The gate now fails honestly (max |Δ| = 0.83) until Q7 is settled.
   denominators and binomial tolerances?
 - **Q12 Resolved-pair cut (B1).** Is ρ the angular semi-major axis a/d, or the instantaneous
   projected separation? The paper says only "angular separation".
+- **Q13 Long-period acceleration capture (#399).** Accept it as the DR3 rule (compare the mock to
+  DR3 with the acceleration channel included, via Q7b); or bound it with a non-DR3 pop-side
+  post-cascade rule; or wait for the population-level test. See `docs/gate399/README.md`.
+- **Q14 σ deficit (#398).** Leave gaiamock_mod's noise as is (documented systematic); thin the
+  simulated epochs to DR3's observation count and/or add bright-star excess noise pop-side (around
+  gaiamock's predict + fit calls, not inside them); or request the change upstream in
+  gaiamock_mod. See `docs/gate399/README.md`.
 - **Q8 Input catalog.** Ask the authors for the 46 M-binary input catalog or the 137k mock catalog
   instead of regenerating them? That would remove Q1–Q4.
 - **Q9 N and compute.** From §8.1, choose an N whose orbital count gives smooth histograms

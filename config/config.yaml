@@ -20,6 +20,12 @@ mass_calibration:
   sigma_logR: 0.014
   santos_correction: true
   delta_M_Ch_msun: 0.0
+isochrone_mass:
+  # MIST isochrone M1 (#418; docs/MOCK_POPULATION_SPEC.md §11, ARCHITECTURE.md mass_derivation_bulk).
+  # mist_root is HOST-SPECIFIC (also set by config/host_profiles/laptop.yaml; ziggy/lux unknown).
+  # Every other key is at the schema default (darkhunter_pop.isochrone_mass.IsochroneMassConfig);
+  # provisional_* keys are open questions (MP-Q33-Q35), not decisions.
+  mist_root: /Users/rfoley/.isochrones
 mass_derivation:
   dark_companion_flux_ratio: 0.0
   uberms_m1_prior_max_msun: 3.0
@@ -901,6 +907,82 @@ dr3:
     mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr3_accel_jerk_pinned
+  # Statistical epoch-loss model around gaiamock's GOST transit list (#400, #398;
+  # docs/EPOCH_MODEL_SPEC.md). Wraps gaiamock, never edits it. Off until Ryan
+  # chooses (spec §6); the calibration is recorded here so the choice is one flag.
+  epoch_model:
+    enabled: true  # Ryan 2026-10-03, #400 E1
+    # ESA "Gaps in Gaia (E)DR3 data", Astrometry_EDR3.csv (138 gaps, OBMT rev),
+    # https://www.cosmos.esa.int/web/gaia/dr3-data-gaps, downloaded 2026-10-03.
+    gap_table: config/gaia_gaps/dr3_astrometry_gaps_edr3.csv
+    gap_table_sha256: e3bb06ba3a2cffd93bdf8336152b95d7cbd7ee6f192277bd70f6cea293777161
+    gap_source: "ESA Gaia (E)DR3 astrometry gap table; extends Lindegren et al. (2021) Table 1"
+    apply_gaps: true
+    # Lindegren et al. (2021) Sect. 2.2: AGIS used OBMT 1192.13-5230.09 rev.
+    agis_window_obmt_rev: [1192.13, 5230.09]
+    # Lindegren et al. (2021) Eq. 2: JD_TCB = 2457023.75 + (OBMT - 1717.6256) / 4.
+    obmt_reference_rev: 1717.6256
+    obmt_reference_jd_tcb: 2457023.75
+    obmt_rev_per_day: 4.0
+    # GOST rows closer than this are one FoV transit (10 rows span 45 s; transits
+    # are >= 1.76 h apart).
+    transit_split_day: 0.01
+    # Whole-transit loss after the gaps, calibrated on 94,635 random gaia_source stars
+    # (G < 19) against DR3 astrometric_matched_transits (docs/gate400, spec §3).
+    transit_loss:
+      # Ryan 2026-10-03 (#400 E6, E7, E3): continuous in G, calibrated on NSS stars at
+      # RUWE = 1.4, with a Galactic (l, b) real-harmonic sky term (ell <= 2, chosen by
+      # sky-blocked cross-validation). Fit: scripts/calibrate_epoch_model_400.py keep.
+      # log p_keep = coef_g . [1, x, ..., x^4] + coef_sky . Y(l, b), x = (clip(G) - g_ref) / g_scale.
+      model: continuous
+      continuous:
+        g_clip: [6.000000, 19.000000]
+        g_ref: 14.0
+        g_scale: 4.0
+        coef_g: [-0.014901, -0.012067, -0.004129, 0.001194, -0.010059]
+        sky_lmax: 2
+        coef_sky: [-0.005009, -0.002109, 0.017786, 0.000976, -0.011094, 0.000506, -0.003450, 0.019254]
+      # binned #412 calibration (random stars), kept for reference; unused when model is continuous
+      g_edges: [3.0, 11.0, 13.0, 15.0, 16.0, 17.0, 17.5, 18.0, 18.5, 19.0]
+      prob: [0.038, 0.028, 0.034, 0.035, 0.044, 0.053, 0.052, 0.060, 0.073]
+      density_slope_per_dex: 0.0
+      density_ref_per_deg2: 31622.8
+    calibration_snapshot: 20261003T063811Z_epoch_counts_400
+    # Ryan 2026-10-03 (#400 E4): time-clustered loss episodes for faint stars. frac_max
+    # and the ramp make the random-star visibility-period excess vanish at G > 15
+    # (spec §4.3); tau_day from the epoch-time gap lengths (spec §4.3).
+    clustered_loss:
+      enabled: true
+      g_start: 14.5
+      g_full: 16.5
+      frac_max: 0.5
+      tau_day: 2.0
+    # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
+    # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
+    # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but
+    # lowers bright NSS RUWE by 9-13% (spec §8.5, docs/gate400 "v2 validation"); Ryan's
+    # condition was that nothing else breaks. Kept calibrated so the choice is one flag.
+    bright_excess_noise:
+      enabled: false
+      g_max: 13.0
+      knots_g: [8.494034, 9.602653, 10.576412, 11.279750, 11.780147, 12.275054, 12.772286]
+      knots_r2: [0.538285, 0.678118, 0.794198, 0.962945, 0.768383, 0.534535, 0.376680]
+      renormalize_ruwe: true
+    # #400 N2-u0 (Ryan 2026-10-03): DR3-like RUWE = UWE / u0_mock(G). u0_mock is the 41st
+    # percentile of mock single-star UWE per 0.25-mag G bin (Lindegren 2018 TN LL-124),
+    # mock singles run through the v2 epochs + bright_excess_noise. When enabled it
+    # replaces bright_excess_noise.renormalize_ruwe. Spec §8.8.
+    ruwe_u0:
+      enabled: false
+      table: config/epoch_model/dr3_ruwe_u0_mock.csv
+      table_sha256: 8731b93be639a364c16ad2ffcd48d7e26837bf6857ed5ff0e4125f8312a63269
+      provenance: "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
+    # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
+    excess_noise:
+      enabled: false
+      g_max: 13.0
+      sigma_max_mas: 0.04
+    provenance: "#400 v2 (Ryan 2026-10-03 E1/E3/E4/E6/E7/N2); scripts/calibrate_epoch_model_400.py"
 dr4:
   mission_baseline_months: 66.0
   scanning_law_id: gaiadr4_pinned
@@ -968,3 +1050,5 @@ dr4:
     mock_g_mag_max: 19.0
   selection_function_followup:
     accel_jerk_catalog_id: dr4_accel_jerk_pinned
+  # DR4 epoch model: not calibrated (DR4 gaps and counts unpublished).
+  epoch_model: null

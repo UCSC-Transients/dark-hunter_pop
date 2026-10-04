@@ -24,7 +24,9 @@ dependencies = [
 dev = ["pytest>=8.0"]
 plot = ["matplotlib>=3.8"]
 inference = ["dynesty>=2.1"]
-gaiamock = ["healpy>=1.16", "joblib>=1.3", "mwdust>=1.0"]
+gaiamock = ["healpy>=1.16", "joblib>=1.3", "mwdust>=1.0", "threadpoolctl>=3.7"]
+# Volume-limited Malmquist diagnostic only (#391 MP-Q32; installed with numpy<2 kept).
+volume_diagnostic = ["gaiaunlimited>=0.3.3"]
 sheets = ["google-api-python-client>=2.100", "google-auth>=2.22"]
 
 [tool.setuptools.packages.find]

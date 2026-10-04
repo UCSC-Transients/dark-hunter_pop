@@ -1,0 +1,7 @@
+# Rung-2 validation display and gate (#391; Ryan's decision MP-Q19, 2026-10-03,
+# https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5971280434).
+# Not under config/fragments/.
+
+rung2:
+  min_ess_per_bin: 30        # MP-Q19 DECIDED: bins below are shaded and excluded from the KS gate
+  n_bins: 20                 # per panel, on diagnostics.elbadry_six_panel_axes

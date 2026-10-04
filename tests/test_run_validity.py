@@ -438,3 +438,88 @@ def test_sbc_analytic_backend_is_not_a_pipeline_validation() -> None:
     assert sbc_validates_pipeline("analytic_binned") is False
     assert sbc_validates_pipeline("dynesty") is True
     assert "does NOT validate inference" in SBC_ANALYTIC_BANNER
+
+
+# ---------------------------------------------------------------------------
+# #373: scan the artifacts actually consumed, overrides included
+# ---------------------------------------------------------------------------
+
+
+def test_collect_scans_explicit_artifact_overrides(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    manifest = create_run_manifest(cfg)
+    # Manifest record points at a registered, clean artifact ...
+    recorded = tmp_path / "astro_recorded.h5"
+    with h5py.File(recorded, "w") as handle:
+        handle.attrs["stage"] = "selection_function_astrometric"
+    write_stand_ins(recorded, [])
+    spec = STAGE_REGISTRY["selection_function_astrometric"]
+    manifest = mark_stage_started(manifest, spec, cfg)
+    manifest = mark_stage_finished(
+        manifest, spec, status=StageStatus.COMPLETED, artifact_path=recorded
+    )
+    # ... but the consumer actually read a pre-#354 artifact (no attribute).
+    pre354 = tmp_path / "astro_pre354.h5"
+    with h5py.File(pre354, "w") as handle:
+        handle.attrs["stage"] = "selection_function_astrometric"
+    registered = tmp_path / "followup.h5"
+    with h5py.File(registered, "w") as handle:
+        handle.attrs["stage"] = "selection_function_followup"
+    write_stand_ins(registered, [_si("followup_x")])
+
+    collected = collect_stand_ins(
+        manifest,
+        stages=[
+            "selection_function_astrometric",
+            "selection_function_followup",
+            "sensitivity_analysis",
+            "population_model",
+        ],
+        artifact_paths={
+            "selection_function_astrometric": pre354,
+            "selection_function_followup": registered,
+            "sensitivity_analysis": None,
+        },
+    )
+    assert [s.name for s in collected.stand_ins] == ["followup_x"]
+    assert collected.unregistered_stages == ["selection_function_astrometric"]
+    # Registering stage with no record and no path: reported, never clean.
+    # population_model does not register, so its absence is not flagged.
+    assert collected.not_run_stages == ["sensitivity_analysis"]
+    assert collected.unverified_stages == [
+        "selection_function_astrometric",
+        "sensitivity_analysis",
+    ]
+
+
+def test_inference_flags_unregistered_explicit_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _cfg(tmp_path, upstream_gate_policy="mark_not_science_valid")
+    source, _ = _manifest_with_astrometric(cfg, tmp_path, monkeypatch, passed=True)
+    astro = Path(source.stages["selection_function_astrometric"].artifact_path)
+    follow = Path(source.stages["selection_function_followup"].artifact_path)
+    # Simulate pre-#354 artifacts: strip the registration attribute.
+    for path in (astro, follow):
+        with h5py.File(path, "a") as handle:
+            if STAND_INS_ATTR in handle.attrs:
+                del handle.attrs[STAND_INS_ATTR]
+    fresh_dir = tmp_path / "fresh"
+    fresh_dir.mkdir()
+    manifest = create_run_manifest(cfg)
+    run_path = fresh_dir / f"{manifest.run_id}.yaml"
+    save_run_manifest(manifest, run_path)
+    manifest = run_inference_stage(
+        manifest,
+        cfg,
+        run_path=run_path,
+        astrometric_sf_artifact_path=astro,
+        followup_sf_artifact_path=follow,
+    )
+    assert manifest.science_valid is False
+    reasons = "\n".join(manifest.science_validity_reasons)
+    for stage in ("selection_function_astrometric", "selection_function_followup"):
+        assert f"carries no stand-in registration): {stage}" in reasons
+    artifact = Path(manifest.stages["inference"].artifact_path)
+    with h5py.File(artifact, "r") as handle:
+        assert STAND_INS_ATTR in handle.attrs

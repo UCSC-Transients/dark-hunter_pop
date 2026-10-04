@@ -28,6 +28,76 @@ reimplemented), `docs/ARCHITECTURE.md` §4 (`selection_function_astrometric`, `p
 5. Laptop compute, smaller test run first.
 6. No catalog request to El-Badry et al. (old Q8 closed). Their Fig. 5 stays a by-eye cross-check.
 
+### 0.1 Generation-time decisions (Ryan, 2026-10-02, #391 comment 5963152741)
+
+Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5963152741.
+These replace the pilot's `provisional_*` settings for the questions below. They are fixed at
+generation (§3.5).
+
+| Question | Decision | Implementation |
+|---|---|---|
+| MP-Q1 parallax floor | ϖ > 0.2 mas, with the same floor on the real comparison sample | parent query cut on measured `parallax`; the real Orbital + AstroSpectroSB1 sample is filtered on its NSS `parallax` > 0.2 mas |
+| MP-Q2 subsample | K = 10⁶ | `random_index < 1,000,000`, the pilot's slice |
+| MP-Q3 Halbwachs (b)/(c) | applied, using each real star's own values | parent rows must have `ipd_frac_multi_peak` ≤ 2, `ipd_gof_harmonic_amplitude` < 0.1 and \|C\*\| < 1.645 σ_C\*. C\* = `phot_bp_rp_excess_factor` − polynomial(`bp_rp`) per Riello et al. (2021) Eq. 6 / Table 2; σ_C\*(G) = 0.0059898 + 8.817481×10⁻¹² G^7.618399 (Eq. 18). A row with undefined C\* (no BP/RP) fails, since the condition cannot hold. The per-cut pass flags are stored |
+| MP-Q4 truth distance | Bailer-Jones et al. (2021) geometric | truth parallax = 1000 / `r_med_geo` (pc) from `external.gaiaedr3_distance`; `r_lo_geo` and `r_hi_geo` are stored; rows without a geometric distance are dropped and counted. The ϖ floor stays on the *measured* parallax (MP-Q1) |
+| MP-Q5 M1 | TAG10 point value; no-atmosphere stars dropped on both sides; giants kept and flagged | parent as in the pilot. Real side: rows with neither an MSC nor a GSP-Phot atmosphere are dropped. `is_giant` = log g of the atmosphere TAG10 used < 3.6. The threshold is the dwarf/giant log g of the Andrews et al. (2022) ATF notebook cut, used here **only as a flag**: it changes no weight or selection |
+| MP-Q6 light split | observed G is the total system light | gaiamock gets the star's observed `phot_g_mean_mag` |
+| MP-Q13 mass–luminosity | Janssens et al. (2022) M_G(M), 0.1 dex log-normal scatter in f | target `p(log10 f) = N(log10 f_J(M1, M2), 0.1)`; it stays reweightable |
+
+**Real-side check of the Halbwachs (b)/(c) cuts** (measured 2026-10-02, archive DR3 `gaia_source`
+values for all 168,065 rows). The cuts are almost exactly implicit on the real side, as expected
+for NSS input filters. The few failures probably come from the cuts being run on internal
+pre-release values; this was not verified.
+
+| Real sample | rows | IPD pass | C\* pass | both | RUWE > 1.4 | ≥ 12 vis. periods |
+|---|---|---|---|---|---|---|
+| Orbital | 134,598 | 99.984% | 99.972% | 99.956% | 100% | 100% |
+| AstroSpectroSB1 | 33,467 | 99.866% | 99.970% | 99.836% | 100% | 100% |
+
+So no IPD/C\* filter is applied to the real comparison sample. Whether to remove the 0.06% that
+fail (114 rows) for exact symmetry is MP-Q24.
+
+MP-Q7–Q12 and Q14–Q22 stay open. They can still be changed by reweighting.
+
+The magnitude-limit (Malmquist / Öpik) conditioning that Ryan made a condition of accepting
+Gaia-star primaries (#405) is derived in §9; its open choices are MP-Q25–Q32.
+
+### 0.2 Decisions of 2026-10-03 (Ryan, #391 comment 5971280434)
+
+Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5971280434.
+
+| Question | Decision | Implementation (PR for #391 / #405 / #409 / #410) |
+|---|---|---|
+| MP-Q24 | Drop the 114 real rows failing the IPD / C\* cuts (symmetry) | `scripts/fetch_real_nss_input_columns.py` snapshots the columns; `proposal_set.real_comparison_keep(..., input_columns)` applies `halbwachs_input_flags` joined by `source_id` (missing rows fail) |
+| MP-Q19 | Minimum ESS per bin = 30, for display shading and the KS gate | `config/population/rung2_validation.yaml`. Bins with ESS_b < 30 are shaded grey. The weighted KS is computed only over the bins with ESS_b ≥ 30, and the report states the fraction of the real sample inside them. The §3.6 MC-noise rule stays the criterion for rungs 3–5 |
+| MP-Q29 | Combined19 extinction for ΔM | `proposal_set.combined19_a_g`: mwdust Combined19 at (l, b, Bailer-Jones d), A_G = 2.8 E(B−V) (El-Badry et al. 2024 §3). σ_A = 0, because the extinction scatter is absorbed into the fitted σ_int |
+| MP-Q25 | Fit σ_int and the M_G zero point on the parent's RUWE < 1.4 stars | `scripts/fit_malmquist_zero_point.py` → `proposal_set.fit_mg_zero_point` (Gaussian ML, bootstrap errors, giants excluded). **Result (docs/gate391/malmquist_zero_point_fit.json): zp = −2.357 ± 0.006 mag, σ_int = 2.082 ± 0.007 mag on 161,776 stars.** The statistical precision is far inside the closed loop's 0.05 mag tolerance, but the fit is dominated by systematics: median ΔM runs from +0.64 (d < 0.5 kpc) to −2.94 mag (2–5 kpc), and from −3.0 (M1 < 0.6) to +0.2 (M1 > 2). Causes are the TAG10 floor (#393) and evolved stars fitted by MSC as dwarfs (MP-Q28). Escalated as **#414**. The values are recorded in `config/population/malmquist_decided.yaml` with that warning |
+| MP-Q30 | Gaussian distance marginalization | `gaussian_mu`, enforced by `proposal_set.malmquist_log_weight` |
+| MP-Q26 | Ignore the TAG10 blended-light bias for now; document it | Not modelled. TAG10 run on an unresolved pair's blended atmosphere is biased; the conditioning uses M̂1 as if unbiased. Revisit with #393 / #414 |
+| MP-Q32 | Install `gaiaunlimited` for the volume-limited diagnostic | Installed in the shared `.venv` (0.3.3, numpy kept at 1.26.4; it pulled in pandas 3.0.6, xarray, astromet, astropy_healpix 1.1.3). New `pyproject` extra `volume_diagnostic` |
+| MP-Q27 | Later | `provisional_blending: all_unresolved` unchanged |
+| MP-Q28 | Giants: match the real giant population | Owned by another agent. The hook is `malmquist` `provisional_giant_policy: unit_weight` plus `ParentSnapshot.is_giant` |
+| #409 / #410 | Fix the eccentricity proposal coverage and the η floor | §3.2: new `eccentricity.shape: mds17_bounded` |
+| #400 E1 | Epoch model on | `proposal.epoch_model: dr3_config` wraps each cascade call in `epoch_model.gost_epoch_model` (runner hook; `dr3.epoch_model` with `enabled` forced on) |
+| #408 | `threadpoolctl` and `nice` | The runner pins every BLAS/OpenMP pool to one thread per worker, verifies it with `threadpool_info` (recorded per worker in the artifact), and applies `os.nice(10)` |
+
+### 0.3 Decisions of 2026-10-03 on M1, the Malmquist weight and giants (Ryan, #418, #413)
+
+Recorded in https://github.com/UCSC-Transients/dark-hunter_pop/issues/418 and the #413 thread.
+
+| Question | Decision | Where |
+|---|---|---|
+| MP-Q5 / MP-Q28c M1 | **MIST isochrones** (v1.2, vvcrit 0.4, full isochrones, UBVRIplus Gaia bolometric corrections), on the dereddened CMD, for the mock parent **and** the data side. TAG10 is unusable for the parent: the 0.597 M⊙ floor (#393), giants ≈ 2× too low (§10.1), and the −2.36 mag / 2.08 mag MP-Q25 fit (#414) | §11.2, §11.7 |
+| Malmquist weight | "Do the normal stellar-locus binary check, but a binary will not just shift M_G, but also BP−RP. Both have to be taken into account along with extinction." The weight works in the dereddened 2-D CMD against the measured single-star ridge, with MIST companion displacement vectors and extinction as its own vector | §11.4 |
+| MP-Q28a | n_σ = 3 for the CMD evolved classifier | §10.2 |
+| MP-Q28b | A free period floor for giants, fit at rung 3 | §10.5 |
+| MP-Q28f | Giants are compared on Orbital only | §10.3 |
+
+These replace the TAG10 route of §0.1 MP-Q5, the 1-D weight of §9.3 for the decided pipeline, and
+the MP-Q25 fit of §0.2 (its procedure is superseded by the ridge calibration, §11.6). MP-Q26 (TAG10
+blended-light bias ignored) is superseded by §11.3. Literature reproduction paths keep their own M1
+(column ownership; CLAUDE.md).
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -93,6 +163,11 @@ LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON gs.source_id = ap.source_id
 WHERE gs.random_index < :K AND gs.phot_g_mean_mag < 19 AND gs.parallax > :parallax_floor
 ```
 
+Since §0.1 (MP-Q4), the query also selects `bj.r_med_geo, bj.r_lo_geo, bj.r_hi_geo` via
+`LEFT JOIN external.gaiaedr3_distance AS bj ON gs.source_id = bj.source_id` (EDR3 and DR3
+`source_id` are identical). That is a new snapshot with the same `K` and slice; the pilot snapshot
+is kept unchanged.
+
 The atmospheric columns are exactly the ones `data_acquisition` fetches for `mass_derivation`
 (MSC preferred, GSP-Phot fallback), so the same TAG10 code path applies (§1.4). The real star's
 RUWE etc. are stored for diagnostics only, never as a selection.
@@ -147,7 +222,7 @@ All equation and table numbers are MdS17 (arXiv:1606.05347). `log` is log₁₀,
 q = M_comp/M1. These are the **published values** of θ_MdS for rung 2 (§5); at rung 3 they become
 free parameters of `population_model`, so they live in config, not in `constants.py`: the published
 coefficients in a frozen table `config/population/moe_distefano2017.yaml` (cited per equation), and
-the switches in the fragment `config/fragments/proposal_set.yaml`, which merges into
+the switches in `config/population/proposal_set_pilot.yaml` (not under `config/fragments/`, which `load_config` merges into `PipelineConfig`), which merges into
 `population_model.moe_distefano` when the stage integration lands (§3.8).
 
 ### 2.1 Domain
@@ -304,10 +379,10 @@ puts mass:
 | q(log M2) | mixture of log-uniform components on [M2_min, M2_max] covering BDs to BHs, plus a component tied to M1 (log q uniform on [log q_min, 0]) |
 | q(f) | point mass at f = 0 with probability ρ_dark (dark companions), else log-uniform on [f_min, f_max] |
 | q(log P) | mixture: log-uniform on the detectable range plus a defensive log-uniform on MdS17's 0.2–8 |
-| q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4), else U(0, e_cap) |
+| q(e \| P) | e = 0 for P ≤ 2 d (matching MdS17's circular class, §2.4). Otherwise (since #409/#410, `shape: mds17_bounded`) a mixture of: a power law (η_q + 1) e^η_q / E^(η_q+1) with η_q = the target η floor; U(0, E), where E = e_max(P) from Eq. 3 (the target's own support); and a defensive U(0, 0.999) for alternative models (MP-Q12). The weights are bounded by (η+1)/((η_q+1) w_floor) near e = 0 and (η+1)/w_support elsewhere. The pilot and paused-run `U(0, e_cap)` truncated the target above 0.95 (~6% of companions, #409) and had infinite-variance weights for η < −0.5 (#410) |
 | geometry | isotropic, identical to the target (§2.8) |
 
-All proposal settings are in config (`config/fragments/proposal_set.yaml`, merging into
+All proposal settings are in config (`config/population/proposal_set_pilot.yaml`, merging into
 `selection_function_astrometric.proposal_set` at stage integration). They change
 efficiency, never the answer. The support condition is enforced by a test: q(x) > 0 on the union
 of the MdS17 domain and the compact-object mass range.
@@ -426,6 +501,14 @@ skip_acceleration)` inside `forward_model.seeded_global_rng`, classified by
 function is reimplemented (docs/GAIAMOCK_API.md). Real proper motions are passed (the box prior
 passed 0).
 
+**Epoch model (#400, not yet chosen).** `docs/EPOCH_MODEL_SPEC.md` calibrates a statistical
+transit-loss model (published DR3 gaps + a G-dependent per-transit loss) that wraps gaiamock's
+GOST list through `epoch_model.gost_epoch_model`. It is off (`dr3.epoch_model.enabled: false`).
+If Ryan switches it on, the call above becomes
+`with seeded_global_rng(seeds, c_funcs), gost_epoch_model(gaiamock, em_cfg,
+SourceEpochContext(g_mag), epoch_model_rng(base_seed, stream, draw_index)):` in
+`proposal_set.simulate_one`, and every stored draw needs re-simulation.
+
 ## 5. Validation ladder (each rung gates the next)
 
 | Rung | What | Acceptance |
@@ -466,6 +549,9 @@ N_accepted shown: ESS per six-panel bin, and the MdS17-reweighted six-panel agai
 sample (rung 2). Where an open question must have a value to run, the pilot uses a provisional
 setting that is named in the config key (`provisional_*`), the artifact and the caption:
 
+Since §0.1, the generation-time rows below (MP-Q1, Q3–Q6, Q13) are superseded by the decisions.
+The reweightable rows (MP-Q7, Q9–Q11, Q17) stay provisional.
+
 | Open question | Pilot provisional setting (not a decision) |
 |---|---|
 | MP-Q1 parallax floor | ϖ > 0.2 mas (a superset; any higher floor is a later filter) |
@@ -481,26 +567,49 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
 | MP-Q14 extinction | not needed by the pilot (f from both masses; gaiamock gets the observed G) |
 | MP-Q17 compact mixture at rung 2 | none (luminous MdS17 only) |
 
-## 8. Open questions for Ryan (none has been chosen)
+### 7.1 Pilot measurements (2026-10-02, laptop shared at load average 40–120 on 10 cores)
 
-- **MP-Q1 Parallax floor.** None is in Halbwachs et al. (2023). 0.2 mas keeps 99.998% of the real
-  orbits (66 GB full parent); 0.5 mas keeps 98.6% (30 GB). Whichever is picked, the same floor is
-  applied to the real comparison sample. Or a distance cut instead?
-- **MP-Q2 Parent subsample size** for the full run (`K` in §1.3), e.g. 10⁶ vs 10⁷.
-- **MP-Q3 Halbwachs steps (b) and (c)** (`ipd_frac_multi_peak` ≤ 2, `ipd_gof_harmonic_amplitude`
-  < 0.1, \|C\*\| < 1.645 σ_C\*), which removed 89% of step (a)'s stars. Apply them to the parent
-  using the real star's values (they encode real crowding and real companions, not the mock one),
-  skip them, or model them? Skipping them leaves the mock with partially resolved pairs the real
-  pipeline excluded.
-- **MP-Q4 Truth parallax.** The star's measured parallax, or a distance estimate such as
-  Bailer-Jones et al. (2021)? (Generation-time.)
-- **MP-Q5 M1 truth.** The TAG10 point value or a draw from its uncertainty; and what to do with
-  parent stars that have no MSC or GSP-Phot atmosphere (drop, with the same drop on the real side?).
-  Also giants, for which TAG10 returns a mass but the MS companion model does not obviously apply.
-  (Generation-time.)
-- **MP-Q6 Light split** (§1.5). Observed G is the total system light (companion share carved out;
-  a companion brighter than the system is then impossible), or the observed star is the primary
-  alone and the companion adds light? (Generation-time.)
+Parent snapshot `20261002T192654Z_gaia_source_parent_K1000000_plx0p2`: 214,666 rows (exactly the
+count in §1.1's slice), 200,602 usable (TAG10 M1 resolved: 142,420 MSC, 58,182 GSP-Phot, 14,064
+none). On disk 64 MB (`parent.h5`, all float64, ≈ 300 B per row, so the §1.3 sizes are ≈ 1.8×
+low) plus 8.6 MB of cached M1. The TAG10 + Santos M1 has a hard floor at 0.597 M⊙, which hits
+more than 25% of the parent (#393).
+
+| Generation | Draws | Accepted orbits | CPU s per draw (mean) | Wall (4 workers) | ESS of its accepted draws, mixture weights |
+|---|---|---|---|---|---|
+| 0 (`proposal_set_pilot.yaml`) | 2,000 | 70 (3.5%) | 2.00 | 36.9 min | 2.18 |
+| 1 top-up (`proposal_set_pilot_gen1.yaml`: σ_f 0.15 dex, ϖ¹ tilt) | 1,000 | 8 (0.8%) | 0.69 | 6.8 min | 3.04 |
+| Combined | 3,000 | 78 | 1.57 | | **4.71** |
+
+- Cost by outcome: a draw ending at a 5-, 7- or 9-parameter solution costs **0.01 CPU s**. One that
+  reaches the 12-parameter fit costs **≈ 18 CPU s**, whether accepted or not. The ≈ 0.9 s figure for
+  5-parameter draws from ELBADRY2024 §8.1 is not reproduced here. Its scripts timed a different
+  harness, and the discrepancy is not investigated. So c ≈ 18 s × P(orbit fit). Peak RSS was
+  0.30 GB for the parent process plus ≈ 0.22 GB per worker. Disk was ≈ 0.9 kB per draw.
+- Weight diagnostics (generation 0): the flux-ratio factor and the parallax tilt of q(s) set the
+  weight scatter. Only 10% of accepted draws lie within 0.2 dex of the provisional mass–luminosity
+  relation, because accepted systems favour faint companions. The top-up was retuned on that
+  basis.
+- Expected accepted orbits under MdS17 (luminous, provisional settings), relative to the parent:
+  7.6 × 10⁴, against 168,065 real. This is dominated by a few weights and is not a measurement.
+- **Efficiency**: generation 0 gave 2.0 ESS per CPU hour; generation 1 gave 16. The figure for
+  generation 1 rests on 8 accepted draws, so it is uncertain by a factor of about 3.
+
+**Projection for the full laptop run (not started; MP-Q23).** At generation 1's efficiency, an
+accepted-set ESS of 2,000 (≈ 100 per six-panel bin over 20 bins, a display-level target for
+MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 8 (≈ 2 GB RSS), with
+≈ 0.6 M draws and ≈ 0.5 GB of disk. The MC-noise rule at rung 2 (ESS_b ≥ 100 N_b with N_b ~ 10⁴)
+stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
+(≈ 1 h) would firm up the efficiency before the full run is sized.
+
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11)
+
+- **MP-Q1**: decided 2026-10-02, see §0.1.
+- **MP-Q2**: decided 2026-10-02, see §0.1.
+- **MP-Q3**: decided 2026-10-02, see §0.1.
+- **MP-Q4**: decided 2026-10-02, see §0.1.
+- **MP-Q5**: decided 2026-10-02, see §0.1.
+- **MP-Q6**: decided 2026-10-02, see §0.1.
 - **MP-Q7 Primaries below 0.8 M⊙**, outside MdS17. Options: El-Badry et al. (2024)'s linear decline
   in log M1 to 0 at 0.08 M⊙; an M-dwarf multiplicity survey (e.g. Winters et al. 2019); MdS17's
   0.8 M⊙ values held flat; or free parameters at rung 3.
@@ -515,9 +624,7 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
   log P = 5–6. Clip η, hold it at the range edge, or extend the formula?
 - **MP-Q12 e > e_max(P)**: the proposal covers e up to `e_cap`. Must every θ respect Eq. 3, or may
   alternative eccentricity models (El-Badry's e^0.2, thermal) exceed it?
-- **MP-Q13 Mass–luminosity relation** for luminous companions (Janssens 2022 in the repo, MIST as
-  El-Badry used, or Pecaut & Mamajek 2013), and the width of p(f | M1, M2) that reweighting needs
-  (age/[Fe/H] spread or an intrinsic σ).
+- **MP-Q13**: decided 2026-10-02, see §0.1.
 - **MP-Q14 Extinction** for absolute magnitudes: Combined19 (current) or `ag_gspphot`?
 - **MP-Q15 WD flux**: f = 0, or a G-band flux from the Bédard et al. cooling tracks already used by
   `companion_nature`?
@@ -527,10 +634,7 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
   solar-type primaries have WD companions)?
 - **MP-Q18 MdS17's C_evol** and the 5–30% of apparent primaries that are original secondaries
   (§2): ignored in v1?
-- **MP-Q19 Rung-2 acceptance**: by eye only (as the paper), or a quantitative statistic (weighted KS
-  or per-bin pulls with MC error) with a threshold; and the minimum ESS_b for drawing a rung-2 bin,
-  given the 0.1 MC-noise rule needs ESS_b ≥ 100 N_b (infeasible for luminous bins on the laptop).
-  Inherits ELBADRY2024 Q10.
+- **MP-Q19**: decided 2026-10-03, see §0.2.
 - **MP-Q20 Solution-type mix denominator**: inherits ELBADRY2024 Q7, Q7a–c (needs an
   `nss_acceleration_astro` snapshot).
 - **MP-Q21 AstroSpectroSB1**: compared together with Orbital (as El-Badry did), or is the RV-chain
@@ -538,22 +642,784 @@ setting that is named in the config key (`provisional_*`), the artifact and the 
 - **MP-Q22 Rung 3 parameterization**: which MdS17 coefficients are free (all, or e.g. the
   f_logP anchors, γ_largeq, F_twin, η), their priors (the published 1σ of Eqs. 8, 12, 16, 19, 24,
   25 are available), and the posterior-predictive acceptance thresholds.
-- **MP-Q23 Full laptop run size and approval** from the pilot's measured cost and ESS (§6, §7).
+- **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
+- **MP-Q24**: decided 2026-10-03, see §0.2.
+- **MP-Q25**: decided 2026-10-03, see §0.2.
+- **MP-Q26**: decided 2026-10-03, see §0.2.
+- **MP-Q27 Resolved pairs and the IPD flags** (§9.1, §9.4 item 4). This decides which drawn
+  companions blend into G and which are consistent with the row's own `ipd_frac_multi_peak` /
+  `ipd_gof_harmonic_amplitude`. Options: (a) all blend and the IPD values carry no information
+  (now); (b) blend only below an angular-separation threshold set from Fabricius et al. (2021)'s
+  close-pair completeness (about 0.7–1.5″, contrast-dependent), with resolved companions given
+  f_b = 0; (c) also add p(ipd_s | c) as a likelihood term (needs an IPD model; none is published
+  for this purpose).
+- **MP-Q28a, b, c, f**: decided 2026-10-03, see §0.3.
+- **MP-Q33–Q39** (isochrone M1 and the 2-D weight, #418): options in §11.8.
+- **MP-Q28 Giants**: decided 2026-10-03 (match the real giant population); treatment and the
+  remaining options MP-Q28a–g are in §10 (#413). Original framing: (`is_giant`, §0.1). M_G^J is a dwarf relation, so ΔM is meaningless for giants.
+  Options: (a) W = 1 for giants, the naive draw, flagged; (b) leave giants out of any statistic
+  that relies on W; (c) use a giant M_G(M1, log g) relation.
+- **MP-Q29**: decided 2026-10-03, see §0.2.
+- **MP-Q30**: decided 2026-10-03, see §0.2.
+- **MP-Q31 F > 1 under a Poisson intensity** (MP-Q9). Z_s needs a probability of no companion,
+  1 − F ≥ 0. Options: cap at one companion and rescale to a binary fraction; or keep the
+  intensity, with p(∅) = exp(−F) and a single-companion approximation, and record where F > 1.
+- **MP-Q32**: decided 2026-10-03, see §0.2.
+
+## 9. Magnitude-limit (Malmquist / Öpik) conditioning (#405)
+
+Ryan accepts Gaia-star primaries (§0, §0.1) **only if the magnitude-limit bias is properly
+accounted for** (#405). This section derives the importance weight that does that, says exactly
+what is conditioned on what, and lists every choice the derivation and the cited papers do not
+fix (MP-Q25–Q31, §8). Nothing here changes a §0.1 decision.
+
+### 9.1 Model and notation
+
+- **System**: primary ψ = (M1, ε), where ε is the primary's offset from the single-star
+  mass–luminosity relation (age, [Fe/H]), so M_G,1 = M_G^J(M1) + ε with M_G^J the Janssens et al.
+  (2022) relation (MP-Q13) and ε ~ N(0, σ_int); companion state c ∈ {∅} ∪ C with
+  c = (M2, P, e, f, type, orientation); position r = (d, Ω).
+- **Universe**: intensity n(ψ, c, r) = ρ_*(r) φ(ψ) π(c | M1, θ), with π(∅ | M1) = 1 − F(M1) and
+  π(c | M1) = λ(c | M1, θ) on C, F = ∫ λ dc. At most one companion (triples off, §2.7), which
+  needs F ≤ 1 (MP-Q9, MP-Q31). λ is MdS17 (§2) plus the compact mixture (§2.6). MdS17's
+  frequencies are **volume-limited, Öpik-corrected** statistics: their §3.4 uses spectroscopic
+  surveys that already removed distant twins or used fixed-distance clusters, §5.2 drops the two
+  Sana et al. (2014) binaries that would fall below the H = 7.5 limit on the primary's light alone,
+  §7.1 notes the De Rosa et al. (2014) sample is volume-limited within 75 pc, and the solar-type
+  sample of §8 is the volume-limited Raghavan et al. (2010) sample. So π(c | M1) is the
+  per-primary companion distribution **before** any magnitude selection.
+- **Observables** of a `gaia_source` row: o = (G, ϖ_obs, a, Ω), with a the MSC / GSP-Phot
+  atmosphere. The pipeline derives M̂1 = TAG10(a) (§1.4, MP-Q5) and d̂ = the Bailer-Jones et al.
+  (2021) geometric distance from (ϖ_obs, Ω) (MP-Q4).
+- **Blended light**: G = M_G,1 − 2.5 log10(1 + f_b) + μ(d) + A_G(r), where μ = 5 log10(d / 10 pc)
+  and f_b = f when the pair is unresolved by Gaia (MP-Q27 for resolved pairs).
+- **Parent selection** S: G < 19, ϖ_obs > 0.2 mas, the Halbwachs (b)/(c) flags (§0.1) and Gaia's
+  source detection P_det(G, Ω) (crowding and scanning law; Cantat-Gaudin et al. 2023;
+  Boubert & Everall 2020). Every factor is a function of the row's observables: P(S | o).
+
+### 9.2 The identity that settles which factors enter
+
+The real parent is a Poisson draw with intensity
+n_par(o) = ∫ n(ψ, c, r) p(o | ψ, c, r) P(S | o) dψ dc dr. A mock draw keeps a row's o_s (real G,
+real distance, real sky position and real M̂1, §0.1 MP-Q4–Q6) and replaces its unknown companion
+state with a drawn c. The correct distribution for that c is
+
+  p(c | o_s, S) = P(S | o_s) p(c, o_s) / [P(S | o_s) p(o_s)] = **p(c | o_s)**.
+
+Because S depends on observables only and the mock conditions on **all** of them, **P(S | o)
+cancels**: no detection-volume ratio and no completeness map enters the per-row weight. The
+magnitude-limit bias does not go away; it lives entirely in the gap between p(c | o_s) and the
+volume-limited π(c | M̂1_s). A row that is over-luminous for its M̂1 at its distance is more
+likely to be a luminous binary, and the magnitude-limited parent contains more such rows near
+G = 19 because they **are** the parent. Averaging p(c | o_s) over the real rows reproduces the Öpik
+boost exactly (§9.5).
+
+Two consequences:
+
+1. **The naive mock is biased.** Drawing c ~ π(c | M̂1_s) and weighting by λ / q alone is
+   the volume-limited conditional. It ignores what G says about c at the row's distance, so it
+   under-predicts luminous companions in the parent wherever the magnitude limit binds.
+2. **The "detection-volume ratio" form is the other branch of MP-Q6.** If gaiamock were fed the
+   primary's own light plus the companion (G = G_1 − 2.5 log10(1 + f)), the row's G would not be
+   conditioned on and the weight would be p(c | M1, d, Ω, S) ∝ π(c | M1) P(S | M1, c, d, Ω): the
+   ratio of selection probabilities, which in a homogeneous Euclidean volume with no ϖ floor
+   becomes (1 + f)^{3/2} (Öpik 1923). Under MP-Q6 as decided (G = observed total light) that form
+   is **not** consistent; the companion must instead be made consistent with the observed G.
+
+### 9.3 The weight
+
+**Superseded for the decided pipeline by the 2-D weight of §11.4 (#418, §0.3).** The 1-D form below
+is kept as the derivation and for the #405 tests; its M_G^J(M̂1) residual is what failed in #414.
+
+Exactly, p(c | o) = ∫ dψ dr ρ_* φ π(c | ψ) p(o | ψ, c, r) / Z(o). Three approximations make it
+computable. Each is named; where it is a choice, it is an open question.
+
+- **(A1) M1 = M̂1.** The atmosphere fixes the primary's mass: p(M̂1 | M1, c) is narrow and
+  unbiased compared with how fast φ and π vary. This is MP-Q5's decision (the TAG10 point value is
+  the truth M1 fed to gaiamock). TAG10 run on a blended atmosphere is not unbiased (MP-Q26).
+- **(A2) Distance.** p(μ | ϖ_obs, Ω) is the Bailer-Jones geometric posterior, taken as Gaussian in μ
+  with σ_μ = (5 / ln 10) (r_hi − r_lo) / (2 r_med) from `r_lo_geo`, `r_med_geo`, `r_hi_geo`
+  (16th / 50th / 84th percentiles). The **geometric** posterior uses no photometry
+  (Bailer-Jones et al. 2021), so it carries no single-star colour–magnitude assumption; the
+  photogeometric one does and must not be used here. Marginalizing d with the geometric posterior
+  is exact if its prior matches ρ_* along the line of sight. It is not exact when ϖ/σ_ϖ is small and
+  the posterior is skewed (MP-Q30).
+- **(A3) Extinction** A_G is known to σ_A (MP-Q14, MP-Q29).
+
+Then, for row s and companion c,
+
+  **p(c | o_s) = π(c | M̂1_s) × W_s(c),  W_s(c) = L_s(f_b(c)) / Z_s**
+
+  L_s(f) = N( ΔM_s + 2.5 log10(1 + f) ; 0, σ_s )
+
+  ΔM_s = G_s − μ(d̂_s) − A_G,s − M_G^J(M̂1_s)   (the row's luminosity excess; < 0 is over-luminous)
+
+  σ_s² = σ_int² + σ_μ,s² + σ_A,s² + (∂M_G^J / ∂log10 M1)² σ²_log M̂1,s
+
+  Z_s = (1 − F(M̂1_s)) L_s(0) + ∫ λ(c | M̂1_s, θ) L_s(f_b(c)) dc
+      = (1 − F_lum(M̂1_s)) L_s(0) + ∫ λ_f(log10 f | M̂1_s, θ) L_s(f) d log10 f.
+
+λ_f is the luminous part of λ marginalized onto log10 f (over M2, P, e and the f scatter at fixed
+M1); F_lum is its integral. Dark companions (WD with f = 0, NS, BH) have L_s(0), the same as a
+single star, so **they get no magnitude-limit boost**, which is physically right: they add no light
+(a luminous WD is MP-Q15). Z_s depends on θ through λ, so it is recomputed with the weights at every
+θ. It is a one-dimensional integral per row, evaluated on a grid in M1 (§9.6).
+
+With the proposal set (§3.4, §3.7) the full weight is
+
+  **w_i(θ) = (N_full / N_snap) λ(x_i | θ) W_{s(i)}(x_i; θ) / Σ_j n_j q_j(x_i)**
+
+and the per-row probability of having **no** companion is p(∅ | o_s) = (1 − F) L_s(0) / Z_s.
+Statistics that count systems (a binary fraction) need it. Σ_i w_i 1[O_i] stays an expected count
+relative to the G < 19 parent (CLAUDE.md normalization).
+
+### 9.4 The four effects in #405, one by one
+
+1. **Binary-fraction boost near the limit.** It is carried by L_s, with no separate factor. Rows
+   near G = 19 at large d are, as a population, more over-luminous, and W raises their companion
+   probability. The boost depends on the light a companion adds, so it is strong for twins
+   (f ≈ 1, 0.75 mag) and negligible for f ≲ 0.05.
+2. **M1 from blended light.** The data side and the mock apply TAG10 to the **same** row's
+   atmosphere, so the M2 inferred from a0 and M̂1 is computed the same way on both sides; that is
+   the consistency MP-Q5 asks for. What (A1) adds is that M̂1 is also the **truth** M1 behind the
+   orbit and the conditioning. TAG10 uses T_eff, log g and [M/H] (Torres et al. 2010), but
+   GSP-Phot's log g uses the parallax and G, so a companion's light leaks into log g and from there
+   into M̂1. The orbit scales only as a ∝ (M1 + M2)^{1/3}, so a 10% error in M1 changes a0 by about 3%;
+   the conditioning error enters through M_G^J(M̂1) and is absorbed in σ_s only if it is unbiased
+   (MP-Q26).
+3. **Distance prior and parallax-floor truncation.** The 0.2 mas floor is on the observed ϖ, so it
+   cancels like every other factor of S. The luminosity-dependent truncation it causes (bright
+   primaries reach ϖ = 0.2 mas before G = 19, so the Öpik boost switches off for them) is
+   reproduced automatically, because the rows are the truncated parent. The distance prior enters
+   only through (A2).
+4. **Gaia detection completeness.** It cancels in W because it depends on (G, Ω) only. It is needed
+   only to invert the parent back to a volume-limited population (§9.5), which is a diagnostic: the
+   forward model never needs it. The published DR3 parent source-detection model is
+   Cantat-Gaudin et al. (2023): S(G | M10) = 1 − ½ [tanh((x(M10) − G) / y(M10)) + 1]^{z(M10)}, with
+   M10 per HEALPix pixel. Over most of the sky M10 ≈ 19–21.5, so G < 19 is nearly complete outside
+   crowded fields. It is distributed in `gaiaunlimited`
+   (`gaiaunlimited.selectionfunctions.DR3SelectionFunctionTCG`; version 0.3.3 on PyPI, **not
+   installed**, needs `healpy` (already in `.venv`) and downloads `allsky_M10_hpx7.hdf5` on first
+   use). The Everall & Boubert series covers DR2 source detection (Boubert & Everall 2020, Paper II)
+   and the EDR3 **astrometry and RVS subsample** selection functions (Everall & Boubert 2022, Paper
+   V). Paper V is a subsample model, not the parent. Neither model covers **companion-dependent**
+   detection, meaning a close pair resolved into two sources (Fabricius et al. 2021: completeness
+   for close pairs drops below about 1.5″ and falls fast below 0.7″) or flagged by the IPD cuts
+   (MP-Q27). Installing it is MP-Q32.
+
+### 9.5 Checks the formula must pass
+
+- **Öpik limit.** In a homogeneous Euclidean volume, with σ_s → 0, a pure G limit and no floor,
+  average W over the parent rows at fixed M1. The parent's companion density is then
+  π(c) (1 + f)^{3/2} / ⟨(1 + f)^{3/2}⟩_π, the classical result: a system with flux ratio f is seen to
+  (1 + f)^{1/2} times the distance.
+- **No information, no correction.** As σ_s → ∞, W → 1 and the naive mock is recovered, correctly,
+  since then G says nothing about c and the cut does not prefer binaries.
+- **Volume-limited inversion (diagnostic).** n_vol(M1, c) ∝ Σ_i w_i / V_S(M̂1_i, c_i), with
+  V_S(M1, c) = ∫ dΩ ∫ dr r² ρ_*(r, Ω) ∫ dε N(ε; 0, σ_int) P(S | G(M1, ε, c, r), ϖ(r), Ω). Singles
+  enter with p(∅ | o_s) / V_S(M̂1_s, ∅). This needs ρ_*, the completeness and A_G. It is used only to
+  compare with MdS17 directly; the pipeline's normalization stays relative to the parent.
+
+### 9.6 Implementation and the closed-loop proof
+
+- `src/darkhunter_pop/malmquist.py` (pop side, numpy): ΔM_s, σ_s, the λ_f(log10 f | M1) grid and
+  Z_s for the MdS17 luminous target of `proposal_set.mds17_luminous_log_intensity`, log W per draw,
+  p(∅ | o_s), and V_S for the volume-limited diagnostic. A test checks that the grid integral
+  matches the target integrated directly, so the two cannot drift. `proposal_set.py` gets a small
+  documented hook that adds log W to the target. The rest of its interface is unchanged.
+- **Closed loop** (no gaiamock, numpy only): a synthetic exponential-disk universe with a Kroupa
+  primary IMF, Janssens M_G(M) with scatter σ_int, and MdS17 companions drawn from the same table and
+  provisional settings as the target. It is observed with G_total < 19, ϖ_obs > 0.2 mas and an
+  optional synthetic completeness; distances come from a geometric posterior with the true density
+  as prior, summarized as r_lo / r_med / r_hi exactly like Bailer-Jones. The synthetic parent then
+  goes through `proposal_set.sample_proposal` (as if `gaia_source` rows) and the weights. It must
+  recover (i) the parent's true companion statistics (binary fraction overall and versus G and M1;
+  log P, q, e, log f) and, after §9.5's 1/V_S, the injected volume-limited MdS17; and (ii) the
+  parent's distribution of observed system properties (the photocentre semi-major axis α0 and the
+  count in an NSS-like (α0, P) window). It is run **with and without** W: without W it must fail
+  visibly, or the test has no power. Results and figures are in `docs/gate405/`, with a small
+  version in the required gate and a large one marked `slow`.
+
+### 9.7 Closed-loop result (docs/gate405)
+
+Large run: 336,543 synthetic parent rows. Without W the mock under-predicts parent twins by 12%
+(−15σ) and misses the volume-limited binary fraction by up to 34σ. With W the twin deficit is 3%
+and the total is within 0.65%. Handed the true distance and M1, W closes to MC noise (every
+|pull| ≤ 2.2 at 10⁶ primaries). The remaining percent-level residual comes from approximations
+A1 and A2. The M_G zero point is the sharpest open input: a −0.05 mag error undoes the correction
+(MP-Q25). A split normal with its mode at r_med (MP-Q30 b) measured worse than the Gaussian. The
+α0 / NSS-window counts barely move, because the Öpik boost lives in near-twins, which have small
+photocentre orbits.
+
+## 10. Giants and other evolved primaries (MP-Q28, #413)
+
+Ryan's decision (2026-10-03, #391): **match the real giant population.** Identify giants by the
+CMD, use a luminosity relation that fits giants, truncate their companions, and check the giant
+fraction and the six-panel against DR3. This section measures where the mock stands today and
+splits the treatment into what the data and the papers fix (implemented or specified here) and
+what they do not (options MP-Q28a–g, §10.8, for Ryan). Measurements: `docs/gate_giants/`
+(script `scripts/giant_population_diagnostics.py`). The mock numbers come from the paused #391
+generation 10 + 11 artifacts, which are pre-noise-fix and pre-Malmquist, so they are diagnostic only.
+
+### 10.1 Why the current treatment fails
+
+- **The flag.** `is_giant` (log g of the atmosphere TAG10 used < 3.6, §0.1) marks 519 of 164,397
+  usable parent rows (0.32%). MSC fits every source as two main-sequence stars, so `logg_msc1` is
+  dwarf-like by construction. For real orbits that the CMD calls evolved, the median log g of the
+  atmosphere TAG10 used is **4.51**, and MSC supplies all of them.
+- **M1.** TAG10 (Torres et al. 2010) applied to that dwarf-like atmosphere gives, for the same
+  real evolved orbits, a median TAG10 / FLAME mass ratio of **0.52** (16–84%: 0.26–0.74). For real
+  dwarfs the ratio is 0.92 (0.76–1.03). FLAME giant masses are themselves coarse: there is a floor
+  near 0.9 M⊙ and gridded stripes (`giants_m1_flame.png`). Even so, TAG10 underestimates giant masses
+  by roughly a factor of two.
+- **Companion light.** The target's f uses the Janssens et al. (2022) **dwarf** M_G for both stars.
+  For the parent's evolved rows, the dwarf relation at the TAG10 M1 is fainter than the observed
+  M_G0 by a median of **5.4 mag** (10–90%: 2.9–7.6). Under MdS17 weights, the companions drawn on
+  evolved rows have median log10 f = −1.22 under the dwarf relation and −3.43 from the observed
+  light (§10.4), about 2 dex too bright. Overestimating f shrinks the photocentre orbit by the
+  factor (q/(1+q) − f/(1+f)).
+- **Orbits.** MdS17 describes main-sequence pairs. An evolved primary has expanded, so close
+  companions have been engulfed, have transferred mass or have been circularized (Verbunt & Phinney
+  1995; Badenes et al. 2018; Price-Whelan & Goodman 2018). The mock does not truncate.
+- **Malmquist.** §9's L_s uses M_G^J(M̂1). For a giant ΔM_dwarf ≈ −5 mag, so computing W with the
+  dwarf relation would assign almost every giant a companion. `provisional_giant_policy:
+  unit_weight` is what prevents that, but it reads the broken flag.
+
+### 10.2 Identification (implemented: `darkhunter_pop.giants`, `config/population/giants.yaml`)
+
+Dereddened CMD, applied identically to the parent and the real orbits:
+
+  M_G0 = G − 5 log10(d / 10 pc) − A_G,   C0 = (BP − RP) − E(BP − RP)
+
+E(B−V) is from Combined19 at d (MP-Q29). It is converted with the Gaia law (Babusiaux et al.
+2018) and the `r_v` and coefficients already in `sample_selection.dust_maps` (#295). The parent
+uses the Bailer-Jones geometric d (MP-Q4).
+
+The **main-sequence ridge R(C0)** is measured from the parent itself. It is the smoothed mode of
+M_G0 in 0.1 mag colour bins, using rows with ϖ/σ_ϖ ≥ 10. Binaries only brighten a star, so the
+faint side of each bin holds singles plus noise; its clipped RMS is the ridge width σ_R(C0). This
+is 0.24–0.31 mag over 0.85 < C0 < 1.8 and up to 0.6 mag at the blue and red ends. The table is in
+`giants_report.txt`. A row is **evolved** (subgiant or giant) when
+
+  ΔM = M_G0 − R(C0) < −2.5 log10 2 − n_σ σ_tot,   σ_tot² = σ_R² + σ_μ²
+
+i.e. brighter than any main-sequence star with an equal-light companion. The 0.753 mag is
+arithmetic (`constants.TWIN_BRIGHTENING_MAG`); σ_R is measured; n_σ is **provisional** (3; MP-Q28a).
+Rows outside the ridge's colour range (0.35 ≤ C0 ≤ 2.75) or without a CMD are unclassified and
+counted (8,626 usable parent rows, 5.2%: 7,368 bluer than C0 = 0.35, 830 redder than 2.75, 428 where the
+extinction law did not converge). GSP-Phot log g is
+reported only as a cross-check: it drops toward the dwarf prior at low parallax S/N (0.9% with
+log g < 3.6 at ϖ/σ_ϖ < 5, against 4.2% CMD-evolved), so it is not used to classify.
+
+**Hook.** `dataclasses.replace(parent, is_giant=giants.classify_parent(parent, cfg, gcfg)[0].evolved)`
+swaps the flag that `malmquist.row_conditioning` and `log_weight_for_draws` read. Neither
+`proposal_set.py` nor `malmquist.py` is edited (their owner is wiring §9). The replacement is the
+owner's call, and it is reported in the PR.
+
+### 10.3 Measured fractions (diagnostic, `docs/gate_giants/giants_report.txt`)
+
+| Sample | Evolved (CMD, n_σ = 3) | n_σ = 2 / 4 / 5 |
+|---|---|---|
+| Parent, usable and classified (155,771) | **8.12% ± 0.07%** | 10.2 / 6.7 / 5.7% |
+| Parent, ϖ/σ_ϖ ≥ 20 (23,065) | 14.2% ± 0.2% | |
+| Real Orbital + AstroSpectroSB1, classified (158,921) | **14.37% ± 0.09%** | 16.5 / 13.3 / 12.4% |
+| Real Orbital only (126,197) | 9.98% ± 0.08% | |
+| Real AstroSpectroSB1 only (32,724) | 31.3% ± 0.3% | |
+| Mock accepted orbits, raw draws (3,214) | 2.7% | |
+| Mock accepted orbits, MdS17-weighted | **9.9% ± 1.4%** (ESS 31.6 for the evolved subset) | |
+| Old flag: parent / mock accepted | 0.32% / 1.07% | |
+
+Caveats:
+
+- **Real distances.** The real side uses the inverse NSS parallax, with 16/84% from ϖ ± σ_ϖ. The
+  Bailer-Jones join (`scripts/fetch_nss_bailer_jones.py`) timed out twice on the Gaia archive (HTTP
+  500 statement timeout, the archive-side problem of #184). The real orbits are high-S/N (ϖ/σ_ϖ
+  5th / 50th percentile = 29 / 81), and there 1/ϖ and the geometric distance agree to well under
+  σ_R. Re-run with `--real-bj-dir` once the archive answers.
+- **The mock's cascade produces Orbital solutions only.** The like-for-like real number is
+  therefore the Orbital 10.0%, which the weighted mock's 9.9% ± 1.4% matches. The 31% giant share of
+  AstroSpectroSB1 comes from the RV chain's G_RVS limit, which favours bright, i.e. luminous,
+  stars. That is MP-Q21, not a giant-physics question.
+- **The parent fraction depends on S/N.** Low-S/N rows have a wide σ_μ, so they are classified
+  conservatively.
+
+The weighted fraction agreeing with real Orbital does **not** mean the giants are right. The
+six-panel (`giants_six_panel.png`) shows that the mock's evolved orbits sit at shorter P (median
+517 d against 701 d in DR3), have smaller f_m (median 0.039 against 0.072 M⊙, with the mock tail
+cut at ≈ 0.06), and are more eccentric (median e 0.49 against 0.32). The weighted KS gives p < 10⁻⁶
+for P and f_m and p ≈ 0.007 for e, at n_eff = 32. The real evolved and dwarf e distributions are
+almost identical, so the excess eccentricity is the generic #409/#410 issue and not a giant effect.
+The small f_m is what a factor-of-two-low M1 plus a 2-dex-too-bright f produces (§10.1). The P
+offset is consistent with missing truncation (§10.5), but the ESS is too low to say more.
+
+### 10.4 Companion light ratio (determined; function implemented, wiring is the target owner's)
+
+The companion of an evolved primary is less massive, so it is still on the main sequence, and the
+Janssens relation (MP-Q13, decided) applies to **it**. MP-Q6 (decided) makes the row's observed G
+the total system light. So the companion's share of the dereddened system light is
+x = 10^{−0.4 (M_G^J(M2) − M_G0,sys)}, and
+
+  f = x / (1 − x)   (`giants.evolved_log10_flux_ratio`)
+
+with the decided 0.1 dex scatter around it and λ = 0 where x ≥ 1. No M1 → M_G relation for the
+giant is needed. The exception is a near-twin (q ≳ 0.95 relative to the progenitor), whose
+companion is itself evolving; that is a limitation of the dwarf relation for M2, recorded and not
+fixed. This changes the **target only**, so it is reweightable (§3.5). The proposal's q(f) puts
+90% of its mass around the dwarf relation (`proposal_set_decided_full.yaml`: `relation_weight`
+0.9, σ 0.15 dex) and only a 10% log-uniform component on [−5, 0.5]. The evolved-row targets
+(median log10 f = −3.4, 10–90%: −4.7 to −2.0) are therefore supported but inefficient, and 5.6%
+(MdS17-weighted) fall below f_min = 10⁻⁵. Whether to centre the restart proposal on this relation for
+evolved rows, and whether to lower f_min, is MP-Q28d (efficiency and support, not correctness).
+
+### 10.5 Companion statistics for evolved primaries
+
+- **Frequency, q, P and e at the progenitor mass.** MdS17 describes the zero-age pair. A low-mass
+  red giant has lost little mass on the RGB. The asteroseismic estimate for NGC 6791 is
+  ≈ 0.1 M⊙ (Miglio et al. 2012), so M1,ZAMS ≈ M1 for RGB stars and ≈ M1 + 0.1 M⊙ for clump stars.
+  The q and period laws are evaluated at that mass. This is a small correction next to the
+  factor-of-two M1 error (§10.1).
+- **Engulfment / Roche-lobe overflow.** A companion inside the Roche lobe that the primary has
+  filled **at any time** has interacted: common envelope, merger or stable transfer. Either way it
+  is not an MdS17 pair now. The Roche-lobe radius is Eggleton (1983):
+  r_L/a = 0.49 q^{2/3} / (0.6 q^{2/3} + ln(1 + q^{1/3})), q = M1/M2. Implemented as
+  `giants.roche_period_floor_days`, at the CMD radius R1 from the Andrae et al. (2018) G-band
+  bolometric correction and GSP-Phot Teff. Measured (`giants_period_radius.png`): for the current
+  R1 the floor lies **below** the NSS period window for every R1 ≲ 30 R⊙. 0 of 49 accepted mock
+  evolved draws violate it. So truncation at the *current* radius changes almost nothing that NSS
+  sees. What does change things is the radius the star *has had*. A red-clump star has passed the
+  RGB tip (R ~ 10² R⊙), so its floor is hundreds to thousands of days.
+- **Tidal circularization and orbital decay** act before contact. The equilibrium-tide timescale
+  scales as (R/a)⁻⁸ (Zahn 1977; Verbunt & Phinney 1995, who calibrate it on giants in clusters).
+- **The real data show the effect.** The 5th percentile of P for real evolved orbits rises with R1:
+  259 d at 3–6 R⊙, 314 d at 6–12 R⊙, 460 d at 12–30 R⊙ and 520 d above 30 R⊙. For real dwarfs it is
+  226 d. The weighted mock evolved draws have P5 = 127–245 d in the same bins. APOGEE shows the same
+  trend: the close-binary fraction falls and P_min grows as log g drops along the RGB (Badenes et
+  al. 2018; Price-Whelan & Goodman 2018). Part of the real trend is selection (larger, more luminous
+  giants are more distant, so a detectable photocentre orbit needs a longer P), and the mock
+  reproduces that part automatically. The **form** of the truncation is MP-Q28b.
+- **This is a target change** (λ = 0 or a survival factor below a floor), so it is reweightable. It
+  needs R1 (and, for MP-Q28b's options, the past maximum radius) stored per parent row, which the
+  CMD gives without regeneration.
+
+### 10.6 Malmquist weight for giants (determined: W = 1)
+
+§9.3's W_s(c) = L_s(f)/Z_s depends on c only through δ = 2.5 log10(1 + f_b). For an evolved
+primary, ΔM relative to any single-star relation is dominated by the evolutionary state at fixed
+M1. Its intrinsic spread σ_s is ~1 mag along the RGB, and §9.5's "no information" limit
+(σ_s ≫ δ ⇒ W → 1) applies. Independently, δ is tiny. With the §10.4 flux ratio, the companions
+drawn on evolved rows have weighted median, 90th and 99th percentile δ of **0.0004, 0.010 and
+0.115 mag**. Since |ln W| ≲ δ |ΔM| / σ_s², W = 1 holds to ≲ 1% for 90% of draws. The 1%-tail
+is subgiants with near-equal-mass companions, where it holds to ~10%. So **`unit_weight` is the
+correct policy** for evolved rows, provided it reads the CMD flag (§10.2), **not** the TAG10-log g
+flag. Computing W with the dwarf M_G^J for a giant (ΔM ≈ −5 mag) would be catastrophic:
+ln W ≈ −ΔM δ / σ² ≈ +14 at σ = 0.15 mag for the median dwarf-relation companion (δ ≈ 0.065 mag).
+
+### 10.7 Giant RUWE and epoch noise (measured: nothing needed)
+
+The parent rows' own RUWE at fixed G gives these medians for evolved / dwarf rows:
+
+| G (mag) | Evolved median RUWE | Dwarf median RUWE |
+|---|---|---|
+| 8–10 | 0.991 | 1.004 |
+| 10–12 | 1.035 | 1.053 |
+| 12–14 | 1.015 | 1.014 |
+| 14–16 | 1.008 | 1.010 |
+| 16–18 | 1.003 | 1.008 |
+
+At no G is the evolved median higher. The RUWE > 1.4 fraction is *lower* for evolved rows (for
+example 4.1% against 13.6% at G = 12–14), as expected for more distant systems with fewer close
+luminous companions. So there is no sign of extra single-star astrometric jitter from giant
+convection (predicted to matter only for supergiant / AGB-sized photospheres; Chiavassa et al.
+2011) at the resolution of RUWE. **No giant-specific noise term is proposed.** The #398/#400 epoch
+model depends on G and sky position only, and that is consistent with this.
+
+### 10.8 Options for Ryan (MP-Q28a–g; none chosen)
+
+- **MP-Q28a, classifier margin n_σ** (§10.2): 3 (provisional), 2, 4 or 5. The real Orbital +
+  AstroSpectroSB1 evolved fraction moves 16.5 / 14.4 / 13.3 / 12.4%. Alternatively, use a
+  probabilistic membership P(evolved) from σ_tot instead of a hard flag.
+- **MP-Q28b, truncation form** (§10.5): (i) remove companions with P below the Roche floor at the
+  **current** CMD radius (measured to change almost nothing); (ii) at the **maximum past** radius,
+  which needs RGB vs clump membership (CMD clump box, or GSP-Phot / asteroseismic labels where they
+  exist) and the RGB-tip radius from isochrones; (iii) an empirical survival factor in (P, log g) or
+  (P, R1) calibrated on APOGEE (Price-Whelan & Goodman 2018; Badenes et al. 2018); (iv) a free
+  P_min(R1) at rung 3, fit to the NSS giants themselves. For each: circularize (e = 0) below a
+  Verbunt & Phinney (1995) tidal floor, or not.
+- **MP-Q28c, M1 for evolved primaries** (§10.1). This is **generation-time** (§3.5), so it must be
+  decided before the #391 restart. Options: (i) keep TAG10 on both sides (consistent with the data
+  side, but the truth is wrong by ≈ ×2); (ii) Gaia FLAME `mass_flame` (Creevey et al. 2023) on both
+  sides (available for 55% of real evolved orbits; coarse and floored near 0.9 M⊙ for giants; the
+  parent needs a re-query of the same K = 10⁶ slice); (iii) an isochrone fit (MIST / PARSEC) to
+  (M_G0, C0, [M/H]), a new dependency; (iv) asteroseismic scaling relations
+  M ∝ (ν_max/ν_max,⊙)³ (Δν/Δν_⊙)⁻⁴ (T_eff/T_eff,⊙)^{3/2} (Kjeldsen & Bedding 1995). These exist only
+  for Kepler / K2 / TESS fields, so they can calibrate (ii)/(iii) on an overlap sample (e.g.
+  APOKASC-3; Pinsonneault et al. 2025) but cannot be a population-wide M1. Whatever is chosen must
+  also replace TAG10 on the **data side** for evolved real orbits (MP-Q5 symmetry), or the inferred
+  M2 of real giants stays biased by the same factor.
+- **MP-Q28d, proposal support for evolved rows** (§10.4): at the restart, add a proposal component
+  centred on the §10.4 relation for evolved rows and lower `log_f_min` from −5 to about −6 (5.6% of
+  the evolved-row target lies below 10⁻⁵ now). Or leave the proposal as is and accept low ESS for
+  giants.
+- **MP-Q28e, MdS17 mass for evolved primaries** (§10.5): the current M1, or M1 + ΔM_RGB (≈ 0.1 M⊙,
+  Miglio et al. 2012) for clump stars. It only matters once MP-Q28c fixes the factor-of-two error.
+- **MP-Q28f, AstroSpectroSB1's giant excess**: compare the mock with Orbital only for giants, or
+  model the RV-chain selection (MP-Q21).
+- **MP-Q28g, real-side distances**: keep the inverse NSS parallax (high S/N), or block on a
+  Bailer-Jones re-fetch once the archive answers (§10.3).
+
+## 11. Isochrone M1 and the 2-D CMD Malmquist weight (#418)
+
+Ryan's decisions are in §0.3. This section specifies what the decisions and the cited papers
+determine, and lists the choices they do not determine as options MP-Q33–Q38 (§11.8). None of
+those has been picked; each is a `provisional_*` config field. Measurements go in `docs/gate418/`.
+
+### 11.1 Why TAG10 goes
+
+TAG10 (Torres et al. 2010) maps an atmosphere (T_eff, log g, [Fe/H]) to a mass. For the parent and
+the real orbits that atmosphere is MSC's two-dwarf fit or GSP-Phot, and three problems follow.
+With the Santos et al. (2013) correction, M1 floors at 0.597 M⊙ (#393). MSC log g is dwarf-like by
+construction, so giants come out ≈ 2× too light (§10.1). And the M_G(M̂1) residual that the 1-D
+Malmquist weight needs runs over 3 mag with distance and M̂1 (#414). The CMD position itself
+carries the mass information that is needed, for dwarfs, subgiants and giants alike, once age and
+[Fe/H] are marginalized.
+
+### 11.2 Isochrone M1
+
+**Grid.** MIST v1.2 with v/v_crit = 0.4 (Choi et al. 2016; Dotter 2016), full isochrones,
+[Fe/H] = −2.0 … +0.5 in 0.25 dex steps (11 files) and log10(age / yr) = 8.0 … 10.15 (44
+isochrones). MIST phases 0 (MS), 2 (SGB + RGB), 3 (CHeB), 4 (EAGB) and 5 (TPAGB) are kept. PMS
+(−1) and post-AGB / WD (6, 9) are dropped. G, BP and RP come from the MIST UBVRIplus
+bolometric-correction tables at A_V = 0 (columns `Gaia_{G,BP,RP}_EDR3`; DR3 and EDR3
+photometry are the same), with M_X = 4.74 − 2.5 log10 L − BC_X(T_eff, log g, [Fe/H]). The 4.74 is
+the tables' convention (`constants.MIST_MBOL_SUN`). Points are sub-stepped by linear
+interpolation at fixed EEP, the purpose MIST's EEPs are built for, to 0.05 dex in [Fe/H] and
+0.0125 dex in age. That gives ≈ 8.7 × 10⁶ points.
+
+The files are read in place from `isochrone_mass.mist_root`, a host-specific path set in
+`config/host_profiles/` (laptop: `/Users/rfoley/.isochrones`; 21 GB, never copied). The parsed
+native grid is cached under `<data_root>/isochrone_mist/` with a SHA256 that is checked on load.
+
+**Inputs.** The dereddened CMD point y = (C0, M_G0) of §10.2, computed identically on both
+sides: Combined19 E(B−V) at the Bailer-Jones geometric distance (MP-Q29, MP-Q4), the Babusiaux
+et al. (2018) Gaia law, and σ_μ from the Bailer-Jones quantiles. The real orbits use the inverse
+NSS parallax until the Bailer-Jones join answers (MP-Q28g). [Fe/H] measurements are **not** used
+by default. GSP-Phot [M/H] has large systematics (Andrae et al. 2023), and MSC [M/H] comes from a
+two-star fit. Whether to add a calibrated metallicity likelihood is MP-Q33.
+
+**Likelihood.** A Gaussian that is diagonal in (C0, M_G0):
+
+  σ_C² = σ_C,floor² + (ε E(B−V) k_E)²,   σ_M² = σ_μ² + σ_M,floor² + (ε E(B−V) k_A)²
+
+Here k_A = A_G / E(B−V) and k_E = E(BP−RP) / E(B−V) are the per-star values of the Babusiaux law.
+The floors stand in for photometric calibration, bolometric-correction and isochrone
+systematics. ε is the fractional E(B−V) error. Defaults: σ_C,floor = 0.02, σ_M,floor = 0.05 mag
+and ε = 0.1. All three are provisional (MP-Q34). ε = 0 (MP-Q29's σ_A = 0) left 11,306 parent rows
+off the grid, mostly with high E(B−V). ε = 0.1 leaves 7,827 and moves the other rows' M1 by a median
+0.0009 dex (ε = 0.2: 5,024).
+Projecting the extinction vector onto each axis separately drops its (C0, M_G0) correlation; that
+approximation is recorded, and it vanishes at ε = 0.
+
+**Priors** (all config):
+
+- IMF: Kroupa (2001) broken power law in initial mass.
+- Age: a constant star-formation rate, i.e. uniform in linear age, over the grid's
+  0.1–14.1 Gyr.
+- [Fe/H]: a Gaussian N(−0.1, 0.25 dex), provisional (MP-Q33).
+
+The weight of isochrone point j is
+
+  w_j = ξ(M_init,j) ΔM_init,j × p(τ_j) Δτ_j × p([Fe/H]_j) Δ[Fe/H]_j
+
+with ΔM_init the half-distance to the neighbouring EEPs along the isochrone. That is the standard
+population weighting of an isochrone grid.
+
+**Posterior and outputs.** p(j | y) ∝ w_j N(y; y_j, Σ). The moments come out per star:
+
+- the current mass, as its mean and σ and as ⟨log10 M1⟩ and σ_log M1;
+- the initial (progenitor) mass;
+- ⟨log10 R⟩ and the **maximum past radius** R_max. R_max is the larger of the running maximum of R
+  over lower EEPs on the same isochrone, which catches the RGB tip for clump stars, and of R at the
+  same initial mass on earlier isochrones;
+- log g, ⟨log age⟩ and ⟨[Fe/H]⟩;
+- P(evolved), the posterior probability of MIST phase ≥ 2;
+- the prior-predictive density at y.
+
+Rows whose density is below 10⁻⁴ mag⁻² get no M1, and the reason `off_grid` is counted. These are
+white dwarfs, hot subdwarfs and bad photometry. Rows with no CMD are counted as `no_cmd`.
+
+The M1 that feeds point uses (the mock's truth M1 and the bulk M1) is the posterior mean. The
+alternatives are 10^⟨log10 M1⟩, or a draw from the posterior per proposal draw (generation-time);
+that choice is MP-Q35.
+
+**Computation.** The weighted points are deposited once, cloud-in-cell, into a (C0, M_G0) map at
+0.01 × 0.02 mag with one channel per moment. Each star's moments are then k_C^T Map_q k_M, with
+k_C and k_M the cell-integrated 1-D Gaussian kernels. This is one matrix product per chunk of
+colour-sorted stars, about 2 × 10⁵ stars per minute on one thread. The module is
+`darkhunter_pop.isochrone_mass`.
+
+**Giants.** Dwarfs, subgiants and giants go through one posterior. For giants it gives the
+progenitor mass (MP-Q28e) and the current and maximum past radius. Those are covariates for the
+rung-3 free period floor (MP-Q28b decided), not a hard truncation. The CMD evolved flag stays the
+§10.2 classifier (n_σ = 3, MP-Q28a decided), and P(evolved) is reported beside it as a
+cross-check.
+
+### 11.3 Blended light: how M1 and the weight stay consistent
+
+The isochrone fit assumes a single star. An unresolved luminous companion moves the system point
+by Δ(c) = (ΔC0, ΔM_G0): brighter, and redder for M2 < M1. The fit then returns an M̂1 that is biased
+(high for near-twins; the size is measured in `docs/gate418/`). Two rules keep the mock and the
+data consistent:
+
+1. **(A1′) The same estimator on both sides.** The data side computes M2 from a0 with M̂1. The mock
+   assigns truth M1 = M̂1 to the row (§0.1 MP-Q5 symmetry, with the isochrone in place of TAG10).
+   So the M̂1 → M2 mapping, including the blended-light bias, is the same on both sides. That is
+   the property the forward model needs.
+2. **The weight never uses M̂1 to judge the companion's light.** W (§11.4) subtracts the drawn
+   companion's G, BP and RP flux from the row's observed (dereddened) photometry, which is the
+   system total under MP-Q6. It then asks whether the remaining primary sits on the single-star
+   ridge. M̂1 enters W only through π(c | M̂1), meaning MdS17's frequencies, q = M2 / M̂1 and the
+   decided Janssens f relation. The light accounting is exact for the drawn c. Under the 1-D weight
+   of §9.3 the bias of M̂1 went straight into ΔM. Here it does not enter at all.
+
+The remaining inconsistency is that, for a binary, the truth M1 the mock hands gaiamock is the
+blended-light M̂1 rather than the primary's own mass. Its effect on a0 ∝ (M1 + M2)^{1/3} is a few
+percent for twins (measured). The exact alternative re-fits M1 to the subtracted primary point per
+draw, which makes truth M1 depend on c. That is generation-time, and it is MP-Q36.
+
+### 11.4 The 2-D weight
+
+The notation is §9.1's, with the row's dereddened system point y_s = (C_s, M_s). For a luminous
+companion c with G-band flux ratio f = F2/F1 and mass M2:
+
+- The companion's share of the system G flux is x_G = f / (1 + f).
+- The companion's intrinsic (BP − G)_2 and (G − RP)_2 come from the MIST main sequence at M2. The
+  system's (BP − G)_s and (G − RP)_s come from the MIST single-star colour–colour relation at C_s.
+  The (BP − G) vs (BP − RP) relation of MS + MS blends stays on the single-star relation to the
+  precision this needs; that is measured, not assumed.
+- The companion's share in each band is x_BP = x_G 10^{−0.4 [(BP − G)_2 − (BP − G)_s]} and
+  x_RP = x_G 10^{+0.4 [(G − RP)_2 − (G − RP)_s]}.
+- The primary is what remains:
+
+  C_1 = C_s − 2.5 log10(1 − x_BP) + 2.5 log10(1 − x_RP),   M_1 = M_s + 2.5 log10(1 + f)
+
+  If x_BP ≥ 1 or x_RP ≥ 1, the drawn companion would outshine the system in that band, and
+  L = 0.
+- The displacement vector is Δ(c) = y_s − (C_1, M_1). It is the MIST companion displacement Ryan
+  specified, evaluated backwards from the observed system.
+
+Then
+
+  **L_s(c) = N(M_1 − R(C_1); 0, σ_s(C_1)),   L_s(∅) = N(M_s − R(C_s); 0, σ_s(C_s))**
+
+  σ_s(C)² = σ_R(C)² + σ_μ,s² + σ_A,s² (1 − R′(C) / k_s)²
+
+  **Z_s = (1 − F_lum(M̂1)) L_s(∅) + Σ_{log q, log f bins} λ_qf(M̂1) L_s(q, f),   W_s(c) = L_s(c) / Z_s**
+
+- **R(C), σ_R(C)** are the measured single-star ridge and its faint-side width (§10.2). There is
+  **one ridge**, shared by the evolved classifier and W. It is re-measured on usable parent rows
+  with **RUWE < 1.4** and ϖ/σ_ϖ ≥ 10 (config `giants.ridge.ruwe_max`).
+- **Extinction is its own vector.** An E(B−V) error moves y along (E(BP−RP), A_G), and its
+  projection onto the ridge residual is σ_A |1 − R′ / k|, with k = A_G / E(BP−RP). The reddening
+  vector is nearly parallel to the MS over much of it, so this is small. σ_A = 0 is the decided
+  default (MP-Q29).
+- **λ_qf(M1)** is the MdS17 luminous target (`proposal_set.mds17_luminous_log_intensity`)
+  marginalized over P and e onto (log q, log f) bins. f is spread about the decided Janssens
+  relation with σ_f = 0.1 dex (MP-Q13). A test checks the grid integral against the target
+  integrated directly. Dark companions carry L_s(∅) as before.
+- **Limits.** If the companion has the primary's colour, C_1 = C_s and L_s(c) reduces to §9.3's
+  N(ΔM + 2.5 log10(1 + f); 0, σ), with ΔM = M_s − R(C_s) replacing M_s − M_G^J(M̂1) − δ_zp. **No
+  M1 → M_G relation enters W at all.** That removes the source of the #414 systematics. As σ_s → ∞,
+  W → 1. The Öpik limit of §9.5 holds unchanged, since it depends only on how the light adds up.
+- **Rows where W = 1** (the naive draw), each counted:
+  - CMD-evolved rows (§10.6);
+  - rows outside the ridge's colour range;
+  - rows without a CMD.
+
+  A subtracted primary colour C_1 outside the ridge range uses the ridge end values, and those
+  draws are counted. Extending the ridge with MIST offsets is MP-Q38.
+- **Companion colours.** These use the MIST MS at a fiducial [Fe/H] and age, by default the
+  [Fe/H] prior mean and log age 9.6. Using the row's own posterior (age, [Fe/H]) is MP-Q37. The
+  closed loop gives the universe's companions the primary's true age and [Fe/H], so it measures the
+  fiducial's cost.
+
+**Single-star density (MP-Q39, found in the closed loop, `docs/gate418/`).** The Gaussian
+N(M − R(C); 0, σ_R(C)) treats single stars as symmetric about the ridge, with σ_R taken from the
+faint side. Real single stars at fixed colour are not symmetric. Turnoff stars, subgiants and the
+[Fe/H] spread give them a bright-side tail. In the MIST closed loop the faint-side RMS is
+0.46–0.66 mag and the bright-side RMS is 1.0–1.3 mag. The ridge form then leaves the brightest
+companions (twins, log f > −0.5) about as under-predicted as no weight at all. The option
+`mist_density_ridge_anchored` uses the full prior-predictive single-star CMD density
+φ(C, M) of `isochrone_mass` (every kept phase) in place of the Gaussian. It is shifted in M per
+colour so that its mode sits on the measured ridge, which is still the one ridge shared with the
+§10.2 classifier. It is convolved with the row's σ_M, and it carries the colour Jacobian of the
+light subtraction:
+
+  L_s(c) = φ(C_1, M_1 | σ_M) / |J|,   J = ∂C_s/∂C_1 = (1 − x_BP) h′(C_1) − (1 − x_RP)(h′(C_1) − 1)
+
+with h(C) = (BP − G)(C) on the MIST single-star relation. J = 1 without a companion, and
+J ≈ 1 − x for a companion with the primary's colour. The colour density of single stars, which
+the ridge form drops, then enters too. The extinction-error projection σ_A enters only the
+Gaussian form, and MP-Q29 set σ_A = 0. Which form to use is MP-Q39 (§11.8).
+
+Code: `darkhunter_pop.malmquist_cmd` (new), next to `malmquist` (the 1-D weight, kept for the
+#405 tests and comparisons). The hook in `proposal_set` mirrors `malmquist_log_weight`.
+
+### 11.5 Closed loop with CMD photometry (extends §9.6)
+
+The synthetic universe of §9.6 is extended so that every star has MIST photometry:
+
+- primaries are drawn from the prior-weighted MIST points (MS, the closed-loop IMF range);
+- companions are MdS17 from the same table as the target, with G light from the target's f model;
+- companions get BP and RP from MIST at M2, at the primary's own age and [Fe/H];
+- there is a synthetic extinction vector, observed with a configurable fractional error, and a
+  colour error.
+
+The pipeline under test runs:
+
+1. The dereddened CMD.
+2. Isochrone M̂1, the real estimator.
+3. The ridge, measured from the synthetic parent the same way as on real data. There is no RUWE in
+   the universe, so the ridge uses all rows; that is recorded.
+4. The weight.
+
+It is run with no W, the 1-D W of §9.3 (now fed the isochrone M̂1) and the 2-D W. Pulls are as in
+§9.6. Acceptance mirrors #405: in the small run (required gate) every 2-D-W parent pull is ≤ 3
+and the no-W run fails visibly (some |pull| > 5). The large run and the figures go in
+`docs/gate418/`.
+
+**Result (small run: 10⁶ primaries → 40,151 usable parent rows; `docs/gate418/closed_loop_cmd_small_*.json`).**
+The universe has MS, SGB/RGB and core-He-burning primaries. Evolved companions use the §10.4
+flux relation, and the synthetic E(B−V) is known to 5%. The table gives max |pull| over the parent
+statistics.
+
+| weight | total binaries (truth 20,702) | twins (q > 0.95) | brightest log f bin | max \|pull\| |
+|---|---|---|---|---|
+| none | 20,024 (pull −2.3; CMD-dwarf rows −7.7) | −2.6 (dwarf rows −9.7) | −10.8 | 10.8 |
+| 1-D (§9.3, isochrone M̂1) | 25,028 (+12.9) | +14.2 | +36.1 | 36.1 |
+| 2-D, Gaussian ridge | 20,832 (+0.4) | −2.1 (dwarf rows −6.2) | −2.3 | 5.7 |
+| 2-D, MIST density anchored | 20,528 (−0.6) | +0.6 (dwarf rows +1.6) | +2.0 | 7.4 |
+
+The 1-D weight cannot be used with a CMD-derived M̂1. Its ΔM compares the CMD with the Janssens
+relation at a mass inferred from the same CMD. Both 2-D forms remove most of the naive bias, and
+the MIST density closes the twins. Neither form meets the ≤ 3 acceptance yet. Single bins remain
+off at 4–7σ: log f in [−1, −0.5], q in 0.5–0.85 and the α0 tail. The suspected causes are the
+fiducial companion colours (MP-Q37), M̂1 = blended-light mass (§11.3), and the pipeline's
+σ_A = 0 against a 5% truth error. None is retuned.
+
+### 11.6 What replaces the MP-Q25 fit
+
+MP-Q25 fitted a zero point and σ_int for M_G^J(M̂1). W no longer uses that relation, so the fit
+is retired. Its values in `config/population/malmquist_decided.yaml` are marked superseded, and
+`fit_mg_zero_point` stays for the 1-D comparison only. The single-star calibration is now the
+ridge R(C0) and σ_R(C0) on RUWE < 1.4 rows. The #414 acceptance tables are re-measured for
+ΔM_2D = M_G0 − R(C0) on the same rows, binned by distance and by isochrone M̂1, and they must show
+no multi-magnitude trend. The ridge's statistical precision is reported against the closed loop's
+0.05 mag tolerance (§9.7).
+
+### 11.7 Data side: `mass_derivation_bulk`
+
+A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation_bulk`):
+
+- **The switch.** A new value `mass_calibration.method: MIST_isochrone`. The default stays `TAG10`
+  until Ryan flips it, after the re-measurements below. Under the switch, each candidate's M1
+  ParameterSet holds the posterior M1 point (MP-Q35) and σ_M1, and R1 = 10^⟨log10 R⟩, with
+  provenance `isochrone_mist_v1.2`. A row with no CMD or off the grid is skipped with its own
+  counted reason, as TAG10's `no_atmosphere` / `m1_failed` are.
+- **Inputs per candidate.** G, BP−RP and (l, b) from the candidate. The distance is the
+  Bailer-Jones geometric one when it is present, otherwise 1 / ϖ_NSS (MP-Q28g). Combined19 E(B−V)
+  and the Babusiaux law are computed exactly as for the parent (§11.2).
+- **The TAG10 code is kept unchanged.** It remains the default and is still what the pre-switch
+  run files used.
+- **Literature reproduction paths keep their own M1** (column ownership): Andrews 2022
+  Lick → FLAME → uniform; El-Badry 2024 IsocLum; El-Badry 2026 Janssens M̃1. Their reproduction
+  counts must not change, and that is checked. The **forward-model** paths that read the pipeline's
+  bulk M1, such as Andrews' forward_model pass 2, change with the switch, and their counts are
+  reported.
+- **#393** (Santos floor): does not apply under the switch. It stays open for the TAG10 path,
+  which is still the default.
+- **#380** (non-positive Gaussian M1 draws in the bulk σ_M2 MC): the isochrone σ_M1 / M1 is
+  usually ≪ 1. The fraction above 0.25 is reported under the switch. The draw convention (Gaussian
+  vs log-normal from ⟨log M1⟩, σ_log M1) is still #380's decision.
+- **#323** (TAG10 outside its calibration range): the isochrone covers the CMD from the lower MS
+  to the RGB / AGB. Out of range becomes `off_grid`, a counted reason, with no extrapolation. This
+  is the "isochrone masses from MIST" candidate #323 lists. #323 closes for the switch path once
+  Ryan flips it.
+- **Re-measurements before flipping**, with the switch off by default:
+  - the bulk funnel counts under both methods;
+  - Gaia BH1 / BH2 / BH3 known-truth M1 and M2;
+  - the literature reproduction counts (must be unchanged);
+  - M1 against FLAME (dwarfs and giants separately);
+  - M1 against eclipsing-binary dynamical masses (DEBCat, Southworth 2015);
+  - the M1 bias from blended light.
+
+### 11.8 Options for Ryan (MP-Q33–Q39; none chosen)
+
+- **MP-Q33, [Fe/H] prior and metallicity data**:
+  - (a) N(−0.1, 0.25 dex), the provisional setting;
+  - (b) a solar-neighbourhood MDF, e.g. Casagrande et al. (2011) or Hayden et al. (2015), or a
+    |z|-dependent thin/thick-disk mixture;
+  - (c) add a GSP-Phot [M/H] likelihood with the Andrae et al. (2023) calibration where it is
+    reliable.
+- **MP-Q34, likelihood floors**: σ_C,floor = 0.02 mag, σ_M,floor = 0.05 mag and ε = 0.1 now (0 or 0.2 measured).
+  Alternatively use the per-star BP/RP flux errors (needs a re-query of the flux_over_error
+  columns), or a fractional E(B−V) error (Combined19 publishes no per-sightline error).
+- **MP-Q35, the M1 point**: the posterior mean (now), 10^⟨log10 M1⟩, or a posterior draw per
+  proposal draw (generation-time; it widens the truth M1 like a real population).
+- **MP-Q36, deblended truth M1** (§11.3): keep M̂1 (now), or re-fit the subtracted primary per draw
+  (generation-time).
+- **MP-Q37, companion colours**: a fiducial MIST MS ([Fe/H] prior mean, log age 9.6; now), or the
+  row's posterior (age, [Fe/H]).
+- **MP-Q39, single-star density in W** (§11.4): `mist_density_ridge_anchored` (provisional
+  default; it closes the twins) or `gaussian_ridge` (the first §11.4 form). An empirical
+  asymmetric density deconvolved from RUWE < 1.4 rows is a third option, not implemented.
+- **MP-Q38, rows outside the ridge's colour range** (about 5% of the parent, mostly bluer than
+  C0 = 0.35): W = 1 (now), or extend R(C0) with the MIST single-star locus offset to match the
+  measured ridge where they overlap.
+- The age prior (constant SFR) and the IMF (Kroupa 2001) are standard choices and are config. They
+  are listed so they can be revisited: Chabrier (2003), or a declining SFR.
 
 ## References
 
+- Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
+- Andrae, R. et al. 2023, A&A 674, A27 (GSP-Phot; [M/H] systematics).
+- Babusiaux, C. et al. (Gaia Collaboration) 2018, A&A 616, A10 (Gaia-band extinction law).
+- Badenes, C. et al. 2018, ApJ 854, 147 (APOGEE close-binary fraction vs log g).
 - Bailer-Jones, C. A. L. et al. 2021, AJ 161, 147.
+- Boubert, D. & Everall, A. 2020, MNRAS 497, 4246 (Completeness of the Gaia-verse II).
+- Cantat-Gaudin, T. et al. 2023, A&A 669, A55 (empirical Gaia DR3 selection function; `gaiaunlimited`).
+- Casagrande, L. et al. 2011, A&A 530, A138 (Geneva–Copenhagen re-analysis; solar-neighbourhood MDF).
+- Castro-Ginard, A. et al. 2024, A&A 688, A1 (RUWE detectability of unresolved binaries).
+- Chiavassa, A. et al. 2011, A&A 528, A120 (convection-driven photocentre jitter).
 - Choi, J. et al. 2016, ApJ 823, 102 (MIST).
+- Chabrier, G. 2003, PASP 115, 763 (IMF).
+- Creevey, O. L. et al. 2023, A&A 674, A26 (Gaia DR3 FLAME).
+- Dotter, A. 2016, ApJS 222, 8 (MIST 0: EEPs).
+- Eggleton, P. P. 1983, ApJ 268, 368 (Roche-lobe radius).
 - El-Badry, K. et al. 2024, OJAp 7, 100 (arXiv:2411.00088).
 - Elvira, V., Martino, L., Luengo, D. & Bugallo, M. 2019, Statistical Science 34, 129.
+- Everall, A. & Boubert, D. 2022, MNRAS 509, 6205 (Completeness of the Gaia-verse V).
+- Fabricius, C. et al. 2021, A&A 649, A5 (Gaia EDR3 catalogue validation).
 - Gaia Collaboration, Arenou, F. et al. 2023, A&A 674, A34.
 - Halbwachs, J.-L. et al. 2023, A&A 674, A9 (arXiv:2206.05726).
+- Hayden, M. R. et al. 2015, ApJ 808, 132 (APOGEE MDFs across the disk).
 - Hesterberg, T. 1995, Technometrics 37, 185.
 - Janssens, S. et al. 2022, A&A 658, A129.
+- Kjeldsen, H. & Bedding, T. R. 1995, A&A 293, 87 (asteroseismic scaling relations).
+- Kroupa, P. 2001, MNRAS 322, 231 (IMF).
+- Miglio, A. et al. 2012, MNRAS 419, 2077 (RGB mass loss, NGC 6791 / 6819).
 - Moe, M. & Di Stefano, R. 2017, ApJS 230, 15 (arXiv:1606.05347).
+- Öpik, E. 1923, Publ. Tartu Obs. 25, 6.
 - Owen, A. & Zhou, Y. 2000, JASA 95, 135.
 - Pecaut, M. J. & Mamajek, E. E. 2013, ApJS 208, 9.
+- Pinsonneault, M. H. et al. 2025, ApJS 276, 69 (APOKASC-3).
+- Price-Whelan, A. M. & Goodman, J. 2018, ApJ 867, 5 (APOGEE binaries along the RGB).
+- Raghavan, D. et al. 2010, ApJS 190, 1.
 - Riello, M. et al. 2021, A&A 649, A3.
+- Santos, N. C. et al. 2013, A&A 556, A150 (mass correction).
+- Southworth, J. 2015, ASP Conf. Ser. 496, 164 (DEBCat).
+- Torres, G., Andersen, J. & Giménez, A. 2010, A&ARv 18, 67.
 - Veach, E. & Guibas, L. 1995, SIGGRAPH '95, 419.
 - Vehtari, A. et al. 2024, JMLR 25, 72 (Pareto-smoothed importance sampling).
+- Verbunt, F. & Phinney, E. S. 1995, A&A 296, 709 (tidal circularization of giants).
 - Winters, J. G. et al. 2019, AJ 157, 216.
+- Zahn, J.-P. 1977, A&A 57, 383 (equilibrium tide).

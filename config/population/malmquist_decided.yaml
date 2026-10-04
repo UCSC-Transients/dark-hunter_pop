@@ -1,0 +1,50 @@
+# Magnitude-limit (Malmquist / Öpik) conditioning, DECIDED settings (Ryan 2026-10-03,
+# https://github.com/UCSC-Transients/dark-hunter_pop/issues/391#issuecomment-5971280434).
+# Schema: darkhunter_pop.malmquist.MalmquistConfig (its key names keep the provisional_ prefix
+# from #405; the values below that are decided say so). Not under config/fragments/.
+#
+# MP-Q25 decided: sigma_int and the M_G zero point are FITTED on the parent's RUWE < 1.4 dwarfs
+#   by scripts/fit_malmquist_zero_point.py; the two numbers below are that fit's output
+#   (see the fit report in docs/gate391/). Refit whenever the parent, M1 or extinction changes.
+# MP-Q26 decided: the TAG10 blended-light bias is ignored for now (documented, spec §0.2).
+# MP-Q29 decided: Combined19 extinction (extinction block below).
+# MP-Q30 decided: gaussian_mu distance marginalization.
+# MP-Q27 (blending) stays provisional; MP-Q28 (giants) is owned elsewhere (unit weight hook).
+
+malmquist:
+  # MP-Q25 fit (2026-10-03, docs/gate391/malmquist_zero_point_fit.json): 161,776 RUWE < 1.4 dwarfs,
+  # zp = -2.357 +/- 0.006 mag, sigma_int = 2.082 +/- 0.007 mag (bootstrap). WARNING: the
+  # statistical errors are tiny but the fit is NOT physically meaningful. ΔM runs from +0.6 mag at
+  # d < 0.5 kpc to -2.9 mag at 2-5 kpc: M dwarfs pinned at the TAG10+Santos floor (#393) look too
+  # faint, and evolved stars that MSC fits as dwarfs (22% sit in the CMD giant/subgiant region)
+  # look too bright. Escalated (#414); the giant agent (MP-Q28) and #393 must land before these
+  # numbers mean anything. With sigma_int = 2.08 the weight is nearly flat (little correction).
+  provisional_sigma_int_mag: 2.082           # MP-Q25 DECIDED procedure; fitted value (see warning)
+  provisional_mg_zero_point_mag: -2.357      # MP-Q25 DECIDED procedure; fitted value (see warning)
+  provisional_sigma_log_m1_dex: 0.02         # TAG10 M1 scatter (unchanged from #405)
+  provisional_blending: all_unresolved       # MP-Q27 (open, later)
+  provisional_giant_policy: unit_weight      # MP-Q28 hook (owned by the giants agent)
+  provisional_distance_marginalization: gaussian_mu   # MP-Q30 DECIDED
+  provisional_frequency_above_one: clip_single_probability_at_zero  # MP-Q31 (open)
+  slope_step_dex: 0.01
+  grid:
+    log_m1_min: -1.1
+    log_m1_max: 1.6
+    n_m1: 109
+    n_log_q: 120
+    n_log_p: 156
+    n_hermite: 9
+    log_f_min: -12.0
+    log_f_max: 1.0
+    n_log_f: 260
+
+extinction:                                  # MP-Q29 DECIDED
+  model: combined19
+  a_g_per_ebv: 2.8                           # El-Badry et al. (2024) §3, as the mock already uses
+  sigma_a_mag: 0.0                           # absorbed into the fitted sigma_int (same A_G in the fit)
+
+zero_point_fit:                              # MP-Q25 DECIDED
+  ruwe_max: 1.4                              # "single-star-like" (Ryan)
+  exclude_giants: true                       # Janssens is a dwarf relation
+  n_bootstrap: 100
+  bootstrap_seed: 391

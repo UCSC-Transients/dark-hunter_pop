@@ -1,0 +1,48 @@
+artifacts: output/proposal_set/smoke_gen20.h5
+SMOKE (plumbing only): epoch model on, Malmquist (#414 caveat) report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.
+decision_ref: Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1); decided: {"flux_sigma_dex": 0.1, "halbwachs_ipd_cstar_cuts": "applied_star_values", "light_split": "observed_g_is_system_total", "m1": "tag10_point_drop_unresolved", "mass_luminosity": "janssens2022", "parallax_floor_mas": 0.2, "truth_distance": "bailer_jones2021_geometric"}
+real comparison: DR3 Orbital+AstroSpectroSB1, parallax > 0.2 mas, TAG10 atmosphere, Halbwachs IPD/C* (MP-Q24) (N=167911 of 168065); filter counts {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025, 'missing_input_columns': 0, 'and_halbwachs_ipd_cstar': 167911}
+parent attrition: {"bailer_jones_distance": 200602, "finite_astrometry_photometry": 214666, "halbwachs_cstar": 164397, "halbwachs_ipd": 184531, "parallax_floor": 214666, "snapshot_rows": 214666, "tag10_atmosphere": 200602}
+draws: 1000; scale_to_full (N_full/N_snap): 1811.71
+per generation (generation, n_draws, accepted, ESS of its accepted draws under mixture weights): (20, 1000, 21, 5.50)
+accepted orbits: 21; with nonzero MdS17 weight: 19
+MdS17 Kish ESS: accepted 5.50; all draws 33.40
+max weight share among accepted: 0.361
+expected accepted orbits relative to parent (MdS17, luminous): 8.754e+04 vs real 167911
+
+solution-type mix (raw proposal fraction | MdS17-weighted expected count):
+  insufficient_visibility      0.000 | 0
+  five_parameter               0.888 | 1.163e+08
+  seven_parameter              0.025 | 3.261e+05
+  nine_parameter               0.011 | 7.538e+04
+  twelve_parameter_orbital     0.021 | 8.754e+04
+  orbital_failed_cuts          0.055 | 1.579e+07
+  published acceleration (s>20; F2<22 for 7-par): raw 0.018 | weighted 9.135e+04
+Malmquist: Malmquist weight (#405) with zp=-2.357 mag, sigma_int=2.082 mag (MP-Q25 fit, see #414), Combined19 A_G; unit-weight counts {'draws': 1000, 'unit_weight_no_delta_m': 0, 'unit_weight_giant': 5}
+eccentricity proposal shapes: ['mds17_bounded']
+
+per-panel ESS and KS (KS gated on MP-Q19, ESS_b >= 30):
+  P_orb_days: bins=20, max ESS_b=5.70, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS not computed: no bin reaches ESS >= 30
+  G_mag: bins=20, max ESS_b=2.16, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS not computed: no bin reaches ESS >= 30
+  inv_parallax_mas_inv: bins=20, max ESS_b=4.98, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS not computed: no bin reaches ESS >= 30
+  eccentricity: bins=20, max ESS_b=2.05, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 2/20); KS not computed: no bin reaches ESS >= 30
+  f_m_msun: bins=20, max ESS_b=3.96, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS not computed: no bin reaches ESS >= 30
+  cos_inclination: bins=20, max ESS_b=2.00, bins with ESS >= 30: 0/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 1/20); KS not computed: no bin reaches ESS >= 30
+
+informational weighted KS over the full panel range (NOT a gate):
+  P_orb_days: D=0.307, n_eff=5.5, p=0.677
+  G_mag: D=0.322, n_eff=5.5, p=0.619
+  inv_parallax_mas_inv: D=0.667, n_eff=5.5, p=0.015
+  eccentricity: D=0.451, n_eff=5.5, p=0.213
+  f_m_msun: D=0.461, n_eff=5.5, p=0.194
+  cos_inclination: D=0.463, n_eff=5.5, p=0.19
+
+cost (CPU s per draw, gaiamock_mod, process_time in worker):
+  mean 0.78, median 0.00, p90 0.01, total 0.22 CPU h
+  five_parameter               n=  888 mean 0.00 s
+  seven_parameter              n=   25 mean 0.01 s
+  nine_parameter               n=   11 mean 0.00 s
+  twelve_parameter_orbital     n=   21 mean 10.11 s
+  orbital_failed_cuts          n=   55 mean 10.21 s
+  wall: 10.6 min at 2 workers
+provisional: {"provisional_compact_mixture": "none", "provisional_eta_floor": -0.9, "provisional_low_mass_anchor_msun": 0.8, "provisional_low_mass_policy": "log_linear_to_zero", "provisional_low_mass_zero_msun": 0.08, "provisional_m1_interpolation": "linear_m1", "provisional_multiplicity": "poisson_intensity"}
