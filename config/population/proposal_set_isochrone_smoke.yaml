@@ -59,7 +59,7 @@ proposal:
     ipd_gof_harmonic_amplitude_max: 0.1
     cstar_nsigma: 1.645
   truth_distance: bailer_jones2021_geometric        # MP-Q4
-  m1: isochrone_mist_drop_unresolved                # MP-Q5 / MP-Q28c: MIST isochrone (#418, spec §0.3, §11.2)
+  m1: isochrone_posterior_draw_deblended            # MP-Q5/Q28c/Q35/Q36 (#418, spec §0.4, §11.9)
   giant_flag_logg_max: 3.6                          # TAG10 mode only (isochrone mode uses the §10.2 CMD flag)
   light_split: observed_g_is_system_total           # MP-Q6
   epoch_model: dr3_config                           # #400 E1 decided: on (dr3.epoch_model)

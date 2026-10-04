@@ -70,6 +70,9 @@ class CmdClosedLoopConfig(_Strict):
     #: Primaries are prior-weighted MIST points with (sub-stepped) phase <= this: 0 = MS only,
     #: 3 = MS + SGB/RGB + core-He burning (evolved rows then get W = 1, spec §10.6).
     universe_max_phase: float = Field(0.4, ge=0)
+    #: MP-Q35 + MP-Q36 (decided 2026-10-04): per draw, a posterior draw of the primary and the
+    #: coeval deblended truth M1 (``proposal_set.apply_posterior_deblending``).
+    posterior_deblending: bool = True
 
 
 def load_cmd_closed_loop_config(path: str | Path = "config/population/malmquist_cmd_closed_loop.yaml") -> CmdClosedLoopConfig:
@@ -255,10 +258,15 @@ def run_cmd_mock(
     grid1d: mq.FluxMarginalGrid,
     native: im.NativeGrid,
     cmap: im.CmdMap,
+    *,
+    pipeline_config: Any = None,
+    sampler: Any = None,
 ) -> CmdMock:
     parent = pipe.parent
     prop = mcl.closed_loop_proposal(frag, base, parent.n_rows)
     truth = ps.sample_proposal(parent, prop)
+    if cfg.posterior_deblending:
+        truth = ps.apply_posterior_deblending(truth, parent, pipeline_config, prop, sampler=sampler, native=native)
     # #416 / spec §10.4: CMD-evolved rows use the evolved flux relation in the target.
     log_lam = ps.mds17_luminous_log_intensity(truth, frag.target_mds17, evolved_mg0_system=ps.evolved_mg0_for_draws(truth, parent))
     n = [prop.n_draws]
@@ -365,7 +373,8 @@ def run_cmd_closed_loop(
     if single_star_model is not None:
         cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(
             update={"provisional_model": single_star_model})})
-    mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native, model.cmap)
+    sampler = im.PosteriorSampler.build(pts, pc.isochrone_mass.cmd_map) if cfg.posterior_deblending else None
+    mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native, model.cmap, pipeline_config=pc, sampler=sampler)
     u, par = uc.base, pipe.par
     pi = par.index
     use = pipe.parent.usable
