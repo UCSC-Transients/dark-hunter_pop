@@ -1175,3 +1175,74 @@ def test_write_bulk_diagnostic_artifacts_m2_histogram_axes_from_config(
     for call in m2_calls:
         assert call.get("xlim") == (0.5, 10.0)
         assert call.get("log_y") is False
+
+
+# ---------------------------------------------------------------------------
+# #418: MIST_isochrone M1 switch (off by default; isochrone batch stubbed, no MIST files)
+# ---------------------------------------------------------------------------
+
+
+def _mist_cfg():
+    cfg = load_config()
+    return cfg.model_copy(
+        update={"mass_calibration": cfg.mass_calibration.model_copy(update={"method": MassCalibrationMethod.MIST_ISOCHRONE})}
+    )
+
+
+def _iso_entry(m1: float | None, reason: str | None = None):
+    if m1 is None:
+        return (None, reason, {"provenance": mass_derivation.ISOCHRONE_PROVENANCE, "reason": reason})
+    pset = ParameterSet(names=["M1", "R1"], values=[m1, 1.0], covariance=[[0.05**2, 0.0], [0.0, 0.01]],
+                        provenance=mass_derivation.ISOCHRONE_PROVENANCE, units=["Msun", "Rsun"])
+    return (pset, None, {"provenance": mass_derivation.ISOCHRONE_PROVENANCE, "reason": "ok", "m1_mean": m1})
+
+
+@pytest.mark.unit
+def test_default_method_is_still_tag10() -> None:
+    assert load_config().mass_calibration.method is MassCalibrationMethod.TAG10
+    assert MassCalibrationMethod("MIST_isochrone") is MassCalibrationMethod.MIST_ISOCHRONE
+
+
+@pytest.mark.unit
+def test_mist_switch_uses_isochrone_m1_and_counts_skips(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _mist_cfg()
+    table = {1: _iso_entry(1.3), 2: _iso_entry(None, "no_cmd"), 3: _iso_entry(None, "m1_off_grid")}
+    monkeypatch.setattr(mass_derivation, "isochrone_m1_batch", lambda cands, c: [table[x.source_id] for x in cands])
+    keepers, diag = run_bulk_on_candidates([_candidate(1), _candidate(2), _candidate(3)], cfg, gaiamock=FakeGaiamock())
+    assert [c.source_id for c in keepers] == [1]
+    (kept,) = keepers
+    assert kept.m1.provenance == mass_derivation.ISOCHRONE_PROVENANCE
+    assert kept.m1.marginal("M1").value == pytest.approx(1.3)
+    assert kept.extras[mass_derivation.M1_ISOCHRONE_EXTRAS_KEY]["m1_mean"] == pytest.approx(1.3)
+    f = diag.funnel
+    assert (f.skipped_no_cmd, f.skipped_m1_off_grid, f.skipped_no_atmosphere) == (1, 1, 0)
+    assert f.input_candidates == 3 and f.m1_ok == 1
+    text = format_bulk_funnel_table(diag)
+    assert "skipped_no_cmd" in text and "skipped_m1_off_grid" in text
+
+
+@pytest.mark.unit
+def test_tag10_path_unchanged_by_the_switch_code() -> None:
+    """TAG10 (default) never calls the isochrone batch and gives the same M1 as before."""
+    cfg = load_config()
+    upd, reason, _, _ = process_bulk_candidate(_candidate(1), cfg, FakeGaiamock())
+    assert reason is None and upd is not None
+    assert upd.m1.provenance.startswith("TAG10")
+    assert mass_derivation.M1_ISOCHRONE_EXTRAS_KEY not in upd.extras
+
+
+@pytest.mark.unit
+def test_candidate_cmd_inputs_prefer_bailer_jones_else_inverse_parallax() -> None:
+    from darkhunter_pop.schemas import PhotometryPoint
+
+    phot = [PhotometryPoint(band="G", mag=12.0), PhotometryPoint(band="BP", mag=12.5), PhotometryPoint(band="RP", mag=11.4)]
+    a = _candidate(1).model_copy(update={"photometry": phot, "ra_deg": 10.0, "dec_deg": -5.0,
+                                         "nss_orbital": {"period": 200.0, "parallax": 10.0, "parallax_error": 0.1}})
+    b = a.model_copy(update={"source_id": 2, "extras": {**a.extras, "r_med_geo": 101.0, "r_lo_geo": 100.0, "r_hi_geo": 102.0}})
+    x = mass_derivation.candidate_cmd_inputs([a, b])
+    assert x["bp_rp"][0] == pytest.approx(1.1)
+    assert x["r_med"][0] == pytest.approx(100.0)
+    assert x["r_lo"][0] == pytest.approx(1000.0 / 10.1)
+    assert x["r_med"][1] == pytest.approx(101.0)
+    assert x["bailer_jones"].tolist() == [0.0, 1.0]
+    assert np.all(np.isfinite(x["l"])) and np.all(np.isfinite(x["b"]))

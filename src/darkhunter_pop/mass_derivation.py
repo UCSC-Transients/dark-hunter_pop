@@ -192,9 +192,15 @@ class BulkFunnel:
     # factorization (see mc_mass_function.factorize_covariance).
     m2_mc_cholesky_nugget: int = 0
     m2_mc_eigen_clip: int = 0
+    # #418, mass_calibration.method = MIST_isochrone only: no finite dereddened CMD
+    # (photometry, distance or extinction law missing) / CMD point off the isochrone grid.
+    skipped_no_cmd: int = 0
+    skipped_m1_off_grid: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
+            "skipped_no_cmd": self.skipped_no_cmd,
+            "skipped_m1_off_grid": self.skipped_m1_off_grid,
             "input_candidates": self.input_candidates,
             "atmosphere_ok": self.atmosphere_ok,
             "m1_ok": self.m1_ok,
@@ -415,8 +421,8 @@ def derive_tag10_m1_r1(
     method = config.mass_calibration.method
     if method is not MassCalibrationMethod.TAG10:
         raise NotImplementedError(
-            f"mass_calibration.method={method.value!r} is not implemented "
-            "(v1 supports TAG10 only)"
+            f"derive_tag10_m1_r1 called with mass_calibration.method={method.value!r}; "
+            "MIST_isochrone M1 comes from isochrone_m1_batch (#418)"
         )
 
     log_m, log_r = tag10_log_mass_radius(
@@ -460,6 +466,132 @@ def derive_tag10_m1_r1(
         provenance=provenance,
         units=["Msun", "Rsun"],
     )
+
+
+ISOCHRONE_PROVENANCE: str = "isochrone_mist_v1.2"
+#: CandidateRecord.extras key holding the isochrone posterior summary (#418).
+M1_ISOCHRONE_EXTRAS_KEY: str = "m1_isochrone"
+
+_ISOCHRONE_MODEL_CACHE: dict[tuple[str, str], Any] = {}
+
+
+def _isochrone_model(config: PipelineConfig) -> Any:
+    """Build (once per process and config) the MIST CMD moment map (#418)."""
+    from darkhunter_pop import isochrone_mass as im
+
+    key = (im.config_key(config.isochrone_mass), str(config.paths.data_root))
+    if key not in _ISOCHRONE_MODEL_CACHE:
+        _ISOCHRONE_MODEL_CACHE[key] = im.build_model(config.isochrone_mass, config.paths.data_root)
+    return _ISOCHRONE_MODEL_CACHE[key]
+
+
+def _band_mag(candidate: CandidateRecord, band: str) -> float:
+    for point in candidate.photometry:
+        if point.band.upper() == band:
+            return float(point.mag)
+    return float("nan")
+
+
+def candidate_cmd_inputs(candidates: Sequence[CandidateRecord]) -> dict[str, NDArray[np.float64]]:
+    """G, BP−RP, (l, b) and distance quantiles per candidate (#418, spec §11.7).
+
+    Distance: Bailer-Jones geometric ``r_med_geo`` / ``r_lo_geo`` / ``r_hi_geo`` from
+    ``extras`` when present, otherwise 1 / ϖ with 16/84 % from ϖ ± σ_ϖ (MP-Q28g); ϖ from
+    ``parallax_mas`` or ``nss_orbital["parallax"]``, σ_ϖ from ``nss_orbital["parallax_error"]``.
+    Missing values are NaN (the row is then ``no_cmd``).
+    """
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    n = len(candidates)
+    g = np.array([_band_mag(c, "G") for c in candidates], float)
+    bp = np.array([_band_mag(c, "BP") for c in candidates], float)
+    rp = np.array([_band_mag(c, "RP") for c in candidates], float)
+    ra = np.array([np.nan if c.ra_deg is None else c.ra_deg for c in candidates], float)
+    dec = np.array([np.nan if c.dec_deg is None else c.dec_deg for c in candidates], float)
+    plx = np.full(n, np.nan)
+    eplx = np.full(n, np.nan)
+    r = {k: np.full(n, np.nan) for k in ("r_med_geo", "r_lo_geo", "r_hi_geo")}
+    for i, c in enumerate(candidates):
+        p = c.parallax_mas if c.parallax_mas is not None else _finite(c.nss_orbital.get("parallax"))
+        plx[i] = np.nan if p is None else p
+        e = _finite(c.nss_orbital.get("parallax_error"))
+        eplx[i] = np.nan if e is None else e
+        for k in r:
+            v = _finite(c.extras.get(k))
+            r[k][i] = np.nan if v is None else v
+    have_bj = np.isfinite(r["r_med_geo"]) & np.isfinite(r["r_lo_geo"]) & np.isfinite(r["r_hi_geo"])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r_med = np.where(have_bj, r["r_med_geo"], np.where(plx > 0, 1000.0 / plx, np.nan))
+        r_lo = np.where(have_bj, r["r_lo_geo"], np.where(plx > 0, 1000.0 / (plx + eplx), np.nan))
+        r_hi = np.where(have_bj, r["r_hi_geo"], np.where(plx - eplx > 0, 1000.0 / (plx - eplx), np.nan))
+    ok = np.isfinite(ra) & np.isfinite(dec)
+    l_deg = np.full(n, np.nan)
+    b_deg = np.full(n, np.nan)
+    if ok.any():
+        gal = SkyCoord(ra=ra[ok] * u.deg, dec=dec[ok] * u.deg).galactic
+        l_deg[ok] = gal.l.deg
+        b_deg[ok] = gal.b.deg
+    return {"g": g, "bp_rp": bp - rp, "l": l_deg, "b": b_deg, "r_med": r_med, "r_lo": r_lo, "r_hi": r_hi,
+            "bailer_jones": have_bj.astype(float)}
+
+
+def isochrone_m1_batch(
+    candidates: Sequence[CandidateRecord], config: PipelineConfig
+) -> list[tuple[ParameterSet | None, str | None, dict[str, Any]]]:
+    """MIST isochrone (M1, R1) per candidate (#418; ARCHITECTURE.md ``mass_derivation_bulk``).
+
+    Dereddened CMD exactly as the mock parent (``giants.cmd_for_rows``: Combined19 E(B−V) at
+    the distance of :func:`candidate_cmd_inputs`, Babusiaux et al. 2018 law), then the
+    ``isochrone_mass`` posterior. Returns ``(ParameterSet | None, skip_reason | None, extras)``
+    per candidate; skip reasons ``no_cmd`` and ``m1_off_grid``. M1 is the posterior point
+    (``isochrone_mass.provisional_point_estimate``) with the posterior σ; R1 = 10^⟨log10 R⟩
+    with σ_R1 = ln10 R1 σ_log10R. Never extrapolated, never a fallback mass.
+    """
+    from darkhunter_pop import giants
+
+    if not candidates:
+        return []
+    x = candidate_cmd_inputs(candidates)
+    cmd = giants.cmd_for_rows(x["g"], x["bp_rp"], x["l"], x["b"], x["r_med"], x["r_lo"], x["r_hi"], config, None)
+    model = _isochrone_model(config)
+    e_br = x["bp_rp"] - cmd.colour0
+    post = model.fit(cmd.colour0, cmd.mg0, sigma_mu=cmd.sigma_mu, ebv=cmd.ebv, a_g=cmd.a_g, e_bp_rp=e_br)
+    m1 = post.point(config.isochrone_mass.provisional_point_estimate)
+    out: list[tuple[ParameterSet | None, str | None, dict[str, Any]]] = []
+    for i in range(len(candidates)):
+        extras = {
+            "provenance": ISOCHRONE_PROVENANCE,
+            "reason": str(post.reason[i]),
+            "mg0": float(cmd.mg0[i]),
+            "colour0": float(cmd.colour0[i]),
+            "a_g": float(cmd.a_g[i]),
+            "e_bp_rp": float(e_br[i]),
+            "sigma_mu": float(cmd.sigma_mu[i]),
+            "distance_bailer_jones": bool(x["bailer_jones"][i]),
+            "log10_evidence": float(post.log10_evidence[i]),
+        }
+        if not post.ok[i]:
+            out.append((None, "no_cmd" if post.reason[i] == "no_cmd" else "m1_off_grid", extras))
+            continue
+        extras.update({
+            "m1_mean": float(post.m1_mean[i]), "m1_sigma": float(post.m1_sigma[i]),
+            "log_m1_mean": float(post.log_m1_mean[i]), "log_m1_sigma": float(post.log_m1_sigma[i]),
+            "m_init_mean": float(post.m_init_mean[i]), "r_max_past_mean": float(post.r_max_past_mean[i]),
+            "p_evolved": float(post.p_evolved[i]), "log_age_mean": float(post.log_age_mean[i]),
+            "feh_mean": float(post.feh_mean[i]), "log_g_mean": float(post.log_g_mean[i]),
+        })
+        r1 = 10.0 ** float(post.log_r_mean[i])
+        sr1 = math.log(10.0) * r1 * float(post.log_r_sigma[i])
+        pset = ParameterSet(
+            names=["M1", "R1"],
+            values=[float(m1[i]), r1],
+            covariance=[[float(post.m1_sigma[i]) ** 2, 0.0], [0.0, sr1**2]],
+            provenance=ISOCHRONE_PROVENANCE,
+            units=["Msun", "Rsun"],
+        )
+        out.append((pset, None, extras))
+    return out
 
 
 def photocenter_a0_mas(
@@ -733,6 +865,10 @@ def format_bulk_funnel_table(diagnostics: BulkDiagnostics) -> str:
         "  (full-covariance MC produced no sigma_M2)",
         f"  m2_mc_cholesky_nugget:     {funnel.m2_mc_cholesky_nugget}",
         f"  m2_mc_eigen_clip:          {funnel.m2_mc_eigen_clip}",
+        f"  skipped_no_cmd:            {funnel.skipped_no_cmd}"
+        "  (MIST_isochrone only: no finite dereddened CMD)",
+        f"  skipped_m1_off_grid:       {funnel.skipped_m1_off_grid}"
+        "  (MIST_isochrone only: CMD point off the isochrone grid; never extrapolated)",
         f"  m2_pre_cut_n:           {len(diagnostics.m2_pre_cut_msun)}",
         f"  m2_post_cut_n:          {len(diagnostics.m2_post_cut_msun)}",
     ]
@@ -806,6 +942,8 @@ def process_bulk_candidate(
     candidate: CandidateRecord,
     config: PipelineConfig,
     gaiamock: GaiamockMassAPI,
+    *,
+    m1_precomputed: tuple[ParameterSet | None, str | None, dict[str, Any]] | None = None,
 ) -> tuple[
     CandidateRecord | None, str | None, float | None, CovarianceFactorization | None
 ]:
@@ -818,16 +956,27 @@ def process_bulk_candidate(
 
     Skip reasons: ``no_atmosphere``, ``m1_failed``, ``no_orbit``,
     ``no_nss_covariance`` (Thiele–Innes but no reconstructed covariance),
-    ``m2_sigma_failed`` (MC produced no sigma), ``m2_failed``, ``m2_cut``.
+    ``m2_sigma_failed`` (MC produced no sigma), ``m2_failed``, ``m2_cut``; under
+    ``mass_calibration.method = MIST_isochrone`` (#418) ``no_cmd`` and ``m1_off_grid``
+    replace ``no_atmosphere`` / ``m1_failed``. ``m1_precomputed`` is that candidate's entry
+    of :func:`isochrone_m1_batch` (computed here for a single candidate when absent).
     """
-    atmosphere = resolve_atmosphere(candidate)
-    if atmosphere is None:
-        return None, "no_atmosphere", None, None
+    iso_extras: dict[str, Any] | None = None
+    if config.mass_calibration.method is MassCalibrationMethod.MIST_ISOCHRONE:
+        pre = m1_precomputed if m1_precomputed is not None else isochrone_m1_batch([candidate], config)[0]
+        m1_iso, reason, iso_extras = pre
+        if m1_iso is None:
+            return None, reason, None, None
+        m1_set = m1_iso
+    else:
+        atmosphere = resolve_atmosphere(candidate)
+        if atmosphere is None:
+            return None, "no_atmosphere", None, None
 
-    try:
-        m1_set = derive_tag10_m1_r1(atmosphere, config)
-    except (ValueError, NotImplementedError):
-        return None, "m1_failed", None, None
+        try:
+            m1_set = derive_tag10_m1_r1(atmosphere, config)
+        except (ValueError, NotImplementedError):
+            return None, "m1_failed", None, None
 
     m1_marg = m1_set.marginal("M1")
     period = _finite(candidate.nss_orbital.get("period"))
@@ -885,6 +1034,8 @@ def process_bulk_candidate(
 
     extras = dict(candidate.extras)
     extras[M2_BULK_MC_EXTRAS_KEY] = sigma_mc.as_extras()
+    if iso_extras is not None:
+        extras[M1_ISOCHRONE_EXTRAS_KEY] = iso_extras
     updated = candidate.model_copy(
         update={
             "m1": m1_set,
@@ -918,12 +1069,31 @@ def run_bulk_on_candidates(
     skipped_m2_sigma_failed = 0
     m2_mc_cholesky_nugget = 0
     m2_mc_eigen_clip = 0
+    skipped_no_cmd = 0
+    skipped_m1_off_grid = 0
     progress_interval = config.mass_derivation.bulk_progress_log_interval
+    iso_mode = config.mass_calibration.method is MassCalibrationMethod.MIST_ISOCHRONE
 
-    for candidate in candidates:
+    def _with_m1() -> Iterator[tuple[CandidateRecord, Any]]:
+        """Candidates with their precomputed isochrone M1, batched (#418); TAG10: None."""
+        if not iso_mode:
+            for c in candidates:
+                yield c, None
+            return
+        batch: list[CandidateRecord] = []
+        size = config.isochrone_mass.batch_rows
+        for c in candidates:
+            batch.append(c)
+            if len(batch) >= size:
+                yield from zip(batch, isochrone_m1_batch(batch, config))
+                batch = []
+        if batch:
+            yield from zip(batch, isochrone_m1_batch(batch, config))
+
+    for candidate, pre in _with_m1():
         input_candidates += 1
         updated, reason, m2_pre_val, factorization = process_bulk_candidate(
-            candidate, config, api
+            candidate, config, api, m1_precomputed=pre
         )
         if factorization is CovarianceFactorization.CHOLESKY_NUGGET:
             m2_mc_cholesky_nugget += 1
@@ -931,10 +1101,14 @@ def run_bulk_on_candidates(
             m2_mc_eigen_clip += 1
         if reason == "no_atmosphere":
             skipped_no_atmosphere += 1
+        elif reason == "no_cmd":
+            skipped_no_cmd += 1
         else:
             atmosphere_ok += 1
             if reason == "m1_failed":
                 pass
+            elif reason == "m1_off_grid":
+                skipped_m1_off_grid += 1
             else:
                 m1_ok += 1
                 if reason == "no_orbit":
@@ -979,6 +1153,8 @@ def run_bulk_on_candidates(
             skipped_m2_sigma_failed=skipped_m2_sigma_failed,
             m2_mc_cholesky_nugget=m2_mc_cholesky_nugget,
             m2_mc_eigen_clip=m2_mc_eigen_clip,
+            skipped_no_cmd=skipped_no_cmd,
+            skipped_m1_off_grid=skipped_m1_off_grid,
         ),
         m2_pre_cut_msun=np.asarray(m2_pre, dtype=np.float64),
         m2_post_cut_msun=np.asarray(m2_post, dtype=np.float64),
