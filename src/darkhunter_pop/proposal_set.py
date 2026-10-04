@@ -569,7 +569,9 @@ def load_parent_snapshot(
         src = np.where(np.asarray(iso["ok"], bool), "MIST", "none")
         logg = np.asarray(iso["log_g_mean"], float)
     else:
-        mc_blob = json.dumps(config.mass_calibration.model_dump(mode="json"), sort_keys=True)
+        mc_dump = config.mass_calibration.model_dump(mode="json")
+        mc_dump["method"] = "TAG10"  # TAG10 by name (#425): the cache does not move with the bulk switch
+        mc_blob = json.dumps(mc_dump, sort_keys=True)
         mc_key = hashlib.sha256(mc_blob.encode()).hexdigest()[:10]
         cache = d / f"m1_tag10_{mc_key}.npz"
         if m1_cache and cache.exists() and "atmosphere_logg" in np.load(cache).files:

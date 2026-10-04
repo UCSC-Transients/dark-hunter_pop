@@ -2580,12 +2580,16 @@ def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, A
         for candidate in _iter_stage_candidate_records(
             manifest, "mass_derivation_bulk"
         ):
-            fields = _pipeline_enrichment_fields(candidate)  # #425: pipeline_* only
-            if fields:
-                enrich[int(candidate.source_id)] = fields
+            enrich[int(candidate.source_id)] = candidate  # type: ignore[assignment]
 
     da_path = _upstream_artifact_path(manifest, "data_acquisition")
     snapshot_meta = _da_snapshot_meta_path(da_path)
+    # #425: on the uncut-snapshot rows a literature sample owns m1/m2 columns, so the bulk
+    # enrichment adds pipeline_* columns only. The DA fallback rows have no literature
+    # columns; there the bulk masses also fill the generic names, as before.
+    fields_of = _pipeline_enrichment_fields if snapshot_meta is not None else (
+        lambda c: {**_pipeline_mass_fields(c), **_pipeline_enrichment_fields(c)})
+    enrich = {sid: f for sid, c in enrich.items() if (f := fields_of(c))}  # type: ignore[arg-type]
     if snapshot_meta is not None:
         rows = load_selection_rows_from_uncut_snapshot(snapshot_meta)
     else:

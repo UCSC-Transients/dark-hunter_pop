@@ -993,7 +993,7 @@ def test_stage_loads_da_rows_when_rows_none(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["source_id"] == 10
     assert rows[0]["pipeline_m1_msun"] == pytest.approx(1.1)
-    assert rows[0]["m2_msun"] == pytest.approx(1.8)
+    assert rows[0]["pipeline_m2_msun"] == pytest.approx(1.8)
 
     finished = run_sample_selection_stage(manifest, enabled, run_path=run_path)
     rec = finished.stages["sample_selection"]
@@ -1119,3 +1119,19 @@ def test_build_nss_enrichment_adql_has_corr_and_k1() -> None:
     assert "nss.semi_amplitude_primary" in adql
     assert "nss.significance" in adql
     assert "gaia_source" not in adql
+
+
+@pytest.mark.unit
+def test_bulk_enrichment_on_snapshot_rows_writes_only_pipeline_columns() -> None:
+    """#425: literature samples own m1/m2 columns on uncut-snapshot rows; the bulk
+    enrichment there must add pipeline_* columns only."""
+    from darkhunter_pop.sample_selection import _pipeline_enrichment_fields
+
+    cand = CandidateRecord(
+        source_id=7, nss_solution_type="Orbital", parallax_mas=5.0,
+        m1=ParameterSet(names=["M1"], values=[0.9], covariance=[[0.01]], provenance="test", units=["Msun"]),
+        m2=ParameterSet(names=["M2"], values=[1.4], covariance=[[0.04]], provenance="test", units=["Msun"]),
+    )
+    f = _pipeline_enrichment_fields(cand)
+    assert set(f) == {"pipeline_m1_msun", "pipeline_m1_sigma_msun", "pipeline_m2_msun", "pipeline_sigma_m2_msun"}
+    assert f["pipeline_m2_msun"] == pytest.approx(1.4) and f["pipeline_sigma_m2_msun"] == pytest.approx(0.2)
