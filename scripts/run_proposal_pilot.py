@@ -58,40 +58,26 @@ def blas_thread_report() -> list[dict[str, Any]]:
     ]
 
 
-def build_epoch_wrap(cfg: Any, prop: Any, gaiamock: Any) -> Any:
-    """The #400 epoch-model wrapper for ``simulate_one`` (None when ``epoch_model: off``).
+def build_epoch_setup(cfg: Any, prop: Any) -> Any:
+    """The #400 epoch model for ``simulate_one`` (None when ``epoch_model: off``).
 
     Uses ``dr3.epoch_model`` from config with ``enabled`` forced on: #400 E1 was decided
-    "on" (#391 issuecomment-5971280434) even where the config default is still off. The
-    epoch-model Generator is ``epoch_model_rng(base_seed, stream, draw_index)``, disjoint
-    from the gaiamock global-RNG seeds of the same draw.
+    "on" (#391 issuecomment-5971280434). ``simulate_one`` routes every draw through
+    ``epoch_model.run_cascade`` (epochs, per-CCD noise and the RUWE normalization the config
+    switches on), with ``epoch_model_rng(base_seed, stream, draw_index)`` Generators.
     """
     if prop.epoch_model == "off":
         return None
     import dataclasses
 
     from darkhunter_pop import epoch_model as em
-    from darkhunter_pop.proposal_set import PROPOSAL_RNG_STREAM_BASE
+    from darkhunter_pop.proposal_set import EpochSetup
 
     section = getattr(cfg.active_dr(), "epoch_model", None)
     if section is None:
         raise ValueError("epoch_model: dr3_config but the active DR path has no epoch_model section")
     emc = dataclasses.replace(em.epoch_model_config_from_mapping(section), enabled=True)
-    gaps = em.gap_intervals_jd(emc)
-
-    def wrap(draw: dict[str, Any]) -> Any:
-        stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
-        return em.gost_epoch_model(
-            gaiamock, emc, em.SourceEpochContext(
-                g_mag=float(draw["phot_g_mean_mag"]),
-                # #421: the v2 loss model has an (l, b) sky term; older artifacts lack the keys.
-                l_deg=float(draw["l_deg"]) if "l_deg" in draw else None,
-                b_deg=float(draw["b_deg"]) if "b_deg" in draw else None,
-            ),
-            em.epoch_model_rng(prop.base_seed, stream, int(draw["draw_index"])), gaps_jd=gaps,
-        )
-
-    return wrap
+    return EpochSetup(config=emc, gaps_jd=em.gap_intervals_jd(emc))
 
 
 def _init_worker(config_path: str, fragment_path: str, niceness: int) -> None:
@@ -111,7 +97,7 @@ def _init_worker(config_path: str, fragment_path: str, niceness: int) -> None:
         c_funcs=gm.read_in_C_functions(),
         proposal=frag.proposal,
         cuts=cfg.active_dr().selection_function_astrometric.orbital_solution_cuts,
-        epoch_wrap=build_epoch_wrap(cfg, frag.proposal, gm),
+        epoch=build_epoch_setup(cfg, frag.proposal),
     )
 
 
@@ -122,7 +108,7 @@ def _work(draw: dict[str, Any]) -> dict[str, Any]:
         c_funcs=_WORKER["c_funcs"],
         cfg=_WORKER["proposal"],
         cuts=_WORKER["cuts"],
-        epoch_wrap=_WORKER["epoch_wrap"],
+        epoch=_WORKER["epoch"],
     )
     if "blas_checked" not in _WORKER:
         _WORKER["blas_checked"] = True

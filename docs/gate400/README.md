@@ -89,6 +89,47 @@ models, which a single noise term added to the data cannot reproduce.
 `dr3.epoch_model.bright_excess_noise.enabled` is therefore **false**. The options are in spec
 §8.6 (N2a–N2c).
 
+### N2-u0: bright-star noise with DR3's RUWE = UWE / u0 (Ryan, 2026-10-03)
+
+The N2 per-CCD noise is used with mock RUWE = UWE / u0_mock(G). u0_mock(G) is the 41st
+percentile of mock single-star UWE per 0.25-mag bin (Lindegren 2018 TN LL-124), from 36,000
+mock singles run through v2 and N2 (`output/gate400/u0/`; table
+`config/epoch_model/dr3_ruwe_u0_mock.csv`, sha256 `8731b93b…3269`). The cascade's gate is
+applied as UWE > 1.4 u0(G), which is exact (spec §8.8).
+
+Validation runs:
+- Inject: same suite and seeds as v2, `output/gate400/validation_u0/inject.jsonl`, 0 errors.
+- Single stars: same 20,000 stars as before.
+- Runs used `nice`, 6 workers, BLAS pinned to 1 thread.
+
+| Orbital (medians) | DR3 / target | v2 | **N2-u0** | better? |
+|---|---|---|---|---|
+| F2 at G < 11 / 11–12 / 12–13 | 8.5 / 8.5 / 5.7 | 0.4 / 0.2 / 0.3 | **8.8 / 9.2 / 6.0** | yes |
+| σ_ϖ/σ_a0/σ_P/σ_e at G < 13 | 1 | 0.85 / 0.84 / 0.84 / 0.84 | **1.05 / 1.04 / 1.03 / 1.04** | yes |
+| same at G ≥ 13 | 1 | 1.01 / 1.02 / 1.02 / 1.00 | 1.01 / 1.02 / 1.02 / 1.00 | equal |
+| a0/σ_a0 by G (< 11 / 11–12 / 12–13 / 13–15 / > 15) | 1 | 1.22 / 1.30 / 1.12 / 0.94 / 0.92 | **0.91 / 0.97 / 0.92** / 0.93 / 0.92 | yes (bright), equal (faint) |
+| a0/σ_a0, all G | 1 | 0.989 | 0.930 | v2's all-G value comes from bright-high and faint-low cancelling |
+| RUWE rec/pub, all | 1 | 0.988 | **1.003** | yes |
+| RUWE at G < 11 / 11–12 / 12–13 / > 13 | 1 | 1.09 / 1.14 / **1.01** / 0.97 | 0.91 / **0.95** / 0.91 / **1.02** | mixed: **worse at 12–13** |
+| single-star RUWE peak (41st percentile) by G | DR3 1.00–1.08 | 0.94–1.02 | **1.00–1.04** | yes |
+| single-star RUWE median, G 13–17 | DR3 1.015 | 0.991 | **1.019** | yes |
+| N_vis − DR3 | 0 | 0 / +0.06 | 0 / +0.06 | equal |
+| accepted | (0.74 baseline) | 0.682 | 0.677 | equal |
+| 5-parameter outcomes (#403) | — | 3.4% | **1.7%** | yes |
+| P > 600 d capture | (undecided, #399) | 0.237 | 0.225 | no target |
+
+AstroSpectroSB1 is an astrometry-only refit, so its published σ also used RVs. Its G < 13 σ
+ratio rises from 1.0–1.2 to 1.28–1.52, significance falls from 0.82 to 0.63, and its RUWE
+moves from 1.07 to 0.90.
+
+**Verdict:** N2-u0 matches as well as or better than v2 on F2, the bright σ ratios,
+significance by G, RUWE overall and at G > 13, the single-star RUWE peak at all G and the
+#403 rate. It is **worse** on bright NSS RUWE at 12 < G < 13 (1.01 → 0.91) and on the
+AstroSpectroSB1 astrometry-only refit. Under the rule "adopt only if everything matches as
+well as or better", it is **not adopted** (`ruwe_u0.enabled: false`,
+`bright_excess_noise.enabled: false`). It is offered as option **N2d** (spec §8.6).
+Switching it on is two flags.
+
 ## Measurement (v1, #412)
 
 `scripts/fetch_epoch_count_sample.py` → snapshot `20261003T063811Z_epoch_counts_400`
@@ -227,5 +268,5 @@ $PY scripts/plot_epoch_model_400.py validation --inj390 output/gate390/injection
 - `figures/model_counts_vs_dr3.png`: transits and N_vis from one model draw per star vs DR3 and GOST.
 - `figures/gap_fraction_sky.png`: fraction of GOST transits inside the published gaps.
 - `figures/validation_*.png`: the #390 re-runs (v1 and v2; `validation_n2_f2_ruwe.png` is the N2 check).
-- `figures/single_star_ruwe.png`: the single-star RUWE check.
+- `figures/single_star_ruwe.png`, `figures/single_star_ruwe_peak_vs_g.png`: the single-star RUWE check (v2, N2, N2-u0).
 - `figures/summary.json`: every number above.

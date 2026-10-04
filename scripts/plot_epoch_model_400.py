@@ -310,10 +310,10 @@ def cmd_validation(args: argparse.Namespace) -> None:
         o = np.argsort(cs)
         gost_tr = f["inj390/gost_ntr_raw"][:][o[np.searchsorted(cs[o], sids)]].astype(float)
     nvis_pub = truth["published_visibility_periods_used"].astype(float)
-    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2") if v in data]
+    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2", "v2_u0") if v in data]
     labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model v1 (#412)",
               "epoch_noise": "v1 + El-Badry U(0, 0.04) mas", "v2": "epoch model v2",
-              "v2_n2": "v2 + per-CCD bright noise (N2)"}
+              "v2_n2": "v2 + per-CCD bright noise (N2)", "v2_u0": "v2 + N2, RUWE = UWE/u0 (N2-u0)"}
     summary: dict[str, Any] = {"n_realizations": args.n_realizations, "variants": {}}
     for v in variants:
         t = data[v]
@@ -340,6 +340,12 @@ def cmd_validation(args: argparse.Namespace) -> None:
             r["ruwe_ratio"] = _q(t["ruwe"][acc] / truth["ruwe"][si[acc]])
             # RUWE over every realization (all outcomes carry a RUWE except flag 0)
             r["ruwe_ratio_all"] = _q(t["ruwe"][m_typ] / truth["ruwe"][si[m_typ]])
+            oc = t["outcome"][m_typ]
+            r["outcome_fractions"] = {str(c): float(np.mean(oc == c)) for c in (0, 5, 7, 9, 12)}
+            r["five_par_fraction_by_g"] = {}
+            for lo, hi in ((0, 11), (11, 13), (13, 15), (15, 25)):
+                mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
+                r["five_par_fraction_by_g"][f"{lo}-{hi}"] = float(np.mean(t["outcome"][mg] == 5)) if mg.any() else float("nan")
             r["ruwe_ratio_by_g"] = {}
             for lo, hi in ((0, 11), (11, 12), (12, 13), (13, 25)):
                 mg = m_typ & (truth["g_mag"][si] >= lo) & (truth["g_mag"][si] < hi)
@@ -406,7 +412,7 @@ def cmd_validation(args: argparse.Namespace) -> None:
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     for i, v in enumerate(variants):
-        if v in ("epoch_noise", "v2_n2"):
+        if v in ("epoch_noise", "v2_n2", "v2_u0"):
             continue  # same epochs as "epoch" / "v2"
         t = data[v]
         si = t["system_index"].astype(int)
@@ -502,8 +508,9 @@ def cmd_single(args: argparse.Namespace) -> None:
         r = json.loads(line)
         rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"], r.get("ruwe_scale", 1.0)))
     arr = {k: np.array(v) for k, v in rows.items()}
-    variants = [v for v in ("gaiamock", "v2", "v2_n2") if v in arr]
-    labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)"}
+    variants = [v for v in ("gaiamock", "v2", "v2_n2", "v2_u0") if v in arr]
+    labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)",
+              "v2_u0": "v2 + N2, RUWE = UWE/u0"}
     gbins = ((0, 13), (13, 17), (17, 19))
     summary: dict[str, Any] = {"n_stars": int(arr[variants[0]].shape[0]), "bins": {}}
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
@@ -527,6 +534,36 @@ def cmd_single(args: argparse.Namespace) -> None:
                          title=f"{lo} < G < {hi} (N = {int(m0.sum()):,})")
     axes[0].legend(prop=legend_prop(style), loc="upper right", frameon=False)
     save_figure(fig, Path(args.fig_dir) / "single_star_ruwe.png", dpi=dpi)
+    # the key check: where the single-star RUWE distribution peaks, by G (1-mag bins).
+    # Peak proxies: the 41st percentile (Lindegren 2018 TN LL-124) and the mode of
+    # RUWE^(2/3), which is ~symmetric (Wilson-Hilferty), estimated by its median.
+    gedges = np.arange(5.0, 19.01, 1.0)
+    gc = 0.5 * (gedges[:-1] + gedges[1:])
+    peak: dict[str, Any] = {"g_centres": gc.tolist()}
+    fig, ax = plt.subplots(figsize=(10, 6))
+    a0 = arr[variants[0]]
+    series = {"DR3": (a0[:, 1], ruwe_dr3[a0[:, 0].astype(int)])}
+    for v in variants:
+        series[v] = (arr[v][:, 1], arr[v][:, 2])
+    for j, (name, (gv, rv)) in enumerate(series.items()):
+        p41, m23, nn = [], [], []
+        for lo, hi in zip(gedges[:-1], gedges[1:]):
+            m = (gv >= lo) & (gv < hi) & np.isfinite(rv)
+            nn.append(int(m.sum()))
+            p41.append(float(np.percentile(rv[m], 41)) if m.sum() >= 20 else float("nan"))
+            m23.append(float(np.median(rv[m] ** (2 / 3)) ** 1.5) if m.sum() >= 20 else float("nan"))
+        peak[name] = {"p41": p41, "mode_proxy": m23, "n": nn}
+        st = series_style(j, style)
+        ax.plot(gc + 0.05 * j, p41, color=st["color"], marker=st["marker"], linestyle=st["linestyle"],
+                linewidth=st["linewidth"], markersize=st["markersize"],
+                label="DR3 (same stars, incl. binaries)" if name == "DR3" else labels[name])
+    ax.axhline(1.0, color="0.4", linestyle=":", linewidth=1.5)
+    apply_axes_style(ax, style, xlabel="G (mag)", ylabel="41st percentile of RUWE (peak proxy)",
+                     title="Single-star RUWE peak vs G (bins with >= 20 stars)")
+    ax.legend(prop=legend_prop(style), loc="upper right", frameon=False)
+    save_figure(fig, Path(args.fig_dir) / "single_star_ruwe_peak_vs_g.png", dpi=dpi)
+    summary["peak_by_g"] = peak
+
     path = Path(args.fig_dir) / "summary.json"
     old = json.loads(path.read_text()) if path.exists() else {}
     old["single_star_ruwe"] = summary

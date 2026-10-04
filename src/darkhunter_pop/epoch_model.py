@@ -131,6 +131,44 @@ class PerCcdExcessNoiseConfig:
 
 
 @dataclass(frozen=True)
+class RuweU0Table:
+    """Mock RUWE normalisation ``u0(G)`` emulating DR3's RUWE = UWE / u0(G, C) (#400 N2-u0).
+
+    Lindegren (2018, GAIA-C3-TN-LU-LL-124) defines u0 as the 41st percentile of UWE in
+    magnitude-colour bins, smoothed and interpolated. The mock version is the same
+    statistic of mock single-star UWE in G bins. gaiamock's noise has no colour term, so the
+    colour axis collapses (spec §8.8). Linear interpolation in G, held constant outside
+    the table.
+    """
+
+    g: tuple[float, ...]
+    u0: tuple[float, ...]
+    path: Path | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.g) != len(self.u0) or len(self.g) < 2 or np.any(np.diff(self.g) <= 0):
+            raise ValueError("u0 table needs >= 2 increasing G values and matching u0")
+        if np.any(np.asarray(self.u0) <= 0):
+            raise ValueError("u0 must be > 0")
+
+    def __call__(self, g_mag: float) -> float:
+        return float(np.interp(g_mag, self.g, self.u0))
+
+
+def load_u0_table(path: Path, expected_sha256: str | None = None) -> RuweU0Table:
+    """Read the u0 CSV (``#`` comment lines, then ``g,u0`` header and rows); verify sha256."""
+    if expected_sha256:
+        got = _sha256(path)
+        if got != expected_sha256:
+            raise ValueError(f"u0 table {path} sha256 {got} != configured {expected_sha256}")
+    rows = [ln for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    if rows[0].replace(" ", "").lower().split(",")[:2] != ["g", "u0"]:
+        raise ValueError(f"unexpected u0 table header {rows[0]!r}")
+    vals = np.array([[float(x) for x in r.split(",")[:2]] for r in rows[1:]])
+    return RuweU0Table(g=tuple(vals[:, 0]), u0=tuple(vals[:, 1]), path=Path(path))
+
+
+@dataclass(frozen=True)
 class EpochModelConfig:
     """Parameters of the epoch model (``dr3.epoch_model`` in config).
 
@@ -186,6 +224,7 @@ class EpochModelConfig:
     continuous: ContinuousLossConfig | None = None
     clustered: ClusteredLossConfig | None = None
     excess_noise: PerCcdExcessNoiseConfig | None = None
+    ruwe_u0: RuweU0Table | None = None
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -258,8 +297,16 @@ def epoch_model_config_from_mapping(
         continuous=_continuous_from(loss.get("continuous")) if loss.get("model", "binned") == "continuous" else None,
         clustered=_clustered_from(section.get("clustered_loss")),
         excess_noise=_noise_from(section.get("bright_excess_noise")),
+        ruwe_u0=_u0_from(section.get("ruwe_u0"), root),
         provenance=str(section.get("provenance", "")),
     )
+
+
+def _u0_from(m: Mapping[str, Any] | None, root: Path) -> RuweU0Table | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    path = Path(str(m["table"]))
+    return load_u0_table(path if path.is_absolute() else root / path, m.get("table_sha256"))
 
 
 def _continuous_from(m: Mapping[str, Any] | None) -> ContinuousLossConfig | None:
@@ -700,6 +747,11 @@ def per_ccd_excess_noise(
     return rng.normal(0.0, 1.0, err.size) * np.sqrt(r2) * err, k
 
 
+def ruwe_scale_u0(g_mag: float, config: EpochModelConfig) -> float:
+    """``u0_mock(G)`` when the u0 table is configured, else 1 (RUWE = UWE / u0)."""
+    return 1.0 if config.ruwe_u0 is None else config.ruwe_u0(g_mag)
+
+
 def rescale_cascade_ruwe(cascade: list[float], k: float) -> list[float]:
     """Divide the RUWE entry of a cascade vector by ``k`` (no-op for k = 1 or flag 0)."""
     out = [float(x) for x in cascade]
@@ -746,7 +798,10 @@ def run_cascade(
     err)``. It runs inside :func:`gost_epoch_model`. Then the per-CCD excess noise is
     added to ``obs`` and ``gaiamock.fit_full_astrometric_cascade`` runs with
     ``ruwe_min * k``. The RUWE in the returned vector is divided by ``k``, which is the
-    same as computing RUWE with errors inflated by ``k`` (RUWE scales as 1/error). This is
+    same as computing RUWE with errors inflated by ``k`` (RUWE scales as 1/error).
+    ``k`` is ``u0_mock(G)`` when ``config.ruwe_u0`` is set (DR3's RUWE = UWE / u0, so the
+    cascade's RUWE > ruwe_min gate becomes UWE > ruwe_min * u0), else ``sqrt(1 + r2)`` from
+    the excess noise when it renormalises, else 1. This is
     the composition ``run_full_astrometric_cascade`` itself performs (predict, then fit),
     with the noise inserted between the two calls. No gaiamock function is reimplemented.
 
@@ -760,6 +815,8 @@ def run_cascade(
     if config.enabled and config.excess_noise is not None:
         extra, k = per_ccd_excess_noise(err, source.g_mag, config.excess_noise, noise_rng)
         obs = np.asarray(obs, dtype=np.float64) + extra
+    if config.enabled and config.ruwe_u0 is not None:
+        k = ruwe_scale_u0(source.g_mag, config)
     n_vis = n_visibility_periods_from_days(t * 365.25, visibility_gap_day)
     n_tr = int(fov_transit_ids(t * 365.25, config.transit_split_day).max() + 1) if t.size else 0
     cascade = gaiamock.fit_full_astrometric_cascade(
