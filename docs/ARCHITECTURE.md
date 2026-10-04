@@ -363,6 +363,10 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
     prior-predictive density.
   - **Skips.** A candidate with no CMD (`no_cmd`) or off the isochrone grid (`m1_off_grid`) is
     skipped and counted in the funnel. It is never extrapolated and never given a fallback mass.
+  - **Flip (Ryan, 2026-10-04):** the default becomes `MIST_isochrone` once #425 is fixed. The fix
+    has two parts. `sample_selection` enrichment writes only `pipeline_*` columns, so literature
+    reproduction columns are never overwritten. The Andrews forward-model `pipeline_tag10_bulk`
+    calls TAG10 explicitly. See MOCK_POPULATION_SPEC §11.9.
   - **TAG10 is untouched**, and it remains the default path. #393 (Santos floor) and #380 (Gaussian
     M1 draws) still apply to it. #323 (TAG10 outside its calibration range) is resolved for the
     switch path, where out-of-range is `m1_off_grid`.
