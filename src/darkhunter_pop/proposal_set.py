@@ -931,6 +931,18 @@ def published_acceleration(cascade: Sequence[float], cfg: AccelerationPublicatio
     return False
 
 
+@dataclass(frozen=True)
+class EpochSetup:
+    """The #400 epoch model for :func:`simulate_one` (built once per worker).
+
+    ``config`` is an :class:`darkhunter_pop.epoch_model.EpochModelConfig` (``dr3.epoch_model``
+    with ``enabled`` forced on, #400 E1); ``gaps_jd`` its gap table in JD.
+    """
+
+    config: Any
+    gaps_jd: Any
+
+
 def simulate_one(
     draw: Mapping[str, Any],
     *,
@@ -938,47 +950,75 @@ def simulate_one(
     c_funcs: Any,
     cfg: ProposalConfig,
     cuts: OrbitalSolutionCutsConfig,
-    epoch_wrap: Callable[[Mapping[str, Any]], ContextManager[Any]] | None = None,
+    epoch: EpochSetup | None = None,
 ) -> dict[str, Any]:
-    """Run one stored draw through ``run_full_astrometric_cascade``, seeded per #371.
+    """Run one stored draw through the gaiamock cascade, seeded per #371.
 
     Seeds: ``mock_global_rng_seeds(base_seed, PROPOSAL_RNG_STREAM_BASE + generation,
     draw_index)``, so a draw replays alone, independent of order or worker.
 
-    ``epoch_wrap(draw)`` (optional) returns a context manager entered around the cascade,
-    e.g. ``epoch_model.gost_epoch_model(...)`` with ``epoch_model_rng(base_seed, stream,
-    draw_index)`` (#400 hook). It must be given exactly when ``cfg.epoch_model != "off"``.
+    With ``cfg.epoch_model != "off"`` (``epoch`` then required) the draw goes through
+    :func:`darkhunter_pop.epoch_model.run_cascade`: gaiamock's
+    ``predict_astrometry_luminous_binary`` inside the epoch thinning, then the per-CCD excess
+    noise and the RUWE normalization that the epoch config switches on, then
+    ``fit_full_astrometric_cascade``, with gaiamock's own visibility gate (< 12 visibility
+    periods or < 13 epochs → the all-zero vector, as ``run_full_astrometric_cascade``). The
+    epoch and noise Generators are ``epoch_model_rng(base_seed, stream, draw_index[, tag])``;
+    the source context carries G and the draw's galactic (l, b) (#421). Without the epoch
+    model it is the bare ``run_full_astrometric_cascade`` call.
     """
-    if (epoch_wrap is None) != (cfg.epoch_model == "off"):
-        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch_wrap is {'missing' if epoch_wrap is None else 'given'}")
+    if (epoch is None) != (cfg.epoch_model == "off"):
+        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch is {'missing' if epoch is None else 'given'}")
     stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
     seeds = mock_global_rng_seeds(cfg.base_seed, stream, int(draw["draw_index"]))
+    kw = dict(
+        ra=float(draw["ra_deg"]),
+        dec=float(draw["dec_deg"]),
+        parallax=float(draw["parallax_mas"]),
+        pmra=float(draw["pmra_masyr"]),
+        pmdec=float(draw["pmdec_masyr"]),
+        m1=float(draw["m1_msun"]),
+        m2=float(draw["m2_msun"]),
+        period=float(draw["period_days"]),
+        Tp=float(draw["Tp_days"]),
+        ecc=float(draw["eccentricity"]),
+        omega=float(draw["Omega_rad"]),
+        w=float(draw["omega_rad"]),
+        phot_g_mean_mag=float(draw["phot_g_mean_mag"]),
+        f=float(draw["flux_ratio"]),
+        data_release=cfg.data_release,
+        c_funcs=c_funcs,
+    )
     t0 = time.process_time()
-    wrap = epoch_wrap(draw) if epoch_wrap is not None else contextlib.nullcontext()
-    with wrap, seeded_global_rng(seeds, c_funcs):
-        cascade = gaiamock.run_full_astrometric_cascade(
-            ra=float(draw["ra_deg"]),
-            dec=float(draw["dec_deg"]),
-            parallax=float(draw["parallax_mas"]),
-            pmra=float(draw["pmra_masyr"]),
-            pmdec=float(draw["pmdec_masyr"]),
-            m1=float(draw["m1_msun"]),
-            m2=float(draw["m2_msun"]),
-            period=float(draw["period_days"]),
-            Tp=float(draw["Tp_days"]),
-            ecc=float(draw["eccentricity"]),
-            omega=float(draw["Omega_rad"]),
-            inc_deg=float(draw["inc_deg"]),
-            w=float(draw["omega_rad"]),
-            phot_g_mean_mag=float(draw["phot_g_mean_mag"]),
-            f=float(draw["flux_ratio"]),
-            data_release=cfg.data_release,
-            c_funcs=c_funcs,
-            verbose=False,
-            show_residuals=False,
-            ruwe_min=cfg.ruwe_min,
-            skip_acceleration=cfg.skip_acceleration,
-        )
+    with seeded_global_rng(seeds, c_funcs):
+        if epoch is None:
+            cascade = gaiamock.run_full_astrometric_cascade(
+                inc_deg=float(draw["inc_deg"]), verbose=False, show_residuals=False,
+                ruwe_min=cfg.ruwe_min, skip_acceleration=cfg.skip_acceleration, **kw,
+            )
+        else:
+            from darkhunter_pop import epoch_model as em
+            from darkhunter_pop.cascade_replay import GAIAMOCK_MIN_OBSERVATIONS, GAIAMOCK_MIN_VISIBILITY_PERIODS
+
+            def predict() -> Any:
+                return gaiamock.predict_astrometry_luminous_binary(inc=math.radians(float(draw["inc_deg"])), **kw)
+
+            def _opt(key: str) -> float | None:
+                v = draw.get(key)
+                return float(v) if v is not None and np.isfinite(float(v)) else None
+
+            source = em.SourceEpochContext(g_mag=float(draw["phot_g_mean_mag"]), l_deg=_opt("l_deg"), b_deg=_opt("b_deg"))
+            di = int(draw["draw_index"])
+            run = em.run_cascade(
+                gaiamock, c_funcs, predict, epoch.config, source,
+                epoch_rng=em.epoch_model_rng(cfg.base_seed, stream, di),
+                noise_rng=em.epoch_model_rng(cfg.base_seed, stream, di, tag=em.PER_CCD_NOISE_RNG_TAG),
+                ruwe_min=cfg.ruwe_min, skip_acceleration=cfg.skip_acceleration, gaps_jd=epoch.gaps_jd,
+            )
+            if run.n_visibility_periods < GAIAMOCK_MIN_VISIBILITY_PERIODS or run.n_obs < GAIAMOCK_MIN_OBSERVATIONS:
+                cascade = [0.0] * CASCADE_VECTOR_LENGTH
+            else:
+                cascade = run.cascade
     cpu = time.process_time() - t0
     vec = [float(v) for v in cascade] + [0.0] * (CASCADE_VECTOR_LENGTH - len(cascade))
     rec = classify_cascade_result(
