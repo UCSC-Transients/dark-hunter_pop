@@ -347,3 +347,27 @@ def test_run_cascade_disabled_equals_bare_gaiamock() -> None:
                              ruwe_min=1.4, skip_acceleration=False)
     np.testing.assert_array_equal(np.asarray(run.cascade, dtype=float), np.asarray(bare, dtype=float))
     assert run.ruwe_scale == 1.0 and run.n_obs == len(t)
+
+
+@pytest.mark.unit
+def test_u0_table_loads_and_interpolates(tmp_path: Path) -> None:
+    sec = load_config().dr3.epoch_model
+    assert sec is not None and sec.ruwe_u0 is not None
+    tab = em.load_u0_table(REPO / sec.ruwe_u0.table, sec.ruwe_u0.table_sha256)
+    assert 1.1 < tab(11.0) < 1.45 and 0.85 < tab(17.0) < 1.05
+    assert tab(2.0) == tab.u0[0] and tab(25.0) == tab.u0[-1]
+    bad = tmp_path / "u0.csv"
+    bad.write_text("# x\ng,u0\n10,1.0\n12,1.2\n")
+    t2 = em.load_u0_table(bad)
+    assert t2(11.0) == pytest.approx(1.1)
+    with pytest.raises(ValueError, match="sha256"):
+        em.load_u0_table(bad, "0" * 64)
+
+
+@pytest.mark.unit
+def test_run_cascade_k_uses_u0_when_configured() -> None:
+    cfg = _cfg()
+    tab = em.RuweU0Table(g=(10.0, 14.0), u0=(1.3, 0.95))
+    on = dataclasses.replace(cfg, ruwe_u0=tab)
+    assert em.ruwe_scale_u0(12.0, on) == pytest.approx(1.125)
+    assert em.ruwe_scale_u0(12.0, dataclasses.replace(cfg, ruwe_u0=None)) == 1.0
