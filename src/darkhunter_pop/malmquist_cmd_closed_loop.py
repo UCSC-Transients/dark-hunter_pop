@@ -95,6 +95,7 @@ class CmdUniverse:
     ebv: FloatArray
     feh: FloatArray
     log_age: FloatArray
+    evolved_true: NDArray[np.bool_]
 
 
 def _sample_primaries(
@@ -108,7 +109,7 @@ def _sample_primaries(
     pick = idx[rng.choice(idx.size, size=n, p=p)]
     return {
         "m1": m[pick], "mg": v["mg"][pick], "bp": v["bp"][pick], "rp": v["rp"][pick],
-        "feh": pts.feh[pick], "log_age": pts.log_age[pick],
+        "feh": pts.feh[pick], "log_age": pts.log_age[pick], "phase": v["phase"][pick],
     }
 
 
@@ -153,6 +154,13 @@ def make_cmd_universe(
     parts = [mcl.draw_companions(m1[a:a + mcl.COMPANION_CHUNK], target, grid1d, rng) for a in range(0, n, mcl.COMPANION_CHUNK)]
     comp = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     has = comp["has_companion"]
+    # Evolved primaries (MIST phase >= 1.5): the companion is a MS star whose G light follows the
+    # dwarf relation for M2 itself, f = L2 / L1 = 10^{-0.4 (M_G^J(M2) - M_G,1)} (spec §10.4), with
+    # the decided 0.1 dex scatter; the dwarf-relation f(M1, M2) would be ~2 dex too bright.
+    evolved_true = pr["phase"] >= 1.5
+    with np.errstate(invalid="ignore"):
+        lf_evo = -0.4 * (ps.janssens_absolute_g(comp["m2_msun"]) - pr["mg"]) + target.flux_sigma_dex * rng.standard_normal(n)
+    comp["log10_f"] = np.where(has & evolved_true, np.where(np.isfinite(lf_evo), lf_evo, -np.inf), comp["log10_f"])
     f = np.where(has, 10.0 ** comp["log10_f"], 0.0)
     bpg2, grp2 = companion_colours_true(native, pr["feh"], pr["log_age"], np.where(has, comp["m2_msun"], np.nan))
     g2 = pr["mg"] - 2.5 * np.log10(np.where(has, f, 1.0))
@@ -168,6 +176,7 @@ def make_cmd_universe(
     return CmdUniverse(
         base=u, colour_true=c_abs + cfg.dust.e_bp_rp_per_ebv * ebv, colour_abs=c_abs, mg_abs=g_sys,
         mg1_abs=pr["mg"], colour1_abs=pr["bp"] - pr["rp"], ebv=ebv, feh=pr["feh"], log_age=pr["log_age"],
+        evolved_true=evolved_true,
     )
 
 
@@ -250,7 +259,8 @@ def run_cmd_mock(
     parent = pipe.parent
     prop = mcl.closed_loop_proposal(frag, base, parent.n_rows)
     truth = ps.sample_proposal(parent, prop)
-    log_lam = ps.mds17_luminous_log_intensity(truth, frag.target_mds17)
+    # #416 / spec §10.4: CMD-evolved rows use the evolved flux relation in the target.
+    log_lam = ps.mds17_luminous_log_intensity(truth, frag.target_mds17, evolved_mg0_system=ps.evolved_mg0_for_draws(truth, parent))
     n = [prop.n_draws]
     lq = [truth["log_q_total"]]
     w = {"none": ps.importance_weights(log_lam, lq, n, scale_to_full=1.0)}
@@ -391,6 +401,14 @@ def run_cmd_closed_loop(
     pm = np.asarray(tr["period_days"], float)
     m_in = (a_mock > win.alpha0_min_mas) & (pm > win.period_min_days) & (pm < win.period_max_days)
     tables["nss_window"] = _cc(np.where(t_in, 0.5, np.nan), t_in, np.where(m_in, 0.5, np.nan), row, wk, np.array([0.0, 1.0]), n_rows)
+    # The same statistics on the rows W actually acts on (CMD non-evolved; evolved rows get W = 1).
+    dk = use & ~pipe.evolved
+    tables["dwarf_rows_binary_by_g"] = _cf(has[dk], u.g_true[pi][dk], {k: v[dk] for k, v in prow.items()}, np.asarray(an.g_bins, float))
+    wd = {k: np.where(dk[row], v, 0.0) for k, v in mock.w.items()}
+    tables["dwarf_rows_log10_f"] = _cc(u.comp["log10_f"][pi], has & dk, lf_mock, row, wd, np.asarray(an.log_f_bins, float), n_rows)
+    tables["dwarf_rows_q"] = _cc(u.comp["q"][pi], has & dk, q_mock, row, wd, np.asarray(an.q_bins, float), n_rows)
+    dtot = _cf(has[dk], np.zeros(int(dk.sum())), {k: v[dk] for k, v in prow.items()}, np.array([-1.0, 1.0]))
+    tables["dwarf_rows_total"] = dtot
     total = {"truth": tot["truth"][0], "n_rows": float(keep.sum())}
     for k in ("none", "one_d", "two_d"):
         total[k] = tot[k][0]
