@@ -371,8 +371,9 @@ under restricted permissions.
       N_vis excess +2 → 0, CCD obs / DR3 1.129 → 1.020, Orbital σ ratio 0.89 → 0.97.
     - N2-u0 bright-star noise with RUWE = UWE / u0_mock(G) (PR #422 `686a100`): calibrated and
       off. Ryan adopted it as N2d on 2026-10-03; it is enabled by PR #426, which is open.
-    - **#428:** the epoch model does not reproduce DR3's < 12-visibility-period tail. The
-      measurement is on #428.
+    - **#428:** the epoch model gives 0.10% of G < 19 stars below 12 visibility periods,
+      against DR3's 1.71% (`docs/EPOCH_MODEL_SPEC.md` §8.9). Bare gaiamock gives 0. Whether to
+      model the tail is #432.
   - **Rung 2 paused** (#391, `docs/gate391/`, PR #406 `bd08cab`). Generation 11 stopped at
     154,518 / 370,000 draws (accepted-set ESS 500, 12.3 ESS per CPU-h). Its figures are
     pre-noise-fix and pre-Malmquist: diagnostic only, never a result.
@@ -504,8 +505,8 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   Reweighting cannot fix it; the draws must be re-simulated. Run gaiamock drivers under `nice` with
   `threadpoolctl` pinning (#408). Proposal-set configs live in `config/population/`, **not**
   `config/fragments/`, which `load_config` merges.
-- gaiamock_mod gives ≥ 12 visibility periods for essentially every DR3 position. Even with the
-  epoch model the mock has almost no `insufficient_visibility` outcomes (#428), so do not expect
-  that channel from the cascade.
+- gaiamock_mod gives ≥ 12 visibility periods at every DR3 position sampled (0 / 6,000). With the
+  epoch model 0.10% of stars fall below 12, against DR3's 1.71% (#428, #432). A test or gate that
+  expects a sizeable mock `insufficient_visibility` fraction is wrong.
 - Never read `dark-hunter_rv` / `dark-hunter_sed` production output directories live — snapshot with
   a timestamp (and preserve mtimes, which the gate now orders by).

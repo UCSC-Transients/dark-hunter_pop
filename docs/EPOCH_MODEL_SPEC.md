@@ -427,6 +427,57 @@ modelled. **#403 is resolved in definition, not completely.**
 everything (`docs/gate400/README.md`, "N2-u0"), but bright NSS RUWE at 12 < G < 13 gets worse
 (1.01 → 0.91). Recommended for Ryan's decision as option **N2d**.
 
+### 8.9 The insufficient-visibility channel (#428, measured; nothing changed)
+
+gaiamock's cascade returns flag 0 when a source has fewer than 12 visibility periods or fewer than
+13 observations. DR3's NSS input has the same ≥ 12 visibility-period condition (Halbwachs et al.
+2023 §1.2). The question was whether the v2 model restores that channel.
+
+- **Script:** `scripts/measure_insufficient_visibility_428.py`, on branch
+  `fix/epoch-insuf-vis-428` @ `51841ee`. Outputs are in `output/gate428/` (gitignored);
+  `sim.jsonl` has sha256 `871632b0…44e9`.
+- **Sample:** 6,000 single stars (1,000 per G bin) and 339 binaries at the real positions and G of
+  a G-stratified subset of the `20261003T063811Z_epoch_counts_400` random slice.
+- **Run:** through `epoch_model.run_cascade`, bare gaiamock vs `dr3.epoch_model`, with `main` @
+  `4c6d509` code (`epoch_model` is unchanged at `2b2b30e`). Bright noise and u0 were off. They do
+  not change epochs.
+- **Compute:** 2 workers, `nice` 10, BLAS pinned to 1 thread.
+- **DR3 side:** the new snapshot `20261004T164505Z_visibility_428`: `gaia_source`
+  `random_index < 300000`, G < 19, **every** solution type, 96,114 rows. It was fetched with a sync
+  job, because async returned HTTP 500 on 2026-10-04. `meta.yaml` holds the ADQL and sha256.
+
+| | G < 13 | 13–15 | 15–16 | 16–17 | 17–18 | 18–19 | G < 19, G-weighted |
+|---|---|---|---|---|---|---|---|
+| DR3, all solutions: `visibility_periods_used` < 12 | 0.33% | 0.35% | 0.53% | 0.70% | 1.07% | 2.73% | **1.71%** (1,646 / 96,114) |
+| DR3, 5/6-parameter only | 0.17% | 0.25% | 0.24% | 0.45% | 0.51% | 1.21% | 0.79% |
+| mock singles, bare gaiamock (flag 0) | 0 / 1000 | 0 | 0 | 0 | 0 | 0 | **0** |
+| mock singles, v2 epoch model (flag 0) | 3 / 1000 | 1 | 0 | 1 | 1 | 1 | **0.10%** |
+| mock binaries, bare and v2 (flag 0) | 0 / 89 | 0 / 50 | 0 / 50 | 0 / 50 | 0 / 50 | 0 / 50 | 0 |
+
+- **Paired, same 6,000 stars:**
+  - DR3 has 31 stars below 12 visibility periods; v2 has 7, bare gaiamock has 0.
+  - None of v2's 7 is one of DR3's 31. For DR3's 31, v2 gives N_vis = 13–23.
+  - The model matches the *mean* (median N_vis − DR3 = 0, mean +0.25), as §8.2–8.3 found. It
+    does **not** match the low tail, which is about 4× too thin among 5/6-parameter stars.
+  - The mock never produces flag 0 from the < 13 observation condition.
+- **Where DR3's tail is.** It concentrates at faint G, low ecliptic latitude (\|β\| < 15°: 3.9%;
+  \|β\| > 45°: 0.3–0.4%) and low Galactic latitude (\|b\| < 5°: 2.5%). About 60% of DR3's
+  2-parameter solutions (1.5% of the G < 19 slice) have < 12 visibility periods.
+  - p(G, l, b) cannot carry this. Its ℓ ≤ 2 sky term is smooth, gaiamock's GOST grid is 3.7°, and
+    the clustered-loss ramp was fitted to the mean N_vis excess only.
+- **El-Badry et al. (2024)** report 3 × 10⁴ of 46 M mock binaries (0.07%) dropped for < 12
+  visibility periods.
+
+Consequences:
+
+1. The test premise "mock `insufficient_visibility` > 10%" (`tests/test_forward_model.py::
+   test_validation_gate_elbadry_prior_against_fixture`) has no support in DR3 for a G < 19
+   parent. It came from the removed `faint_draw_fraction` short circuit (#344, #368).
+2. With the epoch model, the expected mock fraction is about 0.1%. DR3's is 1.7% overall, or 0.8%
+   among 5/6-parameter solutions. So the mock over-admits about 1–2% of the G < 19 parent to the
+   NSS input, mostly faint, near the ecliptic and in the plane. Whether to model that tail is
+   **#432** (Ryan's call).
+
 ## References
 
 - Boubert, D., Everall, A. & Holl, B. 2020, "Completeness of the Gaia-verse I"

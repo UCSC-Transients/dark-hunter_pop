@@ -623,8 +623,9 @@ model), `docs/gate405/` (1-D Malmquist closed loop), `docs/gate_giants/`, `docs/
      (option N2d, calibrated and validated in #422; enabled by #426).
    `dr3.epoch_model.enabled` is true. Against #390 (`docs/gate400/`), the N_vis excess goes
    from +2 to 0, CCD observations / DR3 from 1.129 to 1.020, and the Orbital σ ratio from 0.89 to
-   0.97. **#428:** the model does not restore DR3's insufficient-visibility channel. See
-   `docs/EPOCH_MODEL_SPEC.md` for the measurement.
+   0.97. **#428:** the model matches DR3's mean N_vis but not its < 12 tail. The mock fails the
+   ≥ 12 visibility-period NSS input condition for 0.10% of G < 19 stars, against DR3's 1.71%
+   (`docs/EPOCH_MODEL_SPEC.md` §8.9; #432).
 8. **Cascade** (`gaiamock_mod.fit_full_astrometric_cascade`, `forward_model.classify_cascade_result`).
    The El-Badry et al. (2024) Eq. 18 and Eqs. 20–22 cuts give `accepted_orbital`; §5.2.1 gives
    `published_acceleration`.
