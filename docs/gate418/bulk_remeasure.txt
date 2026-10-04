@@ -1,0 +1,42 @@
+#418 bulk re-measurement: c813f90b69f58b91.h5, subsample source_id % 10 == 0 (+ known-truth BH), 70020 candidates
+
+=== TAG10 (388 s) ===
+  skipped_no_cmd: 0
+  skipped_m1_off_grid: 0
+  input_candidates: 70020
+  atmosphere_ok: 69755
+  m1_ok: 69755
+  m2_ok: 30759
+  after_m2_cut: 3811
+  skipped_no_atmosphere: 265
+  skipped_no_orbit: 38636
+  skipped_m2_failed: 0
+  skipped_no_nss_covariance: 360
+  skipped_m2_sigma_failed: 0
+  m2_mc_cholesky_nugget: 0
+  m2_mc_eigen_clip: 0
+  M2 pre-cut percentiles 5/16/50/84/95: [0.156, 0.261, 0.443, 0.613, 0.817]
+  Gaia-BH1: {"in_artifact": true, "skip_reason": null, "m2_pre_cut": 12.582, "published_m1": 0.93, "published_m1_sigma": 0.05, "m1": 0.819, "m1_sigma": 0.1005, "m2": 12.582, "m2_sigma": 2.7748}
+  Gaia-BH2: {"in_artifact": true, "skip_reason": null, "m2_pre_cut": 8.0626, "published_m1": 1.07, "published_m1_sigma": 0.19, "m1": 0.7699, "m1_sigma": 0.1599, "m2": 8.0626, "m2_sigma": 0.5665}
+  Gaia-BH3: {"in_artifact": false}
+
+=== MIST_isochrone (435 s) ===
+  skipped_no_cmd: 419
+  skipped_m1_off_grid: 7784
+  input_candidates: 70020
+  atmosphere_ok: 69601
+  m1_ok: 61817
+  m2_ok: 28673
+  after_m2_cut: 3957
+  skipped_no_atmosphere: 0
+  skipped_no_orbit: 32807
+  skipped_m2_failed: 0
+  skipped_no_nss_covariance: 337
+  skipped_m2_sigma_failed: 0
+  m2_mc_cholesky_nugget: 0
+  m2_mc_eigen_clip: 0
+  M2 pre-cut percentiles 5/16/50/84/95: [0.178, 0.301, 0.498, 0.68, 0.947]
+  Gaia-BH1: {"in_artifact": true, "skip_reason": null, "m2_pre_cut": 12.836, "published_m1": 0.93, "published_m1_sigma": 0.05, "m1": 0.9728, "m1_sigma": 0.0719, "m2": 12.836, "m2_sigma": 2.7805}
+  Gaia-BH2: {"in_artifact": true, "skip_reason": null, "m2_pre_cut": 8.5092, "published_m1": 1.07, "published_m1_sigma": 0.19, "m1": 1.0673, "m1_sigma": 0.0692, "m2": 8.5092, "m2_sigma": 0.5251}
+  Gaia-BH3: {"in_artifact": false}
+

@@ -24,6 +24,11 @@ systems:
     # El-Badry et al. 2023a, MNRAS 518, 1057: M_BH = 9.62 +/- 0.18 Msun (joint RV + astrometry).
     published_m2_msun: 9.62
     published_m2_sigma_msun: 0.18
+    # #418: luminous-star mass from the same paper (spectroscopic + isochrone): 0.93 +/- 0.05 Msun.
+    # Read only by the isochrone-M1 re-measurement (scripts/remeasure_bulk_isochrone_m1.py);
+    # benchmarks.py ignores these keys.
+    published_m1_msun: 0.93
+    published_m1_sigma_msun: 0.05
     literature:
       citation: "El-Badry et al. 2023a, MNRAS (Gaia BH1)"
       designation: "Gaia DR3 4373465352415301632"
@@ -37,6 +42,9 @@ systems:
     # El-Badry et al. 2023b, MNRAS 521, 4323: M_BH = 8.94 +/- 0.34 Msun.
     published_m2_msun: 8.94
     published_m2_sigma_msun: 0.34
+    # #418: luminous giant's mass, El-Badry et al. 2023b: 1.07 +/- 0.19 Msun (see Gaia-BH1 note).
+    published_m1_msun: 1.07
+    published_m1_sigma_msun: 0.19
     literature:
       citation: "El-Badry et al. 2023b, MNRAS (Gaia BH2)"
       designation: "Gaia DR3 5870569352746779008"
@@ -51,6 +59,9 @@ systems:
     # No DR3 NSS orbit, so no pipeline M2 is expected; checked only if a row appears.
     published_m2_msun: 32.70
     published_m2_sigma_msun: 0.82
+    # #418: luminous giant's mass, Panuzzo et al. 2024: 0.76 +/- 0.05 Msun (see Gaia-BH1 note).
+    published_m1_msun: 0.76
+    published_m1_sigma_msun: 0.05
     literature:
       citation: "Gaia Collaboration, Panuzzo et al. 2024, A&A 686, L2"
       designation: "Gaia DR3 4318465066420528000"

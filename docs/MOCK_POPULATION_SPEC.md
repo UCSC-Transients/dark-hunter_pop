@@ -98,6 +98,23 @@ the MP-Q25 fit of §0.2 (its procedure is superseded by the ridge calibration, �
 blended-light bias ignored) is superseded by §11.3. Literature reproduction paths keep their own M1
 (column ownership; CLAUDE.md).
 
+### 0.4 Decisions of 2026-10-04 on the §11 options (Ryan, #418)
+
+Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/418#issuecomment-5982025304. The implementation plan is §11.9.
+
+| Question | Decision |
+|---|---|
+| MP-Q39 | `mist_density_ridge_anchored` |
+| MP-Q37 | the companion and the primary are **coeval**: they share the same age and [Fe/H] draw; no fiducial isochrone |
+| MP-Q36 | re-fit the deblended primary per draw. Given q and the shared age and [Fe/H], solve on the coeval MIST isochrone for the primary mass whose combined G and BP−RP match the observed system. Keep it cheap; an SED fit can come later |
+| MP-Q35 | one posterior draw of the primary per proposal draw |
+| MP-Q34 | try per-star BP/RP flux errors. Reddening errors are poorly known and 3-D extinction is needed: evaluate Bayestar19 posterior samples and Edenhofer et al. (2024) for an E(B−V) uncertainty |
+| MP-Q33 | GSP-Phot [M/H] with the Andrae et al. (2023) calibration where it is reliable, else a solar-neighbourhood MDF |
+| MP-Q38 | first determine what the blue rows are |
+| MP-Q28d | extend the proposal's support for evolved rows |
+| pipeline | use isochrone M1 in the pipeline: flip `mass_calibration.method: MIST_isochrone` once #425 is fixed |
+| validation | download DEBCat and APOKASC-3 (approved by Ryan in the issue) |
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -602,7 +619,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11)
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11, decided §0.4; MP-Q40 open, §11.9)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -1378,6 +1395,78 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
 - The age prior (constant SFR) and the IMF (Kroupa 2001) are standard choices and are config. They
   are listed so they can be revisited: Chabrier (2003), or a declining SFR.
 
+### 11.9 Implementing the 2026-10-04 decisions (§0.4)
+
+**Coeval companion colours (MP-Q37).** In W (§11.4), the companion's (BP − G, G − RP) at M2, and the system's single-star colour–colour relation h(C), come from the MIST MS of the row's own isochrone, not from a fiducial one.
+
+- **Per row.** That isochrone sits at the row's posterior ⟨[Fe/H]⟩ (linear between the bracketing files) and its nearest grid age to ⟨log age⟩, from `isochrone_mass`. Z_s is per row, so the per-row isochrone is exact for Z_s.
+- **Per draw.** Under MP-Q35, the per-draw L uses the same (age, [Fe/H]) that the draw's primary carries.
+- **Closed loop.** The synthetic universe already gives the companion its primary's own age and [Fe/H].
+
+**Posterior draw and deblending (MP-Q35, MP-Q36; generation-time).** Each proposal draw i on row s carries a posterior draw ψ_i = (age, [Fe/H], M̂1,i) of the single-star isochrone posterior p₁(ψ | o_s).
+
+- **Sampling.** Sample a (C0, M_G0) cell of the prior map with probability proportional to its weight times the row's kernel; then sample a prior point within that cell by its weight. This is exact up to the map's cloud-in-cell binning.
+- **Companion.** Given the drawn q, f and the coeval isochrone I(age, [Fe/H]), the companion is the MIST MS star at M2 = q M1. It contributes a fraction f of the primary's G light, with its BP − G and G − RP from I.
+- **Deblending.** The truth M1 minimizes, along I's EEP sequence (linear between EEPs),
+
+  χ²(M1) = [(G_comb − G_sys) / σ_M]² + [(C_comb − C_sys) / σ_C]²
+
+  with G_comb = M_G(M1) − 2.5 log10(1 + f) and C_comb the flux-summed BP − RP. The search is cheap: interpolation only, no SED fit.
+- **Truth and record.** gaiamock gets M1 = M1,deblended and M2 = q M1,deblended. Both M1,deblended and M̂1,i are stored, together with χ²_min.
+- **Dark companions** (f = 0): the deblended mass is the single-star solution on I.
+- **Measure.** The proposal draws q (not M2), with its density evaluated at the row's M̂1. Target and proposal are both per dex of q, so the change of truth M1 does not enter the weight's Jacobian.
+
+The weight under posterior draws follows from writing the target over (ψ, c), t(ψ, c) ∝ φ(ψ) π(c | ψ) p(o_s | ψ, c), and the proposal as p₁(ψ | o_s) q(c). That gives
+
+  w ∝ π(c | ψ) [p(o_s | ψ, c) / p(o_s | ψ, ∅)] / q(c),
+
+normalized per row. In that ratio, ψ is evaluated with M1 profiled along the coeval isochrone, which is the deblending. **This profile approximation (A1″) replaces A1′ of §11.3, and the closed loop must validate it.**
+
+- **Open (MP-Q40).** The drawn f, scattered about the decided Janssens relation (MP-Q13), sets the companion's G light, and BP − RP then tests consistency. The literal alternative takes f from MIST at (M1, q M1) on I. That makes f deterministic and supersedes MP-Q13 for main-sequence companions, so it needs Ryan's call.
+
+**[Fe/H] (MP-Q33).**
+- **Solar-neighbourhood MDF prior:** [Fe/H] ~ N(−0.06, 0.22). This is the Casagrande et al. (2011, Table 1, irfm sample of 5,976 stars; [M/H] has mean −0.02 and σ 0.19). It replaces the provisional N(−0.1, 0.25).
+- **The calibration.** The Andrae et al. (2023, §3.5.3) GSP-Phot [M/H] calibration is a MARS model trained on LAMOST DR6. It is distributed as `gdr3apcal` (https://github.com/mpi-astronomy/gdr3apcal).
+  - **Inputs:** `teff_gspphot`, `logg_gspphot`, `mh_gspphot`, `azero_gspphot`, `ebpminrp_gspphot`, `ag_gspphot`, `mg_gspphot`, `libname_gspphot` and the position.
+  - **Validity, as the tool states it:** Teff 3800–8500 K and [Fe/H] −2.5 to +1, MARCS or PHOENIX libraries only, poor at high extinction. Andrae et al. validated it on cluster members with ϖ/σ_ϖ ≥ 10 and 4000 ≤ Teff ≤ 6500 K.
+  - **The reliability cut is that intersection:** ϖ/σ_ϖ ≥ 10, 4000–6500 K, MARCS or PHOENIX, and A0 below a configured ceiling.
+  - **Likelihood:** N([Fe/H]_cal; [Fe/H], σ_cal) per [Fe/H] layer of the map, with σ_cal measured on the calibration's own residuals.
+  - **Two prerequisites, both needing approval.** (i) Installing `gdr3apcal` (a new dependency) in the shared `.venv`. (ii) A re-query of the five extra GSP-Phot columns for the parent and the real rows (a new snapshot). Until then, the MDF prior applies everywhere.
+
+**Blue rows (MP-Q38): measured, the treatment is Ryan's.** Of 208,292 parent rows with a CMD, 10,367 have C0 < 0.35.
+
+| | blue rows | other rows |
+|---|---|---|
+| \|b\| median | 2.0° | 8.5° |
+| Combined19 E(B−V) median | 1.0 | 0.25 |
+| E(BP−RP) median | 1.52 | — |
+| distance median | 3.6 kpc | 2.3 kpc |
+| observed BP−RP median | 1.61 | — |
+| ϖ/σ_ϖ median | 3.1 | — |
+
+- **Most are reddened Galactic-plane stars that the map over-corrects**, not intrinsically blue stars. Only 297 are bluer than 0.35 before dereddening. GSP-Phot gives a median T_eff of 4,980 K.
+- About 2,180 have GSP-Phot T_eff > 7,000 K (161 above 10,000 K), so they are candidate genuine A/F or hotter stars.
+- 184 sit in the sdB/sdO region of the CMD (4.5 ≤ M_G0 < 7) and 49 in the white-dwarf region (M_G0 ≥ 7).
+- So MP-Q38 is mostly an extinction-error question (MP-Q34). No external catalogue was cross-matched.
+
+**Proposal support for evolved rows (MP-Q28d).** For rows flagged evolved, the flux proposal's relation component is centred on the §10.4 evolved relation, `giants.evolved_log10_flux_ratio(M2, M_G0,sys)`, instead of the dwarf relation. `log_f_min` is lowered to −7. The proposal density is evaluated with the same per-row centre, so the weights stay exact. This is a proposal-only change: generation-time for coverage, with no target change.
+
+**Pipeline (§11.7).** The switch flips to `MIST_isochrone` once #425 is fixed:
+
+- **(a) Column ownership in `sample_selection`.** The stage's bulk enrichment writes only `pipeline_*` columns (`pipeline_m1_msun`, `pipeline_m2_msun`, `pipeline_sigma_m2_msun`). It never writes a column a literature sample owns (`m1_msun`, `m2_msun`, `m2_tilde_msun`, `sigma_m2_msun`), and the forward-model cut chains read the `pipeline_*` names. Reproduction counts must not change.
+- **(b) Andrews forward-model pass-2 M1** (`pipeline_tag10_bulk`). It keeps TAG10 by name, calling TAG10 explicitly regardless of `mass_calibration.method`. A new method value, `pipeline_bulk`, reads the run's bulk M1 under either method. Which one the Andrews forward model uses is Ryan's call; until then it stays at TAG10, so its counts do not move.
+
+After the flip, re-measure the reproduction counts end to end (they must be unchanged), the bulk funnel, and BH1 and BH2 known truth.
+
+**Dust maps and per-star photometric errors (MP-Q34): evaluation only, no switch without asking.**
+- **Flux errors.** The flux-error columns (`phot_bp_mean_flux_over_error`, `phot_rp_mean_flux_over_error`) need a parent re-query.
+- **Candidate maps:**
+  - Bayestar19 (Green et al. 2019): 3-D, covers dec ≳ −30°, posterior samples per sightline, through `dustmaps` or `mwdust`.
+  - Edenhofer et al. (2024): 3-D, all-sky out to about 1.25 kpc (2 kpc in its extended version), posterior samples.
+
+  Both are multi-GB downloads.
+- **The trade.** Combined19 stitches Marshall et al. (2006), Green et al. (2019) and Drimmel et al. (2003), and publishes no per-sightline error. A posterior-sample map gives σ_E(B−V) directly but covers less of the parent: Bayestar19 misses the southern sky, and Edenhofer is distance-limited. Coverage fractions are to be measured on the parent once the maps are available.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
@@ -1387,7 +1476,9 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
 - Bailer-Jones, C. A. L. et al. 2021, AJ 161, 147.
 - Boubert, D. & Everall, A. 2020, MNRAS 497, 4246 (Completeness of the Gaia-verse II).
 - Cantat-Gaudin, T. et al. 2023, A&A 669, A55 (empirical Gaia DR3 selection function; `gaiaunlimited`).
-- Casagrande, L. et al. 2011, A&A 530, A138 (Geneva–Copenhagen re-analysis; solar-neighbourhood MDF).
+- Casagrande, L. et al. 2011, A&A 530, A138 (Geneva–Copenhagen re-analysis; solar-neighbourhood MDF, Table 1).
+- Drimmel, R. et al. 2003, A&A 409, 205 (3-D dust model, part of Combined19).
+- Edenhofer, G. et al. 2024, A&A 685, A82 (3-D dust map with posterior samples).
 - Castro-Ginard, A. et al. 2024, A&A 688, A1 (RUWE detectability of unresolved binaries).
 - Chiavassa, A. et al. 2011, A&A 528, A120 (convection-driven photocentre jitter).
 - Choi, J. et al. 2016, ApJ 823, 102 (MIST).
@@ -1401,11 +1492,13 @@ A pipeline design change, docs-first in `docs/ARCHITECTURE.md` (`mass_derivation
 - Fabricius, C. et al. 2021, A&A 649, A5 (Gaia EDR3 catalogue validation).
 - Gaia Collaboration, Arenou, F. et al. 2023, A&A 674, A34.
 - Halbwachs, J.-L. et al. 2023, A&A 674, A9 (arXiv:2206.05726).
+- Green, G. M. et al. 2019, ApJ 887, 93 (Bayestar19).
 - Hayden, M. R. et al. 2015, ApJ 808, 132 (APOGEE MDFs across the disk).
 - Hesterberg, T. 1995, Technometrics 37, 185.
 - Janssens, S. et al. 2022, A&A 658, A129.
 - Kjeldsen, H. & Bedding, T. R. 1995, A&A 293, 87 (asteroseismic scaling relations).
 - Kroupa, P. 2001, MNRAS 322, 231 (IMF).
+- Marshall, D. J. et al. 2006, A&A 453, 635 (3-D extinction in the inner Galaxy, part of Combined19).
 - Miglio, A. et al. 2012, MNRAS 419, 2077 (RGB mass loss, NGC 6791 / 6819).
 - Moe, M. & Di Stefano, R. 2017, ApJS 230, 15 (arXiv:1606.05347).
 - Öpik, E. 1923, Publ. Tartu Obs. 25, 6.

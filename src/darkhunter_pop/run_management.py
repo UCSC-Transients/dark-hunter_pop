@@ -134,6 +134,14 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "darkhunter_pop.rv_adapter",
                 "darkhunter_pop.run_validity",
                 "darkhunter_pop.sensitivity_analysis",
+                # #418: MIST_isochrone M1 (lazy imports in mass_derivation).
+                "darkhunter_pop.isochrone_mass",
+                "darkhunter_pop.giants",
+                # giants.cmd_for_rows -> the Babusiaux et al. (2018) law (lazy import).
+                "darkhunter_pop.elbadry2026_selection",
+                "darkhunter_pop.dust_maps",
+                "darkhunter_pop.janssens_mass",
+                "darkhunter_pop.sample_selection",
             ),
             config_keys=(
                 "mass_calibration",
@@ -142,6 +150,16 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 "classification.n_sigma_mass_cut",
                 # #374: bulk sigma_M2 is the shared full-covariance MC.
                 "mc_mass_function",
+                # #418: isochrone M1 settings (not mist_root / cache_subdir: host paths) and the
+                # extinction law of the dereddened CMD.
+                "isochrone_mass.grid",
+                "isochrone_mass.cmd_map",
+                "isochrone_mass.imf",
+                "isochrone_mass.age",
+                "isochrone_mass.provisional_feh_prior",
+                "isochrone_mass.likelihood",
+                "isochrone_mass.provisional_point_estimate",
+                "sample_selection.dust_maps",
             ),
             uses_gaiamock=True,
         ),
