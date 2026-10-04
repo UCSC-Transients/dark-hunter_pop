@@ -205,7 +205,8 @@ def main(argv: list[str] | None = None) -> int:
               "lt12 model/dr3", round(r["tails_random"]["all"]["model_lt12"], 4), round(r["tails_random"]["all"]["dr3_lt12"], 4),
               flush=True)
     Path(args.out).mkdir(parents=True, exist_ok=True)
-    (Path(args.out) / "vp_tail_fit.json").write_text(json.dumps(results, indent=1, default=float))
+    tag = "_".join(args.variants)
+    (Path(args.out) / f"vp_tail_fit_{tag}.json").write_text(json.dumps(results, indent=1, default=float))
     return 0
 
 

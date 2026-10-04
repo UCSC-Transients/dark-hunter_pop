@@ -248,7 +248,7 @@ def cmd_single(args: argparse.Namespace) -> None:
     import h5py
 
     _, initargs = _common(args)
-    with h5py.File(Path(args.snapshot) / "random.h5", "r") as f:
+    with h5py.File(Path(args.snapshot) / args.table, "r") as f:
         d = {k: f[k][:] for k in ("source_id", "ra", "dec", "phot_g_mean_mag")}
     rng = np.random.default_rng(args.seed)
     idx = np.sort(rng.choice(d["source_id"].size, min(args.n, d["source_id"].size), replace=False))
@@ -315,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--snapshot", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400"))
     p.add_argument("--out", default=str(P / "output/gate400/validation_v2"))
     p.add_argument("--n", type=int, default=20000)
+    p.add_argument("--table", default="random.h5", help="snapshot table (random_all_params.h5 for the #428 snapshot)")
     p.add_argument("--seed", type=int, default=4001)
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--variants", nargs="+", default=["v2", "v2_n2"],
