@@ -2,9 +2,10 @@
 
 Issues #400 (+2 visibility periods) and #398's epoch-count term (~11–13% more transits and CCD
 observations than DR3; `docs/gate399/README.md`). The model and its calibration are specified
-in `docs/EPOCH_MODEL_SPEC.md`. **The model is implemented, calibrated and off**
-(`dr3.epoch_model.enabled: false`). Every modelling choice the data and papers do not settle
-is listed for Ryan (spec §6). None has been chosen.
+in `docs/EPOCH_MODEL_SPEC.md`. After Ryan's 2026-10-03 decisions, the **v2** model (spec §8)
+is **on** (`dr3.epoch_model.enabled: true`). The bright-star N2 noise was tried and is **not
+adopted**, because it breaks the bright NSS RUWE. See "v2" below. The v1 sections that follow
+are the #412 record.
 
 ## Summary
 
@@ -18,7 +19,77 @@ is listed for Ryan (spec §6). None has been chosen.
 | on the data | NSS: mean transits 48.3 vs DR3 48.6 (GOST 54.0); mean N_vis 23.14 vs 23.15 (GOST 25.40) |
 | validation (#390 set, 3,888 realizations) | Orbital σ ratio 0.89 → **0.98** (ϖ, a0), 0.87 → 0.97 (P); at G ≥ 13 **1.02–1.04**; CCD obs / DR3 1.129 → **1.004**; N_vis excess median +2 → **0** (mean +2.23 → −0.07); long-P acceleration capture **unchanged** (0.234 → 0.239); the El-Badry G < 13 U(0, 0.04) mas term is far too small to reproduce DR3's bright-star F2 |
 
-## Measurement
+## v2 (Ryan's decisions, 2026-10-03)
+
+The v2 model is calibrated on NSS stars (E6), continuous in G (E7), uses a Galactic ℓ ≤ 2 sky
+term (E3) and clustered faint-star losses (E4), and is on (E1). Spec §8. Fit:
+`scripts/calibrate_epoch_model_400.py keep | noise` → `output/gate400/v2/{keep_fit,noise_fit}.json`.
+
+| decision | result |
+|---|---|
+| E6 circularity | **Selection on N:** none measurable. The NSS keep fraction at fixed G does not rise toward threshold (13–15: 0.975 / 0.966 / 0.973 / 0.979 for s/threshold 1–1.5 / 1.5–2 / 2–4 / > 4). **Companion-induced loss:** keep falls with RUWE (13–15: 0.982 at 1.4–2 → 0.955 at > 5), c = −0.0157 ± 0.0033 per ln RUWE. The adopted model is the NSS keep **at RUWE = 1.4**: the star's own loss, without its companion's |
+| E7 | cubic beats 8 G bins on NSS by ΔQAIC = 24 with half the parameters; jointly, poly4 beats 11 bins by ΔQAIC = 35. Observed/model per G bin is 0.98–1.02 at G 9–19. **Adopted: degree 4** |
+| E3 | sky-blocked 5-fold CV picks **ℓmax = 2** (deviance 33186 vs 33215 at ℓ = 0 and 34481 at ℓ = 8; QAIC alone would keep adding harmonics, which is local overfitting). Sky rms 0.015 in log keep. **Not GOST-grid aliasing:** with an interpolated GOST denominator the sky term is unchanged (correlation 0.976) while φ falls from 2.05 to 1.46, and the grid-error proxy projects only 0.0028 rms onto ℓ ≤ 2 |
+| E4 | with independent loss, random stars keep a N_vis excess of +0.09 / +0.24 / +0.29 / +0.40 (G 15–16 / 16–17 / 17–18 / 18–19). Episodes carrying f = 0.25 / 0.5 / 0.5 / 0.5 of the loss remove it (\|excess\| ≤ 0.03). Adopted ramp 0 → 0.5 between G = 14.5 and 16.5. **τ is not constrained by N_vis** (flat for 0.5–8 d). The epoch-time snapshot needed for the gap-length distribution could not be fetched: the Gaia archive returned HTTP 500, statement timeouts or socket timeouts on all 10 attempts, 10:13–16:18 PDT. **τ = 2 d is provisional** (option T1) |
+| E1 | on |
+| N2 | per-CCD white noise r²(G) = median(c²) − 1 of DR3 Orbital fits (0.38–0.96 at G < 13), RUWE renormalised by √(1 + r²). **Not adopted** (below) |
+
+On the calibration data, one model draw per star with no per-star lookup
+(`figures/model_counts_vs_dr3.png`): NSS mean transits are 1.011 × DR3 and mean N_vis 23.26 vs
+23.15. For random stars it is 1.017 × and 20.32 vs 20.06. Both residuals come from the level
+choices: RUWE = 1.4 for NSS, and the NSS level for random stars (offset δ = −1.3%).
+
+### v2 validation (#390 set, 1,296 × 3, #390 seeds; single-star RUWE on 20,000 random stars)
+
+`scripts/validate_epoch_model_v2_400.py inject | single` → `output/gate400/validation_v2/`
+(`inject.jsonl` sha256 `fa7a839c…82a7`, `single.jsonl` `8adfae97…a06b`). There were 0 errors.
+BLAS was pinned to 1 thread in every worker (threadpoolctl 3.7.0; each record carries
+`blas_threads = [1]`), and the runs used `nice` and 6 workers. Orbital, medians:
+
+| | #390 baseline | v1 (#412) | **v2 (adopted)** | v2 + N2 |
+|---|---|---|---|---|
+| σ_ϖ / σ_a0 / σ_P / σ_e | 0.89 / 0.90 / 0.87 / 0.88 | 0.98 / 0.98 / 0.97 / 0.97 | **0.97 / 0.96 / 0.95 / 0.95** | 1.02 / 1.03 / 1.03 / 1.01 |
+| σ_ϖ, G < 13 / G ≥ 13 | 0.79 / 0.94 | 0.87 / 1.03 | **0.85 / 1.01** | 1.06 / 1.01 |
+| a0/σ_a0 (all orbit fits) | 1.079 | 0.976 | **0.989** | 0.931 |
+| F2 recovered − published | −1.15 | −1.20 | −1.21 | +0.25 |
+| F2 at G < 11 / 11–12 / 12–13 (DR3 8.5 / 8.5 / 5.7) | 0.7 / 0.3 / 0.2 | 0.3 / 0.4 / 0.3 | 0.4 / 0.2 / 0.3 | **8.8 / 9.2 / 6.1** |
+| RUWE rec/pub, all | 0.991 | | **0.988** | 0.952 |
+| RUWE rec/pub at G < 11 / 11–12 / 12–13 | 1.10 / 1.14 / 1.02 | | 1.09 / 1.14 / 1.01 | **0.87 / 0.91 / 0.87** (not renormalised: 1.14 / 1.22 / 1.05) |
+| N_vis − DR3, median / mean | +2 / +2.23 | 0 / −0.07 | **0 / +0.06** | same epochs |
+| CCD obs / DR3 n_good | 1.129 | 1.004 | **1.020** | same |
+| transits / DR3 | 1.114 | 1.000 | **1.000** | same |
+| accepted | 0.741 | 0.679 | **0.682** | 0.661 |
+| P > 600 d capture | 0.234 | 0.239 | **0.237** | 0.221 |
+
+Single stars (`figures/single_star_ruwe.png`), RUWE median (16–84%) at G < 13:
+
+| | median (16–84%) |
+|---|---|
+| DR3 | 1.053 (0.91–1.50); its tail includes real binaries |
+| gaiamock | 0.997 (0.88–1.15) |
+| v2 | 1.009 (0.88–1.14) |
+| v2 + N2, renormalised | 1.001 (0.92–1.09) |
+| v2 + N2, not renormalised | **1.28**, with 18.5% > 1.4 |
+
+At G ≥ 13 the variants are identical (median 0.991–0.995 against DR3 1.015–1.017). The single-star
+N_vis excess with v2 is +0.12 (13–17) and +0.25 (17–19), against +2.0 to +2.3 for gaiamock.
+
+**N2 verdict (Ryan's condition): no single noise term satisfies everything.** Per-CCD noise
+calibrated to DR3's c matches F2 at G < 13 (8.8 / 9.2 / 6.1 against 8.5 / 8.5 / 5.7) and closes
+the bright σ deficit (0.85 → 1.06). Then:
+
+- **With RUWE renormalised** (needed for single stars: median 1.00), bright NSS RUWE drops to
+  0.87–0.91 × published. Significance falls to 0.93, acceptance to 0.661, and the
+  astrometry-only AstroSpectroSB1 σ ratio rises to 1.3–1.5 at G < 13.
+- **Without renormalisation**, single bright stars sit at RUWE 1.28.
+
+DR3's bright stars carry a residual excess in the NSS fits (F2 ≈ 8) that is not visible as
+extra RUWE for the same binaries. That points to a difference between the AGIS and NSS error
+models, which a single noise term added to the data cannot reproduce.
+`dr3.epoch_model.bright_excess_noise.enabled` is therefore **false**. The options are in spec
+§8.6 (N2a–N2c).
+
+## Measurement (v1, #412)
 
 `scripts/fetch_epoch_count_sample.py` → snapshot `20261003T063811Z_epoch_counts_400`
 (94,635 random G < 19 stars, 16,930 NSS, the 1,296 #390 systems, a level-5 density map; ADQL,
@@ -155,5 +226,6 @@ $PY scripts/plot_epoch_model_400.py validation --inj390 output/gate390/injection
 - `figures/keep_vs_covariates.png`: the same vs density, |b|, |β| and scan-direction strength.
 - `figures/model_counts_vs_dr3.png`: transits and N_vis from one model draw per star vs DR3 and GOST.
 - `figures/gap_fraction_sky.png`: fraction of GOST transits inside the published gaps.
-- `figures/validation_*.png`: the #390 re-run.
+- `figures/validation_*.png`: the #390 re-runs (v1 and v2; `validation_n2_f2_ruwe.png` is the N2 check).
+- `figures/single_star_ruwe.png`: the single-star RUWE check.
 - `figures/summary.json`: every number above.
