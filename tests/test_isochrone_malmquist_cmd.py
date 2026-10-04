@@ -379,3 +379,46 @@ def test_evolved_flux_proposal_centre_is_used_by_sampler_and_density() -> None:
     near = np.abs(truth["log10_flux_ratio"][sel] - centre) < 0.6
     assert near.mean() > 0.7  # most evolved-row luminous draws sit on the evolved relation
     _ = replace
+
+
+def _toy_iso() -> dict[str, np.ndarray]:
+    m = np.linspace(0.1, 1.2, 400)
+    c = 0.3 + 2.2 * (1.0 - np.clip(m, 0.1, 1.0))
+    mg = 2.0 + 3.5 * c
+    return {"star_mass": m, "mg": mg, "bp": mg + 0.4 * c, "rp": mg - 0.6 * c, "phase": np.zeros(m.size)}
+
+
+@pytest.mark.unit
+def test_deblend_recovers_the_primary_of_a_synthetic_binary() -> None:
+    """MP-Q36: build a system from primary M1 = 0.8 and a coeval companion (q, f); the
+    deblending on the same isochrone returns M1 (single stars return their own mass)."""
+    iso = _toy_iso()
+    fl = lambda x: 10.0 ** (-0.4 * x)  # noqa: E731
+    m1, q, f = 0.8, 0.7, 0.4
+    i1 = int(np.argmin(np.abs(iso["star_mass"] - m1)))
+    i2 = int(np.argmin(np.abs(iso["star_mass"] - q * iso["star_mass"][i1])))
+    g1, bp1, rp1 = iso["mg"][i1], iso["bp"][i1], iso["rp"][i1]
+    g2 = g1 - 2.5 * np.log10(f)
+    bp2 = g2 + (iso["bp"][i2] - iso["mg"][i2])
+    rp2 = g2 - (iso["mg"][i2] - iso["rp"][i2])
+    gs = -2.5 * np.log10(fl(g1) + fl(g2))
+    cs = -2.5 * np.log10(fl(bp1) + fl(bp2)) + 2.5 * np.log10(fl(rp1) + fl(rp2))
+    mm, chi2 = im.deblend_primary_mass(iso, np.array([cs, iso["bp"][i1] - iso["rp"][i1]]), np.array([gs, g1]),
+                                       np.full(2, 0.02), np.full(2, 0.05), np.array([q, 0.5]),
+                                       np.array([np.log10(f), -np.inf]))
+    assert mm[0] == pytest.approx(iso["star_mass"][i1], abs=0.01)
+    assert mm[1] == pytest.approx(iso["star_mass"][i1], abs=0.01)
+    assert chi2[0] < 1.0 and chi2[1] < 1.0
+
+
+@pytest.mark.unit
+def test_posterior_sampler_draws_near_the_star() -> None:
+    pts = _toy_points()
+    cmapcfg = im.CmdMapConfig(colour_min=0.0, colour_max=3.0, mag_min=0.0, mag_max=14.0)
+    smp = im.PosteriorSampler.build(pts, cmapcfg)
+    c = np.full(2000, 0.3 + 2.2 * 0.4)  # true mass 0.6
+    m = 2.0 + 3.5 * c
+    d = smp.sample(c, m, np.full(c.size, 0.02), np.full(c.size, 0.05), np.random.default_rng(3))
+    assert np.all(np.isfinite(d["m1"]))
+    assert np.median(d["m1"]) == pytest.approx(0.6, abs=0.01)
+    assert 0.003 < np.std(d["m1"]) < 0.03

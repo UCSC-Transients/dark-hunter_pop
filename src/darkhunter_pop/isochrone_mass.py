@@ -782,3 +782,177 @@ def summary_for_report(post: IsochronePosterior) -> Mapping[str, Any]:
         "m1_percentiles_1_5_25_50_75_95_99": [float(x) for x in np.percentile(m, [1, 5, 25, 50, 75, 95, 99])] if m.size else [],
         "median_sigma_log_m1": float(np.nanmedian(post.log_m1_sigma)) if m.size else math.nan,
     }
+
+
+# ---------------------------------------------------------------------------
+# Posterior draws and coeval deblending (MP-Q35, MP-Q36; spec §0.4, §11.9)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PosteriorSampler:
+    """Draws from the single-star isochrone posterior p₁(ψ | y) (spec §11.9).
+
+    Prior points are binned to the nearest cell of the CMD map (``cell``); a draw picks a cell
+    with probability ∝ (cell prior weight) × (cell-integrated likelihood kernel), then a point
+    inside the cell ∝ its prior weight. Exact up to the map's binning. Stored per point:
+    [Fe/H], log age and current mass (float32).
+    """
+
+    colour_edges: FloatArray
+    mag_edges: FloatArray
+    cell_weight: FloatArray  # (nc, nm)
+    order: NDArray[np.int64]  # point indices sorted by cell
+    cell_start: NDArray[np.int64]  # CSR offsets into ``order`` (nc*nm + 1)
+    cum_weight: FloatArray  # cumulative point weight in ``order``
+    feh: NDArray[np.float32]
+    log_age: NDArray[np.float32]
+    mass: NDArray[np.float32]
+    phase: NDArray[np.float32]
+
+    @classmethod
+    def build(cls, pts: PriorPoints, cfg: CmdMapConfig) -> PosteriorSampler:
+        ce = np.arange(cfg.colour_min, cfg.colour_max + 0.5 * cfg.colour_step, cfg.colour_step)
+        me = np.arange(cfg.mag_min, cfg.mag_max + 0.5 * cfg.mag_step, cfg.mag_step)
+        nc, nm = ce.size - 1, me.size - 1
+        i = np.floor((pts.colour - ce[0]) / cfg.colour_step).astype(np.int64)
+        j = np.floor((pts.mg - me[0]) / cfg.mag_step).astype(np.int64)
+        inside = (i >= 0) & (i < nc) & (j >= 0) & (j < nm)
+        cell = np.where(inside, i * nm + j, -1)
+        keep = np.flatnonzero(inside)
+        order = keep[np.argsort(cell[keep], kind="stable")]
+        counts = np.bincount(cell[order], minlength=nc * nm)
+        start = np.concatenate([[0], np.cumsum(counts)])
+        w = pts.weight[order]
+        cw = np.bincount(cell[order], weights=w, minlength=nc * nm).reshape(nc, nm)
+        return cls(
+            colour_edges=ce, mag_edges=me, cell_weight=cw, order=order, cell_start=start,
+            cum_weight=np.cumsum(w), feh=pts.feh.astype(np.float32), log_age=pts.log_age.astype(np.float32),
+            mass=pts.values["star_mass"].astype(np.float32), phase=pts.values["phase"].astype(np.float32),
+        )
+
+    def sample(
+        self,
+        colour0: ArrayLike,
+        mg0: ArrayLike,
+        sigma_colour: ArrayLike,
+        sigma_mag: ArrayLike,
+        rng: np.random.Generator,
+        *,
+        kernel_n_sigma: float = 6.0,
+        chunk: int = 256,
+    ) -> dict[str, FloatArray]:
+        """One posterior draw per input row: ``feh``, ``log_age``, ``m1`` (NaN where the
+        prior-predictive mass in the kernel window is zero)."""
+        c = np.asarray(colour0, float)
+        m = np.asarray(mg0, float)
+        sc = np.broadcast_to(np.asarray(sigma_colour, float), c.shape)
+        sm = np.broadcast_to(np.asarray(sigma_mag, float), c.shape)
+        n = c.size
+        out = {k: np.full(n, np.nan) for k in ("feh", "log_age", "m1", "phase")}
+        ce, me = self.colour_edges, self.mag_edges
+        nm = me.size - 1
+        ok = np.isfinite(c) & np.isfinite(m) & (sc > 0) & (sm > 0)
+        idx = np.flatnonzero(ok)
+        idx = idx[np.argsort(c[idx], kind="stable")]
+        for a in range(0, idx.size, chunk):
+            ii = idx[a:a + chunk]
+            i0 = int(np.clip(np.searchsorted(ce, np.min(c[ii] - kernel_n_sigma * sc[ii])) - 1, 0, ce.size - 2))
+            i1 = int(np.clip(np.searchsorted(ce, np.max(c[ii] + kernel_n_sigma * sc[ii])) + 1, i0 + 1, ce.size - 1))
+            j0 = int(np.clip(np.searchsorted(me, np.min(m[ii] - kernel_n_sigma * sm[ii])) - 1, 0, me.size - 2))
+            j1 = int(np.clip(np.searchsorted(me, np.max(m[ii] + kernel_n_sigma * sm[ii])) + 1, j0 + 1, me.size - 1))
+            kc = _cell_kernel(c[ii], sc[ii], ce[i0:i1 + 1])
+            km = _cell_kernel(m[ii], sm[ii], me[j0:j1 + 1])
+            p = kc[:, :, None] * km[:, None, :] * self.cell_weight[i0:i1, j0:j1][None]
+            p = p.reshape(ii.size, -1)
+            tot = p.sum(axis=1)
+            cum = np.cumsum(p, axis=1)
+            u = rng.uniform(size=ii.size) * tot
+            k = np.minimum((cum < u[:, None]).sum(axis=1), p.shape[1] - 1)
+            ci = i0 + k // (j1 - j0)
+            cj = j0 + k % (j1 - j0)
+            cell = ci * nm + cj
+            s0, s1 = self.cell_start[cell], self.cell_start[cell + 1]
+            lo = np.where(s0 > 0, self.cum_weight[np.maximum(s0 - 1, 0)], 0.0)
+            hi = self.cum_weight[np.maximum(s1 - 1, 0)]
+            v = lo + rng.uniform(size=ii.size) * (hi - lo)
+            pos = np.clip(np.searchsorted(self.cum_weight, v, side="right"), s0, np.maximum(s1 - 1, s0))
+            good = (tot > 0) & (s1 > s0)
+            pt = self.order[np.where(good, pos, 0)]
+            out["feh"][ii] = np.where(good, self.feh[pt], np.nan)
+            out["log_age"][ii] = np.where(good, self.log_age[pt], np.nan)
+            out["m1"][ii] = np.where(good, self.mass[pt], np.nan)
+            out["phase"][ii] = np.where(good, self.phase[pt], np.nan)
+        return out
+
+
+def isochrone_at(grid: NativeGrid, feh: float, log_age: float) -> dict[str, FloatArray]:
+    """The MIST isochrone at ([Fe/H], log age), bilinear at fixed EEP (MIST's interpolation
+    scheme); finite rows only, in EEP order. Keys: ``star_mass``, ``mg``, ``bp``, ``rp``, ``phase``."""
+    f = int(np.clip(np.searchsorted(grid.feh, feh) - 1, 0, grid.feh.size - 2))
+    a = int(np.clip(np.searchsorted(grid.log_age, log_age) - 1, 0, grid.log_age.size - 2))
+    tf = float(np.clip((feh - grid.feh[f]) / (grid.feh[f + 1] - grid.feh[f]), 0.0, 1.0))
+    ta = float(np.clip((log_age - grid.log_age[a]) / (grid.log_age[a + 1] - grid.log_age[a]), 0.0, 1.0))
+    v = grid.values.astype(np.float64)
+    cube = ((1 - tf) * (1 - ta) * v[f, a] + tf * (1 - ta) * v[f + 1, a]
+            + (1 - tf) * ta * v[f, a + 1] + tf * ta * v[f + 1, a + 1])
+    k = {name: NATIVE_QUANTITIES.index(name) for name in ("star_mass", "mg", "bp", "rp", "phase")}
+    ok = np.all(np.isfinite(cube[:, list(k.values())]), axis=1)
+    return {name: cube[ok, idx] for name, idx in k.items()}
+
+
+def deblend_primary_mass(
+    iso: Mapping[str, FloatArray],
+    colour_sys: ArrayLike,
+    mg_sys: ArrayLike,
+    sigma_colour: ArrayLike,
+    sigma_mag: ArrayLike,
+    q: ArrayLike,
+    log10_f: ArrayLike,
+    *,
+    evolved: ArrayLike | None = None,
+    densify: int = 4,
+) -> tuple[FloatArray, FloatArray]:
+    """MP-Q36 (spec §11.9): the primary mass on the coeval isochrone ``iso`` whose combined
+    light with its companion matches the observed (dereddened) system in G and BP−RP.
+
+    For every isochrone point (EEP order, linearly densified) the companion is the MIST MS
+    star of ``iso`` at M2 = q M1, with a fraction f of the primary's G light (f = 0 for
+    ``log10_f = -inf``) and its own BP − G, G − RP. ``evolved`` (per draw) restricts the
+    search to the posterior draw's own branch (main sequence, MIST phase < 1.5, or later), so a
+    bright companion cannot move the primary across branches. Returns ``(M1, χ²_min)`` with
+    χ² = [(G_comb − M_sys)/σ_M]² + [(C_comb − C_sys)/σ_C]². Interpolation only, no SED fit.
+    """
+    x = np.arange(iso["star_mass"].size, dtype=float)
+    xf = np.linspace(0.0, x[-1], int(x[-1]) * densify + 1)
+    col = {kk: np.interp(xf, x, np.asarray(vv, float)) for kk, vv in iso.items()}
+    ms = col["phase"] < 0.5
+    order = np.argsort(col["star_mass"][ms])
+    mm = col["star_mass"][ms][order]
+    bpg = (col["bp"] - col["mg"])[ms][order]
+    grp = (col["mg"] - col["rp"])[ms][order]
+    cs = np.asarray(colour_sys, float)[:, None]
+    gs = np.asarray(mg_sys, float)[:, None]
+    sc = np.asarray(sigma_colour, float)[:, None]
+    sg = np.asarray(sigma_mag, float)[:, None]
+    qq = np.asarray(q, float)[:, None]
+    lf = np.asarray(log10_f, float)[:, None]
+    f = np.where(np.isfinite(lf), 10.0 ** np.where(np.isfinite(lf), lf, 0.0), 0.0)
+    m1 = col["star_mass"][None, :]
+    m2 = np.clip(qq * m1, mm[0], mm[-1])
+    bpg2 = np.interp(m2, mm, bpg)
+    grp2 = np.interp(m2, mm, grp)
+    g1 = col["mg"][None, :]
+    fl = lambda mag: 10.0 ** (-0.4 * mag)  # noqa: E731
+    g2 = g1 - 2.5 * np.log10(np.where(f > 0, f, 1.0))
+    bp = -2.5 * np.log10(fl(col["bp"][None, :]) + np.where(f > 0, fl(g2 + bpg2), 0.0))
+    rp = -2.5 * np.log10(fl(col["rp"][None, :]) + np.where(f > 0, fl(g2 - grp2), 0.0))
+    gc = g1 - 2.5 * np.log10(1.0 + f)
+    chi2 = ((gc - gs) / sg) ** 2 + ((bp - rp - cs) / sc) ** 2
+    if evolved is not None:
+        branch = (col["phase"] >= 1.5)[None, :]
+        ev = np.asarray(evolved, bool)[:, None]
+        chi2 = np.where(branch == ev, chi2, np.inf)
+    best = np.argmin(chi2, axis=1)
+    rows = np.arange(best.size)
+    return col["star_mass"][best], chi2[rows, best]
