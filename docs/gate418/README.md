@@ -183,3 +183,31 @@ PYTHONPATH=src .venv/bin/python scripts/run_proposal_pilot.py --parent-dir <pare
   --out output/proposal_set/isochrone_smoke_gen21.h5 --workers 2 --nice 10
 PYTHONPATH=src .venv/bin/python scripts/smoke_isochrone_weights.py --artifact output/proposal_set/isochrone_smoke_gen21.h5 --parent-dir <parent> --out docs/gate418/smoke_isochrone_gen21.json
 ```
+
+## Update 2026-10-04: Ryan's decisions on MP-Q33–Q39 (spec §0.4, §11.9)
+
+This round implements:
+- **MP-Q37, coeval companion colours.** `malmquist_cmd.MsColourBank` gives each row the MS colours of its own posterior isochrone. Rows are grouped by ⟨[Fe/H]⟩ (rounded to 0.05 dex) and the nearest native age.
+- **MP-Q35 + MP-Q36, posterior draw and deblending.** `isochrone_mass.PosteriorSampler` draws (age, [Fe/H], M̂1) per proposal draw. `isochrone_at` and `deblend_primary_mass` then root-find the truth M1 on the coeval isochrone, on the drawn branch, so that primary plus companion matches the system's G and BP−RP. The proposal mode is `m1: isochrone_posterior_draw_deblended`.
+  - Draws outside the target's support (q > 1 or f > 1) are not deblended.
+  - On 3,000 real-parent draws the deblending takes 27 s.
+  - Median M1_deblended / M̂1_row by companion flux ratio:
+
+    | companion | median ratio | median χ² |
+    |---|---|---|
+    | dark or f < 0.01 | 1.00 | 0.5–0.8 |
+    | 0.01–0.3 | 1.01 | 1.2 |
+    | 0.3–1 | 0.98 | 8.9 |
+- **MP-Q33, [Fe/H] prior.** The prior is now the Casagrande et al. (2011) MDF, N(−0.06, 0.22). The GSP-Phot calibration (`gdr3apcal`) needs a package install and a re-query of the GSP-Phot columns; see §11.9.
+- **MP-Q28d, proposal support for evolved rows.** The flux-proposal centre on evolved rows is now the §10.4 evolved relation, with `log_f_min` lowered to −7.
+
+**Closed loop** (small run, coeval colours + posterior draw + deblending + MIST density; `closed_loop_cmd_small_coeval_deblend.json`):
+
+| | max \|pull\| | total pull | twins (dwarf rows) |
+|---|---|---|---|
+| no W | 10.5 | −2.8 | −2.8 (−12.3) |
+| 2-D W | **6.6** | **+0.45** | +2.6 (+4.5) |
+
+The largest 2-D pull is now an *over*-prediction: the brightest log f bin at +6.6, and M2 in 1.2–2.5 M⊙ at +5.6. **The ≤ 3 target is still not met.** Nothing was retuned.
+
+**Smoke, generation 22** (1,000 draws, 2 workers, `nice`, `run_cascade` with the v2 epoch model): 30 accepted orbits. ESS over all draws is **27.3, up from 6.4** in generation 21, which is the MP-Q28d fix. ESS over accepted draws is 5.7 with W. `smoke_isochrone_gen22.json`.
