@@ -137,6 +137,11 @@ STAGE_REGISTRY: dict[str, StageSpec] = {
                 # #418: MIST_isochrone M1 (lazy imports in mass_derivation).
                 "darkhunter_pop.isochrone_mass",
                 "darkhunter_pop.giants",
+                # giants.cmd_for_rows -> the Babusiaux et al. (2018) law (lazy import).
+                "darkhunter_pop.elbadry2026_selection",
+                "darkhunter_pop.dust_maps",
+                "darkhunter_pop.janssens_mass",
+                "darkhunter_pop.sample_selection",
             ),
             config_keys=(
                 "mass_calibration",

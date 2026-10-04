@@ -67,6 +67,28 @@ _INFRA = frozenset(
 
 # (stage, lazily imported module) -> why it need not feed that stage's hash.
 _LAZY_IMPORT_ALLOWLIST: dict[tuple[str, str], str] = {
+    **{
+        ("mass_derivation_bulk", f"{PKG}.{mod}"): (
+            "#418: reached only through sample_selection's cut evaluators, which "
+            "elbadry2026_selection imports at module scope for NotApplicable; the bulk "
+            "MIST_isochrone path calls only gaia_band_extinction_babusiaux2018."
+        )
+        for mod in ("andrews2022_atf", "elbadry2026_m2_sigma", "shahaf2023b_catalog")
+    },
+    ("mass_derivation_bulk", f"{PKG}.proposal_set"): (
+        "#418: giants.evolved_log10_flux_ratio imports proposal_set lazily for the mock "
+        "target's flux relation; mass_derivation_bulk only calls giants.cmd_for_rows."
+    ),
+    **{
+        (stage, f"{PKG}.{mod}"): (
+            "#418: mass_derivation imports isochrone_mass / giants lazily, only on the "
+            "mass_derivation_bulk MIST_isochrone path. This stage uses other mass_derivation "
+            "functions and reads the bulk artifact, whose own hash covers both modules."
+        )
+        for stage in ("mass_derivation_refined", "rv_astrometry_gate", "joint_orbit_fit",
+                      "companion_nature_likelihood", "diagnostics")
+        for mod in ("isochrone_mass", "giants")
+    },
     ("population_model", f"{PKG}.companion_nature"): (
         "population_model imports companion_nature.read_stage_hdf5 lazily only to "
         "read the upstream companion_nature_likelihood artifact. That stage hashes "
