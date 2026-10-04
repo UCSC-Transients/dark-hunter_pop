@@ -30,6 +30,9 @@ CutParameterValue = float | int | bool | str | None
 
 class MassCalibrationMethod(str, Enum):
     TAG10 = "TAG10"
+    # #418 (Ryan 2026-10-03): MIST isochrone posterior on the dereddened CMD
+    # (darkhunter_pop.isochrone_mass; config section ``isochrone_mass``). Off by default.
+    MIST_ISOCHRONE = "MIST_isochrone"
     # Reserved for future methods — raise at use site until implemented.
     EKER = "Eker"
     MTGR = "mtgr"
