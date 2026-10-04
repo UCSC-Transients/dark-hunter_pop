@@ -89,9 +89,30 @@ class CompanionColourConfig(_Strict):
     fiducial_log_age: float = 9.6
 
 
+class SingleStarDensityConfig(_Strict):
+    """The single-star CMD density the primary is compared with (spec §11.4, MP-Q39).
+
+    ``gaussian_ridge``: N(M − R(C); 0, σ_R(C)) with the measured ridge and its faint-side
+    width (the §11.4 form as first specified). ``mist_density_ridge_anchored``: the MIST
+    prior-predictive single-star density φ(C, M) of :mod:`darkhunter_pop.isochrone_mass`
+    (all kept phases, so turnoff stars and subgiants give singles their bright-side tail),
+    shifted in M per colour so that its mode matches the measured ridge, convolved with the
+    row's σ_M, and divided by the colour Jacobian of the light subtraction.
+    """
+
+    provisional_model: Literal["gaussian_ridge", "mist_density_ridge_anchored"] = "mist_density_ridge_anchored"
+    colour_smoothing_mag: float = Field(0.02, gt=0)  # colour error + model floor of the map
+    mag_floor_mag: float = Field(0.05, gt=0)  # added in quadrature to σ_μ for the M smoothing
+    sigma_levels_min_mag: float = Field(0.05, gt=0)  # numerical: tabulated M smoothings
+    sigma_levels_max_mag: float = Field(2.5, gt=0)
+    n_sigma_levels: int = Field(18, ge=2)
+    anchor_to_ridge: bool = True
+
+
 class CmdMalmquistConfig(_Strict):
     """Settings for the 2-D weight (spec §11.4)."""
 
+    single_star_density: SingleStarDensityConfig = SingleStarDensityConfig()
     provisional_giant_policy: Literal["unit_weight"] = "unit_weight"  # §10.6 (determined)
     provisional_outside_ridge: Literal["unit_weight"] = "unit_weight"  # MP-Q38
     provisional_blending: Literal["all_unresolved"] = "all_unresolved"  # MP-Q27
@@ -162,6 +183,18 @@ def subtract_companion(
 ) -> tuple[FloatArray, FloatArray, BoolArray]:
     """Primary (C_1, M_1) after removing the companion's G, BP, RP light; ``ok`` False where
     the companion would outshine the system in BP or RP. ``log10_f = -inf`` returns the system."""
+    c1, m1, ok, _, _ = subtract_companion_full(colour_sys, mg_sys, log10_f, m2_msun, ms)
+    return c1, m1, ok
+
+
+def subtract_companion_full(
+    colour_sys: ArrayLike,
+    mg_sys: ArrayLike,
+    log10_f: ArrayLike,
+    m2_msun: ArrayLike,
+    ms: MsColours,
+) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray, FloatArray]:
+    """:func:`subtract_companion` plus the companion's BP and RP flux shares (x_BP, x_RP)."""
     cs = np.asarray(colour_sys, float)
     ms_ = np.asarray(mg_sys, float)
     lf = np.asarray(log10_f, float)
@@ -176,7 +209,24 @@ def subtract_companion(
         ok = (xbp < 1.0) & (xrp < 1.0)
         c1 = cs - 2.5 * np.log10(np.where(ok, 1.0 - xbp, 1.0)) + 2.5 * np.log10(np.where(ok, 1.0 - xrp, 1.0))
         m1 = ms_ + 2.5 * np.log10(1.0 + f)
-    return c1, m1, ok
+    return c1, m1, ok, xbp, xrp
+
+
+def colour_jacobian(colour1: ArrayLike, x_bp: ArrayLike, x_rp: ArrayLike, ms: MsColours) -> FloatArray:
+    """|∂C_s / ∂C_1| at fixed companion (M2, f): (1 − x_BP) h′ − (1 − x_RP)(h′ − 1).
+
+    h(C) = (BP − G)(C) is the MIST single-star colour–colour relation. The companion's G light is
+    a fixed fraction of the primary's and its colour is fixed by M2, so the system colour moves
+    more slowly than the primary's: a population of primaries spread in colour is compressed by
+    this factor in the system CMD (the density gains 1 / |J|). J = 1 without a companion.
+    """
+    order = np.argsort(ms.colour)
+    cc, hh = ms.colour[order], ms.bp_g[order]
+    slope = np.gradient(hh, cc)
+    hp = np.interp(np.asarray(colour1, float), cc, slope)
+    xb = np.asarray(x_bp, float)
+    xr = np.asarray(x_rp, float)
+    return np.abs((1.0 - xb) * hp - (1.0 - xr) * (hp - 1.0))
 
 
 @dataclass(frozen=True)
@@ -224,6 +274,120 @@ def log_ridge_likelihood(
     var = s_r**2 + smu**2 + (sigma_a_mag * (1.0 - slope / k)) ** 2
     resid = np.asarray(mg1, float) - r
     return -0.5 * resid * resid / var - 0.5 * np.log(var) - _LOG_SQRT_2PI
+
+
+# ---------------------------------------------------------------------------
+# MIST single-star density, anchored to the measured ridge (MP-Q39 option)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SingleStarDensity:
+    """log φ(C, M | σ_M) on a grid: ``log_phi[k, i, j]`` at M smoothing ``sigma_levels[k]``,
+    colour ``colour[i]`` and magnitude ``mag[j]`` (per mag²; MIST prior-predictive, single stars),
+    and the per-colour magnitude shift ``shift(C)`` that puts its mode on the measured ridge."""
+
+    colour: FloatArray
+    mag: FloatArray
+    sigma_levels: FloatArray
+    log_phi: FloatArray
+    shift_colour: FloatArray
+    shift_mag: FloatArray
+
+    def shift(self, c: ArrayLike) -> FloatArray:
+        return np.interp(np.asarray(c, float), self.shift_colour, self.shift_mag)
+
+    def log_density(self, c: ArrayLike, m: ArrayLike, sigma_m: ArrayLike) -> FloatArray:
+        """Trilinear lookup (colour, magnitude, log σ_M), clamped to the grid."""
+        cc = np.asarray(c, float)
+        mm = np.asarray(m, float) - self.shift(cc)
+        ss = np.log(np.clip(np.asarray(sigma_m, float), self.sigma_levels[0], self.sigma_levels[-1]))
+        lv = np.log(self.sigma_levels)
+        cc, mm, ss = np.broadcast_arrays(cc, mm, ss)
+
+        def frac(x: FloatArray, grid: FloatArray) -> tuple[NDArray[np.int64], FloatArray]:
+            t = (x - grid[0]) / (grid[1] - grid[0])
+            i = np.clip(np.floor(t).astype(np.int64), 0, grid.size - 2)
+            return i, np.clip(t - i, 0.0, 1.0)
+
+        ic, tc = frac(cc, self.colour)
+        im_, tm = frac(mm, self.mag)
+        k = np.clip(np.searchsorted(lv, ss, side="right") - 1, 0, lv.size - 2)
+        tk = np.clip((ss - lv[k]) / (lv[k + 1] - lv[k]), 0.0, 1.0)
+        out = np.zeros(cc.shape)
+        for dk, wk in ((0, 1.0 - tk), (1, tk)):
+            for di, wi in ((0, 1.0 - tc), (1, tc)):
+                for dj, wj in ((0, 1.0 - tm), (1, tm)):
+                    out += wk * wi * wj * self.log_phi[k + dk, ic + di, im_ + dj]
+        return out
+
+
+def build_single_star_density(
+    cmap: im.CmdMap, cfg: SingleStarDensityConfig, ridge: MSRidge | None, ridge_mag_window: tuple[float, float] = (1.5, 12.0)
+) -> SingleStarDensity:
+    """Smooth the isochrone prior map (channel ``one``) and anchor its mode to the ridge.
+
+    The anchor: at each ridge colour bin the mode in M of the least-smoothed map (within
+    ``ridge_mag_window``, averaged over the bin's colour width) is R_MIST(C); the shift is
+    R_data(C) − R_MIST(C), interpolated in colour and clamped at the ends. ``ridge=None`` or
+    ``cfg.anchor_to_ridge = False`` gives no shift.
+    """
+    from scipy.ndimage import gaussian_filter1d
+
+    base = cmap.maps[..., 0] / (np.mean(np.diff(cmap.colour_edges)) * np.mean(np.diff(cmap.mag_edges)))
+    dc = float(np.mean(np.diff(cmap.colour_edges)))
+    dm = float(np.mean(np.diff(cmap.mag_edges)))
+    base = gaussian_filter1d(base, cfg.colour_smoothing_mag / dc, axis=0, mode="constant")
+    levels = np.geomspace(cfg.sigma_levels_min_mag, cfg.sigma_levels_max_mag, cfg.n_sigma_levels)
+    stack = np.stack([gaussian_filter1d(base, s / dm, axis=1, mode="constant") for s in levels])
+    floor = 1e-12 * float(stack.max())
+    log_phi = np.log(np.maximum(stack, floor))
+    colour = cmap.colour_centres
+    mag = cmap.mag_centres
+    sc = np.array([0.0, 1.0])
+    sm = np.array([0.0, 0.0])
+    if ridge is not None and cfg.anchor_to_ridge:
+        half = 0.5 * float(np.median(np.diff(ridge.colour))) if ridge.colour.size > 1 else 0.05
+        win = (mag > ridge_mag_window[0]) & (mag < ridge_mag_window[1])
+        r_mist = []
+        for c in ridge.colour:
+            cols = (colour >= c - half) & (colour < c + half)
+            prof = stack[0][cols][:, win].sum(axis=0)
+            r_mist.append(float(mag[win][int(np.argmax(prof))]) if prof.max() > 0 else np.nan)
+        r_mist_a = np.asarray(r_mist)
+        ok = np.isfinite(r_mist_a)
+        sc = np.asarray(ridge.colour, float)[ok]
+        sm = (np.asarray(ridge.mag, float) - r_mist_a)[ok]
+    return SingleStarDensity(colour=colour, mag=mag, sigma_levels=levels, log_phi=log_phi, shift_colour=sc, shift_mag=sm)
+
+
+def log_primary_likelihood(
+    colour1: ArrayLike,
+    mg1: ArrayLike,
+    sigma_mu: ArrayLike,
+    ridge: RidgeTables,
+    cfg: CmdMalmquistConfig,
+    *,
+    k_ag_over_ebprp: ArrayLike | float = 2.0,
+    dens: SingleStarDensity | None = None,
+    x_bp: ArrayLike | float = 0.0,
+    x_rp: ArrayLike | float = 0.0,
+    ms: MsColours | None = None,
+) -> FloatArray:
+    """log p(primary at (C_1, M_1)) under ``cfg.single_star_density`` (spec §11.4).
+
+    ``gaussian_ridge``: :func:`log_ridge_likelihood`. ``mist_density_ridge_anchored``:
+    log φ(C_1, M_1 | σ_M) − log |J| with σ_M² = σ_μ² + mag_floor² and J from
+    :func:`colour_jacobian` (needs ``dens`` and ``ms``).
+    """
+    if cfg.single_star_density.provisional_model == "gaussian_ridge":
+        return log_ridge_likelihood(colour1, mg1, sigma_mu, ridge, sigma_a_mag=cfg.sigma_a_mag, k_ag_over_ebprp=k_ag_over_ebprp)
+    if dens is None or ms is None:
+        raise ValueError("mist_density_ridge_anchored needs the SingleStarDensity and MS colours")
+    sm = np.sqrt(np.asarray(sigma_mu, float) ** 2 + cfg.single_star_density.mag_floor_mag**2)
+    jac = colour_jacobian(colour1, x_bp, x_rp, ms)
+    with np.errstate(divide="ignore"):
+        return dens.log_density(colour1, mg1, sm) - np.log(np.maximum(jac, 1e-6))
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +522,9 @@ def _row_log_terms(
     qf: QFGrid,
     ridge: RidgeTables,
     ms: MsColours,
-    sigma_a: float,
+    cfg: CmdMalmquistConfig,
     chunk: int,
+    dens: SingleStarDensity | None = None,
 ) -> tuple[FloatArray, FloatArray]:
     """(log of (1 − F)L(∅), log Z) for rows ``idx`` (chunked)."""
     log_single = np.empty(idx.size)
@@ -369,16 +534,16 @@ def _row_log_terms(
         ii = idx[a:a + chunk]
         c, m, smu, k, m1 = rows.colour0[ii], rows.mg0[ii], rows.sigma_mu[ii], rows.k_ag_over_ebprp[ii], rows.m1_msun[ii]
         lam, f_lum = qf.interpolate(m1)  # (n, nq, nf)
-        l0 = log_ridge_likelihood(c, m, smu, ridge, sigma_a_mag=sigma_a, k_ag_over_ebprp=k)
+        l0 = log_primary_likelihood(c, m, smu, ridge, cfg, k_ag_over_ebprp=k, dens=dens, ms=ms)
         shape = (ii.size, q.size, qf.log_f.size)
         m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
         lf = np.broadcast_to(qf.log_f[None, None, :], shape)
-        c1, mg1, ok = subtract_companion(
+        c1, mg1, ok, xbp, xrp = subtract_companion_full(
             np.broadcast_to(c[:, None, None], shape), np.broadcast_to(m[:, None, None], shape), lf, m2, ms
         )
-        ll = log_ridge_likelihood(
-            c1, mg1, np.broadcast_to(smu[:, None, None], shape), ridge, sigma_a_mag=sigma_a,
-            k_ag_over_ebprp=np.broadcast_to(k[:, None, None], shape),
+        ll = log_primary_likelihood(
+            c1, mg1, np.broadcast_to(smu[:, None, None], shape), ridge, cfg,
+            k_ag_over_ebprp=np.broadcast_to(k[:, None, None], shape), dens=dens, x_bp=xbp, x_rp=xrp, ms=ms,
         )
         ll = np.where(ok, ll, -np.inf)
         mx = np.maximum(ll.reshape(ii.size, -1).max(axis=1), l0)
@@ -399,7 +564,14 @@ class RowNormalization:
 
 
 def row_normalization(
-    rows: CmdRows, qf: QFGrid, ridge: RidgeTables, ms: MsColours, cfg: CmdMalmquistConfig, *, chunk: int = 400
+    rows: CmdRows,
+    qf: QFGrid,
+    ridge: RidgeTables,
+    ms: MsColours,
+    cfg: CmdMalmquistConfig,
+    *,
+    chunk: int = 400,
+    dens: SingleStarDensity | None = None,
 ) -> RowNormalization:
     """Z_s for every weighted row (spec §11.4)."""
     n = rows.colour0.size
@@ -407,7 +579,7 @@ def row_normalization(
     lps = np.full(n, np.nan)
     idx = np.flatnonzero(~rows.unit_weight)
     if idx.size:
-        ls, lz = _row_log_terms(rows, idx, qf, ridge, ms, cfg.sigma_a_mag, chunk)
+        ls, lz = _row_log_terms(rows, idx, qf, ridge, ms, cfg, chunk, dens)
         log_z[idx] = lz
         lps[idx] = ls - lz
     return RowNormalization(log_z=log_z, log_p_single=lps)
@@ -420,6 +592,8 @@ def log_weight_for_draws(
     ridge: RidgeTables,
     ms: MsColours,
     cfg: CmdMalmquistConfig,
+    *,
+    dens: SingleStarDensity | None = None,
 ) -> FloatArray:
     """log W per proposal-set draw; 0 on unit-weight rows. Dark draws carry L_s(∅).
 
@@ -434,9 +608,10 @@ def log_weight_for_draws(
     w = ~rows.unit_weight[r]
     if w.any():
         rr = r[w]
-        c1, mg1, ok = subtract_companion(rows.colour0[rr], rows.mg0[rr], lf[w], m2[w], ms)
-        ll = log_ridge_likelihood(
-            c1, mg1, rows.sigma_mu[rr], ridge, sigma_a_mag=cfg.sigma_a_mag, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr]
+        c1, mg1, ok, xbp, xrp = subtract_companion_full(rows.colour0[rr], rows.mg0[rr], lf[w], m2[w], ms)
+        ll = log_primary_likelihood(
+            c1, mg1, rows.sigma_mu[rr], ridge, cfg, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr],
+            dens=dens, x_bp=xbp, x_rp=xrp, ms=ms,
         )
         out[w] = np.where(ok, ll, -np.inf) - norm.log_z[rr]
     return out

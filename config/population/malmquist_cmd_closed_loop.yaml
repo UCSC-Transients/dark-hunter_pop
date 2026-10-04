@@ -10,7 +10,7 @@ closed_loop_cmd:
   giants_config: config/population/giants.yaml
   seed: 418
   sizes:
-    small: 300000
+    small: 1000000
     large: 3000000
   dust:                          # E(B-V) = rate * d_kpc * (1 - exp(-x)) / x, x = d |sin b| / h
     ebv_per_kpc: 0.3             # ~ A_V 1 mag/kpc in the plane (synthetic)
@@ -20,3 +20,7 @@ closed_loop_cmd:
     pipeline_fractional_error: 0.05   # the pipeline's E(B-V) = truth * (1 + 0.05 N(0,1)); it assumes sigma_A = 0 (MP-Q29)
   colour_error_mag: 0.01
   one_d_sigma_int_mag: 0.15      # §9.3 comparison run (zero point 0), as in #405
+  universe_max_phase: 3.0        # MS + SGB/RGB + core-He burning primaries (evolved rows get W = 1, spec §10.6)
+  ridge_overrides:               # same ridge estimator as giants.yaml; the synthetic parent is ~10^4-10^5 rows
+    min_rows_per_bin: 30
+    min_parallax_over_error: 5.0

@@ -82,7 +82,12 @@ def build_epoch_wrap(cfg: Any, prop: Any, gaiamock: Any) -> Any:
     def wrap(draw: dict[str, Any]) -> Any:
         stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
         return em.gost_epoch_model(
-            gaiamock, emc, em.SourceEpochContext(g_mag=float(draw["phot_g_mean_mag"])),
+            gaiamock, emc, em.SourceEpochContext(
+                g_mag=float(draw["phot_g_mean_mag"]),
+                # #421: the v2 loss model has an (l, b) sky term; older artifacts lack the keys.
+                l_deg=float(draw["l_deg"]) if "l_deg" in draw else None,
+                b_deg=float(draw["b_deg"]) if "b_deg" in draw else None,
+            ),
             em.epoch_model_rng(prop.base_seed, stream, int(draw["draw_index"])), gaps_jd=gaps,
         )
 
