@@ -186,7 +186,16 @@ def main(argv: list[str] | None = None) -> int:
                                "random_offset_log": delta, "variants": {}}
     prev = start
     for v in args.variants:
-        r = fit(data, VARIANT_FREE[v], prev)
+        st = dict(prev)
+        if v == "none":
+            st.update(c0=-30.0, c1=0.0, c2=0.0, c_beta=0.0, c_b=0.0)  # no degraded component
+        elif "c_beta" not in VARIANT_FREE[v]:
+            st.update(c_beta=0.0, c_b=0.0)
+        elif "c_b" not in VARIANT_FREE[v]:
+            st.update(c_b=0.0)
+        if v != "none" and st["c0"] < -20:
+            st.update(c0=-4.0, c1=1.0)
+        r = fit(data, VARIANT_FREE[v], st)
         prev = r["theta"]
         r["tails_random"] = tail_table(r["theta"], data["random"])
         r["tails_nss"] = tail_table(r["theta"], data["nss"])

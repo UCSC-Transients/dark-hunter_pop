@@ -56,8 +56,9 @@ def _init(base_seed: int, cuts_json: str, em_json: str, ruwe_min: float, skip_ac
     em = epoch_model_config_from_mapping(EpochModelPathConfig.model_validate_json(em_json))
     _W.update(gm=gm, c_funcs=gm.read_in_C_functions(), base_seed=base_seed,
               cuts=OrbitalSolutionCutsConfig.model_validate_json(cuts_json),
-              em_u0=em, em_n2=dataclasses.replace(em, ruwe_u0=None),
-              em_v2=dataclasses.replace(em, excess_noise=None, ruwe_u0=None),
+              em_v3=em, em_n2d=dataclasses.replace(em, vp_loss=None),
+              em_u0=dataclasses.replace(em, vp_loss=None), em_n2=dataclasses.replace(em, ruwe_u0=None, vp_loss=None),
+              em_v2=dataclasses.replace(em, excess_noise=None, ruwe_u0=None, vp_loss=None),
               gaps=gap_intervals_jd(em), ruwe_min=ruwe_min, skip_acc=skip_acc, variants=tuple(variants))
 
 
@@ -72,14 +73,13 @@ def _galactic(ra: float, dec: float) -> tuple[float, float]:
 def _inject(task: tuple[dict[str, float], int, list[int]]) -> list[dict[str, Any]]:
     from darkhunter_pop import injection_test as it
     from darkhunter_pop.epoch_model import (
-        PER_CCD_NOISE_RNG_TAG, SourceEpochContext, epoch_model_rng, run_cascade,
+        PER_CCD_NOISE_RNG_TAG, epoch_model_rng, run_cascade, source_context,
     )
     from darkhunter_pop.forward_model import seeded_global_rng
 
     v, sid, reals = task
     gm, cf = _W["gm"], _W["c_funcs"]
-    lg, bg = _galactic(v["ra"], v["dec"])
-    src = SourceEpochContext(g_mag=float(v["g_mag"]), l_deg=lg, b_deg=bg)
+    src = source_context(v["ra"], v["dec"], float(v["g_mag"]))
 
     def predict() -> Any:
         return gm.predict_astrometry_binary_in_terms_of_a0(
@@ -96,7 +96,7 @@ def _inject(task: tuple[dict[str, float], int, list[int]]) -> list[dict[str, Any
             try:
                 with seeded_global_rng(seeds, cf):
                     run = run_cascade(
-                        gm, cf, predict, _W["em_" + variant.split("_")[-1]] if "_" in variant else _W["em_v2"], src,
+                        gm, cf, predict, _W[VARIANT_EM[variant]], src,
                         epoch_rng=epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r),
                         noise_rng=epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r, tag=PER_CCD_NOISE_RNG_TAG),
                         ruwe_min=_W["ruwe_min"], skip_acceleration=_W["skip_acc"], gaps_jd=_W["gaps"])
@@ -114,18 +114,17 @@ def _inject(task: tuple[dict[str, float], int, list[int]]) -> list[dict[str, Any
 
 def _single(task: tuple[int, float, float, float]) -> list[dict[str, Any]]:
     from darkhunter_pop.epoch_model import (
-        PER_CCD_NOISE_RNG_TAG, SourceEpochContext, epoch_model_rng, gost_epoch_model, per_ccd_excess_noise,
+        PER_CCD_NOISE_RNG_TAG, epoch_model_rng, gost_epoch_model, per_ccd_excess_noise, source_context,
     )
     from darkhunter_pop.forward_model import mock_global_rng_seeds, seeded_global_rng
 
     sid, ra, dec, g = task
     gm, cf = _W["gm"], _W["c_funcs"]
-    lg, bg = _galactic(ra, dec)
-    src = SourceEpochContext(g_mag=float(g), l_deg=lg, b_deg=bg)
+    src = source_context(ra, dec, float(g))
     seeds = mock_global_rng_seeds(_W["base_seed"], SINGLE_STREAM, sid)
     out = []
     for variant in ("gaiamock",) + _W["variants"]:
-        em = _W["em_" + variant.split("_")[-1]] if "_" in variant else _W["em_v2"]
+        em = _W[VARIANT_EM[variant]]
         em = dataclasses.replace(em, enabled=variant != "gaiamock")
         with seeded_global_rng(seeds, cf), gost_epoch_model(
             gm, em, src, epoch_model_rng(_W["base_seed"], SINGLE_STREAM, sid), gaps_jd=_W["gaps"]
@@ -146,20 +145,22 @@ def _single(task: tuple[int, float, float, float]) -> list[dict[str, Any]]:
     return out
 
 
+#: validation variant -> epoch-model configuration built in _init
+VARIANT_EM = {"v2": "em_v2", "v2_n2": "em_n2", "v2_u0": "em_u0", "n2d": "em_n2d", "v3": "em_v3"}
+
 U0_STREAM = 6  # SeedSequence stream for the u0 calibration singles
 
 
 def _u0_star(task: tuple[int, int, float, float, float]) -> list[dict[str, Any]]:
     """One mock single star for the u0 calibration: v2 epochs + bright noise, gaiamock UWE."""
     from darkhunter_pop.epoch_model import (
-        PER_CCD_NOISE_RNG_TAG, SourceEpochContext, epoch_model_rng, gost_epoch_model, per_ccd_excess_noise,
+        PER_CCD_NOISE_RNG_TAG, epoch_model_rng, gost_epoch_model, per_ccd_excess_noise, source_context,
     )
     from darkhunter_pop.forward_model import mock_global_rng_seeds, seeded_global_rng
 
     ib, j, ra, dec, g = task
     gm, cf = _W["gm"], _W["c_funcs"]
-    lg, bg = _galactic(ra, dec)
-    src = SourceEpochContext(g_mag=float(g), l_deg=lg, b_deg=bg)
+    src = source_context(ra, dec, float(g))
     em = dataclasses.replace(_W["em_n2"], enabled=True, ruwe_u0=None)
     idx = ib * 100_000 + j
     seeds = mock_global_rng_seeds(_W["base_seed"], U0_STREAM, idx)
@@ -207,6 +208,8 @@ def _common(args: argparse.Namespace) -> tuple[Any, tuple[Any, ...]]:
         upd["bright_excess_noise"] = em.bright_excess_noise.model_copy(update={"enabled": True})
     if em.ruwe_u0 is not None:
         upd["ruwe_u0"] = em.ruwe_u0.model_copy(update={"enabled": True})
+    if em.visibility_period_loss is not None:
+        upd["visibility_period_loss"] = em.visibility_period_loss.model_copy(update={"enabled": True})
     em = em.model_copy(update=upd)  # validation variants switch the parts on/off themselves
     initargs = (int(pop.random_seed), cuts.model_dump_json(), em.model_dump_json(), pop.ruwe_min,
                 pop.skip_acceleration, tuple(args.variants))
@@ -305,7 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--variants", nargs="+", default=["v2", "v2_n2"],
-                   help="v2 (epochs only), v2_n2 (+ noise, sqrt(1+r2) RUWE), v2_u0 (+ noise, RUWE = UWE/u0)")
+                   help="v2 (epochs only), v2_n2 (+ noise, sqrt(1+r2) RUWE), v2_u0 / n2d (+ noise, RUWE = UWE/u0), "
+                        "v3 (n2d + visibility-period loss, #432)")
     p.set_defaults(func=cmd_inject)
     p = sub.add_parser("single")
     p.add_argument("--snapshot", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400"))
@@ -314,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=4001)
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--variants", nargs="+", default=["v2", "v2_n2"],
-                   help="v2 (epochs only), v2_n2 (+ noise, sqrt(1+r2) RUWE), v2_u0 (+ noise, RUWE = UWE/u0)")
+                   help="v2 (epochs only), v2_n2 (+ noise, sqrt(1+r2) RUWE), v2_u0 / n2d (+ noise, RUWE = UWE/u0), "
+                        "v3 (n2d + visibility-period loss, #432)")
     p.set_defaults(func=cmd_single)
     p = sub.add_parser("u0")
     p.add_argument("--snapshot", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400"))
