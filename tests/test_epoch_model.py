@@ -371,3 +371,52 @@ def test_run_cascade_k_uses_u0_when_configured() -> None:
     on = dataclasses.replace(cfg, ruwe_u0=tab)
     assert em.ruwe_scale_u0(12.0, on) == pytest.approx(1.125)
     assert em.ruwe_scale_u0(12.0, dataclasses.replace(cfg, ruwe_u0=None)) == 1.0
+
+
+def _vp_cfg(**kw: float) -> em.VisibilityPeriodLossConfig:
+    base = dict(g_clip=(6.0, 19.0), g_ref=14.0, g_scale=4.0, c0=-3.0, c1=1.0, c2=0.0, c_beta=-1.0,
+                c_b=-1.0, e0=0.0, d0=-4.0, d1=0.5)
+    base.update(kw)
+    return em.VisibilityPeriodLossConfig(**base)  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+def test_vp_loss_probabilities() -> None:
+    vp = _vp_cfg()
+    assert vp.degraded_probability(18.0, 0.0, 0.0) > vp.degraded_probability(18.0, 60.0, 0.0)
+    assert vp.degraded_probability(18.0, 0.0, 0.0) > vp.degraded_probability(12.0, 0.0, 0.0)
+    assert vp.q_degraded() == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+def test_vp_mode_drops_whole_visibility_periods_and_keeps_mean() -> None:
+    # 40 visibility periods of 5 transits (1 d apart), separated by 10 d
+    t0 = np.concatenate([1000.0 + 15.0 * k + np.arange(5.0) for k in range(40)])
+    jd = (t0[:, None] + (5.0 / 86400.0) * np.arange(10)[None, :]).ravel()
+    vp = _vp_cfg(c0=50.0, e0=0.0)  # always degraded, q_bad = 0.5
+    cfg = _cfg(apply_gaps=False, clustered=None)
+    cfg = dataclasses.replace(cfg, vp_loss=vp)
+    p = em.keep_probability(15.0, cfg, l_deg=10.0, b_deg=5.0)
+    keeps, nv = [], []
+    for s_ in range(200):
+        k = em.thin_gost_mask(jd, cfg, np.zeros((0, 2)), g_mag=15.0, rng=np.random.default_rng(s_),
+                              l_deg=10.0, b_deg=5.0, beta_deg=0.0)
+        per_tr = k.reshape(-1, 10)[:, 0].reshape(40, 5)
+        keeps.append(per_tr.mean())
+        nv.append(int(per_tr.any(axis=1).sum()))
+    # dropout (0.5) exceeds the total loss, so p_ind clips at 0 and keep = 1 - q_bad
+    assert np.mean(keeps) == pytest.approx(0.5, abs=0.02)
+    assert np.mean(nv) == pytest.approx(20.0, abs=0.6)  # half the visibility periods
+    # realistic: rare degraded stars -> expected kept fraction is the calibrated p_keep
+    cfg2 = dataclasses.replace(cfg, vp_loss=_vp_cfg(c0=-4.0, e0=-1.0, d0=-6.0))
+    k2 = [em.thin_gost_mask(jd, cfg2, np.zeros((0, 2)), g_mag=15.0, rng=np.random.default_rng(s_),
+                            l_deg=10.0, b_deg=5.0, beta_deg=0.0).mean() for s_ in range(400)]
+    assert np.mean(k2) == pytest.approx(p, abs=0.004)
+    with pytest.raises(ValueError, match="beta_deg"):
+        em.thin_gost_mask(jd, cfg, np.zeros((0, 2)), g_mag=15.0, rng=np.random.default_rng(0), l_deg=1.0, b_deg=1.0)
+
+
+@pytest.mark.unit
+def test_source_context_coordinates() -> None:
+    sc = em.source_context(266.405, -28.936, 15.0)  # near the Galactic centre
+    assert abs(sc.b_deg) < 1.0 and abs(sc.beta_deg) < 7.0
