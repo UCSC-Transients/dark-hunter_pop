@@ -47,7 +47,7 @@ def test_ridge_recovers_injected_mode_and_faint_width(gcfg: gi.GiantsConfig) -> 
     rng = np.random.default_rng(1)
     sigma = 0.25
     c, m, _, _ = _synthetic_cmd(rng, 400_000, sigma, twin_frac=0.2, n_giant=5_000)
-    ridge = gi.fit_ms_ridge(m, c, np.full(c.size, 50.0), gcfg.ridge)
+    ridge = gi.fit_ms_ridge(m, c, np.full(c.size, 50.0), gcfg.ridge, ruwe=np.ones(c.size))  # #418: RUWE < 1.4 ridge
     inner = (ridge.colour > 0.6) & (ridge.colour < 2.2)
     truth = 2.0 + 3.5 * ridge.colour[inner]
     # the mode sits within one histogram-smoothing scale of the truth (ridge slope × bin half-width)
@@ -61,7 +61,7 @@ def test_ridge_recovers_injected_mode_and_faint_width(gcfg: gi.GiantsConfig) -> 
 def test_classifier_keeps_twins_and_flags_giants(gcfg: gi.GiantsConfig) -> None:
     rng = np.random.default_rng(2)
     c, m, is_g, is_twin = _synthetic_cmd(rng, 300_000, 0.25, twin_frac=0.3, n_giant=3_000)
-    ridge = gi.fit_ms_ridge(m, c, np.full(c.size, 50.0), gcfg.ridge)
+    ridge = gi.fit_ms_ridge(m, c, np.full(c.size, 50.0), gcfg.ridge, ruwe=np.ones(c.size))  # #418: RUWE < 1.4 ridge
     cls = gi.classify_evolved(m, c, np.zeros(c.size), ridge, n_sigma=3.0)
     assert np.mean(cls.evolved[is_g]) > 0.99
     assert np.mean(cls.evolved[is_twin & cls.classified]) < 0.01

@@ -131,6 +131,11 @@ ANDRAE2018_BCG_TEFF_RANGE_K: Final[tuple[float, float, float]] = (3300.0, 4000.0
 ANDRAE2018_TEFF_SUN_K: Final[float] = 5772.0
 ANDRAE2018_MBOL_SUN: Final[float] = 4.74
 
+#: Solar bolometric magnitude of the MIST bolometric-correction tables (Choi et al. 2016,
+#: ApJ 823, 102; MIST BC README): M_bol = MIST_MBOL_SUN - 2.5 log10(L / L_sun), and
+#: M_X = M_bol - BC_X. A convention of the tables, not a choice (#418).
+MIST_MBOL_SUN: Final[float] = 4.74
+
 #: Maximum G-band brightening a single luminous companion can add (an equal-light twin):
 #: 2.5 log10(2) mag. Pure arithmetic, not a choice.
 TWIN_BRIGHTENING_MAG: Final[float] = 2.5 * math.log10(2.0)

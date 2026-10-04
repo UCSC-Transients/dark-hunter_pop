@@ -1,0 +1,26 @@
+# Closed loop for the 2-D CMD Malmquist weight with MIST photometry (spec §11.5, #418).
+#
+# A SYNTHETIC universe, not a Milky Way model: it reuses the #405 universe (disk, IMF mass range,
+# observation, mock proposal, analysis bins: base_config) and adds MIST CMD photometry, a synthetic
+# dust layer and a colour error. None of these numbers is a pipeline setting or feeds inference.
+
+closed_loop_cmd:
+  base_config: config/population/malmquist_closed_loop.yaml
+  malmquist_cmd_config: config/population/malmquist_cmd.yaml
+  giants_config: config/population/giants.yaml
+  seed: 418
+  sizes:
+    small: 1000000
+    large: 3000000
+  dust:                          # E(B-V) = rate * d_kpc * (1 - exp(-x)) / x, x = d |sin b| / h
+    ebv_per_kpc: 0.3             # ~ A_V 1 mag/kpc in the plane (synthetic)
+    scale_height_pc: 100.0
+    a_g_per_ebv: 2.7             # constant ratios in the synthetic world (the real pipeline uses Babusiaux 2018)
+    e_bp_rp_per_ebv: 1.35
+    pipeline_fractional_error: 0.05   # the pipeline's E(B-V) = truth * (1 + 0.05 N(0,1)); it assumes sigma_A = 0 (MP-Q29)
+  colour_error_mag: 0.01
+  one_d_sigma_int_mag: 0.15      # §9.3 comparison run (zero point 0), as in #405
+  universe_max_phase: 3.0        # MS + SGB/RGB + core-He burning primaries (evolved rows get W = 1, spec §10.6)
+  ridge_overrides:               # same ridge estimator as giants.yaml; the synthetic parent is ~10^4-10^5 rows
+    min_rows_per_bin: 30
+    min_parallax_over_error: 5.0

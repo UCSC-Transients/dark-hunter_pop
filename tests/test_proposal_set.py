@@ -443,12 +443,12 @@ def test_uniform_ecc_sampling_unchanged_for_old_artifacts() -> None:
 
 
 @pytest.mark.unit
-def test_epoch_wrap_must_match_config() -> None:
+def test_epoch_setup_must_match_config() -> None:
     prop = ps.load_proposal_set_fragment(RESTART).proposal
     assert prop.epoch_model == "dr3_config"
-    with pytest.raises(ValueError, match="epoch_wrap is missing"):
+    with pytest.raises(ValueError, match="epoch is missing"):
         ps.simulate_one({"generation": 20, "draw_index": 0}, gaiamock=_FakeGaiamock(), c_funcs=None,
-                        cfg=prop, cuts=None, epoch_wrap=None)  # type: ignore[arg-type]
+                        cfg=prop, cuts=None, epoch=None)  # type: ignore[arg-type]
 
 
 @pytest.mark.unit
@@ -534,3 +534,42 @@ def test_malmquist_weight_assembly() -> None:
     with pytest.raises(ValueError, match="MP-Q30"):
         ps.malmquist_log_weight(truth, parent, tgt, mcfg.model_copy(update={"provisional_distance_marginalization": "split_normal_mu"}),
                                 np.zeros(parent.n_rows), ext)
+
+
+@pytest.mark.unit
+def test_proposal_draws_go_through_epoch_model_run_cascade(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#418 / #421 / PR #422: with the epoch model on, every draw runs through
+    ``epoch_model.run_cascade`` (epochs + per-CCD noise + RUWE normalization), with G and the
+    draw's galactic (l, b) in the source context and the draw-keyed Generators; the runner
+    builds that setup from ``dr3.epoch_model``."""
+    import importlib.util
+
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.config_loader import load_config
+
+    spec = importlib.util.spec_from_file_location("run_proposal_pilot", Path("scripts/run_proposal_pilot.py"))
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    frag = ps.load_proposal_set_fragment(RESTART)
+    setup = mod.build_epoch_setup(load_config(), frag.proposal)
+    assert isinstance(setup, ps.EpochSetup) and setup.config.enabled
+    seen: dict[str, object] = {}
+
+    def fake_run_cascade(gm, cf, predict, config, source, **kw):  # type: ignore[no-untyped-def]
+        seen.update(source=source, config=config, **kw)
+        return em.CascadeRun(cascade=[0.0] * ps.CASCADE_VECTOR_LENGTH, n_obs=0, n_transits=0, n_visibility_periods=0, ruwe_scale=1.0)
+
+    monkeypatch.setattr(em, "run_cascade", fake_run_cascade)
+    monkeypatch.setattr(ps, "seeded_global_rng", lambda seeds, cf: __import__("contextlib").nullcontext())
+    draw = {"generation": 20, "draw_index": 3, "ra_deg": 10.0, "dec_deg": -5.0, "parallax_mas": 2.0, "pmra_masyr": 0.0,
+            "pmdec_masyr": 0.0, "m1_msun": 1.0, "m2_msun": 0.5, "period_days": 300.0, "Tp_days": 10.0, "eccentricity": 0.1,
+            "Omega_rad": 1.0, "inc_deg": 60.0, "omega_rad": 2.0, "phot_g_mean_mag": 15.0, "flux_ratio": 0.01,
+            "l_deg": 120.0, "b_deg": -30.0}
+    cuts = load_config().active_dr().selection_function_astrometric.orbital_solution_cuts
+    rec = ps.simulate_one(draw, gaiamock=_FakeGaiamock(), c_funcs=None, cfg=frag.proposal, cuts=cuts, epoch=setup)
+    src = seen["source"]
+    assert (src.g_mag, src.l_deg, src.b_deg) == (15.0, 120.0, -30.0)  # type: ignore[attr-defined]
+    assert seen["config"] is setup.config
+    assert seen["ruwe_min"] == frag.proposal.ruwe_min
+    assert rec["solution_type"] is not None and not rec["accepted_orbital"]
