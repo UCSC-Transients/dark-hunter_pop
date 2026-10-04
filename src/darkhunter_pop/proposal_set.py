@@ -286,8 +286,11 @@ class ProposalConfig(_Strict):
     halbwachs_ipd_cstar_cuts: Literal["applied_star_values", "not_applied"]  # MP-Q3
     halbwachs_cuts: HalbwachsCutsConfig
     truth_distance: Literal["bailer_jones2021_geometric", "measured_parallax"]  # MP-Q4
-    m1: Literal["tag10_point_drop_unresolved"]  # MP-Q5
-    giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g)
+    # MP-Q5; #418 (Ryan 2026-10-03, spec §0.3/§11): ``isochrone_mist_drop_unresolved`` assigns
+    # the MIST isochrone posterior point M1 (MP-Q35) from the dereddened CMD and replaces the
+    # TAG10-log g giant flag with the §10.2 CMD evolved flag (shared ridge, MP-Q28a n_sigma).
+    m1: Literal["tag10_point_drop_unresolved", "isochrone_mist_drop_unresolved"]  # MP-Q5
+    giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g); TAG10 mode only
     light_split: Literal["observed_g_is_system_total"]  # MP-Q6
     # #400 E1 (decided 2026-10-03): ``dr3_config`` wraps every cascade call in the epoch
     # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
@@ -364,6 +367,11 @@ class ParentSnapshot:
     meta: Mapping[str, Any]
     scale_to_full: float
     path: Path
+    #: #418 isochrone mode only: per-row dereddened CMD (``mg0``, ``colour0``, ``sigma_mu``,
+    #: ``ebv``, ``a_g``, ``e_bp_rp``) and isochrone posterior summaries
+    #: (:meth:`darkhunter_pop.isochrone_mass.IsochronePosterior.as_dict`). None in TAG10 mode.
+    cmd: Mapping[str, NDArray[Any]] | None = None
+    isochrone: Mapping[str, NDArray[Any]] | None = None
 
     @property
     def n_rows(self) -> int:
@@ -466,12 +474,60 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def parent_cmd_isochrone(
+    cols: Mapping[str, NDArray[Any]],
+    config: PipelineConfig,
+    giants_cfg: Any,
+    cache_dir: Path | None,
+) -> tuple[dict[str, FloatArray], dict[str, NDArray[Any]]]:
+    """Dereddened CMD and MIST isochrone posterior per parent row (#418, spec §11.2).
+
+    CMD: :func:`darkhunter_pop.giants.cmd_for_rows` (Combined19 at the Bailer-Jones distance,
+    Babusiaux et al. 2018 law). Posterior: :mod:`darkhunter_pop.isochrone_mass` with
+    ``config.isochrone_mass``. Cached as ``cmd_isochrone_<key>.npz`` in ``cache_dir`` (key:
+    isochrone config, giants extinction, dust-map section) when ``cache_dir`` is given.
+    """
+    from darkhunter_pop import giants
+    from darkhunter_pop import isochrone_mass as im
+
+    blob = json.dumps(
+        {
+            "iso": im.config_key(config.isochrone_mass),
+            "ext": giants_cfg.extinction.model_dump(mode="json"),
+            "dust": config.sample_selection.dust_maps.model_dump(mode="json"),
+        },
+        sort_keys=True,
+    )
+    key = hashlib.sha256(blob.encode()).hexdigest()[:10]
+    path = None if cache_dir is None else Path(cache_dir) / f"cmd_isochrone_{key}.npz"
+    if path is not None and path.exists():
+        z = np.load(path)
+        cmd = {k[4:]: z[k] for k in z.files if k.startswith("cmd_")}
+        iso = {k[4:]: z[k] for k in z.files if k.startswith("iso_")}
+        return cmd, iso
+    rc = giants.cmd_for_rows(
+        cols["phot_g_mean_mag"], cols["bp_rp"], cols["l"], cols["b"],
+        cols["r_med_geo"], cols["r_lo_geo"], cols["r_hi_geo"], config, giants_cfg,
+    )
+    cmd = {
+        "mg0": rc.mg0, "colour0": rc.colour0, "sigma_mu": rc.sigma_mu, "ebv": rc.ebv,
+        "a_g": rc.a_g, "e_bp_rp": np.asarray(cols["bp_rp"], float) - rc.colour0,
+    }
+    model = im.build_model(config.isochrone_mass, config.paths.data_root)
+    post = model.fit(rc.colour0, rc.mg0, sigma_mu=rc.sigma_mu, ebv=rc.ebv, a_g=rc.a_g, e_bp_rp=cmd["e_bp_rp"])
+    iso = post.as_dict()
+    if path is not None:
+        np.savez(path, **{f"cmd_{k}": v for k, v in cmd.items()}, **{f"iso_{k}": v for k, v in iso.items()})
+    return cmd, iso
+
+
 def load_parent_snapshot(
     snapshot_dir: str | Path,
     config: PipelineConfig,
     proposal: ProposalConfig,
     *,
     m1_cache: bool = True,
+    giants_config_path: str | Path = "config/population/giants.yaml",
 ) -> ParentSnapshot:
     """Load ``parent.h5`` + ``meta.yaml``, verify the checksum, attach M1 and filters.
 
@@ -482,6 +538,13 @@ def load_parent_snapshot(
 
     ``m1_cache`` stores per-row M1 beside the snapshot (``m1_tag10_<cfg>.npz``, keyed by
     the ``mass_calibration`` section) so repeated loads skip the per-row TAG10 loop.
+
+    ``proposal.m1 == "isochrone_mist_drop_unresolved"`` (#418): M1 is the isochrone posterior
+    point (``config.isochrone_mass.provisional_point_estimate``, MP-Q35) from
+    :func:`parent_cmd_isochrone` (cached beside the snapshot), the required flag
+    ``tag10_atmosphere`` is replaced by ``isochrone_m1``, and ``is_giant`` is the §10.2 CMD
+    evolved flag from ``giants_config_path`` (ridge measured on the usable rows, RUWE cut
+    when configured). ``atmosphere_logg`` then holds the posterior ⟨log g⟩.
     """
     import h5py
 
@@ -493,16 +556,29 @@ def load_parent_snapshot(
         raise ValueError(f"parent snapshot checksum mismatch: {got} != {meta['parent_h5_sha256']}")
     with h5py.File(h5, "r") as handle:
         cols = {name: handle[name][()] for name in handle.keys()}
-    mc_blob = json.dumps(config.mass_calibration.model_dump(mode="json"), sort_keys=True)
-    mc_key = hashlib.sha256(mc_blob.encode()).hexdigest()[:10]
-    cache = d / f"m1_tag10_{mc_key}.npz"
-    if m1_cache and cache.exists() and "atmosphere_logg" in np.load(cache).files:
-        z = np.load(cache)
-        m1, src, logg = z["m1_msun"], z["m1_source"], z["atmosphere_logg"]
+    iso_mode = proposal.m1 == "isochrone_mist_drop_unresolved"
+    cmd: dict[str, FloatArray] | None = None
+    iso: dict[str, NDArray[Any]] | None = None
+    if iso_mode:
+        from darkhunter_pop import giants
+
+        gcfg = giants.load_giants_config(giants_config_path)
+        cmd, iso = parent_cmd_isochrone(cols, config, gcfg, d if m1_cache else None)
+        pt = config.isochrone_mass.provisional_point_estimate
+        m1 = np.asarray(iso["m1_mean"] if pt == "mean" else 10.0 ** np.asarray(iso["log_m1_mean"]), float)
+        src = np.where(np.asarray(iso["ok"], bool), "MIST", "none")
+        logg = np.asarray(iso["log_g_mean"], float)
     else:
-        m1, src, logg = tag10_m1_for_rows(cols, config)
-        if m1_cache:
-            np.savez(cache, m1_msun=m1, m1_source=src, atmosphere_logg=logg)
+        mc_blob = json.dumps(config.mass_calibration.model_dump(mode="json"), sort_keys=True)
+        mc_key = hashlib.sha256(mc_blob.encode()).hexdigest()[:10]
+        cache = d / f"m1_tag10_{mc_key}.npz"
+        if m1_cache and cache.exists() and "atmosphere_logg" in np.load(cache).files:
+            z = np.load(cache)
+            m1, src, logg = z["m1_msun"], z["m1_source"], z["atmosphere_logg"]
+        else:
+            m1, src, logg = tag10_m1_for_rows(cols, config)
+            if m1_cache:
+                np.savez(cache, m1_msun=m1, m1_source=src, atmosphere_logg=logg)
     finite = np.ones(m1.size, dtype=bool)
     for name in ("ra", "dec", "parallax", "pmra", "pmdec", "phot_g_mean_mag"):
         finite &= np.isfinite(np.asarray(cols[name], dtype=np.float64))
@@ -510,7 +586,7 @@ def load_parent_snapshot(
     flags: dict[str, NDArray[np.bool_]] = {
         "finite_astrometry_photometry": finite,
         "parallax_floor": plx > proposal.parallax_floor_mas,
-        "tag10_atmosphere": np.isfinite(m1),
+        ("isochrone_m1" if iso_mode else "tag10_atmosphere"): np.isfinite(m1),
     }
     if proposal.truth_distance == "bailer_jones2021_geometric":
         if "r_med_geo" not in cols:
@@ -524,8 +600,20 @@ def load_parent_snapshot(
     if proposal.halbwachs_ipd_cstar_cuts == "applied_star_values":
         flags.update(halbwachs_input_flags(cols, proposal.halbwachs_cuts))
     usable = np.logical_and.reduce(list(flags.values()))
-    with np.errstate(invalid="ignore"):
-        giant = np.isfinite(logg) & (logg < proposal.giant_flag_logg_max)
+    if iso_mode:
+        from darkhunter_pop import giants
+
+        gcfg = giants.load_giants_config(giants_config_path)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            snr = np.asarray(cols["parallax"], float) / np.asarray(cols["parallax_error"], float)
+        ruwe = np.asarray(cols["ruwe"], float) if gcfg.ridge.ruwe_max is not None else None
+        ridge = giants.fit_ms_ridge(np.where(usable, cmd["mg0"], np.nan), cmd["colour0"], snr, gcfg.ridge, ruwe=ruwe)  # type: ignore[index]
+        giant = giants.classify_evolved(cmd["mg0"], cmd["colour0"], cmd["sigma_mu"], ridge, gcfg.provisional_n_sigma).evolved  # type: ignore[index]
+        meta = {**meta, "ms_ridge": {"colour": ridge.colour.tolist(), "mag": ridge.mag.tolist(),
+                                     "sigma": ridge.sigma.tolist(), "n_rows": ridge.n_rows.tolist()}}
+    else:
+        with np.errstate(invalid="ignore"):
+            giant = np.isfinite(logg) & (logg < proposal.giant_flag_logg_max)
     k = int(meta["random_index_max_exclusive"])
     return ParentSnapshot(
         columns=cols,
@@ -539,6 +627,8 @@ def load_parent_snapshot(
         meta=meta,
         scale_to_full=float(meta["gaia_source_total_rows"]) / float(k),
         path=d,
+        cmd=cmd,
+        isochrone=iso,
     )
 
 
@@ -773,6 +863,9 @@ def sample_proposal(
         "source_id": np.asarray(cols["source_id"], dtype=np.int64)[row],
         "ra_deg": np.asarray(cols["ra"], float)[row],
         "dec_deg": np.asarray(cols["dec"], float)[row],
+        # #421: galactic (l, b) for the #400 v2 epoch model's sky term (NaN if the parent lacks them).
+        "l_deg": np.asarray(cols["l"], float)[row] if "l" in cols else np.full(n, np.nan),
+        "b_deg": np.asarray(cols["b"], float)[row] if "b" in cols else np.full(n, np.nan),
         # Truth parallax fed to gaiamock (spec §0.1 MP-Q4); the measured one is kept too.
         "parallax_mas": np.asarray(parent.truth_parallax_mas, float)[row],
         "measured_parallax_mas": np.asarray(cols["parallax"], float)[row],
@@ -838,6 +931,18 @@ def published_acceleration(cascade: Sequence[float], cfg: AccelerationPublicatio
     return False
 
 
+@dataclass(frozen=True)
+class EpochSetup:
+    """The #400 epoch model for :func:`simulate_one` (built once per worker).
+
+    ``config`` is an :class:`darkhunter_pop.epoch_model.EpochModelConfig` (``dr3.epoch_model``
+    with ``enabled`` forced on, #400 E1); ``gaps_jd`` its gap table in JD.
+    """
+
+    config: Any
+    gaps_jd: Any
+
+
 def simulate_one(
     draw: Mapping[str, Any],
     *,
@@ -845,47 +950,75 @@ def simulate_one(
     c_funcs: Any,
     cfg: ProposalConfig,
     cuts: OrbitalSolutionCutsConfig,
-    epoch_wrap: Callable[[Mapping[str, Any]], ContextManager[Any]] | None = None,
+    epoch: EpochSetup | None = None,
 ) -> dict[str, Any]:
-    """Run one stored draw through ``run_full_astrometric_cascade``, seeded per #371.
+    """Run one stored draw through the gaiamock cascade, seeded per #371.
 
     Seeds: ``mock_global_rng_seeds(base_seed, PROPOSAL_RNG_STREAM_BASE + generation,
     draw_index)``, so a draw replays alone, independent of order or worker.
 
-    ``epoch_wrap(draw)`` (optional) returns a context manager entered around the cascade,
-    e.g. ``epoch_model.gost_epoch_model(...)`` with ``epoch_model_rng(base_seed, stream,
-    draw_index)`` (#400 hook). It must be given exactly when ``cfg.epoch_model != "off"``.
+    With ``cfg.epoch_model != "off"`` (``epoch`` then required) the draw goes through
+    :func:`darkhunter_pop.epoch_model.run_cascade`: gaiamock's
+    ``predict_astrometry_luminous_binary`` inside the epoch thinning, then the per-CCD excess
+    noise and the RUWE normalization that the epoch config switches on, then
+    ``fit_full_astrometric_cascade``, with gaiamock's own visibility gate (< 12 visibility
+    periods or < 13 epochs → the all-zero vector, as ``run_full_astrometric_cascade``). The
+    epoch and noise Generators are ``epoch_model_rng(base_seed, stream, draw_index[, tag])``;
+    the source context carries G and the draw's galactic (l, b) (#421). Without the epoch
+    model it is the bare ``run_full_astrometric_cascade`` call.
     """
-    if (epoch_wrap is None) != (cfg.epoch_model == "off"):
-        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch_wrap is {'missing' if epoch_wrap is None else 'given'}")
+    if (epoch is None) != (cfg.epoch_model == "off"):
+        raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch is {'missing' if epoch is None else 'given'}")
     stream = PROPOSAL_RNG_STREAM_BASE + int(draw["generation"])
     seeds = mock_global_rng_seeds(cfg.base_seed, stream, int(draw["draw_index"]))
+    kw = dict(
+        ra=float(draw["ra_deg"]),
+        dec=float(draw["dec_deg"]),
+        parallax=float(draw["parallax_mas"]),
+        pmra=float(draw["pmra_masyr"]),
+        pmdec=float(draw["pmdec_masyr"]),
+        m1=float(draw["m1_msun"]),
+        m2=float(draw["m2_msun"]),
+        period=float(draw["period_days"]),
+        Tp=float(draw["Tp_days"]),
+        ecc=float(draw["eccentricity"]),
+        omega=float(draw["Omega_rad"]),
+        w=float(draw["omega_rad"]),
+        phot_g_mean_mag=float(draw["phot_g_mean_mag"]),
+        f=float(draw["flux_ratio"]),
+        data_release=cfg.data_release,
+        c_funcs=c_funcs,
+    )
     t0 = time.process_time()
-    wrap = epoch_wrap(draw) if epoch_wrap is not None else contextlib.nullcontext()
-    with wrap, seeded_global_rng(seeds, c_funcs):
-        cascade = gaiamock.run_full_astrometric_cascade(
-            ra=float(draw["ra_deg"]),
-            dec=float(draw["dec_deg"]),
-            parallax=float(draw["parallax_mas"]),
-            pmra=float(draw["pmra_masyr"]),
-            pmdec=float(draw["pmdec_masyr"]),
-            m1=float(draw["m1_msun"]),
-            m2=float(draw["m2_msun"]),
-            period=float(draw["period_days"]),
-            Tp=float(draw["Tp_days"]),
-            ecc=float(draw["eccentricity"]),
-            omega=float(draw["Omega_rad"]),
-            inc_deg=float(draw["inc_deg"]),
-            w=float(draw["omega_rad"]),
-            phot_g_mean_mag=float(draw["phot_g_mean_mag"]),
-            f=float(draw["flux_ratio"]),
-            data_release=cfg.data_release,
-            c_funcs=c_funcs,
-            verbose=False,
-            show_residuals=False,
-            ruwe_min=cfg.ruwe_min,
-            skip_acceleration=cfg.skip_acceleration,
-        )
+    with seeded_global_rng(seeds, c_funcs):
+        if epoch is None:
+            cascade = gaiamock.run_full_astrometric_cascade(
+                inc_deg=float(draw["inc_deg"]), verbose=False, show_residuals=False,
+                ruwe_min=cfg.ruwe_min, skip_acceleration=cfg.skip_acceleration, **kw,
+            )
+        else:
+            from darkhunter_pop import epoch_model as em
+            from darkhunter_pop.cascade_replay import GAIAMOCK_MIN_OBSERVATIONS, GAIAMOCK_MIN_VISIBILITY_PERIODS
+
+            def predict() -> Any:
+                return gaiamock.predict_astrometry_luminous_binary(inc=math.radians(float(draw["inc_deg"])), **kw)
+
+            def _opt(key: str) -> float | None:
+                v = draw.get(key)
+                return float(v) if v is not None and np.isfinite(float(v)) else None
+
+            source = em.SourceEpochContext(g_mag=float(draw["phot_g_mean_mag"]), l_deg=_opt("l_deg"), b_deg=_opt("b_deg"))
+            di = int(draw["draw_index"])
+            run = em.run_cascade(
+                gaiamock, c_funcs, predict, epoch.config, source,
+                epoch_rng=em.epoch_model_rng(cfg.base_seed, stream, di),
+                noise_rng=em.epoch_model_rng(cfg.base_seed, stream, di, tag=em.PER_CCD_NOISE_RNG_TAG),
+                ruwe_min=cfg.ruwe_min, skip_acceleration=cfg.skip_acceleration, gaps_jd=epoch.gaps_jd,
+            )
+            if run.n_visibility_periods < GAIAMOCK_MIN_VISIBILITY_PERIODS or run.n_obs < GAIAMOCK_MIN_OBSERVATIONS:
+                cascade = [0.0] * CASCADE_VECTOR_LENGTH
+            else:
+                cascade = run.cascade
     cpu = time.process_time() - t0
     vec = [float(v) for v in cascade] + [0.0] * (CASCADE_VECTOR_LENGTH - len(cascade))
     rec = classify_cascade_result(
@@ -916,7 +1049,10 @@ def simulate_one(
 
 
 def mds17_luminous_log_intensity(
-    truth: Mapping[str, NDArray[Any]], target: MdS17TargetConfig
+    truth: Mapping[str, NDArray[Any]],
+    target: MdS17TargetConfig,
+    *,
+    evolved_mg0_system: ArrayLike | None = None,
 ) -> FloatArray:
     """log λ(x | θ_MdS17) in the proposal's measure (per dex M2, per dex P, per unit e or
     the circular point mass, per dex f), for luminous MS companions only.
@@ -925,6 +1061,11 @@ def mds17_luminous_log_intensity(
     s_low(M1). Dark draws (f = 0), q outside MdS17's 0.1-1 and log P outside 0.2-8 get
     −inf. M1 above the MdS17 domain is clamped to its edge for the shape (recorded as a
     limitation; TAG10 rarely exceeds it). Provisional choices come from ``target``.
+
+    ``evolved_mg0_system`` (#416 / spec §10.4; per draw, NaN for non-evolved rows, e.g. from
+    :func:`evolved_mg0_for_draws`): for evolved primaries the f density is centred on
+    ``giants.evolved_log10_flux_ratio(M2, M_G0,sys)`` instead of the dwarf relation, and is
+    zero where the companion alone would outshine the system. Dwarf rows are unchanged.
     """
     table = mds.load_mds17_table(target.table_path)
     m1 = np.asarray(truth["m1_msun"], float)
@@ -952,6 +1093,12 @@ def mds17_luminous_log_intensity(
         mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
     )
     rel = relation_log10_flux_ratio(m1, m2)
+    if evolved_mg0_system is not None:
+        from darkhunter_pop.giants import evolved_log10_flux_ratio
+
+        mg0e = np.asarray(evolved_mg0_system, float)
+        evo = np.isfinite(mg0e)
+        rel = np.where(evo, evolved_log10_flux_ratio(m2, np.where(evo, mg0e, 0.0)), rel)
     sig = target.flux_sigma_dex
     with np.errstate(invalid="ignore"):
         pf = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
@@ -1347,3 +1494,75 @@ def malmquist_log_weight(
     unit = ~(np.isfinite(rows.delta_m[r]) & np.isfinite(rows.sigma[r]))
     return lw, {"draws": int(r.size), "unit_weight_no_delta_m": int(unit.sum()),
                 "unit_weight_giant": int(np.asarray(rows.is_giant, bool)[r].sum())}
+
+
+# ---------------------------------------------------------------------------
+# #418: isochrone parent, 2-D CMD Malmquist weight, evolved flux ratio (#416)
+# ---------------------------------------------------------------------------
+
+
+def evolved_mg0_for_draws(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot) -> FloatArray:
+    """Per draw: the system's dereddened M_G0 where the parent row is evolved, else NaN.
+
+    Input for ``mds17_luminous_log_intensity(..., evolved_mg0_system=...)`` (#416). Needs a
+    parent loaded in isochrone mode (``parent.cmd``); raises otherwise.
+    """
+    if parent.cmd is None:
+        raise ValueError("parent has no CMD; load it with m1 = isochrone_mist_drop_unresolved")
+    r = np.asarray(truth["parent_row"], np.int64)
+    mg0 = np.asarray(parent.cmd["mg0"], float)[r]
+    return np.where(np.asarray(parent.is_giant, bool)[r], mg0, np.nan)
+
+
+def malmquist_cmd_log_weight(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    target: MdS17TargetConfig,
+    cmcfg: Any,
+    config: PipelineConfig,
+) -> tuple[FloatArray, dict[str, Any]]:
+    """log W per draw from the 2-D CMD weight (spec §11.4), plus unit-weight counts.
+
+    Uses the parent's dereddened CMD, its isochrone M1 and the shared MS ridge stored in
+    ``parent.meta["ms_ridge"]`` by :func:`load_parent_snapshot` in isochrone mode. Add to the
+    target log-intensity before :func:`importance_weights`. Evolved rows, rows outside the
+    ridge and rows without a CMD get log W = 0 (counted).
+    """
+    from darkhunter_pop import giants
+    from darkhunter_pop import isochrone_mass as im
+    from darkhunter_pop import malmquist_cmd as mc
+
+    if parent.cmd is None or "ms_ridge" not in parent.meta:
+        raise ValueError("parent has no CMD / ridge; load it with m1 = isochrone_mist_drop_unresolved")
+    rd = parent.meta["ms_ridge"]
+    ridge = mc.RidgeTables.from_ridge(giants.MSRidge(
+        colour=np.asarray(rd["colour"], float), mag=np.asarray(rd["mag"], float),
+        sigma=np.asarray(rd["sigma"], float), n_rows=np.asarray(rd["n_rows"], np.int64),
+    ))
+    grid = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
+    cc = cmcfg.companion_colour
+    ms = mc.ms_colours(grid, cc.fiducial_feh_dex, cc.fiducial_log_age)
+    rows = mc.cmd_rows(
+        parent.cmd["colour0"], parent.cmd["mg0"], parent.cmd["sigma_mu"], parent.m1_msun, ridge,
+        evolved=parent.is_giant, a_g=parent.cmd["a_g"], e_bp_rp=parent.cmd["e_bp_rp"],
+    )
+    r = np.asarray(truth["parent_row"], np.int64)
+    used = np.zeros(rows.colour0.size, bool)
+    used[np.unique(r)] = True
+    rows_used = mc.CmdRows(
+        colour0=rows.colour0, mg0=rows.mg0, sigma_mu=rows.sigma_mu, k_ag_over_ebprp=rows.k_ag_over_ebprp,
+        m1_msun=rows.m1_msun, unit_weight=rows.unit_weight | ~used, unit_reason=rows.unit_reason,
+    )
+    qf = mc.build_qf_grid(target, cmcfg.grid)
+    dens = None
+    if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
+        model = im.build_model(config.isochrone_mass, config.paths.data_root)
+        dens = mc.build_single_star_density(model.cmap, cmcfg.single_star_density, giants.MSRidge(
+            colour=np.asarray(rd["colour"], float), mag=np.asarray(rd["mag"], float),
+            sigma=np.asarray(rd["sigma"], float), n_rows=np.asarray(rd["n_rows"], np.int64)))
+    norm = mc.row_normalization(rows_used, qf, ridge, ms, cmcfg, dens=dens)
+    lw = mc.log_weight_for_draws(truth, rows_used, norm, ridge, ms, cmcfg, dens=dens)
+    reasons = rows.unit_reason[r]
+    counts = {str(k): int(v) for k, v in zip(*np.unique(reasons, return_counts=True))}
+    return lw, {"draws": int(r.size), "by_row_reason": counts}
+
