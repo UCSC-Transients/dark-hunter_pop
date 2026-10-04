@@ -45,6 +45,17 @@ AP_COLS = (
 )
 
 
+def _plain_log_ticks(ax: Any, axes: str = "xy") -> None:
+    """Plain-number tick labels on log axes (0.5, 1, 2 rather than 5x10^-1)."""
+    from matplotlib.ticker import FuncFormatter, NullFormatter
+
+    fmt = FuncFormatter(lambda v, _: f"{v:g}")
+    for name in axes:
+        axis = ax.xaxis if name == "x" else ax.yaxis
+        axis.set_major_formatter(fmt)
+        axis.set_minor_formatter(NullFormatter())
+
+
 def _robust(x: np.ndarray) -> tuple[float, float]:
     med = float(np.median(x))
     return med, float(1.4826 * np.median(np.abs(x - med)))
@@ -297,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
         ax.set_title(f"DR3 orbits, {lab}")
         ax.legend(loc="upper left", markerscale=6)
         apply_axes_style(ax, style)
+        _plain_log_ticks(ax)
     save_figure(fig, args.out_dir / "m1_vs_flame.png", dpi=int(cfg.diagnostics.figure_dpi))
     plt.close(fig)
 
@@ -307,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         axes[0].plot(cen, meds, marker="o", lw=2.5, color=series_style(k, style)["color"], label=lab)
     axes[0].axhline(0.0, color="k", lw=1)
     axes[0].set_xscale("log")
+    _plain_log_ticks(axes[0], "x")
     axes[0].set_xlabel("Bailer-Jones distance (kpc)")
     axes[0].set_ylabel(r"median $\Delta M$ (mag)")
     axes[0].set_title("RUWE < 1.4 non-evolved parent rows")
@@ -342,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     ax.hist(m1t[ut], bins=e, histtype="step", lw=2.5, color=series_style(1, style)["color"], label="TAG10 + Santos")
     ax.hist(m1i[u], bins=e, histtype="step", lw=2.5, color=series_style(0, style)["color"], label="MIST isochrone")
     ax.set_xscale("log")
+    _plain_log_ticks(ax, "x")
     ax.set_xlabel(r"parent M1 (M$_\odot$)")
     ax.set_ylabel("rows")
     ax.legend()

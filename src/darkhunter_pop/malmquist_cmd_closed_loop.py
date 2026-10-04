@@ -64,6 +64,9 @@ class CmdClosedLoopConfig(_Strict):
     dust: SyntheticDustConfig
     colour_error_mag: float = Field(..., ge=0)
     one_d_sigma_int_mag: float = Field(..., gt=0)  # §9.3 comparison run (zero point 0)
+    #: Numerical overrides of the giants ridge settings for the (much smaller) synthetic parent,
+    #: e.g. ``min_rows_per_bin``; the estimator itself is unchanged.
+    ridge_overrides: dict[str, float] = Field(default_factory=dict)
 
 
 def load_cmd_closed_loop_config(path: str | Path = "config/population/malmquist_cmd_closed_loop.yaml") -> CmdClosedLoopConfig:
@@ -205,7 +208,8 @@ def run_pipeline_on_parent(
     post = model.fit(c0, mg0, sigma_mu=smu, ebv=e_hat, a_g=a_hat, e_bp_rp=ebr_hat)
     m1_hat = post.point(model.cfg.provisional_point_estimate)
     s_plx = mcl.parallax_error(u.g_true[i], base.observation.parallax_error, base.observation.g_limit)
-    ridge = giants.fit_ms_ridge(mg0, c0, par.plx_obs / s_plx, gcfg.ridge.model_copy(update={"ruwe_max": None}))
+    rcfg = gcfg.ridge.model_copy(update={"ruwe_max": None, **cfg.ridge_overrides})
+    ridge = giants.fit_ms_ridge(mg0, c0, par.plx_obs / s_plx, rcfg)
     evolved = giants.classify_evolved(mg0, c0, smu, ridge, gcfg.provisional_n_sigma).evolved
     snap = mcl.parent_snapshot(u, par)
     usable = np.isfinite(m1_hat)
