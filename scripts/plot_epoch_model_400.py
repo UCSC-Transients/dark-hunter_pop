@@ -280,7 +280,7 @@ def _load_validation(inj390: Path, log: Path | list[Path], n_real: int) -> dict[
         tab["system_index"] = np.array([index[int(r["source_id"])] for r in recs])
         out[variant] = tab
     # pair the baseline with the re-run: keep only (system, realization) pairs present in it
-    ref = "v2" if "v2" in out else ("epoch" if "epoch" in out else None)
+    ref = next((r_ for r_ in ("v3", "n2d", "v2", "epoch") if r_ in out), None)
     if ref is not None:
         done = set(zip(out[ref]["system_index"].astype(int), out[ref]["realization"].astype(int)))
         keep = np.array([(int(a), int(b)) in done for a, b in zip(base["system_index"], base["realization"])])
