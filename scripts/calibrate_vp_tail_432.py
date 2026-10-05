@@ -47,6 +47,10 @@ if str(REPO / "src") not in sys.path:
 from darkhunter_pop import epoch_model as em  # noqa: E402
 from darkhunter_pop.config_loader import load_config  # noqa: E402
 
+#: Galactic-latitude feature of the degraded fraction: |sin b| or exp(-|b| / B_SCALE_DEG)
+B_FEATURE = "abs_sin"
+B_SCALE_DEG = 10.0
+
 PARAM_NAMES = ("c0", "c1", "c2", "c_beta", "c_b", "e0", "d0", "d1")
 VARIANT_FREE = {
     "none": ("d0", "d1"),
@@ -78,7 +82,9 @@ def load(path: Path, cfg: em.EpochModelConfig, random_offset: float, n_random: i
                 pk = np.minimum(1.0, pk * np.exp(random_offset))
             out[name] = {
                 "M": M, "G": G, "x": (np.clip(G, 6.0, 19.0) - 14.0) / 4.0,
-                "sbeta": np.abs(np.sin(np.radians(d["ecl_lat"][idx]))), "sb": np.abs(np.sin(np.radians(d["b"][idx]))),
+                "sbeta": np.abs(np.sin(np.radians(d["ecl_lat"][idx]))),
+                "sb": (np.abs(np.sin(np.radians(d["b"][idx]))) if B_FEATURE == "abs_sin"
+                       else np.exp(-np.abs(d["b"][idx]) / B_SCALE_DEG)),
                 "beta": d["ecl_lat"][idx], "b": d["b"][idx], "pkeep": pk,
                 "nvis": d["visibility_periods_used"][idx].astype(int), "nvis_exact": (M > 0).sum(1),
                 "params_solved": d["astrometric_params_solved"][idx],
@@ -177,14 +183,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=432)
     ap.add_argument("--variants", nargs="+", default=list(VARIANT_FREE))
     ap.add_argument("--out", default=str(P / "output/gate432"))
+    ap.add_argument("--start-json", default=None, help="vp_tail_fit_*.json whose last variant theta starts the fit")
+    ap.add_argument("--tag", default=None)
+    ap.add_argument("--b-feature", choices=("abs_sin", "exp"), default="abs_sin")
+    ap.add_argument("--b-scale-deg", type=float, default=10.0)
     args = ap.parse_args(argv)
+    global B_FEATURE, B_SCALE_DEG
+    B_FEATURE, B_SCALE_DEG = args.b_feature, args.b_scale_deg
     cfg = em.epoch_model_config_from_mapping(load_config().dr3.epoch_model)
     delta = float(json.loads(Path(args.keep_fit).read_text())["adopted"]["random_offset_log"])
     data = load(Path(args.vp), cfg, delta, args.n_random, args.seed)
     start = {"c0": -4.0, "c1": 1.0, "c2": 0.0, "c_beta": 0.0, "c_b": 0.0, "e0": -0.5, "d0": -3.5, "d1": 0.5}
-    results: dict[str, Any] = {"n_random": int(data["random"]["G"].size), "n_nss": int(data["nss"]["G"].size),
+    results: dict[str, Any] = {"b_feature": B_FEATURE, "b_scale_deg": B_SCALE_DEG,
+                               "n_random": int(data["random"]["G"].size), "n_nss": int(data["nss"]["G"].size),
                                "random_offset_log": delta, "variants": {}}
     prev = start
+    if args.start_json:
+        sj = json.loads(Path(args.start_json).read_text())["variants"]
+        prev = dict(list(sj.values())[-1]["theta"])
     for v in args.variants:
         st = dict(prev)
         if v == "none":
@@ -193,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
             st.update(c_beta=0.0, c_b=0.0)
         elif "c_b" not in VARIANT_FREE[v]:
             st.update(c_b=0.0)
+        if args.start_json:
+            st = dict(prev)
         if v != "none" and st["c0"] < -20:
             st.update(c0=-4.0, c1=1.0)
         r = fit(data, VARIANT_FREE[v], st)
@@ -205,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
               "lt12 model/dr3", round(r["tails_random"]["all"]["model_lt12"], 4), round(r["tails_random"]["all"]["dr3_lt12"], 4),
               flush=True)
     Path(args.out).mkdir(parents=True, exist_ok=True)
-    tag = "_".join(args.variants)
+    tag = args.tag or "_".join(args.variants)
     (Path(args.out) / f"vp_tail_fit_{tag}.json").write_text(json.dumps(results, indent=1, default=float))
     return 0
 
