@@ -53,6 +53,7 @@ from darkhunter_pop import constants
 # this module into every stage's dependency hash). Re-exported here for callers.
 from darkhunter_pop.config_schema import (
     AgePriorConfig,
+    FehLikelihoodConfig,
     CmdMapConfig,
     FehPriorConfig,
     ImfPriorConfig,
@@ -956,3 +957,146 @@ def deblend_primary_mass(
     best = np.argmin(chi2, axis=1)
     rows = np.arange(best.size)
     return col["star_mass"][best], chi2[rows, best]
+
+
+# ---------------------------------------------------------------------------
+# MP-Q33: calibrated GSP-Phot [Fe/H] likelihood (spec §11.9)
+# ---------------------------------------------------------------------------
+
+#: GSP-Phot columns ``gdr3apcal`` needs (besides the position, given as cos b).
+GDR3APCAL_COLUMNS: tuple[str, ...] = (
+    "teff_gspphot", "logg_gspphot", "mh_gspphot", "azero_gspphot", "ebpminrp_gspphot",
+    "ag_gspphot", "mg_gspphot", "libname_gspphot",
+)
+
+
+def calibrated_gspphot_feh(
+    columns: Mapping[str, Any], b_deg: ArrayLike, parallax_over_error: ArrayLike, cfg: FehLikelihoodConfig
+) -> tuple[FloatArray, BoolArray]:
+    """(calibrated [Fe/H], reliable) per row via ``gdr3apcal`` (Andrae et al. 2023, §3.5.3).
+
+    Rows failing the reliability cut of ``cfg`` (or missing any input) get NaN and False.
+    ``gdr3apcal`` is an optional dependency (pyproject extra ``isochrone``).
+    """
+    import pandas as pd
+    from gdr3apcal import GaiaDR3_GSPPhot_cal
+
+    n = int(np.asarray(b_deg).size)
+    df = pd.DataFrame({k: np.asarray(columns[k]) for k in GDR3APCAL_COLUMNS})
+    df["cosb"] = np.cos(np.radians(np.asarray(b_deg, float)))
+    lib = df["libname_gspphot"].astype(str).str.upper()
+    teff = df["teff_gspphot"].to_numpy(float)
+    a0 = df["azero_gspphot"].to_numpy(float)
+    snr = np.asarray(parallax_over_error, float)
+    ok = (snr >= cfg.min_parallax_over_error) & (teff >= cfg.teff_min_k) & (teff <= cfg.teff_max_k)
+    ok &= lib.isin([x.upper() for x in cfg.libraries]).to_numpy() & (a0 <= cfg.a0_max_mag)
+    ok &= np.all(np.isfinite(df[[c for c in GDR3APCAL_COLUMNS if c != "libname_gspphot"]].to_numpy(float)), axis=1)
+    out = np.full(n, np.nan)
+    if ok.any():
+        cal = GaiaDR3_GSPPhot_cal()
+        sub = df.loc[ok].copy()
+        res = cal.calibrateMetallicity(sub)
+        vals = np.asarray(res if not hasattr(res, "to_numpy") else res.to_numpy(), float).reshape(-1)
+        out[np.flatnonzero(ok)] = vals[: int(ok.sum())]
+    good = ok & np.isfinite(out)
+    return out, good
+
+
+@dataclass(frozen=True)
+class LayeredCmdMap:
+    """CMD moment maps split by [Fe/H] layer (``layer_feh`` centres) for a [Fe/H] likelihood."""
+
+    colour_edges: FloatArray
+    mag_edges: FloatArray
+    layer_feh: FloatArray
+    maps: NDArray[np.float32]  # (n_layer, nc, nm, k)
+
+
+def build_layered_cmd_map(pts: PriorPoints, cfg: CmdMapConfig, layer_feh: ArrayLike) -> LayeredCmdMap:
+    """One :class:`CmdMap` per [Fe/H] layer (points assigned to the nearest layer centre)."""
+    centres = np.asarray(layer_feh, float)
+    lay = np.abs(pts.feh[:, None] - centres[None, :]).argmin(axis=1)
+    maps = []
+    for k in range(centres.size):
+        sel = lay == k
+        sub = PriorPoints(weight=pts.weight[sel], colour=pts.colour[sel], mg=pts.mg[sel], feh=pts.feh[sel],
+                          log_age=pts.log_age[sel], values={kk: v[sel] for kk, v in pts.values.items()})
+        cm = build_cmd_map(sub, cfg)
+        maps.append(cm.maps.astype(np.float32))
+    return LayeredCmdMap(colour_edges=cm.colour_edges, mag_edges=cm.mag_edges, layer_feh=centres, maps=np.stack(maps))
+
+
+def posterior_moments_with_feh(
+    colour0: ArrayLike,
+    mg0: ArrayLike,
+    sigma_colour: ArrayLike,
+    sigma_mag: ArrayLike,
+    feh_obs: ArrayLike,
+    feh_sigma: ArrayLike,
+    lmap: LayeredCmdMap,
+    lk: IsochroneLikelihoodConfig,
+) -> IsochronePosterior:
+    """:func:`posterior_moments` times a Gaussian [Fe/H] likelihood N(feh_obs; feh_layer, σ).
+
+    Each layer's map is weighted per row by the likelihood at the layer centre; rows with a
+    non-finite ``feh_obs`` get weight 1 for every layer (the prior alone)."""
+    fo = np.asarray(feh_obs, float)
+    fs = np.broadcast_to(np.asarray(feh_sigma, float), fo.shape)
+    lw = np.exp(-0.5 * ((fo[:, None] - lmap.layer_feh[None, :]) / fs[:, None]) ** 2)
+    lw = np.where(np.isfinite(fo)[:, None], lw, 1.0)
+    # Combine per layer: S = Σ_l lw_l S_l; run posterior_moments on each layer and sum raw sums.
+    n = fo.size
+    nk = len(MOMENT_CHANNELS)
+    raw = np.zeros((n, nk))
+    for k in range(lmap.layer_feh.size):
+        cm = CmdMap(colour_edges=lmap.colour_edges, mag_edges=lmap.mag_edges, maps=lmap.maps[k].astype(np.float64))
+        post = posterior_moments(colour0, mg0, sigma_colour, sigma_mag, cm, lk.model_copy(update={"min_log10_evidence": -np.inf}))
+        area = float(np.mean(np.diff(lmap.colour_edges)) * np.mean(np.diff(lmap.mag_edges)))
+        one = np.where(np.isfinite(post.log10_evidence), 10.0 ** post.log10_evidence * area, 0.0)
+        mom = np.column_stack([np.ones(n)] + [np.zeros(n)] * (nk - 1))
+        for j, name in enumerate(MOMENT_CHANNELS[1:], start=1):
+            mom[:, j] = _raw_channel(post, name)
+        raw += (lw[:, k] * one)[:, None] * np.nan_to_num(mom)
+    return _posterior_from_raw(raw, colour0, mg0, lmap, lk)
+
+
+def _raw_channel(post: IsochronePosterior, name: str) -> FloatArray:
+    """Per-star normalized moment of ``name`` (the inverse of :func:`posterior_moments`)."""
+    m1, lm = post.m1_mean, post.log_m1_mean
+    table = {
+        "mass": m1, "mass2": post.m1_sigma**2 + m1**2, "log_mass": lm, "log_mass2": post.log_m1_sigma**2 + lm**2,
+        "initial_mass": post.m_init_mean, "log_r": post.log_r_mean, "log_r2": post.log_r_sigma**2 + post.log_r_mean**2,
+        "r_max_past": post.r_max_past_mean, "log_g": post.log_g_mean, "evolved": post.p_evolved,
+        "log_age": post.log_age_mean, "feh": post.feh_mean,
+    }
+    return np.asarray(table[name], float)
+
+
+def _posterior_from_raw(raw: FloatArray, colour0: ArrayLike, mg0: ArrayLike, lmap: LayeredCmdMap,
+                        lk: IsochroneLikelihoodConfig) -> IsochronePosterior:
+    c = np.asarray(colour0, float)
+    m = np.asarray(mg0, float)
+    valid = np.isfinite(c) & np.isfinite(m)
+    one = raw[:, 0]
+    area = float(np.mean(np.diff(lmap.colour_edges)) * np.mean(np.diff(lmap.mag_edges)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_ev = np.log10(one / area)
+        mom = raw / one[:, None]
+    reason = np.full(c.size, "ok", dtype="<U8")
+    reason[~valid] = "no_cmd"
+    reason[valid & ~(log_ev >= lk.min_log10_evidence)] = "off_grid"
+    ok = reason == "ok"
+
+    def col(name: str) -> FloatArray:
+        return np.where(ok, mom[:, MOMENT_CHANNELS.index(name)], np.nan)
+
+    m1, lm = col("mass"), col("log_mass")
+    return IsochronePosterior(
+        m1_mean=m1, m1_sigma=np.sqrt(np.clip(col("mass2") - m1**2, 0.0, None)), log_m1_mean=lm,
+        log_m1_sigma=np.sqrt(np.clip(col("log_mass2") - lm**2, 0.0, None)), m_init_mean=col("initial_mass"),
+        log_r_mean=col("log_r"), log_r_sigma=np.sqrt(np.clip(col("log_r2") - col("log_r") ** 2, 0.0, None)),
+        r_max_past_mean=col("r_max_past"), log_g_mean=col("log_g"), p_evolved=col("evolved"),
+        log_age_mean=col("log_age"), feh_mean=col("feh"), log10_evidence=np.where(valid, log_ev, np.nan),
+        ok=ok, reason=reason,
+    )
+

@@ -464,3 +464,38 @@ def test_mist_coeval_target_needs_the_relation(frag: ps.ProposalSetFragment) -> 
     a = ps.mds17_luminous_log_intensity(truth, tgt, relation_log10_f=np.array([-1.0]))
     b = ps.mds17_luminous_log_intensity(truth, tgt, relation_log10_f=np.array([-1.3]))
     assert a[0] - b[0] == pytest.approx(0.5 * (0.3 / tgt.flux_sigma_dex) ** 2)
+
+
+@pytest.mark.unit
+def test_feh_likelihood_selects_the_matching_layer() -> None:
+    """MP-Q33: a [Fe/H] measurement picks the layer whose isochrone it matches."""
+    a = _toy_points(4000)
+    b = _toy_points(4000)
+    b.values["star_mass"] = b.values["star_mass"] * 1.2  # same CMD, heavier at the other [Fe/H]
+    pts = im.PriorPoints(weight=np.concatenate([a.weight, b.weight]) / 2, colour=np.concatenate([a.colour, b.colour]),
+                         mg=np.concatenate([a.mg, b.mg]), feh=np.concatenate([np.full(4000, -0.5), np.full(4000, 0.3)]),
+                         log_age=np.concatenate([a.log_age, b.log_age]),
+                         values={k: np.concatenate([a.values[k], b.values[k]]) for k in a.values})
+    lm = im.build_layered_cmd_map(pts, im.CmdMapConfig(colour_min=0.0, colour_max=3.0, mag_min=0.0, mag_max=14.0), [-0.5, 0.3])
+    c = np.array([1.2, 1.2, 1.2])
+    m = 2.0 + 3.5 * c
+    post = im.posterior_moments_with_feh(c, m, np.full(3, 0.02), np.full(3, 0.05), np.array([-0.5, 0.3, np.nan]),
+                                         np.full(3, 0.1), lm, im.IsochroneLikelihoodConfig())
+    base = 1.0 - (1.2 - 0.3) / 2.2
+    assert post.m1_mean[0] == pytest.approx(base, abs=0.02)
+    assert post.m1_mean[1] == pytest.approx(1.2 * base, abs=0.02)
+    assert post.m1_mean[0] < post.m1_mean[2] < post.m1_mean[1]  # no measurement: the prior mixes both
+
+
+@pytest.mark.unit
+def test_gdr3apcal_reliability_cut() -> None:
+    pytest.importorskip("gdr3apcal")
+    from darkhunter_pop.config_schema import FehLikelihoodConfig
+
+    cols = {"teff_gspphot": np.array([5500.0, 7000.0, 5200.0]), "logg_gspphot": np.array([4.4, 4.0, 4.5]),
+            "mh_gspphot": np.array([-0.5, 0.0, -0.3]), "azero_gspphot": np.array([0.1, 0.1, 0.1]),
+            "ebpminrp_gspphot": np.array([0.05, 0.04, 0.05]), "ag_gspphot": np.array([0.08, 0.08, 0.08]),
+            "mg_gspphot": np.array([4.6, 2.5, 5.0]), "libname_gspphot": np.array(["MARCS", "MARCS", "A"])}
+    f, ok = im.calibrated_gspphot_feh(cols, np.array([30.0, 40.0, 20.0]), np.array([20.0, 30.0, 25.0]), FehLikelihoodConfig())
+    assert ok.tolist() == [True, False, False]  # Teff > 6500 K and the A library are not reliable
+    assert np.isfinite(f[0]) and np.isnan(f[1])
