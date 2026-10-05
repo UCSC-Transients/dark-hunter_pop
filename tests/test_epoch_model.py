@@ -208,6 +208,11 @@ def test_config_paths_dr3_set_dr4_null() -> None:
     assert cfg.dr3.epoch_model is not None and cfg.dr4.epoch_model is None
     assert cfg.dr3.epoch_model.enabled is True  # Ryan 2026-10-03, #400 E1
     assert cfg.dr3.epoch_model.transit_loss.model == "continuous"
+    # N2d adopted (Ryan 2026-10-03): bright per-CCD noise + RUWE = UWE / u0_mock(G)
+    assert cfg.dr3.epoch_model.bright_excess_noise is not None and cfg.dr3.epoch_model.bright_excess_noise.enabled
+    assert cfg.dr3.epoch_model.ruwe_u0 is not None and cfg.dr3.epoch_model.ruwe_u0.enabled
+    loaded = em.epoch_model_config_from_mapping(cfg.dr3.epoch_model)
+    assert loaded.excess_noise is not None and loaded.ruwe_u0 is not None
     tl = cfg.dr3.epoch_model.transit_loss
     assert len(tl.prob) == len(tl.g_edges) - 1
 
