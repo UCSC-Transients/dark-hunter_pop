@@ -369,6 +369,8 @@ def test_host_profile_only_touches_path_keys() -> None:
         base_dump["dr4"]["rv_summary_root"] = None
         profiled_dump["dr4"]["rv_summary_root"] = None
         base_dump["isochrone_mass"]["mist_root"] = None  # #418 host path
+        base_dump["sample_selection"]["dust_maps"]["dustmaps_data_dir"] = None
+        profiled_dump["sample_selection"]["dust_maps"]["dustmaps_data_dir"] = None
         profiled_dump["isochrone_mass"]["mist_root"] = None
         assert base_dump == profiled_dump, f"{name} touched a non-path key"
 
@@ -381,7 +383,9 @@ def test_load_config_rejects_unknown_host_profile() -> None:
 def test_load_host_profile_dict_only_has_path_shaped_keys(tmp_path: Path) -> None:
     for name in KNOWN_HOST_PROFILES:
         raw = load_host_profile_dict(name)
-        assert set(raw) <= {"paths", "mass_derivation", "dr3", "dr4", "isochrone_mass"}
+        assert set(raw) <= {"paths", "mass_derivation", "dr3", "dr4", "isochrone_mass", "sample_selection"}
+        assert set(raw.get("sample_selection", {})) <= {"dust_maps"}
+        assert set(raw.get("sample_selection", {}).get("dust_maps", {})) <= {"dustmaps_data_dir"}
         assert set(raw.get("paths", {})) <= {"artifact_root", "data_root"}
         assert set(raw.get("mass_derivation", {})) <= {
             "sed_summary_root",

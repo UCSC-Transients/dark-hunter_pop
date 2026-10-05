@@ -156,6 +156,12 @@ class MsColours:
         m = np.clip(np.asarray(m2, float), self.mass[0], self.mass[-1])
         return np.interp(m, self.mass, self.bp_g), np.interp(m, self.mass, self.g_rp)
 
+    def log10_flux_ratio(self, m1: ArrayLike, m2: ArrayLike) -> FloatArray:
+        """MP-Q40: log10 f = −0.4 [M_G(M2) − M_G(M1)] on this MS (masses clamped to its range)."""
+        a = np.clip(np.asarray(m1, float), self.mass[0], self.mass[-1])
+        b = np.clip(np.asarray(m2, float), self.mass[0], self.mass[-1])
+        return -0.4 * (np.interp(b, self.mass, self.mg) - np.interp(a, self.mass, self.mg))
+
     def from_colour(self, colour: ArrayLike) -> tuple[FloatArray, FloatArray]:
         """(BP−G, G−RP) of a single star of colour ``colour`` (BP−RP), clamped."""
         order = np.argsort(self.colour)
@@ -503,6 +509,56 @@ def build_qf_grid(target: MdS17TargetConfig, grid: QFGridConfig) -> QFGrid:
     )
 
 
+@dataclass(frozen=True)
+class QGrid:
+    """MP-Q40 form of the companion grid: ``lam[i, a]`` companions per primary of mass
+    ``10**log_m1[i]`` with log q in bin ``a``, summed over P; the f distribution is applied per
+    row as N(log10 f_MIST(M1, q M1; row isochrone), σ_f) with Gauss–Hermite ``nodes`` and
+    normalized ``weights``."""
+
+    log_m1: FloatArray
+    log_q: FloatArray
+    lam: FloatArray
+    f_lum: FloatArray
+    sigma_f_dex: float
+    nodes: FloatArray
+    weights: FloatArray
+
+    def interpolate(self, m1_msun: ArrayLike) -> tuple[FloatArray, FloatArray]:
+        x = np.clip(np.log10(np.asarray(m1_msun, float)), self.log_m1[0], self.log_m1[-1])
+        j = np.clip(np.searchsorted(self.log_m1, x, side="right") - 1, 0, self.log_m1.size - 2)
+        t = (x - self.log_m1[j]) / (self.log_m1[j + 1] - self.log_m1[j])
+        lam = (1.0 - t)[..., None] * self.lam[j] + t[..., None] * self.lam[j + 1]
+        return lam, (1.0 - t) * self.f_lum[j] + t * self.f_lum[j + 1]
+
+
+def build_q_grid(target: MdS17TargetConfig, grid: QFGridConfig) -> QGrid:
+    """λ_q(M1) by midpoint quadrature in (log q, log P) (P summed), for the MP-Q40 MIST relation.
+
+    Every q cell of MdS17's 0.1–1 enters (the MIST relation is defined over the whole MS,
+    clamped at its low-mass end), so ``F_lum`` can exceed :func:`build_qf_grid`'s, which drops
+    companions outside the Janssens mass range."""
+    table = mds.load_mds17_table(target.table_path)
+    plo, phi = table.log_p_range
+    lq_edges = _log_q_edges(table, grid.n_log_q_fine)
+    lp_edges = np.linspace(plo, phi, grid.n_log_p + 1)
+    lq = 0.5 * (lq_edges[1:] + lq_edges[:-1])
+    lp = 0.5 * (lp_edges[1:] + lp_edges[:-1])
+    LQ, LP = np.meshgrid(lq, lp, indexing="ij")
+    cell = np.outer(np.diff(lq_edges), np.diff(lp_edges))
+    log_m1 = np.linspace(grid.log_m1_min, grid.log_m1_max, grid.n_m1)
+    q_out = np.linspace(lq_edges[0], lq_edges[-1], grid.n_log_q_bins + 1)
+    qb = np.clip(np.searchsorted(q_out, lq, side="right") - 1, 0, grid.n_log_q_bins - 1)
+    lam = np.zeros((grid.n_m1, grid.n_log_q_bins))
+    for i, lm1 in enumerate(log_m1):
+        dens = (mds17_luminous_m2_p_intensity(10.0**lm1, LQ, LP, target) * cell).sum(axis=1)
+        ok = np.isfinite(dens) & (dens > 0)
+        lam[i] = np.bincount(qb[ok], weights=dens[ok], minlength=grid.n_log_q_bins)
+    nodes, hw = np.polynomial.hermite_e.hermegauss(grid.n_hermite)
+    return QGrid(log_m1=log_m1, log_q=0.5 * (q_out[1:] + q_out[:-1]), lam=lam, f_lum=lam.sum(axis=1),
+                 sigma_f_dex=float(target.flux_sigma_dex), nodes=nodes, weights=hw / hw.sum())
+
+
 # ---------------------------------------------------------------------------
 # Rows, Z_s, log W
 # ---------------------------------------------------------------------------
@@ -565,7 +621,7 @@ def cmd_rows(
 def _row_log_terms(
     rows: CmdRows,
     idx: NDArray[np.int64],
-    qf: QFGrid,
+    qf: QFGrid | QGrid,
     ridge: RidgeTables,
     ms: MsColours,
     cfg: CmdMalmquistConfig,
@@ -579,11 +635,19 @@ def _row_log_terms(
     for a in range(0, idx.size, chunk):
         ii = idx[a:a + chunk]
         c, m, smu, k, m1 = rows.colour0[ii], rows.mg0[ii], rows.sigma_mu[ii], rows.k_ag_over_ebprp[ii], rows.m1_msun[ii]
-        lam, f_lum = qf.interpolate(m1)  # (n, nq, nf)
+        lam, f_lum = qf.interpolate(m1)  # (n, nq, nf) or (n, nq) for QGrid
         l0 = log_primary_likelihood(c, m, smu, ridge, cfg, k_ag_over_ebprp=k, dens=dens, ms=ms)
-        shape = (ii.size, q.size, qf.log_f.size)
-        m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
-        lf = np.broadcast_to(qf.log_f[None, None, :], shape)
+        if isinstance(qf, QGrid):  # MP-Q40: f about the coeval MIST relation, per row
+            nf = qf.nodes.size
+            shape = (ii.size, q.size, nf)
+            m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
+            rel = ms.log10_flux_ratio(m1[:, None], m1[:, None] * q[None, :])
+            lf = rel[:, :, None] + qf.sigma_f_dex * qf.nodes[None, None, :]
+            lam = lam[:, :, None] * qf.weights[None, None, :]
+        else:
+            shape = (ii.size, q.size, qf.log_f.size)
+            m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
+            lf = np.broadcast_to(qf.log_f[None, None, :], shape)
         c1, mg1, ok, xbp, xrp = subtract_companion_full(
             np.broadcast_to(c[:, None, None], shape), np.broadcast_to(m[:, None, None], shape), lf, m2, ms
         )
@@ -611,7 +675,7 @@ class RowNormalization:
 
 def row_normalization(
     rows: CmdRows,
-    qf: QFGrid,
+    qf: QFGrid | QGrid,
     ridge: RidgeTables,
     ms: MsColours | MsColourBank,
     cfg: CmdMalmquistConfig,

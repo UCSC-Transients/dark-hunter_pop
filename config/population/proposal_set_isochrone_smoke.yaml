@@ -72,6 +72,6 @@ target_mds17:                        # rung 2: MdS17 at published parameters, lu
   provisional_low_mass_anchor_msun: 0.8
   provisional_low_mass_zero_msun: 0.08
   provisional_multiplicity: poisson_intensity       # MP-Q9
-  mass_luminosity: janssens2022                     # MP-Q13, decided (spec §0.1)
+  mass_luminosity: mist_coeval                      # MP-Q40 decided 2026-10-04 (replaces MP-Q13 Janssens for MS companions)
   flux_sigma_dex: 0.1                               # MP-Q13, decided
   provisional_compact_mixture: none                 # MP-Q17

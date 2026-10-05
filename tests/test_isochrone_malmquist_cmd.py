@@ -422,3 +422,45 @@ def test_posterior_sampler_draws_near_the_star() -> None:
     assert np.all(np.isfinite(d["m1"]))
     assert np.median(d["m1"]) == pytest.approx(0.6, abs=0.01)
     assert 0.003 < np.std(d["m1"]) < 0.03
+
+
+@pytest.mark.physics
+def test_mist_coeval_q_grid_normalizes_weights(frag: ps.ProposalSetFragment) -> None:
+    """MP-Q40: with the per-row MIST relation, (1 − F) W(∅) + Σ λ_q Σ_h w_h W(q, f_h) = 1."""
+    g = mc.QFGridConfig(log_m1_min=-0.6, log_m1_max=0.3, n_m1=6, n_log_q_fine=60, n_log_q_bins=12, n_log_p=60,
+                        n_hermite=7, log_f_min=-5.0, log_f_max=0.5, n_log_f=55)
+    tgt = frag.target_mds17.model_copy(update={"mass_luminosity": "mist_coeval"})
+    qg = mc.build_q_grid(tgt, g)
+    assert np.all(qg.f_lum > 0) and qg.weights.sum() == pytest.approx(1.0)
+    ms, rt = _toy_ms(), _toy_ridge()
+    cfgw = mc.CmdMalmquistConfig(single_star_density=mc.SingleStarDensityConfig(provisional_model="gaussian_ridge"), grid=g)
+    c = np.array([1.0, 1.4])
+    m = 2.0 + 3.5 * c - np.array([0.0, 0.6])
+    m1 = np.array([0.75, 0.6])
+    rows = mc.cmd_rows(c, m, np.full(2, 0.1), m1, rt)
+    norm = mc.row_normalization(rows, qg, rt, ms, cfgw)
+    for s in range(2):
+        lam, f_lum = qg.interpolate(m1[s])
+        q = 10.0**qg.log_q
+        rel = ms.log10_flux_ratio(m1[s], m1[s] * q)
+        lf = rel[:, None] + qg.sigma_f_dex * qg.nodes[None, :]
+        n = lf.size
+        truth = {"parent_row": np.full(n, s), "is_dark": np.zeros(n, bool), "log10_flux_ratio": lf.ravel(),
+                 "m2_msun": np.repeat(m1[s] * q, qg.nodes.size)}
+        lw = mc.log_weight_for_draws(truth, rows, norm, rt, ms, cfgw)
+        dark = {"parent_row": np.array([s]), "is_dark": np.array([True]), "log10_flux_ratio": np.array([0.0]), "m2_msun": np.array([1.0])}
+        w0 = math.exp(mc.log_weight_for_draws(dark, rows, norm, rt, ms, cfgw)[0])
+        tot = (1 - f_lum) * w0 + float(np.sum((lam[:, None] * qg.weights[None, :]).ravel() * np.exp(lw)))
+        assert tot == pytest.approx(1.0, rel=1e-9)
+
+
+@pytest.mark.unit
+def test_mist_coeval_target_needs_the_relation(frag: ps.ProposalSetFragment) -> None:
+    tgt = frag.target_mds17.model_copy(update={"mass_luminosity": "mist_coeval"})
+    truth = {"m1_msun": np.array([1.0]), "m2_msun": np.array([0.6]), "period_days": np.array([300.0]),
+             "eccentricity": np.array([0.2]), "log10_flux_ratio": np.array([-1.0]), "is_dark": np.array([False])}
+    with pytest.raises(ValueError, match="relation_log10_f"):
+        ps.mds17_luminous_log_intensity(truth, tgt)
+    a = ps.mds17_luminous_log_intensity(truth, tgt, relation_log10_f=np.array([-1.0]))
+    b = ps.mds17_luminous_log_intensity(truth, tgt, relation_log10_f=np.array([-1.3]))
+    assert a[0] - b[0] == pytest.approx(0.5 * (0.3 / tgt.flux_sigma_dex) ** 2)

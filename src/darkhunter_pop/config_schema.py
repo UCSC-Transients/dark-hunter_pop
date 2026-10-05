@@ -1361,6 +1361,10 @@ class DustMapsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ebv_cache_dir: str = "dust_maps/ebv_cache"
+    #: ``dustmaps`` package data directory (host-specific; relative to ``paths.data_root``
+    #: unless absolute). Holds ``bayestar/bayestar2019.h5`` for posterior-sample queries
+    #: (``dustmaps.bayestar.BayestarQuery``; its ``fetch()`` is never called). #418 MP-Q34.
+    dustmaps_data_dir: str | None = None
     r_v: float | None = Field(default=None, gt=0.0)
     maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
     gaia_band_extinction: GaiaBandExtinctionConfig = Field(
