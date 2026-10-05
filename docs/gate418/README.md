@@ -211,3 +211,45 @@ This round implements:
 The largest 2-D pull is now an *over*-prediction: the brightest log f bin at +6.6, and M2 in 1.2–2.5 M⊙ at +5.6. **The ≤ 3 target is still not met.** Nothing was retuned.
 
 **Smoke, generation 22** (1,000 draws, 2 workers, `nice`, `run_cascade` with the v2 epoch model): 30 accepted orbits. ESS over all draws is **27.3, up from 6.4** in generation 21, which is the MP-Q28d fix. ESS over accepted draws is 5.7 with W. `smoke_isochrone_gen22.json`.
+
+## Update 2026-10-05: MP-Q40, Bayestar19, hot subdwarfs, [Fe/H] code path
+
+**MP-Q40 (coeval MIST flux ratio, decided).** The target, the universe and Z now take the main-sequence companion's G-flux ratio from the coeval MIST main sequence, with 0.1 dex scatter. Evolved rows keep §10.4. Closed loop, small run:
+
+| single-star model in W | max \|pull\| (2-D) | total pull (2-D) | largest residuals |
+|---|---|---|---|
+| none | 8.8 | −4.4 | brightest log f −8.8 |
+| MIST density + colour Jacobian (default) | 8.2 | −0.3 | brightest log f +8.2; twins +4 to +6; M2 0.3–0.5 −6.8 |
+| MIST density, no Jacobian (diagnostic) | 9.2 | −5.9 | twins −7.6; brightest log f −9.2 |
+| Gaussian ridge | 7.6 | +1.4 | red colour bins −7.6; M2 0.3–0.5 −6.2 |
+
+With the Jacobian the weight over-predicts the brightest companions; without it, it under-predicts them. The M2 = 0.3–0.5 M⊙ deficit appears in every variant, so it has a common cause, probably the deblended truth M1. **The ≤ 3 target is not met.** Nothing was retuned.
+
+**MP-Q34, Bayestar19 against Combined19 (evaluation only; the default is unchanged).** Full numbers are in `bayestar19_eval.txt`. Bayestar19 values are converted with `native_to_ebv` = 0.884 (#295).
+
+| | parent | real orbits |
+|---|---|---|
+| Bayestar finite | 61% | 64% |
+| converged and reliable distance | 54% | 41% |
+| median Bayestar / Combined19 | 0.884 | 0.884 |
+| Bayestar posterior σ(E)/E (median) | 0.076 | 0.085 |
+| off-grid rate, Combined19 → Bayestar | 3.46% → 3.41% | 6.83% → 6.17% |
+| rows with C0 < 0.35, Combined19 → Bayestar | 4.16% → 2.06% | 4.35% → 3.13% |
+
+- **Coverage.** Combined19 covers the whole sky; Bayestar only dec > −30° (59.8% of the parent).
+- **The ratio is exactly 0.884,** which is the unit conversion itself. In the north, Combined19's E(B−V) is Bayestar's native SFD-like unit *without* the 0.884, so the CMD's Combined19 E(B−V) runs about 13% higher than Bayestar converted the way #295 decided. That over-correction probably accounts for part of the "blue rows". It is a unit-convention question for Ryan, not a map choice.
+- **Uncertainty.** The posterior σ(E)/E of about 0.08 supports the provisional ε = 0.1.
+- **What Bayestar fixes.** It rescues 38% (parent) / 20% (real) of Combined19's off-grid rows. It moves 61% / 37% of the C0 < 0.35 rows redward of 0.35.
+- **M1 change.** Bayestar / Combined19 M1 has median 0.987 (parent) and 0.997 (real).
+- **The default map is not switched.**
+
+**MP-Q38, blue rows.** Cross-matching all 214,666 parent rows by source_id with Culpan et al. (2022) gives 11 hot-subdwarf candidates and 3 known sdBs. All 11 are among the 10,367 rows with C0 < 0.35, so hot subdwarfs are 0.1% of the blue rows. The blue rows are overwhelmingly plane stars that the dust map over-corrects (§11.9).
+
+**MP-Q33 code path.**
+- `isochrone_mass.calibrated_gspphot_feh` wraps `gdr3apcal` 0.4 with the spec's reliability cut.
+- `build_layered_cmd_map` and `posterior_moments_with_feh` apply a [Fe/H] likelihood.
+- Config: `isochrone_mass.feh_likelihood`, disabled until the GSP-Phot columns are snapshotted.
+
+**Item 8 (DEBCat, APOKASC-3).** `scripts/validate_isochrone_m1_benchmarks_418.py` is ready. It is not run because it needs a Gaia DR3 cross-match:
+- DEBCat has names only;
+- APOKASC-3 has KIC IDs only.
