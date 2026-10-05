@@ -37,8 +37,9 @@ def main(argv: list[str] | None = None) -> int:
     parent = ps.load_parent_snapshot(args.parent_dir, cfg, prop)
     cmcfg = mc.load_cmd_malmquist_config(args.cmd_config)
     evo = ps.evolved_mg0_for_draws(truth, parent)
-    log_lam = ps.mds17_luminous_log_intensity(truth, target, evolved_mg0_system=evo)
-    log_lam_dwarf = ps.mds17_luminous_log_intensity(truth, target)
+    rel = ps.mist_relation_for_draws(truth, parent, cfg) if target.mass_luminosity == "mist_coeval" else None  # MP-Q40
+    log_lam = ps.mds17_luminous_log_intensity(truth, target, evolved_mg0_system=evo, relation_log10_f=rel)
+    log_lam_dwarf = ps.mds17_luminous_log_intensity(truth, target, relation_log10_f=rel)
     lw, counts = ps.malmquist_cmd_log_weight(truth, parent, target, cmcfg, cfg)
     lq = [ps.log_q_total_for(truth, parent, prop)]
     n = [prop.n_draws]
