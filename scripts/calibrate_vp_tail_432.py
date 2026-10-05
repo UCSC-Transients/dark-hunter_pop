@@ -125,7 +125,44 @@ def nvis_pmf(theta: dict[str, float], d: dict[str, Any]) -> np.ndarray:
     return sum(w[:, None] * pb_pmf(S, nmax) for w, S in comps)
 
 
+CELL_EDGES = {"G": (3, 13, 15, 16, 17, 18, 19.5), "abs_beta": (0, 15, 30, 45, 90.1), "abs_b": (0, 5, 10, 30, 90.1)}
+LIKELIHOOD = "star"
+
+
+def cell_ids(d: dict[str, Any]) -> np.ndarray:
+    """Cell index on G x |beta| x |b| (CELL_EDGES) for the cell-level likelihood."""
+    ig = np.clip(np.searchsorted(CELL_EDGES["G"], d["G"], side="right") - 1, 0, len(CELL_EDGES["G"]) - 2)
+    ib = np.clip(np.searchsorted(CELL_EDGES["abs_beta"], np.abs(d["beta"]), side="right") - 1, 0, 3)
+    il = np.clip(np.searchsorted(CELL_EDGES["abs_b"], np.abs(d["b"]), side="right") - 1, 0, 3)
+    return (ig * 4 + ib) * 4 + il
+
+
+def loglike_cell(theta: dict[str, float], data: dict[str, Any]) -> float:
+    """Multinomial log-likelihood of the DR3 N_vis histogram in G x |beta| x |b| cells.
+
+    The predicted histogram of a cell is the mean of its stars' model PMFs. Used when the
+    model is conditioned on gaiamock's grid GOST, which differs per star from the exact
+    position (a star-level likelihood would then be ill-posed where DR3 N_vis exceeds the
+    grid count). NSS cells are truncated at N >= 12.
+    """
+    ll = 0.0
+    for name, d in data.items():
+        pmf = nvis_pmf(theta, d)
+        cid = cell_ids(d)
+        n = np.clip(d["nvis"], 0, pmf.shape[1] - 1)
+        for c in np.unique(cid):
+            m = cid == c
+            pm = pmf[m].mean(0)
+            if name == "nss":
+                pm = pm / max(1e-300, pm[12:].sum())
+            counts = np.bincount(n[m], minlength=pm.size)
+            ll += float(np.sum(counts * np.log(np.maximum(pm, 1e-300))))
+    return ll
+
+
 def loglike(theta: dict[str, float], data: dict[str, Any]) -> float:
+    if LIKELIHOOD == "cell":
+        return loglike_cell(theta, data)
     ll = 0.0
     for name, d in data.items():
         pmf = nvis_pmf(theta, d)
@@ -187,14 +224,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tag", default=None)
     ap.add_argument("--b-feature", choices=("abs_sin", "exp"), default="abs_sin")
     ap.add_argument("--b-scale-deg", type=float, default=10.0)
+    ap.add_argument("--likelihood", choices=("star", "cell"), default="star")
     args = ap.parse_args(argv)
-    global B_FEATURE, B_SCALE_DEG
-    B_FEATURE, B_SCALE_DEG = args.b_feature, args.b_scale_deg
+    global B_FEATURE, B_SCALE_DEG, LIKELIHOOD
+    B_FEATURE, B_SCALE_DEG, LIKELIHOOD = args.b_feature, args.b_scale_deg, args.likelihood
     cfg = em.epoch_model_config_from_mapping(load_config().dr3.epoch_model)
     delta = float(json.loads(Path(args.keep_fit).read_text())["adopted"]["random_offset_log"])
     data = load(Path(args.vp), cfg, delta, args.n_random, args.seed)
     start = {"c0": -4.0, "c1": 1.0, "c2": 0.0, "c_beta": 0.0, "c_b": 0.0, "e0": -0.5, "d0": -3.5, "d1": 0.5}
-    results: dict[str, Any] = {"b_feature": B_FEATURE, "b_scale_deg": B_SCALE_DEG,
+    results: dict[str, Any] = {"likelihood": LIKELIHOOD, "vp_file": str(args.vp), "b_feature": B_FEATURE, "b_scale_deg": B_SCALE_DEG,
                                "n_random": int(data["random"]["G"].size), "n_nss": int(data["nss"]["G"].size),
                                "random_offset_log": delta, "variants": {}}
     prev = start
