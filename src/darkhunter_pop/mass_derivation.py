@@ -419,10 +419,13 @@ def derive_tag10_m1_r1(
 ) -> ParameterSet:
     """Build a ``ParameterSet`` for (M1, R1) at ``FitTier.bulk_estimate`` provenance."""
     method = config.mass_calibration.method
-    if method is not MassCalibrationMethod.TAG10:
+    # TAG10 by name: also callable when the bulk method is MIST_isochrone (#425: the Andrews
+    # forward-model ``pipeline_tag10_bulk`` and the mock's TAG10 parent mode use it). The
+    # reserved, unimplemented methods still raise.
+    if method not in (MassCalibrationMethod.TAG10, MassCalibrationMethod.MIST_ISOCHRONE):
         raise NotImplementedError(
-            f"derive_tag10_m1_r1 called with mass_calibration.method={method.value!r}; "
-            "MIST_isochrone M1 comes from isochrone_m1_batch (#418)"
+            f"mass_calibration.method={method.value!r} is not implemented "
+            "(TAG10 and MIST_isochrone only)"
         )
 
     log_m, log_r = tag10_log_mass_radius(

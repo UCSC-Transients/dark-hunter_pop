@@ -656,8 +656,8 @@ def procedure_fingerprint(
 
     Covers the procedure block, the pass-1 probability cut (its threshold
     drives ``p_m2_above`` and the pass-2 subset) and the evaluation ``mode``.
-    ``forward_model`` also covers ``config.mass_calibration`` (it sets the
-    pipeline TAG10 M1) and ``config.<dr>.vizier_apsis_snapshot_meta``; the
+    ``forward_model`` also covers ``config.mass_calibration`` with ``method`` pinned to
+    TAG10 (it sets the pipeline TAG10 M1, #425) and ``config.<dr>.vizier_apsis_snapshot_meta``; the
     latter is covered in ``reproduction`` too whenever a pass-2 column is a
     ``*_vizier_apsis`` one. The rest of the cut chain is applied at evaluation
     time and is deliberately excluded.
@@ -677,7 +677,12 @@ def procedure_fingerprint(
     if mode is SampleSelectionMode.FORWARD_MODEL:
         if config is None:
             raise AtfProcedureError("forward_model fingerprint needs the PipelineConfig")
-        payload["mass_calibration"] = config.mass_calibration.model_dump(mode="json")
+        # #425: pass-2 M1 is ``pipeline_tag10_bulk`` -- TAG10 by name, whatever the bulk
+        # stage's ``mass_calibration.method`` -- so the method key is pinned to TAG10 here
+        # (the fingerprint, and hence the existing sidecars, are unchanged by the MIST flip).
+        mc = config.mass_calibration.model_dump(mode="json")
+        mc["method"] = "TAG10"
+        payload["mass_calibration"] = mc
     if config is not None and uses_vizier_apsis(proc):
         payload["vizier_apsis_snapshot_meta"] = vizier_apsis_meta_setting(config)
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
