@@ -958,9 +958,10 @@ dr3:
       frac_max: 0.5
       tau_day: 2.0
     # #432 (2026-10-04): whole-visibility-period loss with a degraded-star mixture, fitted to
-    # the DR3 visibility-period DISTRIBUTION (random stars, all solution types; NSS truncated
-    # at 12) by a Poisson-binomial likelihood conditional on the exact-position scan law
-    # (scripts/calibrate_vp_tail_432.py; spec §8.10). Replaces clustered_loss.
+    # the DR3 visibility-period DISTRIBUTION (96,114 random stars, all solution types; 16,930
+    # NSS truncated at 12): multinomial likelihood of the N_vis histogram in G x |beta| x |b|
+    # cells, conditional on gaiamock's own grid GOST (what the mock sees)
+    # (scripts/calibrate_vp_tail_432.py --likelihood cell; spec §8.10). Replaces clustered_loss.
     # pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b exp(-|b|/b_scale_deg)),
     # q_bad = expit(e0), q0 = expit(d0 + d1 x), x = (clip(G) - g_ref) / g_scale.
     visibility_period_loss:
@@ -968,18 +969,18 @@ dr3:
       g_clip: [6.0, 19.0]
       g_ref: 14.0
       g_scale: 4.0
-      c0: -5.7028
-      c1: 1.8609
-      c2: 0.5302
-      c_beta: -2.1495
-      c_b: 1.1905
-      e0: -0.3720
-      d0: -3.5717
-      d1: 0.4377
+      c0: -5.9618
+      c1: 1.0592
+      c2: 0.9661
+      c_beta: -1.5401
+      c_b: 2.1169
+      e0: -0.3731
+      d0: -4.2037
+      d1: 0.9735
       visibility_gap_day: 4.0
       b_feature: exp
       b_scale_deg: 10.0
-      provenance: "#432 fit G_beta_bexp (30,000 random + 16,930 NSS), output/gate432/vp_tail_fit_G_beta_bexp.json"
+      provenance: "#432 grid-conditioned cell fit, output/gate432/vp_tail_fit_gridcell_G_beta_b.json"
     # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
     # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
     # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but
