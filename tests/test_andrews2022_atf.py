@@ -546,3 +546,19 @@ def test_sidecar_roundtrip_and_fingerprint_guard(tmp_path: Path, spec: Any) -> N
     assert back[6]["andrews_atf_pass1_n_root_failed"] == -1
     with pytest.raises(AtfProcedureError):
         read_sidecar(path, fingerprint="0" * 16)
+
+
+@pytest.mark.unit
+def test_forward_model_fingerprint_ignores_the_bulk_method(spec: Any) -> None:
+    """#425: pass-2 M1 is pipeline_tag10_bulk (TAG10 by name), so flipping the bulk stage to
+    MIST_isochrone leaves the forward-model sidecar fingerprint unchanged."""
+    from darkhunter_pop import andrews2022_atf as atf
+    from darkhunter_pop.config_loader import load_config
+    from darkhunter_pop.config_schema import MassCalibrationMethod
+
+    cfg = load_config()
+    a = cfg.model_copy(update={"mass_calibration": cfg.mass_calibration.model_copy(update={"method": MassCalibrationMethod.TAG10})})
+    b = cfg.model_copy(update={"mass_calibration": cfg.mass_calibration.model_copy(update={"method": MassCalibrationMethod.MIST_ISOCHRONE})})
+    fa = atf.procedure_fingerprint(spec, mode=SampleSelectionMode.FORWARD_MODEL, config=a)
+    fb = atf.procedure_fingerprint(spec, mode=SampleSelectionMode.FORWARD_MODEL, config=b)
+    assert fa == fb

@@ -33,7 +33,7 @@ pytestmark = pytest.mark.unit
 def test_load_canonical_config() -> None:
     cfg = load_config()
     assert cfg.active_dr_mode is ActiveDRMode.DR3
-    assert cfg.mass_calibration.method.value == "TAG10"
+    assert cfg.mass_calibration.method.value == "MIST_isochrone"  # #418 flip (Ryan 2026-10-04)
     assert len(cfg.dr3.quality_cut_bins) == 2
     assert len(cfg.dr4.quality_cut_bins) == 2
     require_dr3_active_for_v1(cfg)
