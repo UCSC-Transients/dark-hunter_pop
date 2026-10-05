@@ -363,6 +363,10 @@ reporting only**: `data_acquisition` tag-and-keep, `forward_model` emission, `su
     prior-predictive density.
   - **Skips.** A candidate with no CMD (`no_cmd`) or off the isochrone grid (`m1_off_grid`) is
     skipped and counted in the funnel. It is never extrapolated and never given a fallback mass.
+  - **Flip (Ryan, 2026-10-04):** the default becomes `MIST_isochrone` once #425 is fixed. The fix
+    has two parts. `sample_selection` enrichment writes only `pipeline_*` columns, so literature
+    reproduction columns are never overwritten. The Andrews forward-model `pipeline_tag10_bulk`
+    calls TAG10 explicitly. See MOCK_POPULATION_SPEC §11.9.
   - **TAG10 is untouched**, and it remains the default path. #393 (Santos floor) and #380 (Gaussian
     M1 draws) still apply to it. #323 (TAG10 outside its calibration range) is resolved for the
     switch path, where out-of-range is `m1_off_grid`.
@@ -538,18 +542,10 @@ later without restructuring anything else.
     `gaiamock.get_companion_mass_from_mass_function` is stored separately.
   - The stage artifact persists both samples (`six_panel_samples/{mock,real}`); `diagnostics`
     plots exactly those arrays. There is no reference-fixture fallback on the science path.
-- **Mock population (#391, `docs/MOCK_POPULATION_SPEC.md`)**: the mock input is an
-  **importance-reweighted proposal set**, replacing the `mock_population` box prior once wired in.
-  Primaries are real `gaia_source` stars (a uniform `random_index` subsample of the G < 19 parent of
-  the NSS astrometric input, Halbwachs et al. 2023 §1.2; RUWE > 1.4 and ≥ 12 visibility periods are
-  simulated by the cascade, never pre-selected), with M1 from the data-side TAG10 path. Companions
-  follow Moe & Di Stefano (2017) plus the WD/NS/BH mixture of `population_model`. One broad
-  proposal q(x) is run through `gaiamock_mod` once; truth, seeds (#371), cascade outcome,
-  accepted/published flags and the fitted solution with σ are stored for every draw. Any θ is a
-  reweighting w = λ(x|θ)/q(x), scaled to the parent; ESS per bin gates trust
-  (ESS_b ≥ N_b / `mc_noise_threshold`²); under-covered regions get top-up draws combined with
-  deterministic-mixture weights. Choices that change the gaiamock input (parent cuts, truth
-  parallax, M1, light split) are fixed at generation and cannot be reweighted.
+- **Mock population (#391)**: the mock input is the **importance-reweighted proposal set** of the
+  Step 1 forward-model chain (next subsection), which replaces the `mock_population` box prior once
+  #394 wires it into this stage. Until then the stage still draws from the box prior
+  (`mock_population.sampling: elbadry_prior`) without the epoch model.
 - No emulator in v1 — call `gaiamock` directly, profile, add an emulator only if profiling shows
   it's needed.
 - **DR4 dual mode**: (a) fast — Gaia's own DR4 NSS catalog directly; (b) complete — `gaiamock`'s
@@ -564,6 +560,98 @@ later without restructuring anything else.
   at different periods) must be reproduced at the empirically measured real rate — see
   "Multi-solution sources" under `data_acquisition` (§4) — so real and mock catalogs are counted
   the same way when compared in the likelihood.
+
+#### Step 1: the forward-model mock chain (#339, #391; enters this stage through #394, pending)
+
+**Priority (Ryan).** Step 1 comes first: the mock must reproduce the **full** DR3 NSS orbit sample
+(`Orbital` + `AstroSpectroSB1`, 168,065 rows, the El-Badry et al. 2024 §4 comparison set, no NS/BH
+down-select) before any downstream inference is trusted (#339). Every diagnostic must be computed
+from what the pipeline actually produced. No placeholder fixture, configured stand-in fraction or
+self-compared benchmark may stand in for an output (#339, #344, #348, #352/#354).
+
+This subsection is a map, not the specification. The authoritative documents are
+`docs/MOCK_POPULATION_SPEC.md` (parent, companions, proposal set, weights, Malmquist, giants,
+isochrone M1, ladder, every open MP-Q) and `docs/EPOCH_MODEL_SPEC.md` (epochs, transit loss,
+bright-star noise, RUWE normalisation). Measurements are in the gate directories:
+`docs/gate390/` (injection), `docs/gate399/` (cascade replay, σ deficit), `docs/gate400/` (epoch
+model), `docs/gate405/` (1-D Malmquist closed loop), `docs/gate_giants/`, `docs/gate418/`
+(isochrone M1, 2-D weight), `docs/gate391/` (rung 2, paused).
+
+**Per draw, in order** (module → spec section):
+
+1. **Parent** (spec §1, §0.1). Primaries are real `gaia_source` rows, snapshotted once by
+   `scripts/fetch_gaia_source_parent.py`. The snapshot is a uniform `random_index < 10⁶` slice with
+   G < 19 (the Halbwachs et al. 2023 §1.2 limit), measured ϖ > 0.2 mas and the Halbwachs (b)/(c)
+   IPD and C\* flags. The truth parallax comes from the Bailer-Jones geometric distance, and the
+   observed G is the total system light. RUWE > 1.4 and ≥ 12 visibility periods are **outcomes**
+   that the cascade simulates; they are never pre-selected. The real comparison sample is
+   filtered the same way (ϖ > 0.2 mas, the 114 IPD/C\* failures dropped).
+2. **M1** (`isochrone_mass`, spec §11.2). MIST v1.2 isochrones are fitted to the dereddened CMD
+   (Combined19 extinction). The same function serves the data side as `mass_derivation_bulk`
+   under `mass_calibration.method: MIST_isochrone`, which is off until #425 (see
+   `mass_derivation_bulk`). TAG10 is retired for the parent because of its 0.6 M⊙ floor (#393)
+   and its factor-of-2-low giant masses.
+3. **Giants** (`giants`, spec §10). A dereddened-CMD classifier flags evolved rows against the
+   main-sequence ridge measured from the parent (n_σ = 3). Evolved rows get the §10.4 companion
+   light relation, and giants are compared on `Orbital` only.
+4. **Companions** (`moe_distefano`, spec §2). The Moe & Di Stefano (2017) densities come from the
+   frozen table `config/population/moe_distefano2017.yaml`, plus `population_model`'s WD/NS/BH
+   mixture. The flux ratio uses Janssens et al. (2022) (MP-Q13; MP-Q40 is open).
+5. **Proposal and weights** (`proposal_set`, spec §3). One broad analytic proposal q(x) is
+   simulated once. Every draw is stored with its truth, seeds (#371), cascade vector, outcome flags
+   and fitted solution. Any θ is a reweighting
+   w_i = (N_full/N_snap) λ(x_i|θ) W_i / Σ_j n_j q_j(x_i), with a deterministic-mixture denominator
+   over every generation j. Trust is per-bin Kish ESS against the MC-noise rule
+   ESS_b ≥ N_b / `mc_noise_threshold`². Anything that changes the gaiamock input is fixed at
+   generation and needs re-simulation (spec §3.5): the parent cuts, the truth parallax, M1, the
+   light split, the gaiamock triple, the epoch model and the cascade settings.
+6. **Malmquist / Öpik weight W** (spec §9, §11.4). `malmquist` is the 1-D weight of #405, proven
+   by the closed loop in `docs/gate405/`. For the decided pipeline it is superseded by
+   `malmquist_cmd`, a 2-D CMD weight (#418). It subtracts the companion's light in G, BP and RP
+   against the measured single-star ridge, treats extinction as its own vector, and uses the
+   `mist_density_ridge_anchored` single-star density (MP-Q39). Its closed loop
+   (`malmquist_cmd_closed_loop`) removes most of the bias, but the §11.5 "every pull ≤ 3"
+   acceptance is **not met yet**.
+7. **Epoch model** (`epoch_model.run_cascade`, `docs/EPOCH_MODEL_SPEC.md` §8). gaiamock_mod's
+   GOST transit list is wrapped; gaiamock itself is never edited. The model has these parts:
+   - every row inside ESA's 138 DR3 astrometry gaps is removed;
+   - whole FoV transits are lost with p(G, l, b): degree 4 in G plus ℓ ≤ 2 Galactic harmonics,
+     calibrated on NSS stars at RUWE = 1.4;
+   - for faint stars part of that loss is time-clustered (ramp 0 → 0.5 between G = 14.5 and 16.5;
+     τ = 2 d is provisional);
+   - optionally, bright-star (G < 13) per-CCD excess noise with a DR3-style RUWE = UWE / u0_mock(G)
+     (option N2d, calibrated and validated in #422; enabled by #426).
+   `dr3.epoch_model.enabled` is true. Against #390 (`docs/gate400/`), the N_vis excess goes
+   from +2 to 0, CCD observations / DR3 from 1.129 to 1.020, and the Orbital σ ratio from 0.89 to
+   0.97. **#428:** the model matches DR3's mean N_vis but not its < 12 tail. The mock fails the
+   ≥ 12 visibility-period NSS input condition for 0.10% of G < 19 stars, against DR3's 1.71%
+   (`docs/EPOCH_MODEL_SPEC.md` §8.9; #432).
+8. **Cascade** (`gaiamock_mod.fit_full_astrometric_cascade`, `forward_model.classify_cascade_result`).
+   The El-Badry et al. (2024) Eq. 18 and Eqs. 20–22 cuts give `accepted_orbital`; §5.2.1 gives
+   `published_acceleration`.
+
+**Validation ladder** (spec §5; each rung gates the next):
+
+| Rung | What | State |
+|---|---|---|
+| 1 | #390 injection: published DR3 orbits re-injected through gaiamock_mod (`injection_test`) | Done. Orbital acceptance 0.742, pulls σ_MAD ≈ 1 (`docs/gate390/`). #399/#398 diagnosed by bit-for-bit replay (`cascade_replay`, `docs/gate399/`), then re-validated with the epoch model (`docs/gate400/`) |
+| 2 | MdS17 at published parameters, reweighted; six-panel and solution-type mix vs DR3 | **Paused** at 154,518 of 370,000 draws. The figures are diagnostic only: pre-noise-fix and pre-Malmquist (`docs/gate391/`). Restart waits for the #418 implementation (spec §11.9) and MP-Q28d |
+| 3 | Fit the luminous-binary θ to the full NSS sample | not started |
+| 4 | Compact-object injection–recovery (SBC) from a held-out partition | not started |
+| 5 | Real inference | not started |
+
+The closed loops (`docs/gate405/`, `docs/gate418/`) are not rungs. They gate the weight itself:
+with W switched off, the mock must fail visibly.
+
+**How it feeds `selection_function_astrometric` (#394, pending).** The stage artifact will hold
+the proposal set (truth, seeds, outcome). The six-panel and solution-type gates become weighted
+histograms at a stated θ, with ESS per bin. `sensitivity_analysis` reads ESS and MC noise from the
+weights and triggers top-ups (spec §3.7). `inference` evaluates Σ_i w_i(θ) 1[i ∈ b] inside the
+sampler, so gaiamock is never called in the likelihood. The `mock_population` box prior and its
+keys are then removed. The proposal set runs today from `scripts/run_proposal_pilot.py` with
+configs under `config/population/` (not `config/fragments/`, because `load_config` merges
+fragments). Runs use at most the agreed worker count, under `nice`, with every BLAS/OpenMP pool
+pinned to one thread through `threadpoolctl` (#408).
 
 ### `selection_function_followup`
 
