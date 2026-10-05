@@ -1529,11 +1529,16 @@ class AgePriorConfig(_IsoStrict):
 
 
 class FehPriorConfig(_IsoStrict):
-    """[Fe/H] prior: Gaussian (solar-neighbourhood-like). Values are provisional (MP-Q33)."""
+    """[Fe/H] prior: the solar-neighbourhood MDF (MP-Q33, decided 2026-10-04).
+
+    Casagrande et al. (2011, A&A 530, A138, Table 1, irfm sample of 5,976 GCS stars): [Fe/H]
+    mean −0.06, σ 0.22 dex. Used wherever no calibrated GSP-Phot [M/H] is available (the
+    Andrae et al. 2023 calibration needs ``gdr3apcal`` and a GSP-Phot re-query; spec §11.9).
+    """
 
     kind: Literal["gaussian"] = "gaussian"
-    mean_dex: float = -0.1
-    sigma_dex: float = Field(0.25, gt=0)
+    mean_dex: float = -0.06
+    sigma_dex: float = Field(0.22, gt=0)
 
 
 class IsochroneLikelihoodConfig(_IsoStrict):

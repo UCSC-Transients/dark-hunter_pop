@@ -319,3 +319,106 @@ def test_cmd_closed_loop_small() -> None:
     assert cl.max_abs_pull(res, "none") > 8.0
     assert cl.max_abs_pull(res, "two_d") < 0.75 * cl.max_abs_pull(res, "none")
     assert abs(res.tables["q"]["pull_two_d"][-1]) < 3.0
+
+
+@pytest.mark.unit
+def test_ms_colour_bank_groups_rows_and_fiducial_mode() -> None:
+    """MP-Q37 coeval: rows get their own isochrone's colours; fiducial mode is one group."""
+    from types import SimpleNamespace
+
+    feh = np.array([-0.5, -0.5, 0.2, np.nan])
+    age = np.array([9.5, 9.5, 9.0, np.nan])
+    fake = SimpleNamespace(feh=np.array([-1.0, 0.0, 0.5]), log_age=np.array([9.0, 9.5, 10.0]))
+    calls: list[tuple[float, float]] = []
+
+    def fake_ms(grid, f, a):  # type: ignore[no-untyped-def]
+        calls.append((round(f, 3), round(a, 3)))
+        return _toy_ms()
+
+    import darkhunter_pop.malmquist_cmd as mcm
+
+    orig = mcm.ms_colours
+    mcm.ms_colours = fake_ms  # type: ignore[assignment]
+    try:
+        bank = mc.ms_colour_bank(fake, feh, age, mc.CompanionColourConfig())  # type: ignore[arg-type]
+        assert bank.row_group[0] == bank.row_group[1] != bank.row_group[2]
+        assert (-0.5, 9.5) in calls and (0.2, 9.0) in calls and (-0.06, 9.5) in calls  # NaN row: fiducial
+        one = mc.ms_colour_bank(fake, feh, age, mc.CompanionColourConfig(mode="fiducial_ms"))  # type: ignore[arg-type]
+        assert len(one.groups) == 1 and np.all(one.row_group == 0)
+    finally:
+        mcm.ms_colours = orig  # type: ignore[assignment]
+
+
+@pytest.mark.unit
+def test_evolved_flux_proposal_centre_is_used_by_sampler_and_density() -> None:
+    """MP-Q28d: evolved rows' relation centre is the §10.4 relation, identically in the
+    sampler and in log_q_total_for (so the importance weights stay exact)."""
+    from dataclasses import replace
+
+    from darkhunter_pop import giants as gi
+
+    frag = ps.load_proposal_set_fragment("config/population/proposal_set_isochrone_smoke.yaml")
+    prop = frag.proposal.model_copy(update={"n_draws": 400})
+    assert prop.flux.evolved_rows_centre == "evolved_relation"
+    n = 50
+    rng = np.random.default_rng(5)
+    cols = {"source_id": np.arange(n), "ra": rng.uniform(0, 360, n), "dec": rng.uniform(-60, 60, n),
+            "l": rng.uniform(0, 360, n), "b": rng.uniform(-60, 60, n), "parallax": rng.uniform(0.5, 5, n),
+            "pmra": np.zeros(n), "pmdec": np.zeros(n), "phot_g_mean_mag": rng.uniform(10, 18, n)}
+    giant = np.arange(n) < 20
+    parent = ps.ParentSnapshot(columns=cols, m1_msun=rng.uniform(0.8, 1.5, n), m1_source=np.full(n, "MIST"),
+                               atmosphere_logg=np.full(n, 4.0), truth_parallax_mas=cols["parallax"], is_giant=giant,
+                               flags={"ok": np.ones(n, bool)}, usable=np.ones(n, bool), meta={}, scale_to_full=1.0,
+                               path=Path("synthetic"), cmd={"mg0": np.where(giant, 0.5, 5.0)})
+    truth = ps.sample_proposal(parent, prop)
+    again = ps.log_q_total_for(truth, parent, prop)
+    np.testing.assert_allclose(again, truth["log_q_total"], rtol=1e-12)
+    r = truth["parent_row"]
+    sel = giant[r] & ~truth["is_dark"]
+    centre = gi.evolved_log10_flux_ratio(truth["m2_msun"][sel], 0.5)
+    near = np.abs(truth["log10_flux_ratio"][sel] - centre) < 0.6
+    assert near.mean() > 0.7  # most evolved-row luminous draws sit on the evolved relation
+    _ = replace
+
+
+def _toy_iso() -> dict[str, np.ndarray]:
+    m = np.linspace(0.1, 1.2, 400)
+    c = 0.3 + 2.2 * (1.0 - np.clip(m, 0.1, 1.0))
+    mg = 2.0 + 3.5 * c
+    return {"star_mass": m, "mg": mg, "bp": mg + 0.4 * c, "rp": mg - 0.6 * c, "phase": np.zeros(m.size)}
+
+
+@pytest.mark.unit
+def test_deblend_recovers_the_primary_of_a_synthetic_binary() -> None:
+    """MP-Q36: build a system from primary M1 = 0.8 and a coeval companion (q, f); the
+    deblending on the same isochrone returns M1 (single stars return their own mass)."""
+    iso = _toy_iso()
+    fl = lambda x: 10.0 ** (-0.4 * x)  # noqa: E731
+    m1, q, f = 0.8, 0.7, 0.4
+    i1 = int(np.argmin(np.abs(iso["star_mass"] - m1)))
+    i2 = int(np.argmin(np.abs(iso["star_mass"] - q * iso["star_mass"][i1])))
+    g1, bp1, rp1 = iso["mg"][i1], iso["bp"][i1], iso["rp"][i1]
+    g2 = g1 - 2.5 * np.log10(f)
+    bp2 = g2 + (iso["bp"][i2] - iso["mg"][i2])
+    rp2 = g2 - (iso["mg"][i2] - iso["rp"][i2])
+    gs = -2.5 * np.log10(fl(g1) + fl(g2))
+    cs = -2.5 * np.log10(fl(bp1) + fl(bp2)) + 2.5 * np.log10(fl(rp1) + fl(rp2))
+    mm, chi2 = im.deblend_primary_mass(iso, np.array([cs, iso["bp"][i1] - iso["rp"][i1]]), np.array([gs, g1]),
+                                       np.full(2, 0.02), np.full(2, 0.05), np.array([q, 0.5]),
+                                       np.array([np.log10(f), -np.inf]))
+    assert mm[0] == pytest.approx(iso["star_mass"][i1], abs=0.01)
+    assert mm[1] == pytest.approx(iso["star_mass"][i1], abs=0.01)
+    assert chi2[0] < 1.0 and chi2[1] < 1.0
+
+
+@pytest.mark.unit
+def test_posterior_sampler_draws_near_the_star() -> None:
+    pts = _toy_points()
+    cmapcfg = im.CmdMapConfig(colour_min=0.0, colour_max=3.0, mag_min=0.0, mag_max=14.0)
+    smp = im.PosteriorSampler.build(pts, cmapcfg)
+    c = np.full(2000, 0.3 + 2.2 * 0.4)  # true mass 0.6
+    m = 2.0 + 3.5 * c
+    d = smp.sample(c, m, np.full(c.size, 0.02), np.full(c.size, 0.05), np.random.default_rng(3))
+    assert np.all(np.isfinite(d["m1"]))
+    assert np.median(d["m1"]) == pytest.approx(0.6, abs=0.01)
+    assert 0.003 < np.std(d["m1"]) < 0.03

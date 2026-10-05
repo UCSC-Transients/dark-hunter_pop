@@ -147,6 +147,12 @@ def main(argv: list[str] | None = None) -> int:
         f"scale_to_full = {parent.scale_to_full:.1f}; decision_ref: {prop.decision_ref}"
     )
     truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
+    if prop.m1 == "isochrone_posterior_draw_deblended":  # MP-Q35 + MP-Q36 (spec §11.9)
+        from darkhunter_pop.proposal_set import apply_posterior_deblending
+
+        truth = apply_posterior_deblending(truth, parent, cfg, prop)
+        print(f"deblended truth M1: median M1/M̂1_row = {np.nanmedian(truth['m1_msun'] / truth['m1_row_msun']):.3f}, "
+              f"median chi2 = {np.nanmedian(truth['deblend_chi2']):.2f}", flush=True)
     n = int(truth["draw_index"].size)
 
     partial = args.out.with_suffix(".partial.jsonl")

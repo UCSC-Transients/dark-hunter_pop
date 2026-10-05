@@ -82,11 +82,18 @@ class QFGridConfig(_Strict):
 
 
 class CompanionColourConfig(_Strict):
-    """Companion and system colours from the MIST main sequence (MP-Q37)."""
+    """Companion and system colours from the MIST main sequence (MP-Q37).
 
-    provisional_mode: Literal["fiducial_ms"] = "fiducial_ms"
-    fiducial_feh_dex: float = -0.1
+    ``coeval`` (decided 2026-10-04, spec §0.4): each row's colours come from the MS of its own
+    isochrone, at the row's posterior ⟨[Fe/H]⟩ (rounded to ``feh_step_dex``, linear between
+    MIST files) and the native age nearest its ⟨log age⟩. Rows without a posterior use the
+    fiducial. ``fiducial_ms``: one MS for every row (the #418 first implementation).
+    """
+
+    mode: Literal["coeval", "fiducial_ms"] = "coeval"
+    fiducial_feh_dex: float = -0.06
     fiducial_log_age: float = 9.6
+    feh_step_dex: float = Field(0.05, gt=0)
 
 
 class SingleStarDensityConfig(_Strict):
@@ -167,6 +174,45 @@ def ms_colours(grid: im.NativeGrid, feh: float, log_age: float) -> MsColours:
     mass = np.geomspace(lo, hi, 400)
     out = {k: (1 - t) * np.interp(mass, m_a, a[k]) + t * np.interp(mass, m_b, b[k]) for k in ("mg", "bp_g", "g_rp", "colour")}
     return MsColours(mass=mass, colour=out["colour"], bp_g=out["bp_g"], g_rp=out["g_rp"], mg=out["mg"])
+
+
+@dataclass(frozen=True)
+class MsColourBank:
+    """Per-row MS colour relations: ``groups[row_group[s]]`` is row s's :class:`MsColours`."""
+
+    groups: list[MsColours]
+    row_group: NDArray[np.int64]
+
+    def for_rows(self, rows: NDArray[np.int64]) -> list[tuple[MsColours, NDArray[np.int64]]]:
+        """(MsColours, positions in ``rows``) for every group present among ``rows``."""
+        g = self.row_group[rows]
+        return [(self.groups[k], np.flatnonzero(g == k)) for k in np.unique(g)]
+
+
+def ms_colour_bank(
+    grid: im.NativeGrid,
+    feh: ArrayLike,
+    log_age: ArrayLike,
+    cfg: CompanionColourConfig,
+) -> MsColourBank:
+    """Group rows by (rounded ⟨[Fe/H]⟩, nearest native age) and build one MS relation per group."""
+    fe = np.asarray(feh, float)
+    la = np.asarray(log_age, float)
+    if cfg.mode == "fiducial_ms":
+        return MsColourBank(groups=[ms_colours(grid, cfg.fiducial_feh_dex, cfg.fiducial_log_age)],
+                            row_group=np.zeros(fe.size, np.int64))
+    ok = np.isfinite(fe) & np.isfinite(la)
+    fe_r = np.where(ok, np.round(np.clip(fe, grid.feh[0], grid.feh[-1]) / cfg.feh_step_dex) * cfg.feh_step_dex,
+                    cfg.fiducial_feh_dex)
+    ai = np.where(ok, np.abs(grid.log_age[None, :] - np.where(ok, la, 0.0)[:, None]).argmin(axis=1),
+                  int(np.abs(grid.log_age - cfg.fiducial_log_age).argmin()))
+    keys = np.round(fe_r, 6) * 1000.0 + ai
+    uniq, inv = np.unique(keys, return_inverse=True)
+    groups = []
+    for k in uniq:
+        j = int(np.flatnonzero(keys == k)[0])
+        groups.append(ms_colours(grid, float(fe_r[j]), float(grid.log_age[ai[j]])))
+    return MsColourBank(groups=groups, row_group=inv.astype(np.int64))
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +613,7 @@ def row_normalization(
     rows: CmdRows,
     qf: QFGrid,
     ridge: RidgeTables,
-    ms: MsColours,
+    ms: MsColours | MsColourBank,
     cfg: CmdMalmquistConfig,
     *,
     chunk: int = 400,
@@ -578,10 +624,12 @@ def row_normalization(
     log_z = np.full(n, np.nan)
     lps = np.full(n, np.nan)
     idx = np.flatnonzero(~rows.unit_weight)
-    if idx.size:
-        ls, lz = _row_log_terms(rows, idx, qf, ridge, ms, cfg, chunk, dens)
-        log_z[idx] = lz
-        lps[idx] = ls - lz
+    bank = ms if isinstance(ms, MsColourBank) else MsColourBank(groups=[ms], row_group=np.zeros(n, np.int64))
+    for msg, pos in bank.for_rows(idx):
+        sub = idx[pos]
+        ls, lz = _row_log_terms(rows, sub, qf, ridge, msg, cfg, chunk, dens)
+        log_z[sub] = lz
+        lps[sub] = ls - lz
     return RowNormalization(log_z=log_z, log_p_single=lps)
 
 
@@ -590,7 +638,7 @@ def log_weight_for_draws(
     rows: CmdRows,
     norm: RowNormalization,
     ridge: RidgeTables,
-    ms: MsColours,
+    ms: MsColours | MsColourBank,
     cfg: CmdMalmquistConfig,
     *,
     dens: SingleStarDensity | None = None,
@@ -607,13 +655,17 @@ def log_weight_for_draws(
     out = np.zeros(r.size)
     w = ~rows.unit_weight[r]
     if w.any():
-        rr = r[w]
-        c1, mg1, ok, xbp, xrp = subtract_companion_full(rows.colour0[rr], rows.mg0[rr], lf[w], m2[w], ms)
-        ll = log_primary_likelihood(
-            c1, mg1, rows.sigma_mu[rr], ridge, cfg, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr],
-            dens=dens, x_bp=xbp, x_rp=xrp, ms=ms,
-        )
-        out[w] = np.where(ok, ll, -np.inf) - norm.log_z[rr]
+        wi = np.flatnonzero(w)
+        bank = ms if isinstance(ms, MsColourBank) else MsColourBank(groups=[ms], row_group=np.zeros(rows.colour0.size, np.int64))
+        for msg, pos in bank.for_rows(r[wi]):
+            di = wi[pos]
+            rr = r[di]
+            c1, mg1, ok, xbp, xrp = subtract_companion_full(rows.colour0[rr], rows.mg0[rr], lf[di], m2[di], msg)
+            ll = log_primary_likelihood(
+                c1, mg1, rows.sigma_mu[rr], ridge, cfg, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr],
+                dens=dens, x_bp=xbp, x_rp=xrp, ms=msg,
+            )
+            out[di] = np.where(ok, ll, -np.inf) - norm.log_z[rr]
     return out
 
 
