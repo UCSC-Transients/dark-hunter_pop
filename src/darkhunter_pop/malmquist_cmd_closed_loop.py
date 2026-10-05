@@ -375,6 +375,7 @@ def run_cmd_closed_loop(
     data_root: str | Path | None = None,
     pipeline_config: Any = None,
     single_star_model: Literal["gaussian_ridge", "mist_density_ridge_anchored"] | None = None,
+    colour_jacobian: bool = True,
 ) -> tuple[CmdClosedLoopResult, dict[str, Any]]:
     """Build, observe, run the pipeline, mock and compare (spec §11.5)."""
     from darkhunter_pop.config_loader import load_config
@@ -397,9 +398,10 @@ def run_cmd_closed_loop(
     rng = np.random.default_rng(np.random.SeedSequence(cfg.seed, spawn_key=(418, n)))
     uc = make_cmd_universe(n, base, cfg, frag.target_mds17, grid1d, native, pts, rng)
     pipe = run_pipeline_on_parent(uc, base, cfg, model, gcfg, rng)
+    upd: dict[str, Any] = {"colour_jacobian": colour_jacobian}
     if single_star_model is not None:
-        cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(
-            update={"provisional_model": single_star_model})})
+        upd["provisional_model"] = single_star_model
+    cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(update=upd)})
     sampler = im.PosteriorSampler.build(pts, pc.isochrone_mass.cmd_map) if cfg.posterior_deblending else None
     mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native, model.cmap, pipeline_config=pc, sampler=sampler)
     u, par = uc.base, pipe.par

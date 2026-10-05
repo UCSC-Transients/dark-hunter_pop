@@ -114,6 +114,9 @@ class SingleStarDensityConfig(_Strict):
     sigma_levels_max_mag: float = Field(2.5, gt=0)
     n_sigma_levels: int = Field(18, ge=2)
     anchor_to_ridge: bool = True
+    #: Divide by the colour Jacobian of the light subtraction (diagnostic switch; see
+    #: :func:`colour_jacobian`).
+    colour_jacobian: bool = True
 
 
 class CmdMalmquistConfig(_Strict):
@@ -437,7 +440,7 @@ def log_primary_likelihood(
     if dens is None or ms is None:
         raise ValueError("mist_density_ridge_anchored needs the SingleStarDensity and MS colours")
     sm = np.sqrt(np.asarray(sigma_mu, float) ** 2 + cfg.single_star_density.mag_floor_mag**2)
-    jac = colour_jacobian(colour1, x_bp, x_rp, ms)
+    jac = colour_jacobian(colour1, x_bp, x_rp, ms) if cfg.single_star_density.colour_jacobian else 1.0
     with np.errstate(divide="ignore"):
         return dens.log_density(colour1, mg1, sm) - np.log(np.maximum(jac, 1e-6))
 
