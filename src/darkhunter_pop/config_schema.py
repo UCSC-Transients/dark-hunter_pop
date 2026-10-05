@@ -2641,6 +2641,8 @@ class EpochVisibilityPeriodLossConfig(BaseModel):
     d0: float
     d1: float
     visibility_gap_day: float = Field(4.0, gt=0)
+    b_feature: Literal["abs_sin", "exp"] = "abs_sin"
+    b_scale_deg: float = Field(10.0, gt=0)
     provenance: str = ""
 
 

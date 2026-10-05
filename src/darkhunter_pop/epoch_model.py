@@ -111,7 +111,8 @@ class VisibilityPeriodLossConfig:
     """Whole-visibility-period loss with a degraded-star mixture (#432; spec §8.10).
 
     The star is *degraded* with probability
-    ``pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b |sin b|)``,
+    ``pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b f(b))``, ``f(b) = |sin b|`` or
+    ``exp(-|b| / b_scale_deg)`` (``b_feature``),
     ``x = (clip(G, *g_clip) - g_ref) / g_scale``, beta ecliptic and b Galactic latitude.
     Each visibility period (after the gaps) is then dropped whole with
     ``q_bad = expit(e0)`` (degraded) or ``q0 = expit(d0 + d1 x)``. The remaining loss is
@@ -132,6 +133,14 @@ class VisibilityPeriodLossConfig:
     d0: float
     d1: float
     visibility_gap_day: float = 4.0
+    b_feature: str = "abs_sin"
+    b_scale_deg: float = 10.0
+
+    def b_term(self, b_deg: float) -> float:
+        """Galactic-latitude feature: ``|sin b|`` or ``exp(-|b| / b_scale_deg)``."""
+        if self.b_feature == "exp":
+            return float(np.exp(-abs(b_deg) / self.b_scale_deg))
+        return float(abs(np.sin(np.radians(b_deg))))
 
     def x(self, g_mag: float) -> float:
         return (float(np.clip(g_mag, *self.g_clip)) - self.g_ref) / self.g_scale
@@ -142,7 +151,7 @@ class VisibilityPeriodLossConfig:
         x = self.x(g_mag)
         return float(expit(self.c0 + self.c1 * x + self.c2 * x * x
                            + self.c_beta * abs(np.sin(np.radians(beta_deg)))
-                           + self.c_b * abs(np.sin(np.radians(b_deg)))))
+                           + self.c_b * self.b_term(b_deg)))
 
     def q_normal(self, g_mag: float) -> float:
         from scipy.special import expit
@@ -361,6 +370,7 @@ def _vp_from(m: Mapping[str, Any] | None) -> VisibilityPeriodLossConfig | None:
         g_scale=float(m["g_scale"]), c0=float(m["c0"]), c1=float(m["c1"]), c2=float(m["c2"]),
         c_beta=float(m["c_beta"]), c_b=float(m["c_b"]), e0=float(m["e0"]), d0=float(m["d0"]),
         d1=float(m["d1"]), visibility_gap_day=float(m.get("visibility_gap_day", 4.0)),
+        b_feature=str(m.get("b_feature", "abs_sin")), b_scale_deg=float(m.get("b_scale_deg", 10.0)),
     )
 
 
