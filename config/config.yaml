@@ -952,11 +952,34 @@ dr3:
     # and the ramp make the random-star visibility-period excess vanish at G > 15
     # (spec §4.3); tau_day from the epoch-time gap lengths (spec §4.3).
     clustered_loss:
-      enabled: true
+      enabled: false  # superseded by visibility_period_loss (#432, 2026-10-04)
       g_start: 14.5
       g_full: 16.5
       frac_max: 0.5
       tau_day: 2.0
+    # #432 (2026-10-04): whole-visibility-period loss with a degraded-star mixture, fitted to
+    # the DR3 visibility-period DISTRIBUTION (random stars, all solution types; NSS truncated
+    # at 12) by a Poisson-binomial likelihood conditional on the exact-position scan law
+    # (scripts/calibrate_vp_tail_432.py; spec §8.10). Replaces clustered_loss.
+    # pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b exp(-|b|/b_scale_deg)),
+    # q_bad = expit(e0), q0 = expit(d0 + d1 x), x = (clip(G) - g_ref) / g_scale.
+    visibility_period_loss:
+      enabled: true
+      g_clip: [6.0, 19.0]
+      g_ref: 14.0
+      g_scale: 4.0
+      c0: -5.7028
+      c1: 1.8609
+      c2: 0.5302
+      c_beta: -2.1495
+      c_b: 1.1905
+      e0: -0.3720
+      d0: -3.5717
+      d1: 0.4377
+      visibility_gap_day: 4.0
+      b_feature: exp
+      b_scale_deg: 10.0
+      provenance: "#432 fit G_beta_bexp (30,000 random + 16,930 NSS), output/gate432/vp_tail_fit_G_beta_bexp.json"
     # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
     # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
     # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but

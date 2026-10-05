@@ -27,8 +27,11 @@ def _cfg(**kw: Any) -> em.EpochModelConfig:
     assert base is not None
     out = dataclasses.replace(em.epoch_model_config_from_mapping(base), enabled=True)
     if any(k_.startswith("transit_loss") for k_ in kw):
-        # binned-model tests: switch off the continuous / clustered parts
-        kw = {"continuous": None, "clustered": None, **kw}
+        # binned-model tests: switch off the continuous / clustered / visibility-period parts
+        kw = {"continuous": None, "clustered": None, "vp_loss": None, **kw}
+    elif "clustered" in kw:
+        # episode-model tests (E4): the #432 visibility-period loss replaces episodes when set
+        kw = {"vp_loss": None, **kw}
     return dataclasses.replace(out, **kw) if kw else out
 
 
@@ -236,7 +239,7 @@ def test_real_gaiamock_wrapper_only_changes_transits() -> None:
     full = _cfg()
     gaps = em.gap_intervals_jd(full)
     with seeded_global_rng(seeds, cf), em.gost_epoch_model(
-        gm, full, em.SourceEpochContext(12.0, l_deg=250.0, b_deg=-30.0), np.random.default_rng(0)
+        gm, full, em.SourceEpochContext(12.0, l_deg=250.0, b_deg=-30.0, beta_deg=-20.0), np.random.default_rng(0)
     ):
         thin = gm.predict_astrometry_binary_in_terms_of_a0(**args)
     jd = thin[0] * 365.25 + 2457389.0  # gaiamock rescale_times_astrometry for DR3
