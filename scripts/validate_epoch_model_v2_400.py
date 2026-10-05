@@ -146,7 +146,7 @@ def _single(task: tuple[int, float, float, float]) -> list[dict[str, Any]]:
 
 
 #: validation variant -> epoch-model configuration built in _init
-VARIANT_EM = {"v2": "em_v2", "v2_n2": "em_n2", "v2_u0": "em_u0", "n2d": "em_n2d", "v3": "em_v3"}
+VARIANT_EM = {"gaiamock": "em_v2", "v2": "em_v2", "v2_n2": "em_n2", "v2_u0": "em_u0", "n2d": "em_n2d", "v3": "em_v3"}
 
 U0_STREAM = 6  # SeedSequence stream for the u0 calibration singles
 
