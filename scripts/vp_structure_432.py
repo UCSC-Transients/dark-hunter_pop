@@ -52,26 +52,40 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--random", default=str(P / "data/dr3/gaia_snapshots/20261004T164505Z_visibility_428/random_all_params.h5"))
     ap.add_argument("--nss", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400/nss.h5"))
     ap.add_argument("--out", default=str(P / "output/gate432"))
+    ap.add_argument("--source", choices=("exact", "grid"), default="exact",
+                    help="exact: gaiaunlimited at the star; grid: gaiamock's nearest GOST position (what the mock sees)")
     args = ap.parse_args(argv)
 
     import gaiaunlimited.scanninglaw as gsl
+    import healpy as hp
+    from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
 
     cfg = em.epoch_model_config_from_mapping(load_config().dr3.epoch_model)
     gaps = em.gap_intervals_jd(cfg)
-    sl = gsl.GaiaScanningLaw(version="dr3_nominal", gaplist=None)
+    sl = gsl.GaiaScanningLaw(version="dr3_nominal", gaplist=None) if args.source == "exact" else None
+    gm = import_gaiamock_mod() if args.source == "grid" else None
+    grid_cache: dict[int, np.ndarray] = {}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     keep_cols = ("source_id", "ra", "dec", "l", "b", "ecl_lat", "phot_g_mean_mag", "visibility_periods_used",
                  "astrometric_matched_transits", "astrometric_params_solved", "ruwe")
-    with h5py.File(out / "vp_structure.h5", "w") as h:
+    fname = "vp_structure.h5" if args.source == "exact" else "vp_structure_grid.h5"
+    with h5py.File(out / fname, "w") as h:
         for name, path in (("random", args.random), ("nss", args.nss)):
             with h5py.File(path, "r") as f:
                 d = {k: f[k][:] for k in keep_cols if k in f}
             sizes, offs = [], [0]
             for i in range(d["source_id"].size):
-                r = sl.query(float(d["ra"][i]), float(d["dec"][i]))
-                t = np.concatenate([np.asarray(x, float) for x in r]) + GU_TIME_ORIGIN_JD if r else np.array([])
-                s = vp_sizes(t, gaps, cfg.transit_split_day)
+                if sl is not None:
+                    r = sl.query(float(d["ra"][i]), float(d["dec"][i]))
+                    t = np.concatenate([np.asarray(x, float) for x in r]) + GU_TIME_ORIGIN_JD if r else np.array([])
+                    s = vp_sizes(t, gaps, cfg.transit_split_day)
+                else:
+                    pix = int(hp.ang2pix(16, np.radians(90.0 - float(d["dec"][i])), np.radians(float(d["ra"][i]))))
+                    if pix not in grid_cache:
+                        tab = gm.get_gost_one_position(float(d["ra"][i]), float(d["dec"][i]), data_release="dr3")
+                        grid_cache[pix] = vp_sizes(np.asarray(tab[em.GOST_TIME_COLUMN], float), gaps, cfg.transit_split_day)
+                    s = grid_cache[pix]
                 sizes.append(s)
                 offs.append(offs[-1] + s.size)
                 if (i + 1) % 10000 == 0:
@@ -82,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             g.create_dataset("vp_ntr", data=np.concatenate(sizes) if sizes else np.zeros(0, np.int64))
             g.create_dataset("vp_offsets", data=np.asarray(offs, dtype=np.int64))
             g.attrs["source"] = str(path)
-    print(f"wrote {out / 'vp_structure.h5'}")
+    print(f"wrote {out / fname}")
     return 0
 
 
