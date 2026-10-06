@@ -90,7 +90,14 @@ models, which a single noise term added to the data cannot reproduce.
 `dr3.epoch_model.bright_excess_noise.enabled` is therefore **false**. The options are in spec
 §8.6 (N2a–N2c).
 
-## v3: visibility-period tail (#432, 2026-10-04/05)
+## v3: visibility-period tail (#432, 2026-10-04/06)
+
+**Update 2026-10-06 (Ryan: V2, then V0).** The model was refit on 5/6-parameter stars, because
+the ϖ > 0.2 mas mock parent excludes 2-parameter stars. It is now **on**. Against DR3
+5/6-parameter stars, the < 12 fraction is 1.14% vs 0.76% (production 0.12%). The single-star
+mean N_vis − DR3 is −0.03. On the #390 set (2 realizations), the NSS mean N_vis is −0.17 and
+everything else is within ±0.015 of production. Details: spec §8.10 item 8; figures
+`visibility_tail.png` and `single_star_ruwe.png`. The original v3 record follows.
 
 Ryan asked for a better visibility model: an explicit ecliptic-latitude dependence, calibration
 on the visibility-period **distribution**, and a test of the grid-resolution hypothesis. Spec
