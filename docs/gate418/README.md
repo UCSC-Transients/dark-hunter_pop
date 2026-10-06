@@ -341,3 +341,28 @@ This directly validates the deblending: the blended-light bias grows to +12% for
 | `elbadry2026` | 240 |
 
 Bulk survivors of the M2 cut go from 19,476 to 19,211. Gaia BH1 M1 is 0.964 ± 0.070 and BH2 is 1.060 ± 0.058 (published 0.93 and 1.07).
+
+## Tasks of 2026-10-07 (spec §0.7)
+
+**Giant prior calibrated against APOKASC-3** (`giant_prior_calibration.*`, `scripts/calibrate_giant_prior_418.py`). The prior is fitted on even-KIC stars and tested on odd-KIC stars. **Adopted: `isochrone_mass.age.provisional_age_power: 0.5`.** The CHeB weight ρ (0.4–1.6) moves the medians by less than 0.01 and stays 1; the grid's formal optimum at ρ = 1.6 is a negligible edge effect. Held-out M̂ / M_seis at (0.5, 1):
+
+| | before | after |
+|---|---|---|
+| RGB | 1.039 (0.090 dex) | 0.972 (0.085 dex) |
+| RC | 1.151 (0.111 dex) | 1.065 (0.105 dex) |
+
+Regression with seismic mass remains (RGB, test half, in seismic-mass bins <1, 1–1.5, 1.5–2 and >2 M⊙: 1.35, 0.98, 0.76, 0.54). It reflects a weakly constrained posterior mean, so it is reported, not tuned.
+
+**Re-checks with γ = 0.5:**
+
+- DEBCat, deblended with the dynamical q (`m1_benchmarks_calibrated.*`): 0.997 (0.043 dex) → 0.982 (0.041 dex).
+- FLAME (`isochrone_m1_report.*`, regenerated): dwarfs 0.999 → 0.984; evolved stars 0.779 → 0.751. FLAME is itself model-based.
+
+**Literature counts with γ = 0.5** (`flip_remeasure_MIST_isochrone_age0p5.*`): unchanged, with the same survivor-ID hashes. `andrews2022` has 25, `andrews2022_modified` 24, `elbadry2024` 48 and `elbadry2026` 240. In the bulk, survivors of the M2 cut go from 19,211 to 18,154, and M1 off-grid goes from 38,229 to 44,950. Gaia BH1 M1 is 0.939 and BH2 1.055 (published 0.93 and 1.07).
+
+**[Fe/H] likelihood on DEBCat** (`m1_benchmarks_feh_catalog.*`): with the catalogue spectroscopic [M/H] (σ 0.1), as an upper bound, 123 systems go from 0.046 to 0.038 dex scatter, and the bias goes from −0.009 to −0.014 dex. The gdr3apcal test is pending GSP-Phot columns for the DEBCat stars. Until then the likelihood stays off.
+
+**Distance trend and real-map closed loop** (`closed_loop_cmd_small_realdust*`, `dust.kind: combined19`, σ(E)/E = 0.085):
+
+- The synthetic parent reproduces the real ridge-residual trend: −0.58 at 2–5 kpc and −1.16 beyond 5 kpc, against −0.34 / −0.45 (real median / mode) and −1.10 / −1.01. **The trend is selection**, so no extinction change is needed.
+- Worst |pull| is 6.7 with no weight, 8.8 with the 1-D weight and 7.6 with the 2-D weight. The ≤ 3 target is not met; the excess is at the brightest log f and the top M2 bins.
