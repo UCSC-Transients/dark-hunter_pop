@@ -2650,6 +2650,29 @@ class EpochBrightExcessNoiseConfig(BaseModel):
     renormalize_ruwe: bool = True
 
 
+class EpochVisibilityPeriodLossConfig(BaseModel):
+    """Whole-visibility-period loss with a degraded-star mixture (#432; spec §8.10)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    g_clip: list[float] = Field(..., min_length=2, max_length=2)
+    g_ref: float
+    g_scale: float = Field(..., gt=0)
+    c0: float
+    c1: float
+    c2: float
+    c_beta: float
+    c_b: float
+    e0: float
+    d0: float
+    d1: float
+    visibility_gap_day: float = Field(4.0, gt=0)
+    b_feature: Literal["abs_sin", "exp"] = "abs_sin"
+    b_scale_deg: float = Field(10.0, gt=0)
+    provenance: str = ""
+
+
 class EpochRuweU0Config(BaseModel):
     """Mock RUWE normalisation u0(G) emulating DR3's RUWE = UWE / u0 (#400 N2-u0; §8.8)."""
 
@@ -2723,6 +2746,7 @@ class EpochModelPathConfig(BaseModel):
     clustered_loss: EpochClusteredLossConfig | None = None
     bright_excess_noise: EpochBrightExcessNoiseConfig | None = None
     ruwe_u0: EpochRuweU0Config | None = None
+    visibility_period_loss: EpochVisibilityPeriodLossConfig | None = None
     provenance: str = ""
 
     @model_validator(mode="after")

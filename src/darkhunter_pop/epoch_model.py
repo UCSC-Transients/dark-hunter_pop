@@ -107,6 +107,64 @@ class ClusteredLossConfig:
 
 
 @dataclass(frozen=True)
+class VisibilityPeriodLossConfig:
+    """Whole-visibility-period loss with a degraded-star mixture (#432; spec §8.10).
+
+    The star is *degraded* with probability
+    ``pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b f(b))``, ``f(b) = |sin b|`` or
+    ``exp(-|b| / b_scale_deg)`` (``b_feature``),
+    ``x = (clip(G, *g_clip) - g_ref) / g_scale``, beta ecliptic and b Galactic latitude.
+    Each visibility period (after the gaps) is then dropped whole with
+    ``q_bad = expit(e0)`` (degraded) or ``q0 = expit(d0 + d1 x)``. The remaining loss is
+    independent per transit with ``p_ind = 1 - p_keep / (1 - qbar)``,
+    ``qbar = (1 - pi) q0 + pi q_bad``, so the expected kept-transit fraction stays at the
+    calibrated ``p_keep``. When set, it replaces the episode model (``clustered``).
+    """
+
+    g_clip: tuple[float, float]
+    g_ref: float
+    g_scale: float
+    c0: float
+    c1: float
+    c2: float
+    c_beta: float
+    c_b: float
+    e0: float
+    d0: float
+    d1: float
+    visibility_gap_day: float = 4.0
+    b_feature: str = "abs_sin"
+    b_scale_deg: float = 10.0
+
+    def b_term(self, b_deg: float) -> float:
+        """Galactic-latitude feature: ``|sin b|`` or ``exp(-|b| / b_scale_deg)``."""
+        if self.b_feature == "exp":
+            return float(np.exp(-abs(b_deg) / self.b_scale_deg))
+        return float(abs(np.sin(np.radians(b_deg))))
+
+    def x(self, g_mag: float) -> float:
+        return (float(np.clip(g_mag, *self.g_clip)) - self.g_ref) / self.g_scale
+
+    def degraded_probability(self, g_mag: float, beta_deg: float, b_deg: float) -> float:
+        from scipy.special import expit
+
+        x = self.x(g_mag)
+        return float(expit(self.c0 + self.c1 * x + self.c2 * x * x
+                           + self.c_beta * abs(np.sin(np.radians(beta_deg)))
+                           + self.c_b * self.b_term(b_deg)))
+
+    def q_normal(self, g_mag: float) -> float:
+        from scipy.special import expit
+
+        return float(expit(self.d0 + self.d1 * self.x(g_mag)))
+
+    def q_degraded(self) -> float:
+        from scipy.special import expit
+
+        return float(expit(self.e0))
+
+
+@dataclass(frozen=True)
 class PerCcdExcessNoiseConfig:
     """Bright-star unmodelled per-CCD noise for the unbinned overlay (#398 / #400 N2).
 
@@ -225,6 +283,7 @@ class EpochModelConfig:
     clustered: ClusteredLossConfig | None = None
     excess_noise: PerCcdExcessNoiseConfig | None = None
     ruwe_u0: RuweU0Table | None = None
+    vp_loss: VisibilityPeriodLossConfig | None = None
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -298,7 +357,20 @@ def epoch_model_config_from_mapping(
         clustered=_clustered_from(section.get("clustered_loss")),
         excess_noise=_noise_from(section.get("bright_excess_noise")),
         ruwe_u0=_u0_from(section.get("ruwe_u0"), root),
+        vp_loss=_vp_from(section.get("visibility_period_loss")),
         provenance=str(section.get("provenance", "")),
+    )
+
+
+def _vp_from(m: Mapping[str, Any] | None) -> VisibilityPeriodLossConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return VisibilityPeriodLossConfig(
+        g_clip=(float(m["g_clip"][0]), float(m["g_clip"][1])), g_ref=float(m["g_ref"]),
+        g_scale=float(m["g_scale"]), c0=float(m["c0"]), c1=float(m["c1"]), c2=float(m["c2"]),
+        c_beta=float(m["c_beta"]), c_b=float(m["c_b"]), e0=float(m["e0"]), d0=float(m["d0"]),
+        d1=float(m["d1"]), visibility_gap_day=float(m.get("visibility_gap_day", 4.0)),
+        b_feature=str(m.get("b_feature", "abs_sin")), b_scale_deg=float(m.get("b_scale_deg", 10.0)),
     )
 
 
@@ -570,14 +642,24 @@ def thin_gost_mask(
     density_per_deg2: float | None = None,
     l_deg: float | None = None,
     b_deg: float | None = None,
+    beta_deg: float | None = None,
 ) -> NDArray[np.bool_]:
     """Boolean keep-mask over GOST rows: gaps removed, then whole transits dropped.
 
-    Loss after the gaps is ``q = 1 - keep_probability``. A fraction
-    ``e = clustered_fraction(G) * q`` is lost in time-clustered episodes
-    (:func:`loss_episode_mask`); the rest independently per FoV transit with
-    ``p_ind = 1 - (1 - q) / (1 - e)``, so the expected total keep is ``1 - q``. Every row of
-    a transit shares its fate. Draw order: one uniform per transit, then the episodes.
+    Loss after the gaps is ``q = 1 - keep_probability``. Three modes:
+
+    * ``config.vp_loss`` set (#432): visibility periods (groups of post-gap transits
+      separated by > 4 d) are dropped whole with the degraded-star mixture of
+      :class:`VisibilityPeriodLossConfig` (needs ``beta_deg`` and ``b_deg``); the rest is
+      independent per transit. Draw order: one uniform per transit, one for the degraded
+      state, one per visibility period.
+    * else ``config.clustered`` (E4): a fraction ``e = clustered_fraction(G) * q`` is lost in
+      time-clustered episodes (:func:`loss_episode_mask`), the rest independently per
+      transit with ``p_ind = 1 - (1 - q) / (1 - e)``. Draw order: transits, then episodes.
+    * else independent per transit.
+
+    In every mode the expected total keep is ``1 - q`` and every row of a transit shares
+    its fate.
     """
     t = np.asarray(jd, dtype=np.float64)
     keep = np.ones(t.shape, dtype=bool)
@@ -586,6 +668,31 @@ def thin_gost_mask(
     ids = fov_transit_ids(t, config.transit_split_day)
     n_tr = int(ids.max()) + 1 if ids.size else 0
     q = 1.0 - keep_probability(g_mag, config, l_deg=l_deg, b_deg=b_deg, density_per_deg2=density_per_deg2)
+    vp = config.vp_loss
+    if vp is not None:
+        if beta_deg is None or b_deg is None:
+            raise ValueError("the visibility-period loss needs beta_deg and b_deg")
+        pi = vp.degraded_probability(g_mag, beta_deg, b_deg)
+        q0, qb = vp.q_normal(g_mag), vp.q_degraded()
+        qbar = (1.0 - pi) * q0 + pi * qb
+        p_ind = float(np.clip(1.0 - (1.0 - q) / max(1e-9, 1.0 - qbar), 0.0, 0.999))
+        u = rng.uniform(0.0, 1.0, n_tr)
+        keep &= (u >= p_ind)[ids]
+        degraded = rng.uniform() < pi
+        qv = qb if degraded else q0
+        if n_tr:
+            # visibility periods of the transits that survive the gaps (as the scan law sees them)
+            row_ok = ~in_gaps(t, gaps_jd) if config.apply_gaps else np.ones(t.shape, dtype=bool)
+            tr_ok = np.bincount(ids, weights=row_ok.astype(float), minlength=n_tr) > 0
+            tr_idx = np.flatnonzero(tr_ok)
+            if tr_idx.size:
+                t_mid = np.bincount(ids, weights=t, minlength=n_tr) / np.bincount(ids, minlength=n_tr)
+                vp_id = np.r_[0, np.cumsum(np.diff(t_mid[tr_idx]) > vp.visibility_gap_day)]
+                drop_vp = rng.uniform(0.0, 1.0, int(vp_id.max()) + 1) < qv
+                lost_tr = np.zeros(n_tr, dtype=bool)
+                lost_tr[tr_idx[drop_vp[vp_id]]] = True
+                keep &= ~lost_tr[ids]
+        return keep
     e = clustered_fraction(g_mag, config) * q
     p_ind = 1.0 - (1.0 - q) / (1.0 - e) if e < 1.0 else 1.0
     u = rng.uniform(0.0, 1.0, n_tr)
@@ -610,6 +717,20 @@ class SourceEpochContext:
     density_per_deg2: float | None = None
     l_deg: float | None = None
     b_deg: float | None = None
+    beta_deg: float | None = None
+
+
+def source_context(ra_deg: float, dec_deg: float, g_mag: float,
+                   density_per_deg2: float | None = None) -> SourceEpochContext:
+    """:class:`SourceEpochContext` with Galactic (l, b) and ecliptic latitude from (ra, dec)."""
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    c = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg)
+    gal = c.galactic
+    ecl = c.barycentrictrueecliptic
+    return SourceEpochContext(g_mag=float(g_mag), density_per_deg2=density_per_deg2,
+                              l_deg=float(gal.l.deg), b_deg=float(gal.b.deg), beta_deg=float(ecl.lat.deg))
 
 
 @contextlib.contextmanager
@@ -644,6 +765,7 @@ def gost_epoch_model(
         mask = thin_gost_mask(
             jd, config, gaps, g_mag=source.g_mag, rng=rng,
             density_per_deg2=source.density_per_deg2, l_deg=source.l_deg, b_deg=source.b_deg,
+            beta_deg=source.beta_deg,
         )
         return tab[mask]
 

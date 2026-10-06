@@ -280,7 +280,7 @@ def _load_validation(inj390: Path, log: Path | list[Path], n_real: int) -> dict[
         tab["system_index"] = np.array([index[int(r["source_id"])] for r in recs])
         out[variant] = tab
     # pair the baseline with the re-run: keep only (system, realization) pairs present in it
-    ref = "v2" if "v2" in out else ("epoch" if "epoch" in out else None)
+    ref = next((r_ for r_ in ("v3", "n2d", "v2", "epoch") if r_ in out), None)
     if ref is not None:
         done = set(zip(out[ref]["system_index"].astype(int), out[ref]["realization"].astype(int)))
         keep = np.array([(int(a), int(b)) in done for a, b in zip(base["system_index"], base["realization"])])
@@ -310,10 +310,11 @@ def cmd_validation(args: argparse.Namespace) -> None:
         o = np.argsort(cs)
         gost_tr = f["inj390/gost_ntr_raw"][:][o[np.searchsorted(cs[o], sids)]].astype(float)
     nvis_pub = truth["published_visibility_periods_used"].astype(float)
-    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2", "v2_u0") if v in data]
+    variants = [v for v in ("baseline", "epoch", "epoch_noise", "v2", "v2_n2", "v2_u0", "n2d", "v3") if v in data]
     labels = {"baseline": "#390 baseline (gaiamock today)", "epoch": "epoch model v1 (#412)",
               "epoch_noise": "v1 + El-Badry U(0, 0.04) mas", "v2": "epoch model v2",
-              "v2_n2": "v2 + per-CCD bright noise (N2)", "v2_u0": "v2 + N2, RUWE = UWE/u0 (N2-u0)"}
+              "v2_n2": "v2 + per-CCD bright noise (N2)", "v2_u0": "v2 + N2, RUWE = UWE/u0 (N2-u0)", "n2d": "production (v2 + N2d)",
+              "v3": "v3: + visibility-period loss (#432)"}
     summary: dict[str, Any] = {"n_realizations": args.n_realizations, "variants": {}}
     for v in variants:
         t = data[v]
@@ -412,7 +413,7 @@ def cmd_validation(args: argparse.Namespace) -> None:
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     for i, v in enumerate(variants):
-        if v in ("epoch_noise", "v2_n2", "v2_u0"):
+        if v in ("epoch_noise", "v2_n2", "v2_u0", "n2d"):
             continue  # same epochs as "epoch" / "v2"
         t = data[v]
         si = t["system_index"].astype(int)
@@ -500,17 +501,19 @@ def cmd_single(args: argparse.Namespace) -> None:
     """Single-star RUWE check: injected non-binary stars vs DR3 RUWE of the same stars."""
     plt = require_pyplot()
     style, dpi = _style()
-    with h5py.File(Path(args.snapshot) / "random.h5", "r") as f:
+    with h5py.File(Path(args.snapshot) / args.table, "r") as f:
         sid, ruwe_dr3, vp = f["source_id"][:], f["ruwe"][:], f["visibility_periods_used"][:]
+        beta_all = f["ecl_lat"][:] if "ecl_lat" in f else np.full(sid.size, np.nan)
+        b_all = f["b"][:]
     idx = {int(s_): i for i, s_ in enumerate(sid)}
     rows: dict[str, list[tuple[int, float, float, float]]] = {}
     for line in Path(args.log).read_text().splitlines():
         r = json.loads(line)
         rows.setdefault(r["variant"], []).append((idx[int(r["source_id"])], r["g"], r["ruwe"], r["n_vis"], r.get("ruwe_scale", 1.0)))
     arr = {k: np.array(v) for k, v in rows.items()}
-    variants = [v for v in ("gaiamock", "v2", "v2_n2", "v2_u0") if v in arr]
+    variants = [v for v in ("gaiamock", "v2", "v2_n2", "v2_u0", "n2d", "v3") if v in arr]
     labels = {"gaiamock": "gaiamock today", "v2": "epoch model v2", "v2_n2": "v2 + bright per-CCD noise (N2)",
-              "v2_u0": "v2 + N2, RUWE = UWE/u0"}
+              "v2_u0": "v2 + N2, RUWE = UWE/u0", "n2d": "production (v2 + N2d)", "v3": "v3: + visibility-period loss (#432)"}
     gbins = ((0, 13), (13, 17), (17, 19))
     summary: dict[str, Any] = {"n_stars": int(arr[variants[0]].shape[0]), "bins": {}}
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
@@ -564,6 +567,48 @@ def cmd_single(args: argparse.Namespace) -> None:
     save_figure(fig, Path(args.fig_dir) / "single_star_ruwe_peak_vs_g.png", dpi=dpi)
     summary["peak_by_g"] = peak
 
+    # visibility periods: full distribution and the < 12 tail by G, |beta|, |b| (#432)
+    vis: dict[str, Any] = {}
+    i_all = arr[variants[0]][:, 0].astype(int)
+    vis["dr3"] = {"lt12": float(np.mean(vp[i_all] < 12)), "mean": float(np.mean(vp[i_all]))}
+    for v in variants:
+        a = arr[v]
+        vis[v] = {"lt12": float(np.mean(a[:, 3] < 12)), "mean": float(np.mean(a[:, 3]))}
+    cuts = {"G": (arr[variants[0]][:, 1], (3, 13, 15, 16, 17, 18, 19)),
+            "abs_beta": (np.abs(beta_all[i_all]), (0, 15, 30, 45, 90)),
+            "abs_b": (np.abs(b_all[i_all]), (0, 5, 10, 30, 90))}
+    for lab, (x, edges) in cuts.items():
+        vis[lab] = {}
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            m = (x >= lo) & (x < hi)
+            row = {"n": int(m.sum()), "dr3": float(np.mean(vp[i_all][m] < 12)) if m.any() else None}
+            for v in variants:
+                a = arr[v]
+                row[v] = float(np.mean(a[m, 3] < 12)) if m.any() else None
+                row[v + "_mean_minus_dr3"] = float(np.mean(a[m, 3] - vp[a[m, 0].astype(int)])) if m.any() else None
+            vis[lab][f"{lo}-{hi}"] = row
+    summary["visibility"] = vis
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
+    bins_v = np.arange(0.5, 45.5, 1.0)
+    _hist_step(axes[0], vp[i_all].astype(float), bins_v, 0, style, "DR3 visibility_periods_used")
+    for j, v in enumerate(variants):
+        _hist_step(axes[0], arr[v][:, 3], bins_v, j + 1, style, labels[v])
+    axes[0].axvline(11.5, color="0.4", linestyle=":", linewidth=1.5)
+    apply_axes_style(axes[0], style, xlabel="visibility periods", ylabel="fraction of stars")
+    axes[0].set_yscale("log")
+    axes[0].legend(prop=legend_prop(style), loc="lower center", frameon=False)
+    for ax, lab, xl in ((axes[1], "abs_beta", r"$|\beta|$ (deg)"), (axes[2], "G", "G (mag)")):
+        keys = list(vis[lab])
+        xc = np.arange(len(keys))
+        ax.plot(xc, [100 * vis[lab][k]["dr3"] for k in keys], color="k", marker="*", markersize=14, linestyle="-", label="DR3")
+        for j, v in enumerate(variants):
+            st = series_style(j + 1, style)
+            ax.plot(xc + 0.05 * j, [100 * vis[lab][k][v] for k in keys], color=st["color"], marker=st["marker"],
+                    linestyle=st["linestyle"], linewidth=st["linewidth"], markersize=st["markersize"], label=labels[v])
+        ax.set_xticks(xc, keys)
+        apply_axes_style(ax, style, xlabel=xl, ylabel="% with < 12 visibility periods")
+    save_figure(fig, Path(args.fig_dir) / "visibility_tail.png", dpi=dpi)
+
     path = Path(args.fig_dir) / "summary.json"
     old = json.loads(path.read_text()) if path.exists() else {}
     old["single_star_ruwe"] = summary
@@ -589,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("single")
     p.add_argument("--log", required=True)
     p.add_argument("--snapshot", required=True)
+    p.add_argument("--table", default="random.h5")
     p.add_argument("--fig-dir", default=str(REPO / "docs" / "gate400" / "figures"))
     p.set_defaults(func=cmd_single)
     args = parser.parse_args(argv)
