@@ -504,6 +504,7 @@ def cmd_single(args: argparse.Namespace) -> None:
     with h5py.File(Path(args.snapshot) / args.table, "r") as f:
         sid, ruwe_dr3, vp = f["source_id"][:], f["ruwe"][:], f["visibility_periods_used"][:]
         beta_all = f["ecl_lat"][:] if "ecl_lat" in f else np.full(sid.size, np.nan)
+        params_all = f["astrometric_params_solved"][:] if "astrometric_params_solved" in f else np.full(sid.size, 31)
         b_all = f["b"][:]
     idx = {int(s_): i for i, s_ in enumerate(sid)}
     rows: dict[str, list[tuple[int, float, float, float]]] = {}
@@ -588,6 +589,20 @@ def cmd_single(args: argparse.Namespace) -> None:
                 row[v + "_mean_minus_dr3"] = float(np.mean(a[m, 3] - vp[a[m, 0].astype(int)])) if m.any() else None
             vis[lab][f"{lo}-{hi}"] = row
     summary["visibility"] = vis
+    # DR3 restricted to 5/6-parameter solutions (the mock parent has parallax > 0.2 mas, #432 V2)
+    m56 = params_all[i_all] > 3
+    vis56: dict[str, Any] = {"n": int(m56.sum()), "dr3_lt12": float(np.mean(vp[i_all][m56] < 12)),
+                             "dr3_mean": float(np.mean(vp[i_all][m56]))}
+    for v in variants:
+        a = arr[v]
+        vis56[v] = {"lt12": float(np.mean(a[m56, 3] < 12)), "mean_minus_dr3": float(np.mean(a[m56, 3] - vp[a[m56, 0].astype(int)]))}
+    for lab, (x, edges) in cuts.items():
+        vis56[lab] = {}
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            m = (x >= lo) & (x < hi) & m56
+            vis56[lab][f"{lo}-{hi}"] = {"n": int(m.sum()), "dr3": float(np.mean(vp[i_all][m] < 12)) if m.any() else None,
+                                        **{v: float(np.mean(arr[v][m, 3] < 12)) if m.any() else None for v in variants}}
+    summary["visibility_5_6_param"] = vis56
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     bins_v = np.arange(0.5, 45.5, 1.0)
     _hist_step(axes[0], vp[i_all].astype(float), bins_v, 0, style, "DR3 visibility_periods_used")

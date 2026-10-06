@@ -976,18 +976,18 @@ dr3:
       g_clip: [6.0, 19.0]
       g_ref: 14.0
       g_scale: 4.0
-      c0: -5.9618
-      c1: 1.0592
-      c2: 0.9661
-      c_beta: -1.5401
-      c_b: 2.1169
-      e0: -0.3731
-      d0: -4.2037
-      d1: 0.9735
+      c0: -5.3455
+      c1: 0.9257
+      c2: 0.9149
+      c_beta: -1.7970
+      c_b: 2.5814
+      e0: -1.2107
+      d0: -4.2201
+      d1: 0.6912
       visibility_gap_day: 4.0
       b_feature: exp
       b_scale_deg: 10.0
-      provenance: "#432 grid-conditioned cell fit, output/gate432/vp_tail_fit_gridcell_G_beta_b.json"
+      provenance: "#432 V2: grid-conditioned cell fit on 5/6-parameter stars, output/gate432/vp_tail_fit_gridcell_56p_G_beta_b.json"
     # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
     # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
     # renormalised by sqrt(1 + r2) unless ruwe_u0 is enabled (then RUWE = UWE / u0).
