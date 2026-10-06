@@ -1,0 +1,77 @@
+# RESTART TUNING generation 23 (#391, 2026-10-06). Everything decided through 2026-10-06 is on:
+# epoch model v2 (gaps, p(G,l,b), N2d bright noise, DR3-style RUWE u0, visibility_period_loss; #441),
+# isochrone M1 deblended with posterior draws (#418/#424/#435/#440), MIST coeval flux ratios and the
+# 2-D CMD Malmquist weight (#437), bounded eccentricity proposal (#409/#410), evolved-row flux centre.
+# Proposal knobs identical to proposal_set_isochrone_smoke.yaml (generation 22). ~1 h at 8 workers.
+# All earlier generations are invalid under the new epoch/noise/M1 model; draw_index starts at 0
+# with a new stream (generation 23). Not under config/fragments/.
+# Keys still named provisional_* are reweightable open questions (spec §8), not decisions.
+
+proposal:
+  generation: 23
+  n_draws: 25000
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
+    uniform_fraction: 0.2
+    parallax_power: 1.5
+    parallax_cap_mas: 10.0
+  m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
+    q_tied_weight: 0.9
+    q_min: 0.08
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+  flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
+    dark_fraction: 0.1
+    relation: janssens2022
+    relation_weight: 0.9
+    relation_sigma_dex: 0.15
+    log_f_min: -7.0                  # MP-Q28d: evolved-row targets reach ~1e-6 (spec §10.4, §11.9)
+    log_f_max: 0.5
+    evolved_rows_centre: evolved_relation   # MP-Q28d (decided 2026-10-04)
+  period:                            # log P mixture: core + MdS17-wide defensive component
+    core_weight: 0.8
+    core_log_p_min: 1.0
+    core_log_p_max: 4.0
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:                      # #409/#410: covers MdS17 e < e_max(P); bounded weights
+    shape: mds17_bounded
+    circular_period_days: 2.0        # MdS17 §2: P <= 2 d circular (matches the target)
+    floor_eta: -0.9                  # must be <= target provisional_eta_floor (checked)
+    floor_weight: 0.3
+    support_weight: 0.5
+    defensive_e_max: 0.999           # covers e > e_max for alternative models (MP-Q12)
+    e_max_period_scale_days: 2.0     # MdS17 Eq. 3
+    e_max_exponent: -0.6666666666666666
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  # Generation-time decisions (spec §0.1).
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1)"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0                    # step (b), <=
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
+  m1: isochrone_posterior_draw_deblended            # MP-Q5/Q28c/Q35/Q36 (#418, spec §0.4, §11.9)
+  giant_flag_logg_max: 3.6                          # TAG10 mode only (isochrone mode uses the §10.2 CMD flag)
+  light_split: observed_g_is_system_total           # MP-Q6
+  epoch_model: dr3_config                           # #400 E1 decided: on (dr3.epoch_model)
+
+target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1           # MP-Q10
+  provisional_eta_floor: -0.9                       # MP-Q11
+  provisional_low_mass_policy: log_linear_to_zero   # MP-Q7 (El-Badry et al. 2024 §3)
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity       # MP-Q9
+  mass_luminosity: mist_coeval                      # MP-Q40 decided 2026-10-04 (replaces MP-Q13 Janssens for MS companions)
+  flux_sigma_dex: 0.1                               # MP-Q13, decided
+  provisional_compact_mixture: none                 # MP-Q17
