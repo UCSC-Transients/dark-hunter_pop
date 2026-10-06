@@ -1361,6 +1361,10 @@ class DustMapsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ebv_cache_dir: str = "dust_maps/ebv_cache"
+    #: ``dustmaps`` package data directory (host-specific; relative to ``paths.data_root``
+    #: unless absolute). Holds ``bayestar/bayestar2019.h5`` for posterior-sample queries
+    #: (``dustmaps.bayestar.BayestarQuery``; its ``fetch()`` is never called). #418 MP-Q34.
+    dustmaps_data_dir: str | None = None
     r_v: float | None = Field(default=None, gt=0.0)
     maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
     gaia_band_extinction: GaiaBandExtinctionConfig = Field(
@@ -1529,11 +1533,16 @@ class AgePriorConfig(_IsoStrict):
 
 
 class FehPriorConfig(_IsoStrict):
-    """[Fe/H] prior: Gaussian (solar-neighbourhood-like). Values are provisional (MP-Q33)."""
+    """[Fe/H] prior: the solar-neighbourhood MDF (MP-Q33, decided 2026-10-04).
+
+    Casagrande et al. (2011, A&A 530, A138, Table 1, irfm sample of 5,976 GCS stars): [Fe/H]
+    mean −0.06, σ 0.22 dex. Used wherever no calibrated GSP-Phot [M/H] is available (the
+    Andrae et al. 2023 calibration needs ``gdr3apcal`` and a GSP-Phot re-query; spec §11.9).
+    """
 
     kind: Literal["gaussian"] = "gaussian"
-    mean_dex: float = -0.1
-    sigma_dex: float = Field(0.25, gt=0)
+    mean_dex: float = -0.06
+    sigma_dex: float = Field(0.22, gt=0)
 
 
 class IsochroneLikelihoodConfig(_IsoStrict):
@@ -1557,6 +1566,23 @@ class IsochroneLikelihoodConfig(_IsoStrict):
     chunk_rows: int = Field(2000, ge=10)
 
 
+class FehLikelihoodConfig(_IsoStrict):
+    """MP-Q33 (decided 2026-10-04): GSP-Phot [M/H] calibrated with ``gdr3apcal`` (Andrae et al.
+    2023, §3.5.3; MARS trained on LAMOST DR6) as a [Fe/H] likelihood where reliable, else the MDF
+    prior alone. Reliability (spec §11.9): ϖ/σ_ϖ ≥ ``min_parallax_over_error``, Teff in
+    [``teff_min_k``, ``teff_max_k``], library in ``libraries``, A0 ≤ ``a0_max_mag``. ``sigma_dex``
+    is the calibrated [Fe/H] uncertainty (provisional until measured against a spectroscopic
+    sample). Off until the GSP-Phot calibration columns are snapshotted (``enabled``)."""
+
+    enabled: bool = False
+    min_parallax_over_error: float = 10.0
+    teff_min_k: float = 4000.0
+    teff_max_k: float = 6500.0
+    libraries: tuple[str, ...] = ("MARCS", "PHOENIX")
+    a0_max_mag: float = 1.0
+    provisional_sigma_dex: float = Field(0.2, gt=0)
+
+
 class IsochroneMassConfig(_IsoStrict):
     """``isochrone_mass`` section (spec §11). ``mist_root`` is host-specific (host profiles)."""
 
@@ -1567,6 +1593,7 @@ class IsochroneMassConfig(_IsoStrict):
     imf: ImfPriorConfig = ImfPriorConfig()
     age: AgePriorConfig = AgePriorConfig()
     provisional_feh_prior: FehPriorConfig = FehPriorConfig()
+    feh_likelihood: FehLikelihoodConfig = FehLikelihoodConfig()
     likelihood: IsochroneLikelihoodConfig = IsochroneLikelihoodConfig()
     #: Which M1 summary feeds point uses (mock truth M1 and bulk M1): the posterior mean of
     #: M1 or exp of the mean of ln M1 (MP-Q35, provisional).

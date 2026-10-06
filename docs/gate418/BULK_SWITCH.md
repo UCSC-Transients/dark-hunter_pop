@@ -37,3 +37,37 @@ Other issues:
 - **#393**: does not apply to the switch path; it stays open for TAG10.
 - **#380**: under the switch, σ_M1/M1 > 0.25 for 2.1% of parent rows.
 - **#323**: out-of-range becomes `m1_off_grid`; close it when the switch flips.
+
+## Flip to `MIST_isochrone` (2026-10-04, Ryan; #425 fixed)
+
+#425 is fixed in two places:
+- **`sample_selection`.** The bulk enrichment of uncut-snapshot rows now writes only `pipeline_m1_msun`, `pipeline_m1_sigma_msun`, `pipeline_m2_msun` and `pipeline_sigma_m2_msun`. The DA-fallback rows keep the generic names, since they carry no literature columns.
+- **TAG10 by name.** The Andrews forward-model `pipeline_tag10_bulk` uses TAG10 under either method, and so does `derive_tag10_m1_r1`. The method key in the sidecar fingerprint is pinned, so existing sidecars still match.
+
+The canonical config now sets `mass_calibration.method: MIST_isochrone`.
+
+**End to end on the full `data_acquisition` artifact** of run `20260930-022223-672b092`: `scripts/remeasure_flip_418.py`, with outputs in `flip_remeasure_<method>.{json,txt}`. That run's bulk under each method feeds the stage-path selection rows, which come from the uncut snapshot plus the enrichment.
+
+| | TAG10 | MIST_isochrone |
+|---|---|---|
+| input candidates | 351,268 | 351,268 |
+| no atmosphere / no CMD | 1,268 | 2,280 |
+| M1 off the isochrone grid | — | 38,451 |
+| M2 computed | 154,046 | 143,929 |
+| after the M2 cut | 18,916 | **19,476** |
+| Gaia BH1 M1 (published 0.93 ± 0.05) | 0.82 ± 0.10 | **0.97 ± 0.07** |
+| Gaia BH2 M1 (published 1.07 ± 0.19) | 0.77 ± 0.16 | **1.07 ± 0.07** |
+| Gaia BH1 / BH2 M2 (published 9.62 / 8.94) | 12.58 / 8.06 | 12.84 / 8.51 |
+
+**Literature selection, every enabled sample.** Parent N, survivor count and the survivor-ID hash are identical under both methods:
+
+| sample (mode) | parent | survivors |
+|---|---|---|
+| `andrews2022` (reproduction) | 134,598 | 25 |
+| `andrews2022_modified` (forward_model) | 134,598 | 24 |
+| `elbadry2024` (reproduction) | 443,211 | 48 |
+| `elbadry2026` (reproduction) | 443,211 | 240 (routes 132 / 30 / 11) |
+
+The reproduction paths own their M1, and the Andrews forward model stays at TAG10 by name, so none of them moves. Whether the Andrews forward model should switch to the pipeline's isochrone M1 is a separate decision for Ryan.
+
+**Off-grid rows.** 11% of all NSS candidates (38,451) and about 7% of the orbit candidates that reach M2 are off the isochrone grid. As MOCK_POPULATION_SPEC §11.9 shows for the parent, these are mostly high-E(B−V) rows, so this is MP-Q34 (extinction errors and the choice of 3-D map).

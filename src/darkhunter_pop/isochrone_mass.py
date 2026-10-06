@@ -53,6 +53,7 @@ from darkhunter_pop import constants
 # this module into every stage's dependency hash). Re-exported here for callers.
 from darkhunter_pop.config_schema import (
     AgePriorConfig,
+    FehLikelihoodConfig,
     CmdMapConfig,
     FehPriorConfig,
     ImfPriorConfig,
@@ -782,3 +783,320 @@ def summary_for_report(post: IsochronePosterior) -> Mapping[str, Any]:
         "m1_percentiles_1_5_25_50_75_95_99": [float(x) for x in np.percentile(m, [1, 5, 25, 50, 75, 95, 99])] if m.size else [],
         "median_sigma_log_m1": float(np.nanmedian(post.log_m1_sigma)) if m.size else math.nan,
     }
+
+
+# ---------------------------------------------------------------------------
+# Posterior draws and coeval deblending (MP-Q35, MP-Q36; spec §0.4, §11.9)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PosteriorSampler:
+    """Draws from the single-star isochrone posterior p₁(ψ | y) (spec §11.9).
+
+    Prior points are binned to the nearest cell of the CMD map (``cell``); a draw picks a cell
+    with probability ∝ (cell prior weight) × (cell-integrated likelihood kernel), then a point
+    inside the cell ∝ its prior weight. Exact up to the map's binning. Stored per point:
+    [Fe/H], log age and current mass (float32).
+    """
+
+    colour_edges: FloatArray
+    mag_edges: FloatArray
+    cell_weight: FloatArray  # (nc, nm)
+    order: NDArray[np.int64]  # point indices sorted by cell
+    cell_start: NDArray[np.int64]  # CSR offsets into ``order`` (nc*nm + 1)
+    cum_weight: FloatArray  # cumulative point weight in ``order``
+    feh: NDArray[np.float32]
+    log_age: NDArray[np.float32]
+    mass: NDArray[np.float32]
+    phase: NDArray[np.float32]
+
+    @classmethod
+    def build(cls, pts: PriorPoints, cfg: CmdMapConfig) -> PosteriorSampler:
+        ce = np.arange(cfg.colour_min, cfg.colour_max + 0.5 * cfg.colour_step, cfg.colour_step)
+        me = np.arange(cfg.mag_min, cfg.mag_max + 0.5 * cfg.mag_step, cfg.mag_step)
+        nc, nm = ce.size - 1, me.size - 1
+        i = np.floor((pts.colour - ce[0]) / cfg.colour_step).astype(np.int64)
+        j = np.floor((pts.mg - me[0]) / cfg.mag_step).astype(np.int64)
+        inside = (i >= 0) & (i < nc) & (j >= 0) & (j < nm)
+        cell = np.where(inside, i * nm + j, -1)
+        keep = np.flatnonzero(inside)
+        order = keep[np.argsort(cell[keep], kind="stable")]
+        counts = np.bincount(cell[order], minlength=nc * nm)
+        start = np.concatenate([[0], np.cumsum(counts)])
+        w = pts.weight[order]
+        cw = np.bincount(cell[order], weights=w, minlength=nc * nm).reshape(nc, nm)
+        return cls(
+            colour_edges=ce, mag_edges=me, cell_weight=cw, order=order, cell_start=start,
+            cum_weight=np.cumsum(w), feh=pts.feh.astype(np.float32), log_age=pts.log_age.astype(np.float32),
+            mass=pts.values["star_mass"].astype(np.float32), phase=pts.values["phase"].astype(np.float32),
+        )
+
+    def sample(
+        self,
+        colour0: ArrayLike,
+        mg0: ArrayLike,
+        sigma_colour: ArrayLike,
+        sigma_mag: ArrayLike,
+        rng: np.random.Generator,
+        *,
+        kernel_n_sigma: float = 6.0,
+        chunk: int = 256,
+    ) -> dict[str, FloatArray]:
+        """One posterior draw per input row: ``feh``, ``log_age``, ``m1`` (NaN where the
+        prior-predictive mass in the kernel window is zero)."""
+        c = np.asarray(colour0, float)
+        m = np.asarray(mg0, float)
+        sc = np.broadcast_to(np.asarray(sigma_colour, float), c.shape)
+        sm = np.broadcast_to(np.asarray(sigma_mag, float), c.shape)
+        n = c.size
+        out = {k: np.full(n, np.nan) for k in ("feh", "log_age", "m1", "phase")}
+        ce, me = self.colour_edges, self.mag_edges
+        nm = me.size - 1
+        ok = np.isfinite(c) & np.isfinite(m) & (sc > 0) & (sm > 0)
+        idx = np.flatnonzero(ok)
+        idx = idx[np.argsort(c[idx], kind="stable")]
+        for a in range(0, idx.size, chunk):
+            ii = idx[a:a + chunk]
+            i0 = int(np.clip(np.searchsorted(ce, np.min(c[ii] - kernel_n_sigma * sc[ii])) - 1, 0, ce.size - 2))
+            i1 = int(np.clip(np.searchsorted(ce, np.max(c[ii] + kernel_n_sigma * sc[ii])) + 1, i0 + 1, ce.size - 1))
+            j0 = int(np.clip(np.searchsorted(me, np.min(m[ii] - kernel_n_sigma * sm[ii])) - 1, 0, me.size - 2))
+            j1 = int(np.clip(np.searchsorted(me, np.max(m[ii] + kernel_n_sigma * sm[ii])) + 1, j0 + 1, me.size - 1))
+            kc = _cell_kernel(c[ii], sc[ii], ce[i0:i1 + 1])
+            km = _cell_kernel(m[ii], sm[ii], me[j0:j1 + 1])
+            p = kc[:, :, None] * km[:, None, :] * self.cell_weight[i0:i1, j0:j1][None]
+            p = p.reshape(ii.size, -1)
+            tot = p.sum(axis=1)
+            cum = np.cumsum(p, axis=1)
+            u = rng.uniform(size=ii.size) * tot
+            k = np.minimum((cum < u[:, None]).sum(axis=1), p.shape[1] - 1)
+            ci = i0 + k // (j1 - j0)
+            cj = j0 + k % (j1 - j0)
+            cell = ci * nm + cj
+            s0, s1 = self.cell_start[cell], self.cell_start[cell + 1]
+            lo = np.where(s0 > 0, self.cum_weight[np.maximum(s0 - 1, 0)], 0.0)
+            hi = self.cum_weight[np.maximum(s1 - 1, 0)]
+            v = lo + rng.uniform(size=ii.size) * (hi - lo)
+            pos = np.clip(np.searchsorted(self.cum_weight, v, side="right"), s0, np.maximum(s1 - 1, s0))
+            good = (tot > 0) & (s1 > s0)
+            pt = self.order[np.where(good, pos, 0)]
+            out["feh"][ii] = np.where(good, self.feh[pt], np.nan)
+            out["log_age"][ii] = np.where(good, self.log_age[pt], np.nan)
+            out["m1"][ii] = np.where(good, self.mass[pt], np.nan)
+            out["phase"][ii] = np.where(good, self.phase[pt], np.nan)
+        return out
+
+
+def isochrone_at(grid: NativeGrid, feh: float, log_age: float) -> dict[str, FloatArray]:
+    """The MIST isochrone at ([Fe/H], log age), bilinear at fixed EEP (MIST's interpolation
+    scheme); finite rows only, in EEP order. Keys: ``star_mass``, ``mg``, ``bp``, ``rp``, ``phase``."""
+    f = int(np.clip(np.searchsorted(grid.feh, feh) - 1, 0, grid.feh.size - 2))
+    a = int(np.clip(np.searchsorted(grid.log_age, log_age) - 1, 0, grid.log_age.size - 2))
+    tf = float(np.clip((feh - grid.feh[f]) / (grid.feh[f + 1] - grid.feh[f]), 0.0, 1.0))
+    ta = float(np.clip((log_age - grid.log_age[a]) / (grid.log_age[a + 1] - grid.log_age[a]), 0.0, 1.0))
+    v = grid.values.astype(np.float64)
+    cube = ((1 - tf) * (1 - ta) * v[f, a] + tf * (1 - ta) * v[f + 1, a]
+            + (1 - tf) * ta * v[f, a + 1] + tf * ta * v[f + 1, a + 1])
+    k = {name: NATIVE_QUANTITIES.index(name) for name in ("star_mass", "mg", "bp", "rp", "phase")}
+    ok = np.all(np.isfinite(cube[:, list(k.values())]), axis=1)
+    return {name: cube[ok, idx] for name, idx in k.items()}
+
+
+def deblend_primary_mass(
+    iso: Mapping[str, FloatArray],
+    colour_sys: ArrayLike,
+    mg_sys: ArrayLike,
+    sigma_colour: ArrayLike,
+    sigma_mag: ArrayLike,
+    q: ArrayLike,
+    log10_f: ArrayLike,
+    *,
+    evolved: ArrayLike | None = None,
+    densify: int = 4,
+) -> tuple[FloatArray, FloatArray]:
+    """MP-Q36 (spec §11.9): the primary mass on the coeval isochrone ``iso`` whose combined
+    light with its companion matches the observed (dereddened) system in G and BP−RP.
+
+    For every isochrone point (EEP order, linearly densified) the companion is the MIST MS
+    star of ``iso`` at M2 = q M1, with a fraction f of the primary's G light (f = 0 for
+    ``log10_f = -inf``) and its own BP − G, G − RP. ``evolved`` (per draw) restricts the
+    search to the posterior draw's own branch (main sequence, MIST phase < 1.5, or later), so a
+    bright companion cannot move the primary across branches. Returns ``(M1, χ²_min)`` with
+    χ² = [(G_comb − M_sys)/σ_M]² + [(C_comb − C_sys)/σ_C]². Interpolation only, no SED fit.
+    """
+    x = np.arange(iso["star_mass"].size, dtype=float)
+    xf = np.linspace(0.0, x[-1], int(x[-1]) * densify + 1)
+    col = {kk: np.interp(xf, x, np.asarray(vv, float)) for kk, vv in iso.items()}
+    ms = col["phase"] < 0.5
+    order = np.argsort(col["star_mass"][ms])
+    mm = col["star_mass"][ms][order]
+    bpg = (col["bp"] - col["mg"])[ms][order]
+    grp = (col["mg"] - col["rp"])[ms][order]
+    cs = np.asarray(colour_sys, float)[:, None]
+    gs = np.asarray(mg_sys, float)[:, None]
+    sc = np.asarray(sigma_colour, float)[:, None]
+    sg = np.asarray(sigma_mag, float)[:, None]
+    qq = np.asarray(q, float)[:, None]
+    lf = np.asarray(log10_f, float)[:, None]
+    f = np.where(np.isfinite(lf), 10.0 ** np.where(np.isfinite(lf), lf, 0.0), 0.0)
+    m1 = col["star_mass"][None, :]
+    m2 = np.clip(qq * m1, mm[0], mm[-1])
+    bpg2 = np.interp(m2, mm, bpg)
+    grp2 = np.interp(m2, mm, grp)
+    g1 = col["mg"][None, :]
+    fl = lambda mag: 10.0 ** (-0.4 * mag)  # noqa: E731
+    g2 = g1 - 2.5 * np.log10(np.where(f > 0, f, 1.0))
+    bp = -2.5 * np.log10(fl(col["bp"][None, :]) + np.where(f > 0, fl(g2 + bpg2), 0.0))
+    rp = -2.5 * np.log10(fl(col["rp"][None, :]) + np.where(f > 0, fl(g2 - grp2), 0.0))
+    gc = g1 - 2.5 * np.log10(1.0 + f)
+    chi2 = ((gc - gs) / sg) ** 2 + ((bp - rp - cs) / sc) ** 2
+    if evolved is not None:
+        branch = (col["phase"] >= 1.5)[None, :]
+        ev = np.asarray(evolved, bool)[:, None]
+        chi2 = np.where(branch == ev, chi2, np.inf)
+    best = np.argmin(chi2, axis=1)
+    rows = np.arange(best.size)
+    return col["star_mass"][best], chi2[rows, best]
+
+
+# ---------------------------------------------------------------------------
+# MP-Q33: calibrated GSP-Phot [Fe/H] likelihood (spec §11.9)
+# ---------------------------------------------------------------------------
+
+#: GSP-Phot columns ``gdr3apcal`` needs (besides the position, given as cos b).
+GDR3APCAL_COLUMNS: tuple[str, ...] = (
+    "teff_gspphot", "logg_gspphot", "mh_gspphot", "azero_gspphot", "ebpminrp_gspphot",
+    "ag_gspphot", "mg_gspphot", "libname_gspphot",
+)
+
+
+def calibrated_gspphot_feh(
+    columns: Mapping[str, Any], b_deg: ArrayLike, parallax_over_error: ArrayLike, cfg: FehLikelihoodConfig
+) -> tuple[FloatArray, BoolArray]:
+    """(calibrated [Fe/H], reliable) per row via ``gdr3apcal`` (Andrae et al. 2023, §3.5.3).
+
+    Rows failing the reliability cut of ``cfg`` (or missing any input) get NaN and False.
+    ``gdr3apcal`` is an optional dependency (pyproject extra ``isochrone``).
+    """
+    import pandas as pd
+    from gdr3apcal import GaiaDR3_GSPPhot_cal
+
+    n = int(np.asarray(b_deg).size)
+    df = pd.DataFrame({k: np.asarray(columns[k]) for k in GDR3APCAL_COLUMNS})
+    df["cosb"] = np.cos(np.radians(np.asarray(b_deg, float)))
+    lib = df["libname_gspphot"].astype(str).str.upper()
+    teff = df["teff_gspphot"].to_numpy(float)
+    a0 = df["azero_gspphot"].to_numpy(float)
+    snr = np.asarray(parallax_over_error, float)
+    ok = (snr >= cfg.min_parallax_over_error) & (teff >= cfg.teff_min_k) & (teff <= cfg.teff_max_k)
+    ok &= lib.isin([x.upper() for x in cfg.libraries]).to_numpy() & (a0 <= cfg.a0_max_mag)
+    ok &= np.all(np.isfinite(df[[c for c in GDR3APCAL_COLUMNS if c != "libname_gspphot"]].to_numpy(float)), axis=1)
+    out = np.full(n, np.nan)
+    if ok.any():
+        cal = GaiaDR3_GSPPhot_cal()
+        sub = df.loc[ok].copy()
+        res = cal.calibrateMetallicity(sub)
+        vals = np.asarray(res if not hasattr(res, "to_numpy") else res.to_numpy(), float).reshape(-1)
+        out[np.flatnonzero(ok)] = vals[: int(ok.sum())]
+    good = ok & np.isfinite(out)
+    return out, good
+
+
+@dataclass(frozen=True)
+class LayeredCmdMap:
+    """CMD moment maps split by [Fe/H] layer (``layer_feh`` centres) for a [Fe/H] likelihood."""
+
+    colour_edges: FloatArray
+    mag_edges: FloatArray
+    layer_feh: FloatArray
+    maps: NDArray[np.float32]  # (n_layer, nc, nm, k)
+
+
+def build_layered_cmd_map(pts: PriorPoints, cfg: CmdMapConfig, layer_feh: ArrayLike) -> LayeredCmdMap:
+    """One :class:`CmdMap` per [Fe/H] layer (points assigned to the nearest layer centre)."""
+    centres = np.asarray(layer_feh, float)
+    lay = np.abs(pts.feh[:, None] - centres[None, :]).argmin(axis=1)
+    maps = []
+    for k in range(centres.size):
+        sel = lay == k
+        sub = PriorPoints(weight=pts.weight[sel], colour=pts.colour[sel], mg=pts.mg[sel], feh=pts.feh[sel],
+                          log_age=pts.log_age[sel], values={kk: v[sel] for kk, v in pts.values.items()})
+        cm = build_cmd_map(sub, cfg)
+        maps.append(cm.maps.astype(np.float32))
+    return LayeredCmdMap(colour_edges=cm.colour_edges, mag_edges=cm.mag_edges, layer_feh=centres, maps=np.stack(maps))
+
+
+def posterior_moments_with_feh(
+    colour0: ArrayLike,
+    mg0: ArrayLike,
+    sigma_colour: ArrayLike,
+    sigma_mag: ArrayLike,
+    feh_obs: ArrayLike,
+    feh_sigma: ArrayLike,
+    lmap: LayeredCmdMap,
+    lk: IsochroneLikelihoodConfig,
+) -> IsochronePosterior:
+    """:func:`posterior_moments` times a Gaussian [Fe/H] likelihood N(feh_obs; feh_layer, σ).
+
+    Each layer's map is weighted per row by the likelihood at the layer centre; rows with a
+    non-finite ``feh_obs`` get weight 1 for every layer (the prior alone)."""
+    fo = np.asarray(feh_obs, float)
+    fs = np.broadcast_to(np.asarray(feh_sigma, float), fo.shape)
+    lw = np.exp(-0.5 * ((fo[:, None] - lmap.layer_feh[None, :]) / fs[:, None]) ** 2)
+    lw = np.where(np.isfinite(fo)[:, None], lw, 1.0)
+    # Combine per layer: S = Σ_l lw_l S_l; run posterior_moments on each layer and sum raw sums.
+    n = fo.size
+    nk = len(MOMENT_CHANNELS)
+    raw = np.zeros((n, nk))
+    for k in range(lmap.layer_feh.size):
+        cm = CmdMap(colour_edges=lmap.colour_edges, mag_edges=lmap.mag_edges, maps=lmap.maps[k].astype(np.float64))
+        post = posterior_moments(colour0, mg0, sigma_colour, sigma_mag, cm, lk.model_copy(update={"min_log10_evidence": -np.inf}))
+        area = float(np.mean(np.diff(lmap.colour_edges)) * np.mean(np.diff(lmap.mag_edges)))
+        one = np.where(np.isfinite(post.log10_evidence), 10.0 ** post.log10_evidence * area, 0.0)
+        mom = np.column_stack([np.ones(n)] + [np.zeros(n)] * (nk - 1))
+        for j, name in enumerate(MOMENT_CHANNELS[1:], start=1):
+            mom[:, j] = _raw_channel(post, name)
+        raw += (lw[:, k] * one)[:, None] * np.nan_to_num(mom)
+    return _posterior_from_raw(raw, colour0, mg0, lmap, lk)
+
+
+def _raw_channel(post: IsochronePosterior, name: str) -> FloatArray:
+    """Per-star normalized moment of ``name`` (the inverse of :func:`posterior_moments`)."""
+    m1, lm = post.m1_mean, post.log_m1_mean
+    table = {
+        "mass": m1, "mass2": post.m1_sigma**2 + m1**2, "log_mass": lm, "log_mass2": post.log_m1_sigma**2 + lm**2,
+        "initial_mass": post.m_init_mean, "log_r": post.log_r_mean, "log_r2": post.log_r_sigma**2 + post.log_r_mean**2,
+        "r_max_past": post.r_max_past_mean, "log_g": post.log_g_mean, "evolved": post.p_evolved,
+        "log_age": post.log_age_mean, "feh": post.feh_mean,
+    }
+    return np.asarray(table[name], float)
+
+
+def _posterior_from_raw(raw: FloatArray, colour0: ArrayLike, mg0: ArrayLike, lmap: LayeredCmdMap,
+                        lk: IsochroneLikelihoodConfig) -> IsochronePosterior:
+    c = np.asarray(colour0, float)
+    m = np.asarray(mg0, float)
+    valid = np.isfinite(c) & np.isfinite(m)
+    one = raw[:, 0]
+    area = float(np.mean(np.diff(lmap.colour_edges)) * np.mean(np.diff(lmap.mag_edges)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_ev = np.log10(one / area)
+        mom = raw / one[:, None]
+    reason = np.full(c.size, "ok", dtype="<U8")
+    reason[~valid] = "no_cmd"
+    reason[valid & ~(log_ev >= lk.min_log10_evidence)] = "off_grid"
+    ok = reason == "ok"
+
+    def col(name: str) -> FloatArray:
+        return np.where(ok, mom[:, MOMENT_CHANNELS.index(name)], np.nan)
+
+    m1, lm = col("mass"), col("log_mass")
+    return IsochronePosterior(
+        m1_mean=m1, m1_sigma=np.sqrt(np.clip(col("mass2") - m1**2, 0.0, None)), log_m1_mean=lm,
+        log_m1_sigma=np.sqrt(np.clip(col("log_mass2") - lm**2, 0.0, None)), m_init_mean=col("initial_mass"),
+        log_r_mean=col("log_r"), log_r_sigma=np.sqrt(np.clip(col("log_r2") - col("log_r") ** 2, 0.0, None)),
+        r_max_past_mean=col("r_max_past"), log_g_mean=col("log_g"), p_evolved=col("evolved"),
+        log_age_mean=col("log_age"), feh_mean=col("feh"), log10_evidence=np.where(valid, log_ev, np.nan),
+        ok=ok, reason=reason,
+    )
+

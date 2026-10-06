@@ -115,6 +115,42 @@ Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/418#issuec
 | pipeline | use isochrone M1 in the pipeline: flip `mass_calibration.method: MIST_isochrone` once #425 is fixed |
 | validation | download DEBCat and APOKASC-3 (approved by Ryan in the issue) |
 
+### 0.5 Decisions of 2026-10-05 (Ryan, relayed by the orchestrator, #418)
+
+| Question | Decision | Where |
+|---|---|---|
+| MP-Q40 | Take the MS companion's G-flux ratio from the **same coeval MIST isochrone** as the primary: log10 f = −0.4 [M_G(M2) − M_G(M1)], keeping the decided 0.1 dex scatter. This **replaces MP-Q13 (Janssens)** for MS companions. Evolved rows keep §10.4 | §11.9 |
+| downloads | approved for DEBCat, APOKASC-3, the Culpan et al. (2022) hot subdwarfs, Bayestar19, the Gaia flux-error and GSP-Phot columns, and `gdr3apcal`. **Edenhofer et al. 2024 is not approved** | §11.9 |
+| extinction map | Bayestar19 is evaluated against Combined19. The default map does not change without asking | §11.9 |
+
+### 0.6 Decision of 2026-10-06: Combined19 E(B−V) units (Ryan, relayed by the orchestrator, #418)
+
+"Yes to the 0.884 units fix."
+
+- **What mwdust returns.** `mwdust` maps return E(B−V) on the SFD scale (mwdust README). In the
+  north, Combined19 is Bayestar19 (Green et al. 2019), whose unit is SFD-like (E(g−r) = 0.901 E). We
+  measured Bayestar19 / Combined19 = 0.884 exactly on the parent and on the real orbits, so in the
+  north Combined19 returns Bayestar's native unit.
+- **The conversion.** #295 already converts Bayestar19 to E(B−V) with 0.884 for
+  `sample_selection`'s `green2019` map (Argonaut usage page: E(B−V) = 0.981 E(g−r)_P1, Schlafly &
+  Finkbeiner 2011). That place is not converted again.
+- **The decision.** Every pipeline consumer of `mwdust.Combined19` E(B−V) multiplies by the same
+  0.884, set in config as `sample_selection.dust_maps.combined19_native_to_ebv`:
+  - the dereddened CMD (`giants.cmd_for_rows`), and through it the isochrone M1 (mock parent and
+    `mass_derivation_bulk`);
+  - the evolved classifier;
+  - the 2-D weight.
+- **Southern and inner-Galaxy pixels.** Combined19 takes these from Marshall et al. (2006) and
+  Drimmel et al. (2003). mwdust also puts them on the SFD scale, so the same factor is applied; this
+  is recorded as an assumption.
+- **What stays unchanged.**
+  - The El-Badry et al. (2024) forward-model procedure (`selection_function_astrometric`
+    `extinction_model: combined19` with A_G = 2.8 E(B−V), and `proposal_set.combined19_a_g` for the
+    legacy 1-D weight), which follows that paper's own recipe.
+  - The literature reproduction paths, which own their extinction (`sample_selection.dust_maps.maps`).
+
+  Every literature count is re-measured to confirm nothing moves.
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
@@ -1422,7 +1458,14 @@ The weight under posterior draws follows from writing the target over (ψ, c), t
 
 normalized per row. In that ratio, ψ is evaluated with M1 profiled along the coeval isochrone, which is the deblending. **This profile approximation (A1″) replaces A1′ of §11.3, and the closed loop must validate it.**
 
-- **Open (MP-Q40).** The drawn f, scattered about the decided Janssens relation (MP-Q13), sets the companion's G light, and BP − RP then tests consistency. The literal alternative takes f from MIST at (M1, q M1) on I. That makes f deterministic and supersedes MP-Q13 for main-sequence companions, so it needs Ryan's call.
+- **MP-Q40 (decided 2026-10-05, §0.5): f comes from the coeval MIST main sequence.** The target is
+  `mass_luminosity: mist_coeval`, and the caller passes log10 f_MIST per draw
+  (`proposal_set.mist_relation_for_draws`). That uses the draw's own (age, [Fe/H]) after the posterior
+  draw, else the row's posterior means.
+  - In W, Z_s uses λ_q(M1), with P summed (`malmquist_cmd.build_q_grid`), times Gauss–Hermite nodes of
+    N(log10 f_MIST(M1, q M1; the row's isochrone), 0.1 dex).
+  - The flux *proposal* stays centred on Janssens, which only shapes efficiency and is still supported.
+  - Companions below the Janssens mass range now count in F_lum.
 
 **[Fe/H] (MP-Q33).**
 - **Solar-neighbourhood MDF prior:** [Fe/H] ~ N(−0.06, 0.22). This is the Casagrande et al. (2011, Table 1, irfm sample of 5,976 stars; [M/H] has mean −0.02 and σ 0.19). It replaces the provisional N(−0.1, 0.25).

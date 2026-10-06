@@ -3,8 +3,9 @@
 Issues #400 (+2 visibility periods) and #398's epoch-count term (~11–13% more transits and CCD
 observations than DR3; `docs/gate399/README.md`). The model and its calibration are specified
 in `docs/EPOCH_MODEL_SPEC.md`. After Ryan's 2026-10-03 decisions, the **v2** model (spec §8)
-is **on** (`dr3.epoch_model.enabled: true`). The bright-star N2 noise was tried and is **not
-adopted**, because it breaks the bright NSS RUWE. See "v2" below. The v1 sections that follow
+is **on** (`dr3.epoch_model.enabled: true`). The plain bright-star N2 noise broke the bright
+NSS RUWE and was not adopted. Its DR3-style variant **N2-u0** (RUWE = UWE / u0_mock) **is on**
+since 2026-10-03 (Ryan: "Switch it on"; option N2d). See "v2" and "N2-u0" below. The v1 sections that follow
 are the #412 record.
 
 ## Summary
@@ -185,9 +186,10 @@ moves from 1.07 to 0.90.
 significance by G, RUWE overall and at G > 13, the single-star RUWE peak at all G and the
 #403 rate. It is **worse** on bright NSS RUWE at 12 < G < 13 (1.01 → 0.91) and on the
 AstroSpectroSB1 astrometry-only refit. Under the rule "adopt only if everything matches as
-well as or better", it is **not adopted** (`ruwe_u0.enabled: false`,
-`bright_excess_noise.enabled: false`). It is offered as option **N2d** (spec §8.6).
-Switching it on is two flags.
+well as or better", it was at first not adopted and offered as option **N2d**.
+**Ryan adopted N2d on 2026-10-03 ("Switch it on").** `bright_excess_noise.enabled` and
+`ruwe_u0.enabled` are now true. The accepted regression is NSS RUWE 0.91 × published at
+12 < G < 13.
 
 ## Measurement (v1, #412)
 
