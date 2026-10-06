@@ -82,6 +82,14 @@ class FakeGaiamock:
         return float(0.2 + 0.4 * M1 + 2.0 * a0_mas)
 
 
+
+def _tag10_config():  # type: ignore[no-untyped-def]
+    """The canonical config with the bulk method pinned to TAG10 (#418: the canonical default
+    is MIST_isochrone since Ryan's 2026-10-04 flip; these tests exercise the TAG10 path)."""
+    cfg = load_config()
+    return cfg.model_copy(update={"mass_calibration": cfg.mass_calibration.model_copy(
+        update={"method": MassCalibrationMethod.TAG10})})
+
 def _sunlike_extras(**overrides: float) -> dict[str, float]:
     base = {
         "teff_msc1": 5772.0,
@@ -204,7 +212,7 @@ def test_resolve_atmosphere_falls_back_to_gspphot() -> None:
 
 
 def test_derive_tag10_uses_config_scatter_not_hardcoded() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     atm = resolve_atmosphere(_candidate())
     assert atm is not None
     ps = derive_tag10_m1_r1(atm, cfg)
@@ -217,7 +225,7 @@ def test_derive_tag10_uses_config_scatter_not_hardcoded() -> None:
 
 
 def test_unimplemented_method_raises() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     cfg = cfg.model_copy(
         update={
             "mass_calibration": cfg.mass_calibration.model_copy(
@@ -237,7 +245,7 @@ def test_m2_cut_uses_config_n_sigma_and_m_min() -> None:
 
 
 def test_bulk_pipeline_keeps_high_m2_rejects_low() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     gaiamock = FakeGaiamock()
     keepers, diag = run_bulk_on_candidates(
         [_candidate(1, m2_boost_a0=True), _candidate(2, m2_boost_a0=False)],
@@ -255,7 +263,7 @@ def test_bulk_pipeline_keeps_high_m2_rejects_low() -> None:
 
 
 def test_bulk_stream_matches_list_on_fixture() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     gaiamock = FakeGaiamock()
     candidates = [
         _candidate(1, m2_boost_a0=True),
@@ -381,7 +389,7 @@ def test_bh1_sigma_m2_matches_independent_full_covariance_mc() -> None:
     doubles it). Published astrometry-only value for reference: 12.8 ± 2.0
     (El-Badry et al. 2023a, Table 1).
     """
-    cfg = load_config()
+    cfg = _tag10_config()
     solution = _bh1_nss_solution()
     result = m2_sigma_from_nss_covariance(
         solution,
@@ -408,7 +416,7 @@ def test_bh1_sigma_m2_matches_independent_full_covariance_mc() -> None:
 def test_high_snr_orbit_gives_small_sigma_matching_linear_propagation() -> None:
     """A 0.1 %-precision orbit with a fixed M1 has sigma_M2 << M2 and matches
     first-order propagation (where linearization is valid)."""
-    cfg = load_config()
+    cfg = _tag10_config()
     sol = _nss_solution(2.0, 2.0, 1.0, 1.0, 10.0, 200.0, relative_error=1.0e-3)
     result = m2_sigma_from_nss_covariance(
         sol, m1_msun=1.0, sigma_m1_msun=None, flux_ratio=0.0,
@@ -442,7 +450,7 @@ def test_high_snr_orbit_gives_small_sigma_matching_linear_propagation() -> None:
 @pytest.mark.physics
 def test_negligible_orbit_covariance_recovers_m1_only_term() -> None:
     """With a ~zero orbit covariance, the MC reduces to |dM2/dM1| sigma_M1."""
-    cfg = load_config()
+    cfg = _tag10_config()
     sol = _nss_solution(2.0, 2.0, 1.0, 1.0, 10.0, 200.0, relative_error=1.0e-8)
     result = m2_sigma_from_nss_covariance(
         sol, m1_msun=1.0, sigma_m1_msun=0.01, flux_ratio=0.0,
@@ -458,7 +466,7 @@ def test_negligible_orbit_covariance_recovers_m1_only_term() -> None:
 
 @pytest.mark.physics
 def test_sigma_mc_is_seeded_per_system_and_reproducible() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     sol = _bh1_nss_solution()
     kwargs = dict(m1_msun=0.82, sigma_m1_msun=0.1, flux_ratio=0.0, mc=cfg.mc_mass_function)
     r1 = m2_sigma_from_nss_covariance(sol, source_id=5, **kwargs)
@@ -469,7 +477,7 @@ def test_sigma_mc_is_seeded_per_system_and_reproducible() -> None:
 
 
 def test_sigma_mc_missing_required_names_raises() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     bad = ParameterSet(
         names=["a_thiele_innes", "b_thiele_innes"],
         values=[1.0, 1.0],
@@ -485,7 +493,7 @@ def test_sigma_mc_missing_required_names_raises() -> None:
 
 def test_bulk_excludes_and_counts_missing_covariance_never_diagonal() -> None:
     """Thiele–Innes but no nss_solution → skipped_no_nss_covariance, not kept."""
-    cfg = load_config()
+    cfg = _tag10_config()
     keepers, diag = run_bulk_on_candidates(
         [
             _candidate(1, m2_boost_a0=True),
@@ -511,7 +519,7 @@ def test_bulk_excludes_and_counts_missing_covariance_never_diagonal() -> None:
 
 
 def test_bulk_counts_mc_failure_as_sigma_failed() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     cand = _candidate(3, m2_boost_a0=True).model_copy(
         update={
             "nss_solution": ParameterSet(
@@ -533,7 +541,7 @@ def test_bulk_counts_mc_failure_as_sigma_failed() -> None:
 
 
 def test_bulk_kept_candidate_carries_full_covariance_sigma_and_mc_summary() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     keepers, _diag = run_bulk_on_candidates(
         [_candidate(1, m2_boost_a0=True)], cfg, gaiamock=FakeGaiamock()
     )
@@ -548,7 +556,7 @@ def test_bulk_kept_candidate_carries_full_covariance_sigma_and_mc_summary() -> N
 
 
 def test_watchlist_uses_config_fraction_not_hardcoded_3() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     cap = cfg.mass_derivation.uberms_m1_prior_max_msun
     frac = cfg.mass_derivation.uberms_m1_watchlist_fraction
     assert approaches_uberms_m1_prior_cap(frac * cap, cfg) is True
@@ -556,7 +564,7 @@ def test_watchlist_uses_config_fraction_not_hardcoded_3() -> None:
 
 
 def test_information_gain_orders_by_relative_sigma() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     low = CandidateRecord(
         source_id=1,
         m1=ParameterSet(
@@ -591,7 +599,7 @@ def test_parameterset_from_sed_summary() -> None:
 
 
 def test_refined_queue_cache_and_watchlist() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     bulk_m1 = ParameterSet(
         names=["M1", "R1"],
         values=[2.95, 2.0],
@@ -650,7 +658,7 @@ def _unrefined_candidate(source_id: int) -> CandidateRecord:
 
 def test_refined_diagnostics_loud_when_sed_unavailable() -> None:
     """No pre-staged snapshot + SED unavailable: skip is recorded, never silent."""
-    cfg = load_config()
+    cfg = _tag10_config()
     cand = _unrefined_candidate(1)
 
     out, diag = run_refined_on_candidates(
@@ -680,7 +688,7 @@ def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
     """SED package unavailable but every candidate had a staged snapshot: no
     candidate was actually left unrefined, so the completion reason (which
     drives the run-file record) must not falsely claim a skip happened."""
-    cfg = load_config()
+    cfg = _tag10_config()
     cand = _unrefined_candidate(2)
     doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
 
@@ -708,7 +716,7 @@ def test_refined_diagnostics_not_misleading_when_snapshot_covers_gap() -> None:
 
 def test_refined_diagnostics_quiet_when_sed_available() -> None:
     """Baseline: SED package available, normal behavior is unaffected."""
-    cfg = load_config()
+    cfg = _tag10_config()
     cand = _unrefined_candidate(3)
     doc = {"m1_msun": {"median": 1.3, "p16": 1.2, "p84": 1.4}}
 
@@ -732,7 +740,7 @@ def test_sed_unavailable_plan_note_none_when_available(
 ) -> None:
     """Plan-time note is silent when darkhunter_sed is importable."""
     monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", True)
-    cfg = load_config()
+    cfg = _tag10_config()
     assert sed_unavailable_plan_note(cfg) is None
 
 
@@ -741,7 +749,7 @@ def test_sed_unavailable_plan_note_degraded_vs_refuse(
 ) -> None:
     """Plan-time note distinguishes degrade (default) vs refuse (require_sed_package=true)."""
     monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", False)
-    cfg = load_config()
+    cfg = _tag10_config()
 
     degraded_note = sed_unavailable_plan_note(cfg)
     assert degraded_note is not None
@@ -768,7 +776,7 @@ def test_build_stage_plan_surfaces_sed_unavailable_note(
     from darkhunter_pop.pipeline import build_stage_plan
     from darkhunter_pop.run_management import create_run_manifest
 
-    cfg = load_config()
+    cfg = _tag10_config()
     manifest = create_run_manifest(cfg)
     plan = build_stage_plan(
         manifest, cfg, stage_subset=["data_acquisition", "mass_derivation_refined"]
@@ -788,7 +796,7 @@ def test_run_mass_derivation_refined_records_loud_reason_on_manifest(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(mass_derivation, "_SED_AVAILABLE", False)
 
-    cfg = load_config()
+    cfg = _tag10_config()
     cfg = cfg.model_copy(
         update={
             "paths": cfg.paths.model_copy(
@@ -829,7 +837,7 @@ def test_run_mass_derivation_refined_records_loud_reason_on_manifest(
 def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     # Point artifact_root / runs into tmp via config override.
-    cfg = load_config()
+    cfg = _tag10_config()
     cfg = cfg.model_copy(
         update={
             "paths": cfg.paths.model_copy(
@@ -916,7 +924,7 @@ def test_stage_runners_write_hdf5(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_sed_summary_root_fixture_loader() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
     from darkhunter_pop.mass_derivation import (
@@ -932,7 +940,7 @@ def test_sed_summary_root_fixture_loader() -> None:
 
 
 def test_default_sed_summary_paths_match_upstream() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     assert cfg.mass_derivation.sed_summary_root == "data/sed_summaries"
     assert (
         cfg.mass_derivation.sed_summary_filename_template
@@ -941,7 +949,7 @@ def test_default_sed_summary_paths_match_upstream() -> None:
 
 
 def test_refined_consumes_fixture_summary_sets_full_uberms() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
     cand = CandidateRecord(
@@ -959,7 +967,7 @@ def test_refined_consumes_fixture_summary_sets_full_uberms() -> None:
 
 
 def test_refined_missing_summary_queues_fit() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
     calls: list[int] = []
@@ -994,7 +1002,7 @@ def test_refined_missing_summary_queues_fit() -> None:
 
 
 def test_refined_watchlist_queued_before_others() -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = None
     order: list[int] = []
@@ -1033,7 +1041,7 @@ def test_refined_watchlist_queued_before_others() -> None:
 def test_sed_needs_update_uses_snapshot_then_falls_through() -> None:
     from darkhunter_pop.mass_derivation import _sed_needs_update_for_config
 
-    cfg = load_config()
+    cfg = _tag10_config()
     tweaked = cfg.model_copy(deep=True)
     tweaked.mass_derivation.sed_summary_root = "tests/fixtures/sed_summaries"
     needs = _sed_needs_update_for_config(tweaked)
@@ -1089,7 +1097,7 @@ def _sample_bulk_diagnostics() -> BulkDiagnostics:
 def test_write_bulk_diagnostic_artifacts_respects_write_figures_flag(
     tmp_path: Path,
 ) -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     cfg = cfg.model_copy(
         update={
             "diagnostics": cfg.diagnostics.model_copy(update={"write_figures": False}),
@@ -1104,7 +1112,7 @@ def test_write_bulk_diagnostic_artifacts_respects_write_figures_flag(
 
 @pytest.mark.skipif(not matplotlib_available(), reason="matplotlib optional")
 def test_write_bulk_diagnostic_artifacts_uses_shared_plotting(tmp_path: Path) -> None:
-    cfg = load_config()
+    cfg = _tag10_config()
     artifact = tmp_path / "mass_derivation_bulk.h5"
     artifact.write_bytes(b"")
     written = write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
@@ -1130,7 +1138,7 @@ def test_write_bulk_diagnostic_artifacts_m2_histogram_axes(
         return path
 
     monkeypatch.setattr("darkhunter_pop.mass_derivation.plot_histogram", _capture_hist)
-    cfg = load_config()
+    cfg = _tag10_config()
     artifact = tmp_path / "mass_derivation_bulk.h5"
     artifact.write_bytes(b"")
     write_bulk_diagnostic_artifacts(_sample_bulk_diagnostics(), artifact, cfg)
@@ -1155,7 +1163,7 @@ def test_write_bulk_diagnostic_artifacts_m2_histogram_axes_from_config(
         return path
 
     monkeypatch.setattr("darkhunter_pop.mass_derivation.plot_histogram", _capture_hist)
-    cfg = load_config()
+    cfg = _tag10_config()
     cfg = cfg.model_copy(
         update={
             "mass_derivation": cfg.mass_derivation.model_copy(
@@ -1175,3 +1183,74 @@ def test_write_bulk_diagnostic_artifacts_m2_histogram_axes_from_config(
     for call in m2_calls:
         assert call.get("xlim") == (0.5, 10.0)
         assert call.get("log_y") is False
+
+
+# ---------------------------------------------------------------------------
+# #418: MIST_isochrone M1 switch (off by default; isochrone batch stubbed, no MIST files)
+# ---------------------------------------------------------------------------
+
+
+def _mist_cfg():
+    cfg = load_config()
+    return cfg.model_copy(
+        update={"mass_calibration": cfg.mass_calibration.model_copy(update={"method": MassCalibrationMethod.MIST_ISOCHRONE})}
+    )
+
+
+def _iso_entry(m1: float | None, reason: str | None = None):
+    if m1 is None:
+        return (None, reason, {"provenance": mass_derivation.ISOCHRONE_PROVENANCE, "reason": reason})
+    pset = ParameterSet(names=["M1", "R1"], values=[m1, 1.0], covariance=[[0.05**2, 0.0], [0.0, 0.01]],
+                        provenance=mass_derivation.ISOCHRONE_PROVENANCE, units=["Msun", "Rsun"])
+    return (pset, None, {"provenance": mass_derivation.ISOCHRONE_PROVENANCE, "reason": "ok", "m1_mean": m1})
+
+
+@pytest.mark.unit
+def test_default_method_is_mist_isochrone_after_the_flip() -> None:
+    assert load_config().mass_calibration.method is MassCalibrationMethod.MIST_ISOCHRONE  # flipped 2026-10-04
+    assert MassCalibrationMethod("MIST_isochrone") is MassCalibrationMethod.MIST_ISOCHRONE
+
+
+@pytest.mark.unit
+def test_mist_switch_uses_isochrone_m1_and_counts_skips(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _mist_cfg()
+    table = {1: _iso_entry(1.3), 2: _iso_entry(None, "no_cmd"), 3: _iso_entry(None, "m1_off_grid")}
+    monkeypatch.setattr(mass_derivation, "isochrone_m1_batch", lambda cands, c: [table[x.source_id] for x in cands])
+    keepers, diag = run_bulk_on_candidates([_candidate(1), _candidate(2), _candidate(3)], cfg, gaiamock=FakeGaiamock())
+    assert [c.source_id for c in keepers] == [1]
+    (kept,) = keepers
+    assert kept.m1.provenance == mass_derivation.ISOCHRONE_PROVENANCE
+    assert kept.m1.marginal("M1").value == pytest.approx(1.3)
+    assert kept.extras[mass_derivation.M1_ISOCHRONE_EXTRAS_KEY]["m1_mean"] == pytest.approx(1.3)
+    f = diag.funnel
+    assert (f.skipped_no_cmd, f.skipped_m1_off_grid, f.skipped_no_atmosphere) == (1, 1, 0)
+    assert f.input_candidates == 3 and f.m1_ok == 1
+    text = format_bulk_funnel_table(diag)
+    assert "skipped_no_cmd" in text and "skipped_m1_off_grid" in text
+
+
+@pytest.mark.unit
+def test_tag10_path_unchanged_by_the_switch_code() -> None:
+    """TAG10 (default) never calls the isochrone batch and gives the same M1 as before."""
+    cfg = _tag10_config()
+    upd, reason, _, _ = process_bulk_candidate(_candidate(1), cfg, FakeGaiamock())
+    assert reason is None and upd is not None
+    assert upd.m1.provenance.startswith("TAG10")
+    assert mass_derivation.M1_ISOCHRONE_EXTRAS_KEY not in upd.extras
+
+
+@pytest.mark.unit
+def test_candidate_cmd_inputs_prefer_bailer_jones_else_inverse_parallax() -> None:
+    from darkhunter_pop.schemas import PhotometryPoint
+
+    phot = [PhotometryPoint(band="G", mag=12.0), PhotometryPoint(band="BP", mag=12.5), PhotometryPoint(band="RP", mag=11.4)]
+    a = _candidate(1).model_copy(update={"photometry": phot, "ra_deg": 10.0, "dec_deg": -5.0,
+                                         "nss_orbital": {"period": 200.0, "parallax": 10.0, "parallax_error": 0.1}})
+    b = a.model_copy(update={"source_id": 2, "extras": {**a.extras, "r_med_geo": 101.0, "r_lo_geo": 100.0, "r_hi_geo": 102.0}})
+    x = mass_derivation.candidate_cmd_inputs([a, b])
+    assert x["bp_rp"][0] == pytest.approx(1.1)
+    assert x["r_med"][0] == pytest.approx(100.0)
+    assert x["r_lo"][0] == pytest.approx(1000.0 / 10.1)
+    assert x["r_med"][1] == pytest.approx(101.0)
+    assert x["bailer_jones"].tolist() == [0.0, 1.0]
+    assert np.all(np.isfinite(x["l"])) and np.all(np.isfinite(x["b"]))

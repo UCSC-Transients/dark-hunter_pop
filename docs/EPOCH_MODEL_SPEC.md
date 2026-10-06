@@ -371,8 +371,8 @@ RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 | T1 | τ (episode duration) once the epoch-photometry times can be fetched | N_vis is flat in τ |
 | N2a | adopt N2 anyway (renormalised), accepting the −10% bright NSS RUWE and −6% significance | matches F2 and σ |
 | N2b | N2 for the NSS fits only: gate the cascade with gaiamock's `check_ruwe` on the data *without* the extra noise (`ruwe_min = 0` inside `fit_full_astrometric_cascade`, pop-side RUWE gate first). This models an AGIS vs NSS error-model difference; not yet run | composition of gaiamock calls, no reimplementation |
-| N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | current config |
-| N2d | adopt N2-u0 (§8.8): per-CCD bright noise + RUWE = UWE / u0_mock(G) | better than v2 on F2, σ, significance by G, overall and faint RUWE, single-star RUWE peak, #403 rate; worse on bright NSS RUWE at 12–13 (1.01 → 0.91) and AstroSpectroSB1 astrometry-only σ |
+| N2c | leave the bright σ deficit (v2: 0.85 at G < 13) as a documented systematic | superseded by N2d |
+| N2d | **ADOPTED 2026-10-03 (Ryan: "Switch it on")**: N2-u0 (§8.8), per-CCD bright noise + RUWE = UWE / u0_mock(G); accepted regression: NSS RUWE 0.91 at 12 < G < 13 | better than v2 on F2, σ, significance by G, overall and faint RUWE, single-star RUWE peak, #403 rate; worse on bright NSS RUWE at 12–13 (1.01 → 0.91) and AstroSpectroSB1 astrometry-only σ |
 | R1 | random-star offset δ: leave unexplained, or investigate (sky distribution, ≥ 12 visibility periods, IPD harmonic amplitude, C*) | 1.3% |
 
 ### 8.7 Data: epoch-time snapshot
@@ -422,10 +422,172 @@ published sources are conditioned on RUWE > 1.4. DR3's later F2 ≤ 0 single-sta
 (Halbwachs et al. 2023 §3.3; 28 of 4.1 M sources) is a different rule and is still not
 modelled. **#403 is resolved in definition, not completely.**
 
-**Verdict: not adopted under the strict rule** (`ruwe_u0.enabled: false`,
-`bright_excess_noise.enabled: false`). It matches as well as or better than v2 on almost
-everything (`docs/gate400/README.md`, "N2-u0"), but bright NSS RUWE at 12 < G < 13 gets worse
-(1.01 → 0.91). Recommended for Ryan's decision as option **N2d**.
+**Validation verdict:** under the strict rule it was not adopted at first. It matches as well
+as or better than v2 on almost everything (`docs/gate400/README.md`, "N2-u0"), but bright
+NSS RUWE at 12 < G < 13 gets worse (1.01 → 0.91).
+
+**Decision: N2d adopted, 2026-10-03 (Ryan: "Switch it on").** Both `bright_excess_noise.enabled`
+and `ruwe_u0.enabled` are true. The one accepted regression is NSS RUWE at 12 < G < 13 at
+0.91 × published (v2: 1.01). The astrometry-only AstroSpectroSB1 refit's bright σ ratio
+(1.28–1.52) is also noted; its published σ used RVs.
+
+### 8.9 The insufficient-visibility channel (#428, measured; addressed by §8.10)
+
+gaiamock's cascade returns flag 0 when a source has fewer than 12 visibility periods or fewer than
+13 observations. DR3's NSS input has the same ≥ 12 visibility-period condition (Halbwachs et al.
+2023 §1.2). The question was whether the v2 model restores that channel.
+
+- **Script:** `scripts/measure_insufficient_visibility_428.py`, on branch
+  `fix/epoch-insuf-vis-428` @ `51841ee`. Outputs are in `output/gate428/` (gitignored);
+  `sim.jsonl` has sha256 `871632b0…44e9`.
+- **Sample:** 6,000 single stars (1,000 per G bin) and 339 binaries at the real positions and G of
+  a G-stratified subset of the `20261003T063811Z_epoch_counts_400` random slice.
+- **Run:** through `epoch_model.run_cascade`, bare gaiamock vs `dr3.epoch_model`, with `main` @
+  `4c6d509` code (`epoch_model` is unchanged at `2b2b30e`). Bright noise and u0 were off. They do
+  not change epochs.
+- **Compute:** 2 workers, `nice` 10, BLAS pinned to 1 thread.
+- **DR3 side:** the new snapshot `20261004T164505Z_visibility_428`: `gaia_source`
+  `random_index < 300000`, G < 19, **every** solution type, 96,114 rows. It was fetched with a sync
+  job, because async returned HTTP 500 on 2026-10-04. `meta.yaml` holds the ADQL and sha256.
+
+| | G < 13 | 13–15 | 15–16 | 16–17 | 17–18 | 18–19 | G < 19, G-weighted |
+|---|---|---|---|---|---|---|---|
+| DR3, all solutions: `visibility_periods_used` < 12 | 0.33% | 0.35% | 0.53% | 0.70% | 1.07% | 2.73% | **1.71%** (1,646 / 96,114) |
+| DR3, 5/6-parameter only | 0.17% | 0.25% | 0.24% | 0.45% | 0.51% | 1.21% | 0.79% |
+| mock singles, bare gaiamock (flag 0) | 0 / 1000 | 0 | 0 | 0 | 0 | 0 | **0** |
+| mock singles, v2 epoch model (flag 0) | 3 / 1000 | 1 | 0 | 1 | 1 | 1 | **0.10%** |
+| mock binaries, bare and v2 (flag 0) | 0 / 89 | 0 / 50 | 0 / 50 | 0 / 50 | 0 / 50 | 0 / 50 | 0 |
+
+- **Paired, same 6,000 stars:**
+  - DR3 has 31 stars below 12 visibility periods; v2 has 7, bare gaiamock has 0.
+  - None of v2's 7 is one of DR3's 31. For DR3's 31, v2 gives N_vis = 13–23.
+  - The model matches the *mean* (median N_vis − DR3 = 0, mean +0.25), as §8.2–8.3 found. It
+    does **not** match the low tail, which is about 4× too thin among 5/6-parameter stars.
+  - The mock never produces flag 0 from the < 13 observation condition.
+- **Where DR3's tail is.** It concentrates at faint G, low ecliptic latitude (\|β\| < 15°: 3.9%;
+  \|β\| > 45°: 0.3–0.4%) and low Galactic latitude (\|b\| < 5°: 2.5%). About 60% of DR3's
+  2-parameter solutions (1.5% of the G < 19 slice) have < 12 visibility periods.
+  - p(G, l, b) cannot carry this. Its ℓ ≤ 2 sky term is smooth, gaiamock's GOST grid is 3.7°, and
+    the clustered-loss ramp was fitted to the mean N_vis excess only.
+- **El-Badry et al. (2024)** report 3 × 10⁴ of 46 M mock binaries (0.07%) dropped for < 12
+  visibility periods.
+
+Consequences:
+
+1. The test premise "mock `insufficient_visibility` > 10%" (`tests/test_forward_model.py::
+   test_validation_gate_elbadry_prior_against_fixture`) has no support in DR3 for a G < 19
+   parent. It came from the removed `faint_draw_fraction` short circuit (#344, #368).
+2. With the epoch model, the expected mock fraction is about 0.1%. DR3's is 1.7% overall, or 0.8%
+   among 5/6-parameter solutions. So the mock over-admits about 1–2% of the G < 19 parent to the
+   NSS input, mostly faint, near the ecliptic and in the plane. Whether to model that tail is
+   **#432** (Ryan's call).
+
+### 8.10 v3: visibility-period loss calibrated on the N_vis distribution (#432, 2026-10-04/05)
+
+Ryan (#432): "You should be able to model the visibility better … it just needs to have a
+different correction to match the data." The changes:
+
+1. **Grid resolution is not the cause.**
+   - Setup: 8,000 random stars of the #428 snapshot (`scripts/measure_grid_resolution_432.py`
+     → `output/gate432/grid_resolution.json`). The commanded DR3 scanning law was queried at
+     each star's exact position with `gaiaunlimited` 0.3.3 (`GaiaScanningLaw('dr3_nominal')`,
+     Cantat-Gaudin et al. 2023), after the same window and ESA gaps.
+   - Fraction below 12: exact position 0.01%, the nearest grid centre 0%, gaiamock's GOST grid
+     0%, against DR3 1.66%.
+   - Mean N_vis: exact 20.97, grid centre 21.00, gaiamock GOST 20.73.
+   - The grid smooths nothing that matters: DR3's tail is data loss, not geometry.
+   - gaiamock's GOST tables have 3.8% fewer transits than the commanded law at the same
+     positions.
+2. **The mean transit keep has no extra β dependence.** |sin β| is 94% explained by the
+   existing Galactic ℓ ≤ 2 harmonics (the ℓ = 2 subspace is rotation-invariant, so it contains
+   the ecliptic sin²β). Its residual adds nothing to the keep GLM (coefficient
+   0.00003 ± 0.011). So "we already include the ecliptic latitude" holds for the *mean*.
+3. **The tail is whole visibility periods lost by a minority of stars.**
+   - Per star, DR3 N_vis vs the exact-position count: the deficit has median 1 and a 99th
+     percentile of 8–10.
+   - Stars keeping < 70% of their visibility periods: 3.7% at |β| < 15° vs 1.5% at > 45°; 3.0%
+     at G 18–19 vs 0.4% at G < 15; 2.9% at |b| < 5°.
+   - The strong β dependence of the < 12 fraction comes mostly from the scanning law: stars at
+     |β| < 15° start with 16.7 visibility periods, those at > 45° with 27.5.
+4. **Model (`dr3.epoch_model.visibility_period_loss`, replaces the E4 episodes):**
+   - Each star is degraded with probability
+     π = expit(c0 + c1 x + c2 x² + c_β |sin β| + c_b e^{−|b|/10°}), where x = (G − 14)/4.
+   - Its visibility periods (after the gaps) are dropped whole with q_bad = expit(e0) if
+     degraded, else with q0 = expit(d0 + d1 x).
+   - The rest of the loss is independent per transit, so the expected kept-transit fraction
+     stays at the calibrated p_keep (§8.2).
+   - No per-star lookup.
+5. **Calibration on the distribution.**
+   - A Poisson-binomial over each star's visibility periods, two-component mixture
+     (`scripts/calibrate_vp_tail_432.py`).
+   - Samples: the 96,114 random #428 stars (all solution types; Ryan's "random stars for
+     shape"), plus the 16,930 NSS stars (E6) truncated at N ≥ 12, because DR3 selected the NSS
+     input on it.
+   - Conditioned on the exact position, the star-level fit ranks the variants by AIC as follows
+     (lower is better): none 187528, G 175313, G+β 175153, G+β+|sin b| 175111, and
+     **G+β+e^{−|b|/10} 175091**. β is the largest single gain after G.
+   - But a mock built on gaiamock's grid sees 0.24 fewer visibility periods per star than the
+     exact law. Applied there, the exact-fit parameters overshoot the tail (2.2% vs DR3 1.6%).
+   - The adopted parameters are therefore fitted **conditional on the grid**, as the mock
+     uses it. A star-level likelihood is ill-posed there (DR3 N_vis can exceed the grid count),
+     so a multinomial likelihood of the N_vis histogram in G × |β| × |b| cells is used (`--likelihood cell`).
+6. **Residual mismatch (documented, not tuned).**
+   - The two-point mixture cannot match the extreme tail and the 9–11 shoulder at once.
+     Cumulatively, N ≤ 5: model 0.05% vs DR3 0.15%; N ≤ 11: model 2.1% vs DR3 1.7%.
+   - Overall the tail is ~1.3–1.4× too heavy (it was 20× too light).
+   - The cells at 15° < |β| < 30° and 10° < |b| < 30° overshoot most.
+   - A richer degraded-loss distribution, for example a second, catastrophic level or a beta
+     distribution of q per star, is option **V1** (§8.6).
+
+7. **Validation and verdict.** The before/after numbers are in `docs/gate400/README.md` ("v3").
+   - The visibility tail improves by an order of magnitude: < 12 is 2.3% vs DR3 1.6%, where the
+     production model gives 0.09%.
+   - The single-star mean N_vis improves.
+   - Every injection-suite metric stays within noise of production, except the NSS-set mean
+     N_vis, which moves from +0.06 to −0.16.
+   - Under "nothing else may get worse", `visibility_period_loss.enabled` is left **false**, and
+     the E4 episodes stay on. **Adoption is Ryan's call** (option V0).
+
+8. **V2 then V0 (Ryan, 2026-10-06): refit on 5/6-parameter stars and switch on.**
+   - Why 5/6-parameter only: the mock parent requires ϖ > 0.2 mas, so DR3's 2-parameter stars
+     can never be in it, and they carry about 60% of the tail.
+   - Refit: the same cell likelihood conditioned on the grid, restricted to the 94.6k random
+     stars with 5/6-parameter solutions plus the NSS stars
+     (`--min-params 3`; `output/gate432/vp_tail_fit_gridcell_56p_G_beta_b.json`).
+   - Single stars (20,000; `output/gate432/validation_c/`), fraction with < 12 visibility
+     periods against DR3's 5/6-parameter stars:
+
+     | | mock | DR3 5/6-param | production |
+     |---|---|---|---|
+     | all | 1.14% | 0.76% | 0.12% |
+     | \|β\| < 15° / 15–30° / 30–45° / > 45° | 2.79 / 1.44 / 0.17 / 0.00% | 1.87 / 0.59 / 0.29 / 0.10% | |
+     | G 18–19 | 1.66% | 1.13% | |
+     | \|b\| < 5° | 1.58% | 1.15% | |
+
+     Against all solution types the mock gives 1.16% vs DR3 1.61%. The single-star mean
+     N_vis − DR3 is −0.03 (production +0.26).
+   - #390 suite, 2 realizations (paired with production r < 2):
+     - NSS-set mean N_vis −0.17 (production +0.06).
+     - σ ratios 1.03–1.05 at G < 13 and 0.99–1.04 above (production 1.03–1.06 and 1.00–1.03).
+     - Significance 0.917 (production 0.932); RUWE 1.003 (1.004).
+     - F2 at G < 11 / 11–12 / 12–13: 8.3 / 9.3 / 5.6 (production 8.7 / 9.1 / 5.8; DR3 8.5 / 8.5 / 5.7).
+     - Acceptance 0.664 (0.673); P > 600 d capture 0.241 (0.228); 5-parameter outcomes
+       1.9% (1.9%).
+   - **Enabled.** The tail goes from 6× too light to 1.5× too heavy, and the single-star mean
+     improves.
+   - The NSS-set mean shift (−0.17, < 1% of the ~23 visibility periods) is in the direction
+     expected when re-injecting published orbits, which DR3 selected on significance ∝ √N. The
+     truncated fit itself predicts −0.10 for NSS. Everything else changes by ≤ 0.015, the noise
+     level of 2 realizations.
+   - The E4 episodes (`clustered_loss`) are off: this model replaces them.
+
+### 8.11 Options added by #432 (V2 and V0 adopted 2026-10-06)
+
+| | option | note |
+|---|---|---|
+| V0 | **ADOPTED 2026-10-06 (Ryan)**, after V2: enable `visibility_period_loss` (replaces E4 episodes) | tail 0.09% → 2.3% (DR3 1.6%); NSS-set mean N_vis +0.06 → −0.16; everything else within noise |
+| V1 | richer degraded-star loss distribution (two degraded levels or beta-distributed q) | would fix the N ≤ 5 deficit and the 9–11 overshoot; each fit costs hours on the laptop |
+| V2 | **ADOPTED 2026-10-06 (Ryan)**: fit on 5/6-parameter stars only | DR3's 2-parameter stars carry ~60% of the tail |
 
 ## References
 

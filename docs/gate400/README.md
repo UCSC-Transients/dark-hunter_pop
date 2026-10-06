@@ -3,8 +3,9 @@
 Issues #400 (+2 visibility periods) and #398's epoch-count term (~11–13% more transits and CCD
 observations than DR3; `docs/gate399/README.md`). The model and its calibration are specified
 in `docs/EPOCH_MODEL_SPEC.md`. After Ryan's 2026-10-03 decisions, the **v2** model (spec §8)
-is **on** (`dr3.epoch_model.enabled: true`). The bright-star N2 noise was tried and is **not
-adopted**, because it breaks the bright NSS RUWE. See "v2" below. The v1 sections that follow
+is **on** (`dr3.epoch_model.enabled: true`). The plain bright-star N2 noise broke the bright
+NSS RUWE and was not adopted. Its DR3-style variant **N2-u0** (RUWE = UWE / u0_mock) **is on**
+since 2026-10-03 (Ryan: "Switch it on"; option N2d). See "v2" and "N2-u0" below. The v1 sections that follow
 are the #412 record.
 
 ## Summary
@@ -89,6 +90,72 @@ models, which a single noise term added to the data cannot reproduce.
 `dr3.epoch_model.bright_excess_noise.enabled` is therefore **false**. The options are in spec
 §8.6 (N2a–N2c).
 
+## v3: visibility-period tail (#432, 2026-10-04/06)
+
+**Update 2026-10-06 (Ryan: V2, then V0).** The model was refit on 5/6-parameter stars, because
+the ϖ > 0.2 mas mock parent excludes 2-parameter stars. It is now **on**. Against DR3
+5/6-parameter stars, the < 12 fraction is 1.14% vs 0.76% (production 0.12%). The single-star
+mean N_vis − DR3 is −0.03. On the #390 set (2 realizations), the NSS mean N_vis is −0.17 and
+everything else is within ±0.015 of production. Details: spec §8.10 item 8; figures
+`visibility_tail.png` and `single_star_ruwe.png`. The original v3 record follows.
+
+Ryan asked for a better visibility model: an explicit ecliptic-latitude dependence, calibration
+on the visibility-period **distribution**, and a test of the grid-resolution hypothesis. Spec
+§8.10. Outputs are in `output/gate432/`.
+
+- **The grid is not the cause.** On 8,000 random stars, the commanded DR3 scanning law at the
+  exact positions (`gaiaunlimited` 0.3.3) gives 0.01% below 12 after the gaps. The nearest grid
+  centre and gaiamock's GOST both give 0%; DR3 gives 1.66%. Mean N_vis is 20.97 / 21.00 / 20.73.
+- **The mean transit keep needs no extra β term.** The existing Galactic ℓ ≤ 2 harmonics
+  already span sin²β; the residual of |sin β| has coefficient 0.00003 ± 0.011.
+- **DR3's tail is whole visibility periods lost by a minority of stars.** That minority is
+  most common at faint G, low |β| and low |b|. Low-|β| stars also start with fewer visibility
+  periods (16.7 vs 27.5).
+- **Model and fit:** a degraded-star mixture of whole-visibility-period dropout, with
+  π(G, |sin β|, e^{−|b|/10°}). It is fitted on 96,114 random stars (all solution types) plus
+  16,930 NSS stars truncated at ≥ 12, by a multinomial likelihood of the N_vis histogram in
+  G × |β| × |b| cells, conditional on gaiamock's grid. With exact-position conditioning, the
+  star-level AIC is 187528 for none and 175091 for G + β + b; β is the largest gain after G.
+
+**Single stars** (20,000 random stars with all solution types, #428 snapshot;
+`output/gate432/validation_b/single.jsonl`), % with < 12 visibility periods:
+
+| | DR3 | production (v2 + N2d) | v3 |
+|---|---|---|---|
+| all | **1.61** | 0.09 | 2.27 |
+| G 13–15 / 15–16 / 16–17 / 17–18 / 18–19 | 0.10 / 0.77 / 0.63 / 1.10 / 2.50 | 0.00 / 0.07 / 0.11 / 0.10 / 0.09 | 0.30 / 0.49 / 1.02 / 1.78 / 3.44 |
+| \|β\| 0–15 / 15–30 / 30–45 / > 45 | 3.68 / 1.29 / 0.77 / 0.33 | 0.19 / 0.08 / 0.07 / 0.00 | 5.12 / 2.61 / 0.99 / 0.12 |
+| \|b\| 0–5 / 5–10 / 10–30 / > 30 | 2.44 / 1.60 / 0.75 / 0.96 | 0.00 / 0.00 / 0.09 / 0.72 | 3.07 / 2.58 / 1.11 / 1.73 |
+| mean N_vis − DR3 by G bin | | +0.21 to +0.77 | −0.16 to +0.13 |
+
+- Single-star RUWE is unchanged: the median is 1.041 / 1.020 / 1.010 by G bin against
+  production's 1.043 / 1.018 / 1.010 and DR3's 1.035 / 1.015 / 1.017.
+- The tail is now about 1.4× too heavy, where production was about 20× too light. The two-point
+  mixture cannot match both N ≤ 5 and the 9–11 shoulder (option V1).
+
+**#390 injection suite** (1,296 × 3, #390 seeds, 0 errors, 4 workers under `nice`; Orbital,
+medians):
+
+| | production (v2 + N2d) | v3 |
+|---|---|---|
+| σ_ϖ/σ_a0/σ_P/σ_e at G < 13 | 1.05 / 1.04 / 1.03 / 1.04 | 1.06 / 1.05 / 1.04 / 1.04 |
+| same at G ≥ 13 | 1.01 / 1.02 / 1.02 / 1.00 | 1.01 / 1.03 / 1.00 / 1.01 |
+| a0/σ_a0 (orbit fits) | 0.930 | 0.924 |
+| F2 at G < 11 / 11–12 / 12–13 (DR3 8.5 / 8.5 / 5.7) | 8.8 / 9.2 / 6.0 | 8.4 / 9.3 / 5.8 |
+| RUWE all; at G < 11 / 11–12 / 12–13 / > 13 | 1.003; 0.91 / 0.95 / 0.91 / 1.02 | 1.001; 0.90 / 0.94 / 0.91 / 1.02 |
+| N_vis − DR3, median / mean | 0 / +0.06 | 0 / **−0.16** |
+| CCD obs / DR3 | 1.020 | 1.019 |
+| accepted | 0.677 | 0.670 |
+| 5-parameter outcomes | 1.7% | 1.8% |
+| P > 600 d capture | 0.225 | 0.235 |
+
+**Verdict:**
+- The tail and the single-star mean improve by an order of magnitude.
+- The injection suite is unchanged within the noise of 3 realizations.
+- The exception is the NSS-set mean N_vis, which moves from +0.06 to −0.16.
+- Because of that, under "nothing else may get worse", `visibility_period_loss.enabled` stays
+  **false**. It is fully calibrated, and enabling it is one flag (option V0, Ryan's call).
+
 ### N2-u0: bright-star noise with DR3's RUWE = UWE / u0 (Ryan, 2026-10-03)
 
 The N2 per-CCD noise is used with mock RUWE = UWE / u0_mock(G). u0_mock(G) is the 41st
@@ -126,9 +193,10 @@ moves from 1.07 to 0.90.
 significance by G, RUWE overall and at G > 13, the single-star RUWE peak at all G and the
 #403 rate. It is **worse** on bright NSS RUWE at 12 < G < 13 (1.01 → 0.91) and on the
 AstroSpectroSB1 astrometry-only refit. Under the rule "adopt only if everything matches as
-well as or better", it is **not adopted** (`ruwe_u0.enabled: false`,
-`bright_excess_noise.enabled: false`). It is offered as option **N2d** (spec §8.6).
-Switching it on is two flags.
+well as or better", it was at first not adopted and offered as option **N2d**.
+**Ryan adopted N2d on 2026-10-03 ("Switch it on").** `bright_excess_noise.enabled` and
+`ruwe_u0.enabled` are now true. The accepted regression is NSS RUWE 0.91 × published at
+12 < G < 13.
 
 ## Measurement (v1, #412)
 
@@ -268,5 +336,6 @@ $PY scripts/plot_epoch_model_400.py validation --inj390 output/gate390/injection
 - `figures/model_counts_vs_dr3.png`: transits and N_vis from one model draw per star vs DR3 and GOST.
 - `figures/gap_fraction_sky.png`: fraction of GOST transits inside the published gaps.
 - `figures/validation_*.png`: the #390 re-runs (v1 and v2; `validation_n2_f2_ruwe.png` is the N2 check).
-- `figures/single_star_ruwe.png`, `figures/single_star_ruwe_peak_vs_g.png`: the single-star RUWE check (v2, N2, N2-u0).
+- `figures/single_star_ruwe.png`, `figures/single_star_ruwe_peak_vs_g.png`: the single-star RUWE check.
+- `figures/visibility_tail.png`: N_vis distribution and the < 12 tail by |β| and G (#432).
 - `figures/summary.json`: every number above.

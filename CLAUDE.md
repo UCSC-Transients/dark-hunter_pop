@@ -26,6 +26,10 @@ Read these before making a design change. **Docs-first: update the spec via PR b
 | `docs/EXECUTION_PLAN.md` | **Forward-looking plan** — remaining work to a v1 science result and paper |
 | `docs/ORCHESTRATOR_PROMPT.md` | Copy-paste prompts: the long-lived orchestrator (§A) and the verification agent (§B) |
 | `docs/SELECTION_REPRODUCTION_STATUS.md` | Live hand-off: which literature reproduction numbers currently fail and why |
+| `docs/MOCK_POPULATION_SPEC.md` | Step 1 mock: Gaia-star parent, MdS17 companions, proposal set + importance weights, Malmquist (1-D §9, 2-D CMD §11), giants (§10), isochrone M1 (§11), validation ladder (§5); Ryan's decisions §0.1–§0.4; open MP-Qs §8, §10.8, §11.8 |
+| `docs/EPOCH_MODEL_SPEC.md` | Epoch model around gaiamock's GOST list: DR3 gaps, p(G, l, b) transit loss, clustered faint loss, bright-star noise, RUWE = UWE / u0 (§8 is the adopted v2) |
+| `docs/ELBADRY2024_REPRODUCTION_SPEC.md` | El-Badry et al. (2024) six-panel / solution-type gate: real comparison set, cuts, cost, Q5–Q12 |
+| `docs/gate*/README.md` | Measured reports, one per gate: `gate390` injection, `gate399` cascade replay, `gate400` epoch model, `gate405` / `gate418` Malmquist closed loops + isochrone M1, `gate_giants`, `gate391` rung 2 (paused), `gate301` end-to-end run |
 | `docs/GAIAMOCK_API.md` | `gaiamock_mod` public API; what must **not** be reimplemented |
 | `docs/PLOTS.md` | Figure style guide + `plotting:` config defaults |
 | `docs/PHASE1_KICKOFF.md` … `PHASE7_KICKOFF.md` | Historical per-phase paste prompts |
@@ -68,7 +72,7 @@ functions → `forward_model.py`; `rv_astrometry_gate` + `joint_orbit_fit` → `
 | `physics_utils.py` | Units + Poisson point-process primitives **only** (no Kepler/RUWE — gaiamock owns those) |
 | `data_acquisition.py` | Gaia DR3 NSS ADQL, cross-matches, N-bin quality cut, snapshots |
 | `nss_covariance.py` | `corr_vec` / `bit_index` → 12×12 `ParameterSet` (no diagonal-only fallback) |
-| `mass_derivation.py` | TAG10 (+Santos) bulk masses; uberMS refined queue |
+| `mass_derivation.py` | TAG10 (+Santos) bulk masses (MIST isochrone switch, off until #425); uberMS refined queue |
 | `sample_selection.py` | Literature selection registry + `SampleSelection` cut-chain evaluator |
 | `elbadry2024_selection.py`, `elbadry2026_selection.py`, `janssens_mass.py` | Per-sample logic and the Janssens `M_G`–mass relation |
 | `mc_mass_function.py` | 10⁴-draw Monte Carlo `(m_f, M2)` posteriors from the full covariance |
@@ -85,6 +89,15 @@ functions → `forward_model.py`; `rv_astrometry_gate` + `joint_orbit_fit` → `
 | `sbc.py`, `benchmarks.py`, `diagnostics.py`, `plotting.py` | SBC recovery, known-truth/comparison catalogs, diagnostics, shared figure primitives |
 | `diagnostic_hooks.py` | Infra-only diagnostic primitives (dirs, reports, `funnel_sky` / `gate_pass_rate` hooks, panel/solution-type labels) used by early stages; `diagnostics` re-exports them. Stage modules never import `diagnostics` itself (#182) |
 | `triples/` | Stub subpackage (`tess_variability.py`, `rotation_check.py`), off by default |
+| `run_validity.py` | Stage honesty flags: stand-ins registered in the stage's own artifact at the point of use, upstream gate status, science validity (#352, #354) |
+| `proposal_set.py` | Step 1 importance-reweighted proposal set: parent sampling, q(x), per-draw truth/seeds/outcome storage, deterministic-mixture weights, Kish ESS; `simulate_one` goes through `epoch_model.run_cascade` (#391) |
+| `moe_distefano.py` | MdS17 companion densities (frequency, q with twin excess, e) from the frozen `config/population/moe_distefano2017.yaml` |
+| `malmquist.py`, `malmquist_cmd.py` | Magnitude-limit (Öpik) weight: 1-D (#405), superseded for the decided pipeline by the 2-D dereddened-CMD weight (#418); `*_closed_loop.py` are their synthetic-universe proofs |
+| `epoch_model.py` | Statistical DR3 epoch model wrapped around gaiamock's GOST list (gaps, p(G, l, b), clustered faint loss, bright-star noise, RUWE u0); `run_cascade` (#400) |
+| `giants.py` | Dereddened-CMD evolved-primary classifier, ridge, evolved companion light, diagnostics (#413) |
+| `isochrone_mass.py` | MIST v1.2 isochrone M1 on the dereddened CMD, mock parent and data side (`mass_calibration.method: MIST_isochrone`, off until #425) (#418) |
+| `injection_test.py` | Rung 1: re-inject published DR3 orbits through gaiamock_mod (#390) |
+| `cascade_replay.py` | Bit-for-bit replay of #390 realizations; recovers what the cascade discarded (#399, #398) |
 
 ### Data flow
 
@@ -193,7 +206,7 @@ is reported per model as `cleaning_settings_absent` (#207).
 | `config/benchmarks/` | Known-truth (Gaia BH1/BH2/BH3) + comparison-only catalogs |
 | `config/target_lists/derived/` | Adoption dates (Andrews, El-Badry, accel/jerk); `survey_sfs/` holds APOGEE/RAVE/LAMOST/DESI selection functions |
 | `runs/{run_id}.yaml` | Live YAML run manifest (`run_id = YYYYMMDD-HHMMSS-<shortgit>`); tracked in git; *is* the `RunManifest` |
-| `data/` (gitignored) | `dr3/gaia_snapshots/` (incl. `nss_enrichment/`, `+enrich` and `+enrich+mc10000` caches), `dr3/rv_summaries/`, `sed_summaries/` |
+| `data/` (gitignored) | `dr3/gaia_snapshots/` (incl. `nss_enrichment/`, `+enrich` and legacy `+enrich+mc10000` caches, the Step 1 `gaia_source` parent), `reproduction_columns/` (Andrews ATF sidecars), `dr3/rv_summaries/`, `sed_summaries/` |
 | `output/` (gitignored) | Per-stage HDF5 under `paths.artifact_root/{run_id}/{stage}/{fingerprint}.h5` |
 | `vendor/` | `gaiamock/` submodule, `overlays/gaiamock_mod.py`, `DATA_MANIFEST.md` SHA256s; staging drop in `mod_files/` |
 
@@ -330,100 +343,92 @@ under restricted permissions.
 12. Every wave ends in a hard stop for operator review, with a written handoff note, before the next
    begins (§5.9).
 
-## Status (as of 2026-09-20, `main` @ 13356e5)
+## Status (as of 2026-10-04, `main` @ 2b2b30e)
 
-- **Scope: the laptop only.** The current objective is the whole workflow running smoothly on
-  `/Users/rfoley/darkhunter/pop/dark-hunter_pop/`. ziggy and lux are deferred and out of scope —
-  no ticket depends on either, and the SED throughput campaign waits with them
-  (`docs/EXECUTION_PLAN.md` §2). Authorized work is Waves −1 through D.
-- **Wave −1 is complete** (umbrella #145, roster #50–#55). `main` now says what it is documented as
-  saying:
-  - **The reproduction-binding reconciliation landed** (#141 / PR #150 / `03a452a`) without reverting
-    the Wave-2 RV/SED work. The three commits PR #134 never merged are on `main`.
-  - **A chain of correctness fixes landed on top**, each found by #49's post-merge verification rather
-    than by a test: stage-registry fingerprint (PR #155), the Andrews-σ landmine and the Janssens cache
-    (PR #156), **cached stage artifacts were never checked against `source_hash`** (PR #159), missing
-    transitive `dependency_modules` (PR #166), `StageAction` falling through silently in twelve stage
-    runners (PRs #170, #173), and test-marker hygiene (PR #171). The `source_hash` one matters most —
-    until it landed, a stale artifact could be reused as if fresh.
-  - **The tree and environment are clean** (PR #179): run manifests tracked, ad-hoc logs gitignored,
-    orphaned bytecode gone, `.venv` / `gh` / submodule / overlay all verified.
-  - **A measured baseline exists** (#144), on `main` @ `c905575` in the primary checkout with the real
-    `data/` tree and the overlay installed: required gate **467 passed, 0 skipped, 34m23s**, peak RSS
-    4.56 GiB; `-m gaiamock` 4 passed; `-m slow` 6 passed; `-m network` **3 failed on Gaia TAP HTTP 500**
-    (archive-side, #184 — those live parent-count checks are *not run*, not green). Peak RSS across all
-    heavy workloads is **6.82 GiB** (the El-Badry 2026 `σ_M̃2` MC); the heavy-session concurrency cap is
-    now **four**, set from measurement (`EXECUTION_PLAN.md` §5.6).
-  - **Every `SELECTION_REPRODUCTION_STATUS.md` §3 number was re-measured on `main`** and the document
-    rewritten with the SHA beside each number. No escalation signal tripped: all three exact-match
-    equalities hold, nothing moved by an order of magnitude, nothing collapsed to or appeared from zero.
-  - **Docs provenance corrected** (#187 / PR #188 / `b2ce634`): `scripts/attach_mc_to_selection_cache.py`
-    is on `main` (it landed with the reconciliation, PR #150), not in an orphaned worktree as earlier
-    docs claimed. A few more instances of the same "stale not-on-`main`" defect class remain, tracked
-    under #189 rather than fixed piecemeal.
-  - **Wave gate teardown**: 26 stale worktrees and 70 stale branches removed, each independently
-    re-verified fully merged before deletion. One branch (`fix/selection-reproduction-binding`, fully
-    superseded, patch-equivalent to what's on `main`) is left pending an explicit human
-    `git branch -D` — its deletion was correctly refused by the permission system.
-  - **Gate −1 awaits operator review.** Wave 0 is not dispatched until then.
-- **Wave 0 is complete** (umbrella #202, roster #28–#32, `main` @ `13356e5`). The pipeline ran
-  end to end for the first time: `runs/20260920-033431-121d6de.yaml` reaches all 14 stages
-  terminal (13 `completed`, `triples` `skipped` by config), reproducible on three independent
-  invocations, producing a labeled `dN/dM`-by-class figure meeting `docs/PLOTS.md` standards with
-  every synthetic stand-in named. Peak RSS for a full end-to-end run measured at **~8.7–8.8 GiB**
-  (higher than Wave −1's 6.82 GiB per-stage figure) — the heavy-session cap should move from four
-  to three once #224 (which corrects the §5.6 table's cited provenance) lands. The `phot_sed`
-  adapter's WD leg is now fully wired (#206 resolved: upstream `dark-hunter_sed` fix landed,
-  DA+MIST canonical, independently re-verified twice against the real merged code). Q9 (Andrews
-  `G<15` = 19, still short of the target 16 — inherited from the known Andrews over-count) and Q7
-  (`a0` bit-identical between `nsstools` and pop's method, ruling that out as a cause of #133's
-  42-vs-47 gap; `sigma_a0` differs by propagation method and moves `sub_chandrasekhar`'s cut) are
-  both measured. **#221 is the one real correctness bug found**: duplicate `source_id`s from
-  cross-match fan-out can silently inflate every downstream count with no diagnostic — needs
-  Ryan's data-model decision (collapse vs. keep-non-unique) before Wave A, and a check of whether
-  the documented uncut parent snapshot has the same problem. **Gate 0 awaits operator review.**
-  Wave A is not dispatched until then.
-- **Phases 0–8 complete on `main`.** The pipeline has run end-to-end on the real DR3 NSS catalog:
-  `runs/20260904-152655-674c989.yaml` reaches `inference` completed, with `joint_orbit_fit` skipped
-  (`rv_astrometry_gate_failed` for every system, pre-Wave-2), `triples` skipped by config, and
-  `diagnostics` left stuck in `running` — no run has yet finished all fourteen stages cleanly. The
-  most recent run (`20260908-183807-5a1c609`) is complete through `joint_orbit_fit` with live RV
-  data. Every `inference` artifact so far is a CI-scale dynesty smoke, not a production posterior.
-- **Wave 2 RV/SED live integration landed** (PRs #136, #137, #138): `sed_summary_root` and
-  `rv_summary_root` wired, RV JSON re-attached at the gate, gate ordering by calibrators → public
-  RVs → summary mtime, and gate `K` derived from Thiele–Innes inclination when NSS omits
-  `Semi_Amp_Primary`. **154 `Gaia_DR3_*_summary.json` RV files are now staged** under
-  `data/dr3/rv_summaries/`. The JSON writer is on `dark-hunter_rv` `main`. Only 2 SED summaries are
-  staged so far.
-- **Literature selection reproduction is the active blocker**, and is Wave A's work. Every number
-  below was measured on `main` @ `c905575` (#144), not on a branch: Andrews N=**33** vs 24 (**352** vs
-  106 after the `m2_probability` cut), El-Badry 2026 `primary_ns_bh` **42** vs 47, `sub_chandrasekhar`
-  **861** vs 22, spectroscopic branch **123** vs 151, astrometric union **913** vs 76, spectro routes
-  **98 / 30 / 5** vs 136 / 30 / 15, Q9 `G < 15` **19** vs 16. Green: Andrews' parent N (**134,598**),
-  El-Badry 2024's catalog union (**48**), `elbadry2023_table_e1` (**5**), and `mode_divergence` (only
-  Gaia BH1 differs). El-Badry 2024's published COC N of 21 was **not** re-measured — it needs a
-  different path and stays recorded from the earlier measurement.
-  Suspected root causes: the extinction / `a0` / AMRF / `M̃2` chain and NSS Monte Carlo binding. The
-  `sub_chandrasekhar` mass window is already 1908 wide *before* the σ cut, so σ is second-order there.
-  **Do not fix by retuning frozen thresholds.** Open issues #132 (NSS enrichment / K1, largely
-  unblocked) and #133 (`primary_ns_bh`; extinction / `a0` / nsstools).
-- **Companion-nature evidence is still analytic in practice.** The `phot_sed` adapter landed (#197):
-  `companion_nature_likelihood` now uses real dynesty ΔBIC wherever all three Path-2 summaries exist,
-  labels every candidate `phot_sed` vs `analytic_fallback`, and reports the split. In practice
-  nothing reaches the real path yet — the `wd` model emits no readable BIC at the pop-facing path
-  (#206) and only a handful of `1star`/`2star` fits exist. WD contamination stays unconstrained
-  until #206 lands and the SED queue has coverage (ziggy throughput).
-- A sample's reproduction path is **not working** until `sample_reproduction_report` matches the
-  published N exactly; until then the sample must not be enabled in `forward_model` mode for
-  inference. The spuriousness model is not working until one parameter set reproduces all three
+- **Scope: the laptop only.** The objective is the whole workflow running correctly on
+  `/Users/rfoley/darkhunter/pop/dark-hunter_pop/`. ziggy and lux are deferred
+  (`docs/EXECUTION_PLAN.md` §2), and so is the SED throughput campaign.
+- **Ryan's priority order.**
+  1. **Step 1 first (#339).** The forward-model mock must reproduce the **full** DR3 NSS orbit
+     sample: `Orbital` + `AstroSpectroSB1`, 168,065 rows, the El-Badry et al. (2024) §4 set, no
+     NS/BH down-select. Nothing downstream (`population_model`, `inference`, dN/dM figures) is
+     trusted until it does.
+  2. **Diagnostics must be real.** A figure or gate is computed from what the pipeline actually
+     produced. No placeholder fixture (#339), configured stand-in fraction (#344), self-compared
+     benchmark (#348) or undeclared synthetic path (#350, #352/#354). Stand-ins register
+     themselves in their stage artifact (`run_validity`).
+  The chain is mapped in `docs/ARCHITECTURE.md` (`selection_function_astrometric` → "Step 1"). The
+  specs are `docs/MOCK_POPULATION_SPEC.md` and `docs/EPOCH_MODEL_SPEC.md`.
+- **Step 1 validation ladder** (spec §5):
+  - **Rung 1 done** (#390, PR #401 `fcb0d8f`, `docs/gate390/`). 1,296 published orbits × 5
+    realizations re-injected. Orbital acceptance 0.742 ± 0.007, AstroSpectroSB1 0.879. Pulls on P,
+    e, a0 and ϖ have σ_MAD 0.94–1.02.
+  - **Rung 1 follow-ups.**
+    - #399 / #398 diagnosed by bit-for-bit replay (PR #404 `c448e74`, `docs/gate399/`). The cascade
+      applies DR3's acceleration-first rule exactly. P > 600 d capture is 0.23 and is still open
+      (#399).
+    - #400 epoch model v1 (PR #412 `bca1624`), then v2 **on** (PR #419 `83c319a`). Against #390:
+      N_vis excess +2 → 0, CCD obs / DR3 1.129 → 1.020, Orbital σ ratio 0.89 → 0.97.
+    - N2-u0 bright-star noise with RUWE = UWE / u0_mock(G) (PR #422 `686a100`): calibrated and
+      off. Ryan adopted it as N2d on 2026-10-03; it is enabled by PR #426, which is open.
+    - **#428:** the epoch model gives 0.10% of G < 19 stars below 12 visibility periods,
+      against DR3's 1.71% (`docs/EPOCH_MODEL_SPEC.md` §8.9). Bare gaiamock gives 0. Whether to
+      model the tail is #432.
+  - **Rung 2 paused** (#391, `docs/gate391/`, PR #406 `bd08cab`). Generation 11 stopped at
+    154,518 / 370,000 draws (accepted-set ESS 500, 12.3 ESS per CPU-h). Its figures are
+    pre-noise-fix and pre-Malmquist: diagnostic only, never a result.
+  - **Restart prerequisites since then.**
+    - Bounded e proposal, 1-D Malmquist wiring, MP-Q19/Q24/Q25/Q29/Q30 (PR #415 `0ca0a73`).
+    - 1-D Malmquist closed loop (PR #411 `d943676`, `docs/gate405/`). With W the twin deficit
+      drops from 12% to 3%, and the total is within 0.65%.
+    - Giants (PR #417 `b944513`, `docs/gate_giants/`). Weighted mock 9.9% ± 1.4% evolved vs DR3
+      Orbital 10.0%, but the evolved six-panel mismatches.
+    - MIST isochrone M1 + 2-D CMD weight (PRs #420 `f87f7f4`, #423 `55cd53f`, #424 `4c6d509`,
+      `docs/gate418/`). M1 / FLAME on CMD dwarfs is 0.999 with 0.033 dex scatter, and the #393
+      floor is gone. The 2-D closed loop is not yet at "every pull ≤ 3" (max 7.4σ).
+    - Data-side switch (PR #427 `4e41a59`, off until #425). Ryan's 2026-10-04 decisions
+      (MP-Q33–Q39, coeval companions, posterior M1 draws; PR #430 `2b2b30e`, spec §0.4, §11.9) are
+      being implemented under #418.
+  - **Rungs 3–5 not started.**
+- **`selection_function_astrometric` does not use the Step 1 chain yet (#394).** It still draws the
+  `mock_population` box prior with no epoch model, so its six-panel / solution-type gate is a
+  plumbing check. #368 (`f252b1f`, #344) removed the configured faint-draw short circuit, so every
+  mock goes through gaiamock.
+- **End-to-end** (#301, PR #338 `4a3e034`, `docs/gate301/`). `runs/20260930-022223-672b092.yaml`
+  reaches all 14 stages terminal (13 completed, `triples` skipped) at `main` @ `672b092`: 28.8 min,
+  peak RSS 9.77 GiB. Everything after `sample_selection` carries seven declared stand-ins and is a
+  plumbing check.
+- **Literature reproduction** (measured at `672b092`, `docs/gate301/`; history in
+  `docs/SELECTION_REPRODUCTION_STATUS.md`). Andrews moved to the ATF notebook in both modes
+  (PRs #309 `d923c83`, #320 `3317336`), and `sub_chandrasekhar` reproduction is the Shahaf 2023b
+  class-III cross-match (PR #321 `672b092`).
+
+  | target | published | ours | gate |
+  |---|---:|---:|---|
+  | Andrews 2022, reproduction | 24 | 25 | FAIL by 1 (`6424213726885519744`) |
+  | Andrews 2022 modified, forward model (feeds inference) | — | 24 | |
+  | Q9: Andrews `G < 15` (`andrews2022_import`) | 16 | 16 | OK |
+  | El-Badry 2024 catalog union / COC | 48 / 21 | 48 / 21 | OK, ID sets exact |
+  | El-Badry 2026 union / astrometric | 227 / 76 | 225 / 74 | FAIL by 2 (#335) |
+  | El-Badry 2026 spectroscopic | 151 | 151 | N OK; ID sets differ by 8/8 (#335) |
+  | `primary_ns_bh` | 47 | 46 | FAIL by 1 (#133) |
+  | `sub_chandrasekhar`, reproduction / forward model | 22 / — | 22 / 49 | OK, exact IDs |
+  | `elbadry2023_table_e1`; Simon breakdown | 5; 5/2/1/1 | 5; 5/2/1/1 | OK |
+
+  A sample is not enabled in `forward_model` mode for inference until its reproduction matches
+  exactly. The spuriousness model is not working until one parameter set reproduces all three
   published rates.
-- **`accel_jerk` (roster #22) is blocked** — no published selection function exists. Do **not** derive
-  one from the target list. The registry entry stays disabled.
-- Still local-only: `docs/ORCHESTRATOR_PROMPT.md` is untracked, and `README.md`,
-  `docs/CONTINUATION_PLAN.md` and `docs/ORCHESTRATION_PLAN.md` carry uncommitted edits in the primary
-  checkout (**#185**). `CLAUDE.md`, `docs/EXECUTION_PLAN.md` and
-  `docs/SELECTION_REPRODUCTION_STATUS.md` landed with #144; `runs/*.yaml` landed with PR #179.
-  Worktrees and finished branches are #49's to tear down — **coding sessions never delete either**.
+- **Companion-nature evidence is still analytic in practice.** The `phot_sed` WD leg is wired
+  (#206 closed), but few Path-2 fits exist, and #207 (cleaning provenance) is open.
+- **#221 resolved:** 2MASS fan-out is collapsed with the conflicting bands masked (PR #305
+  `a5ce757`, option B).
+- **`accel_jerk` (roster #22) is blocked**: there is no published selection function. Do **not**
+  derive one from the target list; the registry entry stays disabled.
+- Tracked run files are `runs/20260920-033431-121d6de.yaml`, `runs/20260928-083639-f944c93.yaml`
+  and `runs/20260930-022223-672b092.yaml`. The September runs `20260904-152655-674c989` and
+  `20260908-183807-5a1c609` were purged (#318, PR #319 `5347254`; PR #326 `87e81b2`). Do not cite
+  them. Worktrees and finished branches are #49's to tear down; **coding sessions never delete
+  either**.
 
 ## Open statistical questions (human sign-off)
 
@@ -461,10 +466,12 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
   `covariance_health` and excluded from MC-dependent samples, never silently downgraded.
 - Literature-sample parent queries must run against the **uncut** Gaia snapshot
   (`20260826T234425Z_3d3f740b080c`); the quality-cut snapshot under-counts the parent.
-- Andrews evaluation needs the `+enrich+mc10000` cache (`p_m2_above` is absent from `+enrich`).
+- Andrews evaluation, in **both** modes, needs only the ATF-notebook sidecar (below) on plain
+  uncut-snapshot rows. Since `andrews2022.yaml` schema v4 (PR #320) no Andrews cut reads the legacy
+  `p_m2_above` MC columns of the `+enrich+mc10000` cache, which stays on disk for history only.
   Pass `membership['andrews2022']` when evaluating El-Badry 2026 so `andrews2022_import` binds.
-- Column ownership is strict: Andrews owns `p_m2_above` / `m2_msun` / `m2_msun_error` at fixed
-  `M1 = 1.0`; El-Badry 2026 owns `m1_tilde_msun` / `m2_tilde_msun` / `sigma_m2_astrometric_msun` at
+- Column ownership is strict: Andrews owns the `andrews_atf_*` columns (including
+  `andrews_atf_p_m2_above`); El-Badry 2026 owns `m1_tilde_msun` / `m2_tilde_msun` / `sigma_m2_astrometric_msun` at
   fixed Janssens `M̃1`. **Never alias Andrews' σ into El-Badry's.** Both Andrews modes read only the
   Andrews-owned `andrews_atf_*` columns (ATF notebook, #296 / #306), built by
   `scripts/build_andrews2022_atf_columns.py` into one sidecar per mode,
@@ -491,9 +498,15 @@ treatment not built · M1 uncertainty treated as Gaussian · SPHEREx documentati
 - `mwdust.Combined19()` triggers a one-time network download when
   `selection_function_astrometric.extinction_model: combined19`.
 - Do not host or require the default ~984 MB `healpix_scans.zip`.
-- `scripts/attach_mc_to_selection_cache.py` (referenced by `docs/SELECTION_REPRODUCTION_STATUS.md`
-  for rebuilding the Andrews `+enrich+mc10000` cache) **is on `main`**, landed via PR #150
-  (issue #141, merge SHA `03a452a`). The cache itself is already built under
-  `data/dr3/gaia_snapshots/`.
+- `scripts/attach_mc_to_selection_cache.py` builds the legacy `+enrich+mc10000` cache (PR #150,
+  `03a452a`). No current Andrews cut reads it (PR #320), so do not rebuild it for Andrews.
+- Step 1 mock work: a change to the parent cuts, truth parallax, M1, light split, epoch model,
+  gaiamock triple or cascade settings invalidates every stored proposal-set draw (spec §3.5).
+  Reweighting cannot fix it; the draws must be re-simulated. Run gaiamock drivers under `nice` with
+  `threadpoolctl` pinning (#408). Proposal-set configs live in `config/population/`, **not**
+  `config/fragments/`, which `load_config` merges.
+- gaiamock_mod gives ≥ 12 visibility periods at every DR3 position sampled (0 / 6,000). With the
+  epoch model 0.10% of stars fall below 12, against DR3's 1.71% (#428, #432). A test or gate that
+  expects a sizeable mock `insufficient_visibility` fraction is wrong.
 - Never read `dark-hunter_rv` / `dark-hunter_sed` production output directories live — snapshot with
   a timestamp (and preserve mtimes, which the gate now orders by).

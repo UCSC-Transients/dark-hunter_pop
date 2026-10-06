@@ -1,0 +1,58 @@
+{
+ "artifact": "output/proposal_set/isochrone_smoke_gen22.h5",
+ "draws": 1000,
+ "solution_types": {
+  "five_parameter": 890,
+  "nine_parameter": 22,
+  "orbital_failed_cuts": 40,
+  "seven_parameter": 18,
+  "twelve_parameter_orbital": 30
+ },
+ "accepted_orbital": 30,
+ "evolved_draws": 34,
+ "malmquist_unit_weight_by_reason": {
+  "evolved": 34,
+  "outside_ridge": 71,
+  "weighted": 895
+ },
+ "log_w_percentiles_1_16_50_84_99": [
+  -24.793588210850288,
+  -0.3394229408558992,
+  0.0,
+  0.20346982210983036,
+  0.6486913850823075
+ ],
+ "draws_with_w_zero": 45,
+ "ess_all": {
+  "no_w": 27.33905108357263,
+  "two_d_w": 25.583890245294118,
+  "dwarf_relation_no_w": 25.54495236576254
+ },
+ "ess_accepted": {
+  "no_w": 3.4051617739053093,
+  "two_d_w": 5.706429343317488
+ },
+ "sum_w_accepted": {
+  "no_w": 121382.71015818874,
+  "two_d_w": 65746.8531641691
+ },
+ "evolved_share_accepted_weighted": {
+  "no_w": 1.2019637457841407e-42,
+  "two_d_w": 2.219081369732824e-42
+ },
+ "parent_m1_source": {
+  "MIST": 200302,
+  "none": 14364
+ },
+ "parent_attrition": {
+  "snapshot_rows": 214666,
+  "finite_astrometry_photometry": 214666,
+  "parallax_floor": 214666,
+  "isochrone_m1": 200302,
+  "bailer_jones_distance": 200302,
+  "halbwachs_ipd": 181272,
+  "halbwachs_cstar": 160234
+ },
+ "parent_evolved_usable": 10782,
+ "cpu_seconds_per_draw_median": 0.005366499999979624
+}

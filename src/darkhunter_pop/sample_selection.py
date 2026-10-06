@@ -2098,6 +2098,28 @@ def _abs_g_mag(g_mag: float, parallax_mas: float) -> float:
     return float(g_mag) + 5.0 * math.log10(float(parallax_mas)) - 10.0
 
 
+def _pipeline_enrichment_fields(candidate: CandidateRecord) -> dict[str, Any]:
+    """Bulk-artifact columns merged into literature parent rows (#425; spec §11.9).
+
+    Only ``pipeline_*`` names. A literature sample owns ``m1_msun`` / ``m2_msun`` /
+    ``m2_msun_error`` / ``sigma_m2_msun`` / ``m2_tilde_msun`` / ``m2_snr`` on the uncut-snapshot
+    rows (its own MC or its own M1), so the stage's bulk enrichment must never overwrite them.
+    Forward-model modes read ``pipeline_m1_msun`` through :meth:`SampleSelection` binding.
+    """
+    out: dict[str, Any] = {}
+    if candidate.m1 is not None and "M1" in candidate.m1.names:
+        m1 = candidate.m1.marginal("M1")
+        out["pipeline_m1_msun"] = float(m1.value)
+        if math.isfinite(m1.sigma):
+            out["pipeline_m1_sigma_msun"] = float(m1.sigma)
+    if candidate.m2 is not None and "M2" in candidate.m2.names:
+        m2 = candidate.m2.marginal("M2")
+        out["pipeline_m2_msun"] = float(m2.value)
+        if math.isfinite(m2.sigma):
+            out["pipeline_sigma_m2_msun"] = float(m2.sigma)
+    return out
+
+
 def _pipeline_mass_fields(candidate: CandidateRecord) -> dict[str, Any]:
     """Cut-evaluator columns from pipeline ``m1`` / ``m2`` ParameterSets."""
     out: dict[str, Any] = {}
@@ -2543,8 +2565,9 @@ def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, A
 
     Prefer the uncut Gaia snapshot recorded on the DA artifact (literature
     parent counts). Fall back to the quality-cut DA HDF5 when no snapshot is
-    available. When ``mass_derivation_bulk`` is present, pipeline M1/M2 columns
-    overwrite matching ``source_id``s.
+    available. When ``mass_derivation_bulk`` is present, its M1/M2 are merged into
+    matching ``source_id``s as ``pipeline_*`` columns only (#425); literature-owned mass
+    columns are never overwritten.
     """
     if not _stage_artifact_ready(manifest, "data_acquisition"):
         raise SampleSelectionError(
@@ -2557,12 +2580,16 @@ def load_selection_rows_from_manifest(manifest: RunManifest) -> list[dict[str, A
         for candidate in _iter_stage_candidate_records(
             manifest, "mass_derivation_bulk"
         ):
-            fields = _pipeline_mass_fields(candidate)
-            if fields:
-                enrich[int(candidate.source_id)] = fields
+            enrich[int(candidate.source_id)] = candidate  # type: ignore[assignment]
 
     da_path = _upstream_artifact_path(manifest, "data_acquisition")
     snapshot_meta = _da_snapshot_meta_path(da_path)
+    # #425: on the uncut-snapshot rows a literature sample owns m1/m2 columns, so the bulk
+    # enrichment adds pipeline_* columns only. The DA fallback rows have no literature
+    # columns; there the bulk masses also fill the generic names, as before.
+    fields_of = _pipeline_enrichment_fields if snapshot_meta is not None else (
+        lambda c: {**_pipeline_mass_fields(c), **_pipeline_enrichment_fields(c)})
+    enrich = {sid: f for sid, c in enrich.items() if (f := fields_of(c))}  # type: ignore[arg-type]
     if snapshot_meta is not None:
         rows = load_selection_rows_from_uncut_snapshot(snapshot_meta)
     else:

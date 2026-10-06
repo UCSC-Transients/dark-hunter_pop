@@ -82,11 +82,18 @@ class QFGridConfig(_Strict):
 
 
 class CompanionColourConfig(_Strict):
-    """Companion and system colours from the MIST main sequence (MP-Q37)."""
+    """Companion and system colours from the MIST main sequence (MP-Q37).
 
-    provisional_mode: Literal["fiducial_ms"] = "fiducial_ms"
-    fiducial_feh_dex: float = -0.1
+    ``coeval`` (decided 2026-10-04, spec §0.4): each row's colours come from the MS of its own
+    isochrone, at the row's posterior ⟨[Fe/H]⟩ (rounded to ``feh_step_dex``, linear between
+    MIST files) and the native age nearest its ⟨log age⟩. Rows without a posterior use the
+    fiducial. ``fiducial_ms``: one MS for every row (the #418 first implementation).
+    """
+
+    mode: Literal["coeval", "fiducial_ms"] = "coeval"
+    fiducial_feh_dex: float = -0.06
     fiducial_log_age: float = 9.6
+    feh_step_dex: float = Field(0.05, gt=0)
 
 
 class SingleStarDensityConfig(_Strict):
@@ -107,6 +114,9 @@ class SingleStarDensityConfig(_Strict):
     sigma_levels_max_mag: float = Field(2.5, gt=0)
     n_sigma_levels: int = Field(18, ge=2)
     anchor_to_ridge: bool = True
+    #: Divide by the colour Jacobian of the light subtraction (diagnostic switch; see
+    #: :func:`colour_jacobian`).
+    colour_jacobian: bool = True
 
 
 class CmdMalmquistConfig(_Strict):
@@ -149,6 +159,12 @@ class MsColours:
         m = np.clip(np.asarray(m2, float), self.mass[0], self.mass[-1])
         return np.interp(m, self.mass, self.bp_g), np.interp(m, self.mass, self.g_rp)
 
+    def log10_flux_ratio(self, m1: ArrayLike, m2: ArrayLike) -> FloatArray:
+        """MP-Q40: log10 f = −0.4 [M_G(M2) − M_G(M1)] on this MS (masses clamped to its range)."""
+        a = np.clip(np.asarray(m1, float), self.mass[0], self.mass[-1])
+        b = np.clip(np.asarray(m2, float), self.mass[0], self.mass[-1])
+        return -0.4 * (np.interp(b, self.mass, self.mg) - np.interp(a, self.mass, self.mg))
+
     def from_colour(self, colour: ArrayLike) -> tuple[FloatArray, FloatArray]:
         """(BP−G, G−RP) of a single star of colour ``colour`` (BP−RP), clamped."""
         order = np.argsort(self.colour)
@@ -167,6 +183,45 @@ def ms_colours(grid: im.NativeGrid, feh: float, log_age: float) -> MsColours:
     mass = np.geomspace(lo, hi, 400)
     out = {k: (1 - t) * np.interp(mass, m_a, a[k]) + t * np.interp(mass, m_b, b[k]) for k in ("mg", "bp_g", "g_rp", "colour")}
     return MsColours(mass=mass, colour=out["colour"], bp_g=out["bp_g"], g_rp=out["g_rp"], mg=out["mg"])
+
+
+@dataclass(frozen=True)
+class MsColourBank:
+    """Per-row MS colour relations: ``groups[row_group[s]]`` is row s's :class:`MsColours`."""
+
+    groups: list[MsColours]
+    row_group: NDArray[np.int64]
+
+    def for_rows(self, rows: NDArray[np.int64]) -> list[tuple[MsColours, NDArray[np.int64]]]:
+        """(MsColours, positions in ``rows``) for every group present among ``rows``."""
+        g = self.row_group[rows]
+        return [(self.groups[k], np.flatnonzero(g == k)) for k in np.unique(g)]
+
+
+def ms_colour_bank(
+    grid: im.NativeGrid,
+    feh: ArrayLike,
+    log_age: ArrayLike,
+    cfg: CompanionColourConfig,
+) -> MsColourBank:
+    """Group rows by (rounded ⟨[Fe/H]⟩, nearest native age) and build one MS relation per group."""
+    fe = np.asarray(feh, float)
+    la = np.asarray(log_age, float)
+    if cfg.mode == "fiducial_ms":
+        return MsColourBank(groups=[ms_colours(grid, cfg.fiducial_feh_dex, cfg.fiducial_log_age)],
+                            row_group=np.zeros(fe.size, np.int64))
+    ok = np.isfinite(fe) & np.isfinite(la)
+    fe_r = np.where(ok, np.round(np.clip(fe, grid.feh[0], grid.feh[-1]) / cfg.feh_step_dex) * cfg.feh_step_dex,
+                    cfg.fiducial_feh_dex)
+    ai = np.where(ok, np.abs(grid.log_age[None, :] - np.where(ok, la, 0.0)[:, None]).argmin(axis=1),
+                  int(np.abs(grid.log_age - cfg.fiducial_log_age).argmin()))
+    keys = np.round(fe_r, 6) * 1000.0 + ai
+    uniq, inv = np.unique(keys, return_inverse=True)
+    groups = []
+    for k in uniq:
+        j = int(np.flatnonzero(keys == k)[0])
+        groups.append(ms_colours(grid, float(fe_r[j]), float(grid.log_age[ai[j]])))
+    return MsColourBank(groups=groups, row_group=inv.astype(np.int64))
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +440,7 @@ def log_primary_likelihood(
     if dens is None or ms is None:
         raise ValueError("mist_density_ridge_anchored needs the SingleStarDensity and MS colours")
     sm = np.sqrt(np.asarray(sigma_mu, float) ** 2 + cfg.single_star_density.mag_floor_mag**2)
-    jac = colour_jacobian(colour1, x_bp, x_rp, ms)
+    jac = colour_jacobian(colour1, x_bp, x_rp, ms) if cfg.single_star_density.colour_jacobian else 1.0
     with np.errstate(divide="ignore"):
         return dens.log_density(colour1, mg1, sm) - np.log(np.maximum(jac, 1e-6))
 
@@ -457,6 +512,56 @@ def build_qf_grid(target: MdS17TargetConfig, grid: QFGridConfig) -> QFGrid:
     )
 
 
+@dataclass(frozen=True)
+class QGrid:
+    """MP-Q40 form of the companion grid: ``lam[i, a]`` companions per primary of mass
+    ``10**log_m1[i]`` with log q in bin ``a``, summed over P; the f distribution is applied per
+    row as N(log10 f_MIST(M1, q M1; row isochrone), σ_f) with Gauss–Hermite ``nodes`` and
+    normalized ``weights``."""
+
+    log_m1: FloatArray
+    log_q: FloatArray
+    lam: FloatArray
+    f_lum: FloatArray
+    sigma_f_dex: float
+    nodes: FloatArray
+    weights: FloatArray
+
+    def interpolate(self, m1_msun: ArrayLike) -> tuple[FloatArray, FloatArray]:
+        x = np.clip(np.log10(np.asarray(m1_msun, float)), self.log_m1[0], self.log_m1[-1])
+        j = np.clip(np.searchsorted(self.log_m1, x, side="right") - 1, 0, self.log_m1.size - 2)
+        t = (x - self.log_m1[j]) / (self.log_m1[j + 1] - self.log_m1[j])
+        lam = (1.0 - t)[..., None] * self.lam[j] + t[..., None] * self.lam[j + 1]
+        return lam, (1.0 - t) * self.f_lum[j] + t * self.f_lum[j + 1]
+
+
+def build_q_grid(target: MdS17TargetConfig, grid: QFGridConfig) -> QGrid:
+    """λ_q(M1) by midpoint quadrature in (log q, log P) (P summed), for the MP-Q40 MIST relation.
+
+    Every q cell of MdS17's 0.1–1 enters (the MIST relation is defined over the whole MS,
+    clamped at its low-mass end), so ``F_lum`` can exceed :func:`build_qf_grid`'s, which drops
+    companions outside the Janssens mass range."""
+    table = mds.load_mds17_table(target.table_path)
+    plo, phi = table.log_p_range
+    lq_edges = _log_q_edges(table, grid.n_log_q_fine)
+    lp_edges = np.linspace(plo, phi, grid.n_log_p + 1)
+    lq = 0.5 * (lq_edges[1:] + lq_edges[:-1])
+    lp = 0.5 * (lp_edges[1:] + lp_edges[:-1])
+    LQ, LP = np.meshgrid(lq, lp, indexing="ij")
+    cell = np.outer(np.diff(lq_edges), np.diff(lp_edges))
+    log_m1 = np.linspace(grid.log_m1_min, grid.log_m1_max, grid.n_m1)
+    q_out = np.linspace(lq_edges[0], lq_edges[-1], grid.n_log_q_bins + 1)
+    qb = np.clip(np.searchsorted(q_out, lq, side="right") - 1, 0, grid.n_log_q_bins - 1)
+    lam = np.zeros((grid.n_m1, grid.n_log_q_bins))
+    for i, lm1 in enumerate(log_m1):
+        dens = (mds17_luminous_m2_p_intensity(10.0**lm1, LQ, LP, target) * cell).sum(axis=1)
+        ok = np.isfinite(dens) & (dens > 0)
+        lam[i] = np.bincount(qb[ok], weights=dens[ok], minlength=grid.n_log_q_bins)
+    nodes, hw = np.polynomial.hermite_e.hermegauss(grid.n_hermite)
+    return QGrid(log_m1=log_m1, log_q=0.5 * (q_out[1:] + q_out[:-1]), lam=lam, f_lum=lam.sum(axis=1),
+                 sigma_f_dex=float(target.flux_sigma_dex), nodes=nodes, weights=hw / hw.sum())
+
+
 # ---------------------------------------------------------------------------
 # Rows, Z_s, log W
 # ---------------------------------------------------------------------------
@@ -519,7 +624,7 @@ def cmd_rows(
 def _row_log_terms(
     rows: CmdRows,
     idx: NDArray[np.int64],
-    qf: QFGrid,
+    qf: QFGrid | QGrid,
     ridge: RidgeTables,
     ms: MsColours,
     cfg: CmdMalmquistConfig,
@@ -533,11 +638,19 @@ def _row_log_terms(
     for a in range(0, idx.size, chunk):
         ii = idx[a:a + chunk]
         c, m, smu, k, m1 = rows.colour0[ii], rows.mg0[ii], rows.sigma_mu[ii], rows.k_ag_over_ebprp[ii], rows.m1_msun[ii]
-        lam, f_lum = qf.interpolate(m1)  # (n, nq, nf)
+        lam, f_lum = qf.interpolate(m1)  # (n, nq, nf) or (n, nq) for QGrid
         l0 = log_primary_likelihood(c, m, smu, ridge, cfg, k_ag_over_ebprp=k, dens=dens, ms=ms)
-        shape = (ii.size, q.size, qf.log_f.size)
-        m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
-        lf = np.broadcast_to(qf.log_f[None, None, :], shape)
+        if isinstance(qf, QGrid):  # MP-Q40: f about the coeval MIST relation, per row
+            nf = qf.nodes.size
+            shape = (ii.size, q.size, nf)
+            m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
+            rel = ms.log10_flux_ratio(m1[:, None], m1[:, None] * q[None, :])
+            lf = rel[:, :, None] + qf.sigma_f_dex * qf.nodes[None, None, :]
+            lam = lam[:, :, None] * qf.weights[None, None, :]
+        else:
+            shape = (ii.size, q.size, qf.log_f.size)
+            m2 = np.broadcast_to((m1[:, None] * q[None, :])[:, :, None], shape)
+            lf = np.broadcast_to(qf.log_f[None, None, :], shape)
         c1, mg1, ok, xbp, xrp = subtract_companion_full(
             np.broadcast_to(c[:, None, None], shape), np.broadcast_to(m[:, None, None], shape), lf, m2, ms
         )
@@ -565,9 +678,9 @@ class RowNormalization:
 
 def row_normalization(
     rows: CmdRows,
-    qf: QFGrid,
+    qf: QFGrid | QGrid,
     ridge: RidgeTables,
-    ms: MsColours,
+    ms: MsColours | MsColourBank,
     cfg: CmdMalmquistConfig,
     *,
     chunk: int = 400,
@@ -578,10 +691,12 @@ def row_normalization(
     log_z = np.full(n, np.nan)
     lps = np.full(n, np.nan)
     idx = np.flatnonzero(~rows.unit_weight)
-    if idx.size:
-        ls, lz = _row_log_terms(rows, idx, qf, ridge, ms, cfg, chunk, dens)
-        log_z[idx] = lz
-        lps[idx] = ls - lz
+    bank = ms if isinstance(ms, MsColourBank) else MsColourBank(groups=[ms], row_group=np.zeros(n, np.int64))
+    for msg, pos in bank.for_rows(idx):
+        sub = idx[pos]
+        ls, lz = _row_log_terms(rows, sub, qf, ridge, msg, cfg, chunk, dens)
+        log_z[sub] = lz
+        lps[sub] = ls - lz
     return RowNormalization(log_z=log_z, log_p_single=lps)
 
 
@@ -590,7 +705,7 @@ def log_weight_for_draws(
     rows: CmdRows,
     norm: RowNormalization,
     ridge: RidgeTables,
-    ms: MsColours,
+    ms: MsColours | MsColourBank,
     cfg: CmdMalmquistConfig,
     *,
     dens: SingleStarDensity | None = None,
@@ -607,13 +722,17 @@ def log_weight_for_draws(
     out = np.zeros(r.size)
     w = ~rows.unit_weight[r]
     if w.any():
-        rr = r[w]
-        c1, mg1, ok, xbp, xrp = subtract_companion_full(rows.colour0[rr], rows.mg0[rr], lf[w], m2[w], ms)
-        ll = log_primary_likelihood(
-            c1, mg1, rows.sigma_mu[rr], ridge, cfg, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr],
-            dens=dens, x_bp=xbp, x_rp=xrp, ms=ms,
-        )
-        out[w] = np.where(ok, ll, -np.inf) - norm.log_z[rr]
+        wi = np.flatnonzero(w)
+        bank = ms if isinstance(ms, MsColourBank) else MsColourBank(groups=[ms], row_group=np.zeros(rows.colour0.size, np.int64))
+        for msg, pos in bank.for_rows(r[wi]):
+            di = wi[pos]
+            rr = r[di]
+            c1, mg1, ok, xbp, xrp = subtract_companion_full(rows.colour0[rr], rows.mg0[rr], lf[di], m2[di], msg)
+            ll = log_primary_likelihood(
+                c1, mg1, rows.sigma_mu[rr], ridge, cfg, k_ag_over_ebprp=rows.k_ag_over_ebprp[rr],
+                dens=dens, x_bp=xbp, x_rp=xrp, ms=msg,
+            )
+            out[di] = np.where(ok, ll, -np.inf) - norm.log_z[rr]
     return out
 
 

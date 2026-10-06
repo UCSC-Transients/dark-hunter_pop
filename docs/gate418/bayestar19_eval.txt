@@ -1,0 +1,30 @@
+#418 MP-Q34: Bayestar19 vs Combined19 (evaluation only; the default map is unchanged)
+
+=== parent (Bailer-Jones distances): 214666 rows ===
+coverage: dec > -30 0.598; Bayestar finite 0.611; converged & reliable_dist 0.544
+E_Bayestar / E_Combined19 (E_C19 > 0.01): 16/50/84% = [0.738, 0.884, 1.003]
+Bayestar sigma(E): sample sd median 0.009; with distance term 0.013; sigma/E median (E > 0.05) 0.076
+  d 0-0.5 kpc: N=4514 ratio median 0.825; sigma/E median 0.125
+  d 0.5-1 kpc: N=13026 ratio median 0.884; sigma/E median 0.083
+  d 1-2 kpc: N=32353 ratio median 0.884; sigma/E median 0.061
+  d 2-5 kpc: N=65586 ratio median 0.884; sigma/E median 0.082
+  d 5-50 kpc: N=8501 ratio median 0.884; sigma/E median 0.105
+  on Bayestar-covered rows, Combined19 (eps=0.10): off-grid 0.0346; C0 < 0.35 0.0416; no_cmd 0.0281
+  on Bayestar-covered rows, Bayestar19 (per-star sigma): off-grid 0.0341; C0 < 0.35 0.0206; no_cmd 0.0257
+  Combined19 off-grid rows rescued by Bayestar: 0.379 of 4531
+  Combined19 blue rows (C0 < 0.35) that Bayestar puts at C0 >= 0.35: 0.608 of 5450
+  M1 Bayestar / Combined19 (both ok): median 0.987, 16/84 [0.914, 1.001]
+
+=== real Orbital + AstroSpectroSB1 (inverse NSS parallax): 168065 rows ===
+coverage: dec > -30 0.633; Bayestar finite 0.644; converged & reliable_dist 0.414
+E_Bayestar / E_Combined19 (E_C19 > 0.01): 16/50/84% = [0.663, 0.884, 1.01]
+Bayestar sigma(E): sample sd median 0.009; with distance term 0.009; sigma/E median (E > 0.05) 0.085
+  d 0-0.5 kpc: N=27581 ratio median 0.797; sigma/E median 0.131
+  d 0.5-1 kpc: N=35510 ratio median 0.884; sigma/E median 0.085
+  d 1-2 kpc: N=16498 ratio median 0.884; sigma/E median 0.058
+  d 2-5 kpc: N=1078 ratio median 0.884; sigma/E median 0.043
+  on Bayestar-covered rows, Combined19 (eps=0.10): off-grid 0.0683; C0 < 0.35 0.0435; no_cmd 0.0001
+  on Bayestar-covered rows, Bayestar19 (per-star sigma): off-grid 0.0617; C0 < 0.35 0.0313; no_cmd 0.0000
+  Combined19 off-grid rows rescued by Bayestar: 0.200 of 7384
+  Combined19 blue rows (C0 < 0.35) that Bayestar puts at C0 >= 0.35: 0.373 of 4709
+  M1 Bayestar / Combined19 (both ok): median 0.997, 16/84 [0.966, 1.001]

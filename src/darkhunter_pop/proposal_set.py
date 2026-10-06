@@ -183,6 +183,34 @@ class FluxProposalConfig(_Strict):
     relation_sigma_dex: float = Field(..., gt=0.0)
     log_f_min: float
     log_f_max: float
+    #: MP-Q28d (decided 2026-10-04): centre the relation component of CMD-evolved rows on the
+    #: §10.4 evolved relation ``giants.evolved_log10_flux_ratio(M2, M_G0,sys)``. Generation-time
+    #: (coverage); the default keeps older artifacts' densities unchanged.
+    evolved_rows_centre: Literal["dwarf_relation", "evolved_relation"] = "dwarf_relation"
+
+
+def proposal_relation_centre(
+    m1_msun: ArrayLike,
+    m2_msun: ArrayLike,
+    rows: NDArray[np.int64],
+    parent: Any,
+    cfg: FluxProposalConfig,
+) -> FloatArray:
+    """log10 f centre of the flux proposal's relation component per draw (MP-Q28d).
+
+    The dwarf relation, except on CMD-evolved rows of an isochrone-mode parent when
+    ``cfg.evolved_rows_centre == "evolved_relation"``; NaN where neither is defined (the
+    relation component then moves to the uniform one, in the sampler and the density alike).
+    """
+    rel = relation_log10_flux_ratio(m1_msun, m2_msun)
+    if cfg.evolved_rows_centre == "evolved_relation" and getattr(parent, "cmd", None) is not None:
+        from darkhunter_pop.giants import evolved_log10_flux_ratio
+
+        evo = np.asarray(parent.is_giant, bool)[rows]
+        mg0 = np.asarray(parent.cmd["mg0"], float)[rows]
+        rel_e = evolved_log10_flux_ratio(m2_msun, np.where(evo, mg0, 0.0))
+        rel = np.where(evo, rel_e, rel)
+    return np.asarray(rel, float)
 
 
 class PeriodProposalConfig(_Strict):
@@ -289,7 +317,12 @@ class ProposalConfig(_Strict):
     # MP-Q5; #418 (Ryan 2026-10-03, spec §0.3/§11): ``isochrone_mist_drop_unresolved`` assigns
     # the MIST isochrone posterior point M1 (MP-Q35) from the dereddened CMD and replaces the
     # TAG10-log g giant flag with the §10.2 CMD evolved flag (shared ridge, MP-Q28a n_sigma).
-    m1: Literal["tag10_point_drop_unresolved", "isochrone_mist_drop_unresolved"]  # MP-Q5
+    # ``isochrone_posterior_draw_deblended`` (MP-Q35 + MP-Q36, decided 2026-10-04, spec §11.9):
+    # the parent as ``isochrone_mist_drop_unresolved``; then, per draw, one posterior draw of
+    # (age, [Fe/H], M̂1) and the coeval deblended truth M1 (:func:`apply_posterior_deblending`).
+    m1: Literal[
+        "tag10_point_drop_unresolved", "isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended"
+    ]  # MP-Q5
     giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g); TAG10 mode only
     light_split: Literal["observed_g_is_system_total"]  # MP-Q6
     # #400 E1 (decided 2026-10-03): ``dr3_config`` wraps every cascade call in the epoch
@@ -308,7 +341,11 @@ class MdS17TargetConfig(_Strict):
     provisional_low_mass_anchor_msun: float = Field(..., gt=0.0)
     provisional_low_mass_zero_msun: float = Field(..., gt=0.0)
     provisional_multiplicity: Literal["poisson_intensity"]  # MP-Q9
-    mass_luminosity: Literal["janssens2022"]  # MP-Q13, decided (spec §0.1)
+    # MP-Q13 (decided 2026-10-02): janssens2022. MP-Q40 (decided 2026-10-04, spec §0.4, §11.9):
+    # ``mist_coeval`` takes the main-sequence companion's G-flux ratio from the same coeval
+    # MIST isochrone as the primary, f = 10^{-0.4 (M_G(M2) - M_G(M1))}, with the same
+    # ``flux_sigma_dex`` scatter; callers pass it per draw (:func:`mist_relation_for_draws`).
+    mass_luminosity: Literal["janssens2022", "mist_coeval"]
     flux_sigma_dex: float = Field(..., gt=0.0)  # MP-Q13, decided (spec §0.1)
     provisional_compact_mixture: Literal["none"]  # MP-Q17
 
@@ -556,7 +593,7 @@ def load_parent_snapshot(
         raise ValueError(f"parent snapshot checksum mismatch: {got} != {meta['parent_h5_sha256']}")
     with h5py.File(h5, "r") as handle:
         cols = {name: handle[name][()] for name in handle.keys()}
-    iso_mode = proposal.m1 == "isochrone_mist_drop_unresolved"
+    iso_mode = proposal.m1 in ("isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended")
     cmd: dict[str, FloatArray] | None = None
     iso: dict[str, NDArray[Any]] | None = None
     if iso_mode:
@@ -569,7 +606,9 @@ def load_parent_snapshot(
         src = np.where(np.asarray(iso["ok"], bool), "MIST", "none")
         logg = np.asarray(iso["log_g_mean"], float)
     else:
-        mc_blob = json.dumps(config.mass_calibration.model_dump(mode="json"), sort_keys=True)
+        mc_dump = config.mass_calibration.model_dump(mode="json")
+        mc_dump["method"] = "TAG10"  # TAG10 by name (#425): the cache does not move with the bulk switch
+        mc_blob = json.dumps(mc_dump, sort_keys=True)
         mc_key = hashlib.sha256(mc_blob.encode()).hexdigest()[:10]
         cache = d / f"m1_tag10_{mc_key}.npz"
         if m1_cache and cache.exists() and "atmosphere_logg" in np.load(cache).files:
@@ -687,13 +726,20 @@ def log_q_log_m2(log_m2: ArrayLike, log_m1: ArrayLike, cfg: M2ProposalConfig) ->
 
 
 def log_q_flux(
-    log10_f: ArrayLike, is_dark: ArrayLike, m1_msun: ArrayLike, m2_msun: ArrayLike, cfg: FluxProposalConfig
+    log10_f: ArrayLike,
+    is_dark: ArrayLike,
+    m1_msun: ArrayLike,
+    m2_msun: ArrayLike,
+    cfg: FluxProposalConfig,
+    *,
+    centre: ArrayLike | None = None,
 ) -> FloatArray:
     """log proposal for the flux ratio: log(ρ_dark) for dark draws, else log of the
-    luminous mixture density per dex of f times (1 - ρ_dark)."""
+    luminous mixture density per dex of f times (1 - ρ_dark). ``centre`` overrides the
+    relation centre (:func:`proposal_relation_centre`, MP-Q28d)."""
     lf = np.asarray(log10_f, float)
     dark = np.asarray(is_dark, bool)
-    rel = relation_log10_flux_ratio(m1_msun, m2_msun)
+    rel = relation_log10_flux_ratio(m1_msun, m2_msun) if centre is None else np.asarray(centre, float)
     sig = cfg.relation_sigma_dex
     with np.errstate(invalid="ignore"):
         gauss = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
@@ -818,7 +864,7 @@ def sample_proposal(
     # Flux ratio
     fc = cfg.flux
     dark = rng.uniform(size=n) < fc.dark_fraction
-    rel = relation_log10_flux_ratio(m1, m2)
+    rel = proposal_relation_centre(m1, m2, row, parent, fc)
     use_rel = (rng.uniform(size=n) < fc.relation_weight) & np.isfinite(rel)
     log_f = np.where(
         use_rel,
@@ -852,7 +898,7 @@ def sample_proposal(
     log_q = {
         "log_q_parent": np.log(qs[row]),
         "log_q_log_m2": log_q_log_m2(log_m2, log_m1, m2c),
-        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc),
+        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc, centre=rel),
         "log_q_log_p": log_q_log_p(log_p, pc),
         "log_q_ecc": log_q_ecc(ecc, period, ec),
     }
@@ -899,14 +945,17 @@ def log_q_total_for(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot, c
     """
     qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent)
     row = np.asarray(truth["parent_row"], dtype=np.int64)
-    m1 = np.asarray(truth["m1_msun"], float)
-    m2 = np.asarray(truth["m2_msun"], float)
+    # Deblended draws (spec §11.9) keep the proposal-space masses separately: q was proposed
+    # relative to the row's M̂1, so the density is evaluated there, not at the truth M1.
+    m1 = np.asarray(truth.get("m1_row_msun", truth["m1_msun"]), float)
+    m2 = np.asarray(truth.get("m2_proposal_msun", truth["m2_msun"]), float)
     with np.errstate(divide="ignore"):
         lqs = np.log(qs[row])
     return (
         lqs
         + log_q_log_m2(np.log10(m2), np.log10(m1), cfg.m2)
-        + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux)
+        + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux,
+                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux))
         + log_q_log_p(np.log10(np.asarray(truth["period_days"], float)), cfg.period)
         + log_q_ecc(truth["eccentricity"], truth["period_days"], cfg.eccentricity)
     )
@@ -1053,6 +1102,7 @@ def mds17_luminous_log_intensity(
     target: MdS17TargetConfig,
     *,
     evolved_mg0_system: ArrayLike | None = None,
+    relation_log10_f: ArrayLike | None = None,
 ) -> FloatArray:
     """log λ(x | θ_MdS17) in the proposal's measure (per dex M2, per dex P, per unit e or
     the circular point mass, per dex f), for luminous MS companions only.
@@ -1092,7 +1142,12 @@ def mds17_luminous_log_intensity(
         (e == 0.0).astype(float),
         mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
     )
-    rel = relation_log10_flux_ratio(m1, m2)
+    if target.mass_luminosity == "mist_coeval":
+        if relation_log10_f is None:
+            raise ValueError("mass_luminosity mist_coeval: pass relation_log10_f (mist_relation_for_draws)")
+        rel = np.asarray(relation_log10_f, float)
+    else:
+        rel = relation_log10_flux_ratio(m1, m2)
     if evolved_mg0_system is not None:
         from darkhunter_pop.giants import evolved_log10_flux_ratio
 
@@ -1381,6 +1436,8 @@ def combined19_a_g(parent: ParentSnapshot, cfg: ParentExtinctionConfig, *, cache
     ok = np.isfinite(d_kpc) & (d_kpc > 0)
     a_g = np.full(d_kpc.size, np.nan)
     if ok.any():
+        # Raw (SFD-scale) mwdust value on purpose: the legacy 1-D weight's A_G = 2.8 x Combined19
+        # follows El-Badry et al. (2024) §3 (#418, spec §0.6 keeps it unchanged).
         dust = mwdust.Combined19()
         l_deg = np.asarray(parent.columns["l"], float)[ok]
         b_deg = np.asarray(parent.columns["b"], float)[ok]
@@ -1541,7 +1598,10 @@ def malmquist_cmd_log_weight(
     ))
     grid = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
     cc = cmcfg.companion_colour
-    ms = mc.ms_colours(grid, cc.fiducial_feh_dex, cc.fiducial_log_age)
+    iso = parent.isochrone or {}
+    ms = mc.ms_colour_bank(  # MP-Q37 (decided): coeval, the row's own isochrone
+        grid, np.asarray(iso.get("feh_mean", np.full(parent.n_rows, np.nan)), float),
+        np.asarray(iso.get("log_age_mean", np.full(parent.n_rows, np.nan)), float), cc)
     rows = mc.cmd_rows(
         parent.cmd["colour0"], parent.cmd["mg0"], parent.cmd["sigma_mu"], parent.m1_msun, ridge,
         evolved=parent.is_giant, a_g=parent.cmd["a_g"], e_bp_rp=parent.cmd["e_bp_rp"],
@@ -1553,7 +1613,7 @@ def malmquist_cmd_log_weight(
         colour0=rows.colour0, mg0=rows.mg0, sigma_mu=rows.sigma_mu, k_ag_over_ebprp=rows.k_ag_over_ebprp,
         m1_msun=rows.m1_msun, unit_weight=rows.unit_weight | ~used, unit_reason=rows.unit_reason,
     )
-    qf = mc.build_qf_grid(target, cmcfg.grid)
+    qf = mc.build_q_grid(target, cmcfg.grid) if target.mass_luminosity == "mist_coeval" else mc.build_qf_grid(target, cmcfg.grid)
     dens = None
     if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
         model = im.build_model(config.isochrone_mass, config.paths.data_root)
@@ -1565,4 +1625,123 @@ def malmquist_cmd_log_weight(
     reasons = rows.unit_reason[r]
     counts = {str(k): int(v) for k, v in zip(*np.unique(reasons, return_counts=True))}
     return lw, {"draws": int(r.size), "by_row_reason": counts}
+
+
+#: ``SeedSequence`` spawn-key slot of the posterior-draw / deblending stream (after the
+#: proposal's own slot 0); disjoint from the gaiamock seeds of the same generation.
+POSTERIOR_DRAW_RNG_SLOT: int = 2
+
+
+def apply_posterior_deblending(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    config: PipelineConfig,
+    cfg: ProposalConfig,
+    *,
+    sampler: Any = None,
+    native: Any = None,
+) -> dict[str, NDArray[Any]]:
+    """MP-Q35 + MP-Q36 (decided 2026-10-04; spec §11.9): per draw, one posterior draw of the
+    primary's (age, [Fe/H], M̂1), and the deblended truth M1 on that coeval isochrone.
+
+    The proposal's q (= m2 / row M̂1) and f are kept. The truth M1 minimizes χ² of the combined
+    (primary + coeval MS companion at q M1 with G-flux ratio f) G and BP−RP against the row's
+    dereddened system point (:func:`darkhunter_pop.isochrone_mass.deblend_primary_mass`), on the
+    posterior draw's own branch (main sequence or evolved); then
+    M2 = q M1. Columns added: ``m1_hat_msun`` (the posterior draw), ``m1_row_msun`` and
+    ``m2_proposal_msun`` (proposal space, for :func:`log_q_total_for`), ``iso_feh``,
+    ``iso_log_age``, ``deblend_chi2``; ``m1_msun`` / ``m2_msun`` become the deblended truth.
+    Draws whose row has no posterior keep their masses (``deblend_chi2`` NaN). Deterministic:
+    ``SeedSequence(base_seed, spawn_key=(PROPOSAL_RNG_STREAM_BASE + generation,
+    POSTERIOR_DRAW_RNG_SLOT))``. Interpolation only.
+    """
+    from darkhunter_pop import isochrone_mass as im
+
+    if parent.cmd is None:
+        raise ValueError("posterior deblending needs an isochrone-mode parent (parent.cmd)")
+    icfg = config.isochrone_mass
+    if native is None:
+        native = im.load_native_grid(icfg, config.paths.data_root)
+    if sampler is None:
+        sampler = im.PosteriorSampler.build(im.prior_points(native, icfg), icfg.cmd_map)
+    stream = PROPOSAL_RNG_STREAM_BASE + cfg.generation
+    rng = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, POSTERIOR_DRAW_RNG_SLOT)))
+    out = {k: np.asarray(v).copy() for k, v in truth.items()}
+    r = np.asarray(truth["parent_row"], np.int64)
+    c0 = np.asarray(parent.cmd["colour0"], float)[r]
+    g0 = np.asarray(parent.cmd["mg0"], float)[r]
+    ebv = np.asarray(parent.cmd.get("ebv", np.zeros(parent.n_rows)), float)[r]
+    a_g = np.asarray(parent.cmd.get("a_g", np.zeros(parent.n_rows)), float)[r]
+    ebr = np.asarray(parent.cmd.get("e_bp_rp", np.zeros(parent.n_rows)), float)[r]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ka = np.where(ebv > 0, a_g / ebv, 0.0)
+        ke = np.where(ebv > 0, ebr / ebv, 0.0)
+    sc, sm = im.likelihood_sigmas(np.asarray(parent.cmd["sigma_mu"], float)[r], ebv, ka, ke, icfg.likelihood)
+    draw = sampler.sample(c0, g0, sc, sm, rng, kernel_n_sigma=icfg.likelihood.kernel_n_sigma)
+    m1_row = np.asarray(truth["m1_msun"], float)
+    m2_prop = np.asarray(truth["m2_msun"], float)
+    q = m2_prop / m1_row
+    lf = np.where(np.asarray(truth["is_dark"], bool), -np.inf, np.asarray(truth["log10_flux_ratio"], float))
+    m1_true = m1_row.copy()
+    chi2 = np.full(r.size, np.nan)
+    ok = np.isfinite(draw["m1"]) & np.isfinite(c0) & np.isfinite(g0)
+    # Draws outside the target's support (q > 1, or a companion brighter than its primary,
+    # f > 1) have zero target weight; they keep the row's M̂1 and are not deblended.
+    ok &= (q <= 1.0) & ~(np.isfinite(lf) & (lf > 0.0))
+    key = np.round(draw["feh"], 4) * 1e4 + np.round(draw["log_age"], 4)
+    for k in np.unique(key[ok]):
+        sel = np.flatnonzero(ok & (key == k))
+        j = sel[0]
+        iso = im.isochrone_at(native, float(draw["feh"][j]), float(draw["log_age"][j]))
+        if iso["star_mass"].size < 2:
+            continue
+        for a in range(0, sel.size, 2000):
+            ss = sel[a:a + 2000]
+            mm, cc = im.deblend_primary_mass(iso, c0[ss], g0[ss], sc[ss], sm[ss], q[ss], lf[ss],
+                                             evolved=draw["phase"][ss] >= 1.5)
+            m1_true[ss] = mm
+            chi2[ss] = cc
+    out["m1_hat_msun"] = draw["m1"]
+    out["iso_feh"] = draw["feh"]
+    out["iso_log_age"] = draw["log_age"]
+    out["deblend_chi2"] = chi2
+    out["m1_row_msun"] = m1_row
+    out["m2_proposal_msun"] = m2_prop
+    out["m1_msun"] = m1_true
+    out["m2_msun"] = q * m1_true
+    return out
+
+
+def mist_relation_for_draws(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    config: PipelineConfig,
+    *,
+    native: Any = None,
+    feh_step_dex: float = 0.05,
+) -> FloatArray:
+    """MP-Q40: log10 f = −0.4 [M_G(M2) − M_G(M1)] on the coeval MIST main sequence, per draw.
+
+    The isochrone is the draw's own posterior draw (``iso_feh`` / ``iso_log_age``, after
+    :func:`apply_posterior_deblending`) or else the row's posterior means; [Fe/H] is rounded
+    to ``feh_step_dex`` and linear between MIST files, the age is the nearest native one
+    (:func:`darkhunter_pop.malmquist_cmd.ms_colour_bank`). Masses are clamped to the MS mass
+    range of that isochrone.
+    """
+    from darkhunter_pop import isochrone_mass as im
+    from darkhunter_pop import malmquist_cmd as mc
+
+    if native is None:
+        native = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
+    r = np.asarray(truth["parent_row"], np.int64)
+    iso = parent.isochrone or {}
+    feh = np.asarray(truth.get("iso_feh", np.asarray(iso.get("feh_mean", np.full(parent.n_rows, np.nan)), float)[r]), float)
+    age = np.asarray(truth.get("iso_log_age", np.asarray(iso.get("log_age_mean", np.full(parent.n_rows, np.nan)), float)[r]), float)
+    bank = mc.ms_colour_bank(native, feh, age, mc.CompanionColourConfig(feh_step_dex=feh_step_dex))
+    m1 = np.asarray(truth["m1_msun"], float)
+    m2 = np.asarray(truth["m2_msun"], float)
+    out = np.full(r.size, np.nan)
+    for ms, pos in bank.for_rows(np.arange(r.size)):
+        out[pos] = ms.log10_flux_ratio(m1[pos], m2[pos])
+    return out
 

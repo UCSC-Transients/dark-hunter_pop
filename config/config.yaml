@@ -15,7 +15,9 @@ gaiamock:
   mod_sha256: null
   git_commit: null
 mass_calibration:
-  method: TAG10
+  # Ryan 2026-10-04 (#418): MIST isochrone M1 in the pipeline (docs/MOCK_POPULATION_SPEC.md §0.4, §11.9).
+  # TAG10 remains available (method: TAG10); literature samples keep their own M1.
+  method: MIST_isochrone
   sigma_logM: 0.027
   sigma_logR: 0.014
   santos_correction: true
@@ -296,6 +298,15 @@ sample_selection:
   # the Bayestar19 documentation states an R_V other than 3.1 for these steps.
   dust_maps:
     ebv_cache_dir: dust_maps/ebv_cache
+    # #418 MP-Q34: dustmaps-package data dir for Bayestar19 posterior samples (host-specific;
+    # also in host_profiles/laptop.yaml). Evaluation only; the CMD still uses Combined19.
+    dustmaps_data_dir: dust_maps/dustmaps_data
+    # #418 (Ryan 2026-10-06; MOCK_POPULATION_SPEC §0.6): mwdust.Combined19 returns E(B-V) on the SFD
+    # scale = Bayestar19's native unit in the north (measured Bayestar19 / Combined19 = 0.884, the #295
+    # factor). Every pipeline consumer of Combined19 (dereddened CMD -> isochrone M1, giant classifier,
+    # 2-D Malmquist weight) multiplies by this. maps.green2019 below is converted by its own native_to_ebv.
+    # NOT applied to the El-Badry 2024 forward-model recipe (A_G = 2.8 x Combined19, the paper's own).
+    combined19_native_to_ebv: 0.884
     # Total-to-selective ratio A0 / E(B-V). Gaia convention "A_0 = 3.1 E(B-V)"
     # (Gaia Collaboration, Babusiaux et al. 2018, A&A 616, A10, §2); Lallement
     # et al. 2019 (App. A) also assume R = 3.1 for their A0 scale. Used for every
@@ -952,18 +963,44 @@ dr3:
     # and the ramp make the random-star visibility-period excess vanish at G > 15
     # (spec §4.3); tau_day from the epoch-time gap lengths (spec §4.3).
     clustered_loss:
-      enabled: true
+      enabled: false  # superseded by visibility_period_loss (#432 V0, Ryan 2026-10-06)
       g_start: 14.5
       g_full: 16.5
       frac_max: 0.5
       tau_day: 2.0
+    # #432 (2026-10-04): whole-visibility-period loss with a degraded-star mixture, fitted to
+    # the DR3 visibility-period DISTRIBUTION (96,114 random stars, all solution types; 16,930
+    # NSS truncated at 12): multinomial likelihood of the N_vis histogram in G x |beta| x |b|
+    # cells, conditional on gaiamock's own grid GOST (what the mock sees)
+    # (scripts/calibrate_vp_tail_432.py --likelihood cell; spec §8.10). Replaces clustered_loss.
+    # pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b exp(-|b|/b_scale_deg)),
+    # q_bad = expit(e0), q0 = expit(d0 + d1 x), x = (clip(G) - g_ref) / g_scale.
+    # ON (Ryan 2026-10-06, #432 V2 then V0): refit on 5/6-parameter stars (the mock parent has
+    # parallax > 0.2 mas). Tail < 12: mock 1.14% vs DR3 5/6-param 0.76% (production 0.12%);
+    # NSS-set mean N_vis -0.17 (production +0.06), consistent with re-injecting N-selected stars.
+    visibility_period_loss:
+      enabled: true
+      g_clip: [6.0, 19.0]
+      g_ref: 14.0
+      g_scale: 4.0
+      c0: -5.3455
+      c1: 0.9257
+      c2: 0.9149
+      c_beta: -1.7970
+      c_b: 2.5814
+      e0: -1.2107
+      d0: -4.2201
+      d1: 0.6912
+      visibility_gap_day: 4.0
+      b_feature: exp
+      b_scale_deg: 10.0
+      provenance: "#432 V2: grid-conditioned cell fit on 5/6-parameter stars, output/gate432/vp_tail_fit_gridcell_56p_G_beta_b.json"
     # #398 / #400 N2: bright-star per-CCD excess noise, r2 = median(c^2) - 1 of published
     # Orbital fits per G bin (scripts/calibrate_epoch_model_400.py noise), with RUWE
-    # renormalised by sqrt(1 + r2). NOT adopted: it matches F2 and the G < 13 sigma ratio but
-    # lowers bright NSS RUWE by 9-13% (spec §8.5, docs/gate400 "v2 validation"); Ryan's
-    # condition was that nothing else breaks. Kept calibrated so the choice is one flag.
+    # renormalised by sqrt(1 + r2) unless ruwe_u0 is enabled (then RUWE = UWE / u0).
+    # ON since 2026-10-03 as part of N2d (Ryan: "Switch it on"; spec §8.6, §8.8).
     bright_excess_noise:
-      enabled: false
+      enabled: true
       g_max: 13.0
       knots_g: [8.494034, 9.602653, 10.576412, 11.279750, 11.780147, 12.275054, 12.772286]
       knots_r2: [0.538285, 0.678118, 0.794198, 0.962945, 0.768383, 0.534535, 0.376680]
@@ -972,8 +1009,10 @@ dr3:
     # percentile of mock single-star UWE per 0.25-mag G bin (Lindegren 2018 TN LL-124),
     # mock singles run through the v2 epochs + bright_excess_noise. When enabled it
     # replaces bright_excess_noise.renormalize_ruwe. Spec §8.8.
+    # ON since 2026-10-03 (N2d, Ryan: "Switch it on"). Accepted regression: bright NSS
+    # RUWE at 12 < G < 13 is 0.91 x published (v2: 1.01); docs/gate400 "N2-u0".
     ruwe_u0:
-      enabled: false
+      enabled: true
       table: config/epoch_model/dr3_ruwe_u0_mock.csv
       table_sha256: 8731b93be639a364c16ad2ffcd48d7e26837bf6857ed5ff0e4125f8312a63269
       provenance: "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
