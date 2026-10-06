@@ -499,3 +499,36 @@ def test_gdr3apcal_reliability_cut() -> None:
     f, ok = im.calibrated_gspphot_feh(cols, np.array([30.0, 40.0, 20.0]), np.array([20.0, 30.0, 25.0]), FehLikelihoodConfig())
     assert ok.tolist() == [True, False, False]  # Teff > 6500 K and the A library are not reliable
     assert np.isfinite(f[0]) and np.isnan(f[1])
+
+
+def _tiny_native() -> im.NativeGrid:
+    feh = np.array([-0.5, 0.0])
+    lage = np.array([9.0, 10.0])
+    eep = np.array([200, 300, 400], dtype=np.int64)
+    v = np.zeros((2, 2, 3, len(im.NATIVE_QUANTITIES)), dtype=np.float32)
+    k = im.NATIVE_QUANTITIES.index
+    v[..., k("initial_mass")] = np.array([0.8, 1.0, 1.01], dtype=np.float32)
+    v[..., k("phase")] = np.array([0.0, 2.0, 3.0], dtype=np.float32)
+    v[..., k("mg")] = np.array([5.0, 3.0, 0.5], dtype=np.float32)
+    v[..., k("bp")] = np.array([1.0, 0.8, 1.2], dtype=np.float32)
+    return im.NativeGrid(feh=feh, log_age=lage, eep=eep, values=v)
+
+
+@pytest.mark.unit
+def test_age_power_and_cheb_weight_reweight_the_prior() -> None:
+    """#418 APOKASC-3 knobs: (age/1 Gyr)^gamma on the age weight, rho on core-He-burning points."""
+    grid = _tiny_native()
+    base = im.IsochroneMassConfig()
+    base = base.model_copy(update={"grid": base.grid.model_copy(update={"n_feh_substeps": 1, "n_age_substeps": 1})})
+    p0 = im.prior_points(grid, base)
+    p1 = im.prior_points(grid, base.model_copy(update={"age": base.age.model_copy(update={"provisional_age_power": 1.0})}))
+    p2 = im.prior_points(grid, base.model_copy(update={"provisional_cheb_weight": 2.0}))
+    old0, old1 = p0.log_age > 9.5, p1.log_age > 9.5
+    # gamma = 1 multiplies the 10 Gyr weights by 10 relative to the 1 Gyr ones.
+    r0 = p0.weight[old0].sum() / p0.weight[~old0].sum()
+    r1 = p1.weight[old1].sum() / p1.weight[~old1].sum()
+    assert r1 / r0 == pytest.approx(10.0, rel=1e-9)
+    ch0, ch2 = p0.values["phase"] >= 2.5, p2.values["phase"] >= 2.5
+    s0 = p0.weight[ch0].sum() / p0.weight[~ch0].sum()
+    s2 = p2.weight[ch2].sum() / p2.weight[~ch2].sum()
+    assert s2 / s0 == pytest.approx(2.0, rel=1e-9)
