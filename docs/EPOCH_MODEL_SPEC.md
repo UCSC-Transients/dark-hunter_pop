@@ -548,13 +548,46 @@ different correction to match the data." The changes:
    - Under "nothing else may get worse", `visibility_period_loss.enabled` is left **false**, and
      the E4 episodes stay on. **Adoption is Ryan's call** (option V0).
 
-### 8.11 Options added by #432 (none chosen)
+8. **V2 then V0 (Ryan, 2026-10-06): refit on 5/6-parameter stars and switch on.**
+   - Why 5/6-parameter only: the mock parent requires ϖ > 0.2 mas, so DR3's 2-parameter stars
+     can never be in it, and they carry about 60% of the tail.
+   - Refit: the same cell likelihood conditioned on the grid, restricted to the 94.6k random
+     stars with 5/6-parameter solutions plus the NSS stars
+     (`--min-params 3`; `output/gate432/vp_tail_fit_gridcell_56p_G_beta_b.json`).
+   - Single stars (20,000; `output/gate432/validation_c/`), fraction with < 12 visibility
+     periods against DR3's 5/6-parameter stars:
+
+     | | mock | DR3 5/6-param | production |
+     |---|---|---|---|
+     | all | 1.14% | 0.76% | 0.12% |
+     | \|β\| < 15° / 15–30° / 30–45° / > 45° | 2.79 / 1.44 / 0.17 / 0.00% | 1.87 / 0.59 / 0.29 / 0.10% | |
+     | G 18–19 | 1.66% | 1.13% | |
+     | \|b\| < 5° | 1.58% | 1.15% | |
+
+     Against all solution types the mock gives 1.16% vs DR3 1.61%. The single-star mean
+     N_vis − DR3 is −0.03 (production +0.26).
+   - #390 suite, 2 realizations (paired with production r < 2):
+     - NSS-set mean N_vis −0.17 (production +0.06).
+     - σ ratios 1.03–1.05 at G < 13 and 0.99–1.04 above (production 1.03–1.06 and 1.00–1.03).
+     - Significance 0.917 (production 0.932); RUWE 1.003 (1.004).
+     - F2 at G < 11 / 11–12 / 12–13: 8.3 / 9.3 / 5.6 (production 8.7 / 9.1 / 5.8; DR3 8.5 / 8.5 / 5.7).
+     - Acceptance 0.664 (0.673); P > 600 d capture 0.241 (0.228); 5-parameter outcomes
+       1.9% (1.9%).
+   - **Enabled.** The tail goes from 6× too light to 1.5× too heavy, and the single-star mean
+     improves.
+   - The NSS-set mean shift (−0.17, < 1% of the ~23 visibility periods) is in the direction
+     expected when re-injecting published orbits, which DR3 selected on significance ∝ √N. The
+     truncated fit itself predicts −0.10 for NSS. Everything else changes by ≤ 0.015, the noise
+     level of 2 realizations.
+   - The E4 episodes (`clustered_loss`) are off: this model replaces them.
+
+### 8.11 Options added by #432 (V2 and V0 adopted 2026-10-06)
 
 | | option | note |
 |---|---|---|
-| V0 | enable `visibility_period_loss` as calibrated (replaces E4 episodes) | tail 0.09% → 2.3% (DR3 1.6%); NSS-set mean N_vis +0.06 → −0.16; everything else within noise |
+| V0 | **ADOPTED 2026-10-06 (Ryan)**, after V2: enable `visibility_period_loss` (replaces E4 episodes) | tail 0.09% → 2.3% (DR3 1.6%); NSS-set mean N_vis +0.06 → −0.16; everything else within noise |
 | V1 | richer degraded-star loss distribution (two degraded levels or beta-distributed q) | would fix the N ≤ 5 deficit and the 9–11 overshoot; each fit costs hours on the laptop |
-| V2 | fit the visibility-period model on 5/6-parameter stars only (the NSS input pool) instead of all solution types | DR3's 2-parameter stars carry ~60% of the tail |
+| V2 | **ADOPTED 2026-10-06 (Ryan)**: fit on 5/6-parameter stars only | DR3's 2-parameter stars carry ~60% of the tail |
 
 ## References
 

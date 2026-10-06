@@ -957,7 +957,7 @@ dr3:
     # and the ramp make the random-star visibility-period excess vanish at G > 15
     # (spec §4.3); tau_day from the epoch-time gap lengths (spec §4.3).
     clustered_loss:
-      enabled: true  # superseded by visibility_period_loss once that is enabled (#432)
+      enabled: false  # superseded by visibility_period_loss (#432 V0, Ryan 2026-10-06)
       g_start: 14.5
       g_full: 16.5
       frac_max: 0.5
@@ -969,10 +969,11 @@ dr3:
     # (scripts/calibrate_vp_tail_432.py --likelihood cell; spec §8.10). Replaces clustered_loss.
     # pi = expit(c0 + c1 x + c2 x^2 + c_beta |sin beta| + c_b exp(-|b|/b_scale_deg)),
     # q_bad = expit(e0), q0 = expit(d0 + d1 x), x = (clip(G) - g_ref) / g_scale.
-    # NOT enabled pending Ryan (spec §8.10): it fixes the < 12 tail (0.09% -> 2.3% vs DR3 1.6%)
-    # but moves the NSS-set mean N_vis from +0.06 to -0.16 (docs/gate400 "v3").
+    # ON (Ryan 2026-10-06, #432 V2 then V0): refit on 5/6-parameter stars (the mock parent has
+    # parallax > 0.2 mas). Tail < 12: mock 1.14% vs DR3 5/6-param 0.76% (production 0.12%);
+    # NSS-set mean N_vis -0.17 (production +0.06), consistent with re-injecting N-selected stars.
     visibility_period_loss:
-      enabled: false
+      enabled: true
       g_clip: [6.0, 19.0]
       g_ref: 14.0
       g_scale: 4.0
