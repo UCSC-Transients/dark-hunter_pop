@@ -158,8 +158,11 @@ Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/418#issuec
   weight, and `isochrone_mass.provisional_cheb_weight` ρ, a weight on core-He-burning points. They
   are fitted on half of the APOKASC-3 giants (even KIC) to zero the median log(M̂ / M_seis) of RGB
   and RC separately, and tested on the other half (odd KIC).
-  - Result: γ = 0.5 is adopted. ρ has no measurable effect and stays 1.
-  - Held-out M̂ / M_seis: RGB 1.039 → 0.975 and RC 1.151 → 1.064.
+  - Result: γ = 0.5 is adopted. ρ has no measurable effect, so it stays 1. Over ρ = 0.4–1.6 the
+    held-out medians move by less than 0.01, and the grid's formal optimum at ρ = 1.6 wins by a
+    negligible margin at the grid edge.
+  - Held-out M̂ / M_seis at (γ, ρ) = (0.5, 1): RGB 1.039 → 0.972 and RC 1.151 → 1.065. The RC − RGB
+    offset of about 9% is not removed by ρ.
   - The residual trend with seismic mass (M̂ pulled toward about 1.2 M⊙) is what a posterior mean
     does when the CMD weakly constrains mass. A prior cannot remove it, so it is reported, not tuned.
   - DEBCat (deblended with the dynamical q) moves from 0.997 (0.043 dex) to 0.982 (0.041 dex).
