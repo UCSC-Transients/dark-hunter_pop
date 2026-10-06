@@ -123,6 +123,34 @@ Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/418#issuec
 | downloads | approved for DEBCat, APOKASC-3, the Culpan et al. (2022) hot subdwarfs, Bayestar19, the Gaia flux-error and GSP-Phot columns, and `gdr3apcal`. **Edenhofer et al. 2024 is not approved** | §11.9 |
 | extinction map | Bayestar19 is evaluated against Combined19. The default map does not change without asking | §11.9 |
 
+### 0.6 Decision of 2026-10-06: Combined19 E(B−V) units (Ryan, relayed by the orchestrator, #418)
+
+"Yes to the 0.884 units fix."
+
+- **What mwdust returns.** `mwdust` maps return E(B−V) on the SFD scale (mwdust README). In the
+  north, Combined19 is Bayestar19 (Green et al. 2019), whose unit is SFD-like (E(g−r) = 0.901 E). We
+  measured Bayestar19 / Combined19 = 0.884 exactly on the parent and on the real orbits, so in the
+  north Combined19 returns Bayestar's native unit.
+- **The conversion.** #295 already converts Bayestar19 to E(B−V) with 0.884 for
+  `sample_selection`'s `green2019` map (Argonaut usage page: E(B−V) = 0.981 E(g−r)_P1, Schlafly &
+  Finkbeiner 2011). That place is not converted again.
+- **The decision.** Every pipeline consumer of `mwdust.Combined19` E(B−V) multiplies by the same
+  0.884, set in config as `sample_selection.dust_maps.combined19_native_to_ebv`:
+  - the dereddened CMD (`giants.cmd_for_rows`), and through it the isochrone M1 (mock parent and
+    `mass_derivation_bulk`);
+  - the evolved classifier;
+  - the 2-D weight.
+- **Southern and inner-Galaxy pixels.** Combined19 takes these from Marshall et al. (2006) and
+  Drimmel et al. (2003). mwdust also puts them on the SFD scale, so the same factor is applied; this
+  is recorded as an assumption.
+- **What stays unchanged.**
+  - The El-Badry et al. (2024) forward-model procedure (`selection_function_astrometric`
+    `extinction_model: combined19` with A_G = 2.8 E(B−V), and `proposal_set.combined19_a_g` for the
+    legacy 1-D weight), which follows that paper's own recipe.
+  - The literature reproduction paths, which own their extinction (`sample_selection.dust_maps.maps`).
+
+  Every literature count is re-measured to confirm nothing moves.
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
