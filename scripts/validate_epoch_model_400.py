@@ -75,7 +75,7 @@ def _one(values: dict[str, float], source_id: int, r: int) -> list[dict[str, Any
     from darkhunter_pop import injection_test as it
     from darkhunter_pop.epoch_model import (
         EXCESS_NOISE_RNG_TAG,
-        SourceEpochContext,
+        source_context,
         bright_star_excess_noise,
         epoch_model_rng,
         fov_transit_ids,
@@ -87,7 +87,7 @@ def _one(values: dict[str, float], source_id: int, r: int) -> list[dict[str, Any
     seeds = it.injection_rng_seeds(_W["base_seed"], source_id, r)
     rng = epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, source_id, r)
     with seeded_global_rng(seeds, cf), gost_epoch_model(
-        gm, em, SourceEpochContext(g_mag=float(values["g_mag"])), rng, gaps_jd=_W["gaps"]
+        gm, em, source_context(values["ra"], values["dec"], float(values["g_mag"])), rng, gaps_jd=_W["gaps"]
     ):
         t, psi, pf, obs, err = gm.predict_astrometry_binary_in_terms_of_a0(
             ra=values["ra"], dec=values["dec"], parallax=values["parallax"],
