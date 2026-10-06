@@ -151,6 +151,39 @@ Recorded at https://github.com/UCSC-Transients/dark-hunter_pop/issues/418#issuec
 
   Every literature count is re-measured to confirm nothing moves.
 
+### 0.7 Tasks of 2026-10-07 (Ryan, relayed by the orchestrator, #418): calibrations and the distance test
+
+- **The giant prior is calibrated against APOKASC-3.** The prior gains two knobs:
+  `isochrone_mass.age.provisional_age_power`, an extra (age / 1 Gyr)^γ on the constant-SFR age
+  weight, and `isochrone_mass.provisional_cheb_weight` ρ, a weight on core-He-burning points. They
+  are fitted on half of the APOKASC-3 giants (even KIC) to zero the median log(M̂ / M_seis) of RGB
+  and RC separately, and tested on the other half (odd KIC).
+  - Result: γ = 0.5 is adopted. ρ has no measurable effect and stays 1.
+  - Held-out M̂ / M_seis: RGB 1.039 → 0.975 and RC 1.151 → 1.064.
+  - The residual trend with seismic mass (M̂ pulled toward about 1.2 M⊙) is what a posterior mean
+    does when the CMD weakly constrains mass. A prior cannot remove it, so it is reported, not tuned.
+  - DEBCat (deblended with the dynamical q) moves from 0.997 (0.043 dex) to 0.982 (0.041 dex).
+    FLAME is re-checked in `docs/gate418`.
+- **The calibrated [Fe/H] (gdr3apcal, MP-Q33) is tested on DEBCat.** The likelihood is switched on
+  only if it improves deblended M1 / M_dyn.
+  - Upper bound: DEBCat's own spectroscopic [M/H] with σ = 0.1 cuts the scatter from 0.046 to
+    0.038 dex on 123 systems, and moves the bias from −0.009 to −0.014 dex.
+  - The gdr3apcal test needs GSP-Phot columns for the DEBCat stars. Until it is run, the [Fe/H]
+    likelihood stays off.
+- **Distance test.** The closed loop now places its universe in the real map with
+  `dust.kind: combined19`: Combined19 × 0.884, and the pipeline sees σ(E)/E = 0.085. Under G < 19
+  and the parent cuts, the synthetic parent reproduces the real ridge-residual trend with distance:
+
+  | d (kpc) | synthetic median (singles) | real median / mode |
+  |---|---|---|
+  | 1–2 | −0.15 | — |
+  | 2–5 | −0.58 (−0.47) | −0.34 / −0.45 |
+  | > 5 | −1.16 (−1.12) | −1.10 / −1.01 |
+
+  **The trend is selection** (the magnitude limit acting on evolution), so no extinction change is
+  needed. In the real-map closed loop the worst pull is 7.6 for the 2-D weight (8.8 for 1-D, 6.7
+  for none), concentrated at the brightest log f and the top M2 bins. The ≤ 3 target is not yet met.
+
 ## 1. Primary parent sample from `gaia_source`
 
 ### 1.1 What the real NSS astrometric pipeline processed
