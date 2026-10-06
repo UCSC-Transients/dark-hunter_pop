@@ -1,0 +1,24 @@
+#418/#425 flip re-measurement on /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/data_acquisition/c813f90b69f58b91.h5
+
+=== MIST_isochrone: bulk 4 s, kept 19211; selection rows 443211 ===
+  after_m2_cut: 19211
+  atmosphere_ok: 349098
+  input_candidates: 351268
+  m1_ok: 310869
+  m2_mc_cholesky_nugget: 0
+  m2_mc_eigen_clip: 0
+  m2_ok: 143441
+  skipped_m1_off_grid: 38229
+  skipped_m2_failed: 0
+  skipped_m2_sigma_failed: 0
+  skipped_no_atmosphere: 0
+  skipped_no_cmd: 2170
+  skipped_no_nss_covariance: 1736
+  skipped_no_orbit: 165692
+  Gaia-BH1: {"m1": 0.964, "m1_sigma": 0.07, "m2": 12.821, "m2_sigma": 2.78, "published_m1": 0.93, "published_m2": 9.62}
+  Gaia-BH2: {"m1": 1.06, "m1_sigma": 0.058, "m2": 8.498, "m2_sigma": 0.522, "published_m1": 1.07, "published_m2": 8.94}
+  andrews2022: mode=reproduction n_parent=134598 n_surviving=25 ids=12d00c857953 routes={}
+  andrews2022_modified: mode=forward_model n_parent=134598 n_surviving=24 ids=e60223d38cf9 routes={}
+  elbadry2024: mode=reproduction n_parent=443211 n_surviving=48 ids=f60afa3d52b6 routes={}
+  elbadry2026: mode=reproduction n_parent=443211 n_surviving=240 ids=59ffc9b0e06c routes={'main_sequence_min_companion_mass': 132, 'high_mass_function': 30, 'both': 11}
+

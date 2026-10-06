@@ -112,10 +112,16 @@ def load_giants_config(path: str | Path, key: str = "giants") -> GiantsConfig:
 # ---------------------------------------------------------------------------
 
 
-def combined19_ebv(l_deg: ArrayLike, b_deg: ArrayLike, distance_pc: ArrayLike) -> FloatArray:
-    """Combined19 (mwdust) E(B−V) at each position; NaN where the distance is not finite/positive.
+def combined19_ebv(
+    l_deg: ArrayLike, b_deg: ArrayLike, distance_pc: ArrayLike, *, native_to_ebv: float = 1.0
+) -> FloatArray:
+    """Combined19 (mwdust) value × ``native_to_ebv`` at each position; NaN where the distance is
+    not finite/positive.
 
-    ``mwdust.Combined19`` reads its local map (one-time download on first use).
+    ``mwdust.Combined19`` returns E(B−V) on the SFD scale; ``native_to_ebv`` (config
+    ``sample_selection.dust_maps.combined19_native_to_ebv`` = 0.884, #418 / spec §0.6) converts it
+    to E(B−V). The default 1 returns the raw mwdust value (callers that follow a paper's own
+    recipe). ``mwdust.Combined19`` reads its local map (one-time download on first use).
     """
     import mwdust
 
@@ -125,7 +131,7 @@ def combined19_ebv(l_deg: ArrayLike, b_deg: ArrayLike, distance_pc: ArrayLike) -
     out = np.full(d.shape, np.nan)
     ok = np.isfinite(l) & np.isfinite(b) & np.isfinite(d) & (d > 0)
     if ok.any():
-        out[ok] = np.asarray(mwdust.Combined19()(l[ok], b[ok], d[ok] / 1000.0), dtype=np.float64)
+        out[ok] = float(native_to_ebv) * np.asarray(mwdust.Combined19()(l[ok], b[ok], d[ok] / 1000.0), dtype=np.float64)
     return out
 
 
@@ -358,6 +364,8 @@ def cmd_for_rows(
 ) -> RowCMD:
     """Combined19 + Babusiaux et al. (2018) dereddened CMD at the Bailer-Jones distance.
 
+    Combined19 is converted to E(B−V) with ``dust_maps.combined19_native_to_ebv`` (#418, §0.6).
+
     ``pipeline_config`` is the :class:`~darkhunter_pop.config_schema.PipelineConfig`; its
     ``sample_selection.dust_maps`` supplies ``r_v`` and the band-law coefficients (#295).
     Pass a precomputed ``ebv`` to skip the map lookup. Rows where the law does not converge
@@ -370,7 +378,12 @@ def cmd_for_rows(
     coeffs = dust.gaia_band_extinction.babusiaux2018
     if coeffs is None:
         raise ValueError("sample_selection.dust_maps.gaia_band_extinction.babusiaux2018 is required")
-    e = combined19_ebv(l_deg, b_deg, r_med_pc) if ebv is None else np.asarray(ebv, dtype=np.float64)
+    if ebv is None:
+        if dust.combined19_native_to_ebv is None:
+            raise ValueError("sample_selection.dust_maps.combined19_native_to_ebv is required (#418, spec §0.6)")
+        e = combined19_ebv(l_deg, b_deg, r_med_pc, native_to_ebv=float(dust.combined19_native_to_ebv))
+    else:
+        e = np.asarray(ebv, dtype=np.float64)
     a_g, e_br, ok = gaia_band_extinction_babusiaux2018(
         np.asarray(bp_rp, dtype=np.float64), e, r_v=float(dust.r_v), coeffs=coeffs
     )

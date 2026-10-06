@@ -1,0 +1,3 @@
+#418 what-if: Combined19 E(B-V) x 0.884 (units unchanged in the pipeline)
+parent: off-grid 0.0372 -> 0.0429; C0 < 0.35 0.0483 -> 0.0298; M1(x0.884) / M1 16/50/84% [0.9356, 0.9794, 0.9968]
+real Orbital + AstroSpectroSB1: off-grid 0.0694 -> 0.0705; C0 < 0.35 0.0491 -> 0.0390; M1(x0.884) / M1 16/50/84% [0.9757, 0.9953, 1.0]
