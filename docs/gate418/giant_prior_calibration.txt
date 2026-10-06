@@ -1,0 +1,12 @@
+#418 giant prior calibration against APOKASC-3 (train: even KIC, test: odd KIC)
+
+chosen: age_power = 0.5, cheb_weight = 1.6 (train objective 0.00076)
+
+before (gamma 0, rho 1) train RGB: N=3123 M_hat/M_seis median 1.038 scatter 0.089 dex; by seismic mass [1.471, 1.042, 0.831, 0.633]; M_seis/M_hat by M_hat [None, 0.995, 0.8, 0.605]
+before (gamma 0, rho 1) train RC: N=2694 M_hat/M_seis median 1.141 scatter 0.113 dex; by seismic mass [1.607, 1.17, 0.924, 0.823]; M_seis/M_hat by M_hat [None, 0.897, 0.822, 0.882]
+before (gamma 0, rho 1) test RGB: N=3114 M_hat/M_seis median 1.039 scatter 0.090 dex; by seismic mass [1.475, 1.047, 0.82, 0.602]; M_seis/M_hat by M_hat [None, 0.994, 0.778, 0.62]
+before (gamma 0, rho 1) test RC: N=2552 M_hat/M_seis median 1.151 scatter 0.111 dex; by seismic mass [1.557, 1.174, 0.929, 0.811]; M_seis/M_hat by M_hat [None, 0.891, 0.827, 0.816]
+after train RGB: N=3048 M_hat/M_seis median 0.973 scatter 0.083 dex; by seismic mass [1.369, 0.979, 0.762, 0.57]; M_seis/M_hat by M_hat [None, 1.043, 0.808, 0.613]
+after train RC: N=2672 M_hat/M_seis median 1.059 scatter 0.105 dex; by seismic mass [1.439, 1.082, 0.848, 0.743]; M_seis/M_hat by M_hat [None, 0.951, 0.911, 0.895]
+after test RGB: N=3035 M_hat/M_seis median 0.975 scatter 0.085 dex; by seismic mass [1.352, 0.982, 0.758, 0.539]; M_seis/M_hat by M_hat [None, 1.041, 0.804, 0.58]
+after test RC: N=2535 M_hat/M_seis median 1.064 scatter 0.105 dex; by seismic mass [1.388, 1.085, 0.85, 0.721]; M_seis/M_hat by M_hat [None, 0.946, 0.932, 0.809]

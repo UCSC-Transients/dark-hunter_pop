@@ -1,67 +1,67 @@
 #418 isochrone M1 and 2-D ridge calibration (docs/MOCK_POPULATION_SPEC.md §11)
 
 === PARENT M1 ===
-isochrone reasons (all 214666 rows): no_cmd=6130, off_grid=9213, ok=199323
-usable rows: isochrone mode 159539, TAG10 mode 164397; both 158345
-M1 percentiles 1/5/25/50/75/95/99 (usable): isochrone 0.359 0.519 0.763 0.907 1.033 1.383 1.927 | TAG10 0.597 0.597 0.607 0.683 0.777 0.985 1.390
-isochrone sigma_logM1 median 0.038 dex, sigma_M1/M1 > 0.25 fraction 0.0152
-fraction of usable rows at the TAG10 floor (M1 < 0.6): TAG10 0.1692, isochrone 0.0889
+isochrone reasons (all 214666 rows): no_cmd=6130, off_grid=9802, ok=198734
+usable rows: isochrone mode 159116, TAG10 mode 164397; both 157924
+M1 percentiles 1/5/25/50/75/95/99 (usable): isochrone 0.358 0.517 0.757 0.895 1.010 1.311 1.774 | TAG10 0.597 0.597 0.607 0.683 0.777 0.985 1.390
+isochrone sigma_logM1 median 0.038 dex, sigma_M1/M1 > 0.25 fraction 0.0116
+fraction of usable rows at the TAG10 floor (M1 < 0.6): TAG10 0.1692, isochrone 0.0906
 
 === SHARED MS RIDGE (usable, parallax/error >= 10.0, RUWE < 1.4) vs #417 ridge (no RUWE cut) ===
   colour0  R_new   sigma_new  n_new | R_old  sigma_old  n_old
-  0.35  2.575  0.584  401 | 2.575 0.577 427
-  0.45  2.875  0.584  808 | 2.875 0.588 860
-  0.55  3.175  0.591  1523 | 3.175 0.591 1605
-  0.65  3.925  0.432  3576 | 3.875 0.450 3738
-  0.75  4.325  0.442  6227 | 4.325 0.442 6432
-  0.85  4.975  0.325  5802 | 4.975 0.325 6002
-  0.95  5.425  0.314  4185 | 5.425 0.314 4340
-  1.05  5.875  0.258  3335 | 5.875 0.257 3449
-  1.15  6.175  0.252  2474 | 6.175 0.252 2522
-  1.25  6.475  0.262  1579 | 6.475 0.261 1619
-  1.35  6.775  0.246  1223 | 6.775 0.246 1251
-  1.45  7.075  0.228  959 | 7.025 0.242 978
-  1.55  7.325  0.233  793 | 7.325 0.234 808
-  1.65  7.475  0.284  711 | 7.475 0.284 723
-  1.75  7.775  0.317  709 | 7.775 0.316 721
-  1.85  8.075  0.318  686 | 8.025 0.337 701
-  1.95  8.275  0.391  657 | 8.275 0.390 660
-  2.05  8.575  0.408  634 | 8.575 0.407 641
-  2.15  8.925  0.459  574 | 8.925 0.459 576
+  0.35  2.575  0.584  399 | 2.575 0.577 425
+  0.45  2.875  0.584  804 | 2.875 0.588 856
+  0.55  3.175  0.591  1522 | 3.175 0.591 1603
+  0.65  3.925  0.432  3574 | 3.875 0.450 3736
+  0.75  4.325  0.442  6226 | 4.325 0.442 6431
+  0.85  4.975  0.325  5799 | 4.975 0.325 5999
+  0.95  5.425  0.314  4184 | 5.425 0.314 4339
+  1.05  5.875  0.258  3340 | 5.875 0.257 3454
+  1.15  6.175  0.252  2483 | 6.175 0.252 2531
+  1.25  6.475  0.262  1589 | 6.475 0.261 1630
+  1.35  6.775  0.246  1226 | 6.775 0.246 1255
+  1.45  7.075  0.228  963 | 7.025 0.242 982
+  1.55  7.325  0.233  796 | 7.325 0.234 811
+  1.65  7.475  0.284  713 | 7.475 0.284 725
+  1.75  7.775  0.317  710 | 7.775 0.316 723
+  1.85  8.075  0.318  687 | 8.025 0.337 702
+  1.95  8.275  0.391  658 | 8.275 0.390 661
+  2.05  8.575  0.408  635 | 8.575 0.407 642
+  2.15  8.925  0.459  577 | 8.925 0.459 579
   2.25  9.125  0.510  570 | 9.075 0.526 573
-  2.35  9.475  0.526  573 | 9.475 0.526 574
-  2.45  9.675  0.539  568 | 9.675 0.539 568
+  2.35  9.475  0.526  575 | 9.475 0.526 576
+  2.45  9.675  0.539  571 | 9.675 0.539 571
   2.55  10.075  0.561  467 | 10.075 0.561 468
   2.65  10.175  0.613  429 | 10.175 0.613 431
   2.75  10.675  0.506  330 | 10.675 0.504 331
-parent evolved (CMD, n_sigma=3.0): new ridge 10668/154812 = 0.0689; #417 ridge 10651/154812 = 0.0688
-isochrone P(evolved) > 0.5 among usable classified: 0.0948; agreement with CMD flag 0.9728
+parent evolved (CMD, n_sigma=3.0): new ridge 10668/154816 = 0.0689; #417 ridge 10651/154816 = 0.0688
+isochrone P(evolved) > 0.5 among usable classified: 0.0974; agreement with CMD flag 0.9705
 
 === MP-Q25 REPLACEMENT: dM_2D = M_G0 - R(C0) on usable RUWE<1.4 non-evolved classified parent rows ===
-N = 142527; mode -0.056 +/- 0.030 (bootstrap) mag; median -0.166; robust sigma 0.692
+N = 142532; mode -0.057 +/- 0.033 (bootstrap) mag; median -0.167; robust sigma 0.692
   (the ridge is the per-colour mode, so the pooled mode is ~0 by construction; the TEST is the trend)
   by distance (kpc):     n      mode    median  robust_sigma | old 1-D TAG10 median | 1-D isochrone median
-  [0.0,0.3)    1439 +0.085 +0.101 0.349 | +0.694 | +0.084
-  [0.3,0.5)    3774 +0.051 +0.084 0.324 | +0.414 | +0.023
-  [0.5,1.0)   15371 +0.064 +0.021 0.353 | -0.350 | -0.284
-  [1.0,2.0)   39929 -0.034 -0.058 0.540 | -1.096 | -0.397
-  [2.0,5.0)   75696 -0.453 -0.338 0.844 | -2.467 | -0.594
-  [5.0,50.0)    5264 -1.009 -1.097 1.003 | -4.282 | -1.174
+  [0.0,0.3)    1440 +0.085 +0.100 0.349 | +0.694 | +0.055
+  [0.3,0.5)    3779 +0.051 +0.084 0.325 | +0.414 | -0.003
+  [0.5,1.0)   15383 +0.090 +0.021 0.353 | -0.351 | -0.341
+  [1.0,2.0)   39935 -0.035 -0.059 0.540 | -1.097 | -0.471
+  [2.0,5.0)   75676 -0.455 -0.338 0.843 | -2.467 | -0.664
+  [5.0,50.0)    5265 -1.009 -1.097 1.003 | -4.282 | -1.238
   by isochrone M1 (Msun):  n   mode   median  robust_sigma | by TAG10 M1: n  mode  median
-  [0.0,0.6)   13327 +0.106 +0.013 0.540 | 24128 -0.070 -0.235
-  [0.6,0.8)   34293 -0.036 -0.071 0.534 | 87461 -0.030 -0.163
-  [0.8,1.2)   86836 -0.116 -0.223 0.753 | 28293 +0.024 -0.124
-  [1.2,2.0)    8035 -0.437 -0.573 0.830 | 1462 -0.025 -0.302
+  [0.0,0.6)   13554 +0.118 +0.013 0.537 | 24126 -0.063 -0.235
+  [0.6,0.8)   35979 -0.037 -0.065 0.533 | 87490 -0.036 -0.164
+  [0.8,1.2)   86379 -0.113 -0.233 0.760 | 28276 +0.053 -0.124
+  [1.2,2.0)    6607 -0.517 -0.608 0.802 | 1459 -0.023 -0.300
 
 === REAL ORBITS (Orbital + AstroSpectroSB1, mirror filters; distance = inverse NSS parallax, MP-Q28g) ===
-rows 168025 after filters {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025}; isochrone reasons: no_cmd=12, off_grid=11813, ok=156200
+rows 168025 after filters {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025}; isochrone reasons: no_cmd=12, off_grid=12409, ok=155604
 real evolved (CMD, shared ridge): 22809/160631 = 0.1420; Orbital only 0.0990
-  dwarfs: N=76322 (FLAME for 0.563); isochrone/FLAME median 0.999 (p16/p84 0.927/1.068; bias -0.000 dex, robust scatter 0.031 dex) | TAG10/FLAME median 0.923 (p16/p84 0.761/1.028; scatter 0.058 dex)
-     FLAME M in [0.0,0.8): N=5649 iso/FLAME median 1.021, scatter 0.019 dex
-     FLAME M in [0.8,1.2): N=47169 iso/FLAME median 1.020, scatter 0.028 dex
-     FLAME M in [1.2,2.0): N=23197 iso/FLAME median 0.954, scatter 0.028 dex
-     FLAME M in [2.0,10.0): N=307 iso/FLAME median 0.859, scatter 0.070 dex
-  evolved: N=11451 (FLAME for 0.543); isochrone/FLAME median 0.779 (p16/p84 0.480/0.970; bias -0.108 dex, robust scatter 0.133 dex) | TAG10/FLAME median 0.515 (p16/p84 0.262/0.723; scatter 0.214 dex)
-     FLAME M in [0.8,1.2): N=1849 iso/FLAME median 1.002, scatter 0.034 dex
-     FLAME M in [1.2,2.0): N=4973 iso/FLAME median 0.850, scatter 0.056 dex
-     FLAME M in [2.0,10.0): N=4629 iso/FLAME median 0.513, scatter 0.113 dex
+  dwarfs: N=76331 (FLAME for 0.563); isochrone/FLAME median 0.984 (p16/p84 0.910/1.052; bias -0.007 dex, robust scatter 0.032 dex) | TAG10/FLAME median 0.923 (p16/p84 0.761/1.028; scatter 0.058 dex)
+     FLAME M in [0.0,0.8): N=5676 iso/FLAME median 1.014, scatter 0.019 dex
+     FLAME M in [0.8,1.2): N=47187 iso/FLAME median 1.002, scatter 0.029 dex
+     FLAME M in [1.2,2.0): N=23195 iso/FLAME median 0.939, scatter 0.029 dex
+     FLAME M in [2.0,10.0): N=273 iso/FLAME median 0.838, scatter 0.068 dex
+  evolved: N=11244 (FLAME for 0.543); isochrone/FLAME median 0.751 (p16/p84 0.439/0.953; bias -0.124 dex, robust scatter 0.150 dex) | TAG10/FLAME median 0.517 (p16/p84 0.263/0.725; scatter 0.211 dex)
+     FLAME M in [0.8,1.2): N=1847 iso/FLAME median 0.987, scatter 0.032 dex
+     FLAME M in [1.2,2.0): N=4926 iso/FLAME median 0.826, scatter 0.060 dex
+     FLAME M in [2.0,10.0): N=4471 iso/FLAME median 0.465, scatter 0.100 dex
