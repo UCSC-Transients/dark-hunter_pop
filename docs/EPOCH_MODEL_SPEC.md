@@ -535,10 +535,20 @@ different correction to match the data." The changes:
    - A richer degraded-loss distribution, for example a second, catastrophic level or a beta
      distribution of q per star, is option **V1** (§8.6).
 
+7. **Validation and verdict.** The before/after numbers are in `docs/gate400/README.md` ("v3").
+   - The visibility tail improves by an order of magnitude: < 12 is 2.3% vs DR3 1.6%, where the
+     production model gives 0.09%.
+   - The single-star mean N_vis improves.
+   - Every injection-suite metric stays within noise of production, except the NSS-set mean
+     N_vis, which moves from +0.06 to −0.16.
+   - Under "nothing else may get worse", `visibility_period_loss.enabled` is left **false**, and
+     the E4 episodes stay on. **Adoption is Ryan's call** (option V0).
+
 ### 8.11 Options added by #432 (none chosen)
 
 | | option | note |
 |---|---|---|
+| V0 | enable `visibility_period_loss` as calibrated (replaces E4 episodes) | tail 0.09% → 2.3% (DR3 1.6%); NSS-set mean N_vis +0.06 → −0.16; everything else within noise |
 | V1 | richer degraded-star loss distribution (two degraded levels or beta-distributed q) | would fix the N ≤ 5 deficit and the 9–11 overshoot; each fit costs hours on the laptop |
 | V2 | fit the visibility-period model on 5/6-parameter stars only (the NSS input pool) instead of all solution types | DR3's 2-parameter stars carry ~60% of the tail |
 
