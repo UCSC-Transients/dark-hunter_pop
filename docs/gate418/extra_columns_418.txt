@@ -1,0 +1,17 @@
+#418 MP-Q33 / MP-Q34 with the new Gaia columns (spec §11.9)
+
+=== parent: 214666 rows; extra columns matched 214666 ===
+MP-Q34 per-star BP-RP error (mag) 16/50/84%: [0.0035, 0.0164, 0.0421]; off-grid 0.0429 -> 0.0402; M1 ratio 16/50/84% [0.9988, 1.0, 1.0013]
+MP-Q33 gdr3apcal [Fe/H]: reliable 0.1398; calibrated [Fe/H] 5/50/95% [-0.77, -0.09, 0.346]; on reliable rows M1 with/without 16/50/84% [0.9438, 0.9915, 1.0271]; posterior <[Fe/H]> shift -0.021
+
+=== real Orbital + AstroSpectroSB1: 168065 rows; extra columns matched 168065 ===
+MP-Q34 per-star BP-RP error (mag) 16/50/84%: [0.0006, 0.0009, 0.0019]; off-grid 0.0705 -> 0.0703; M1 ratio 16/50/84% [1.0, 1.0, 1.0]
+MP-Q33 gdr3apcal [Fe/H]: reliable 0.5792; calibrated [Fe/H] 5/50/95% [-0.758, -0.113, 0.351]; on reliable rows M1 with/without 16/50/84% [0.931, 0.9865, 1.0286]; posterior <[Fe/H]> shift -0.036
+  isochrone/FLAME dwarfs, floor: N=80382 median 0.999 scatter 0.032 dex
+  isochrone/FLAME dwarfs, flux errors: N=80392 median 0.999 scatter 0.032 dex
+  isochrone/FLAME dwarfs, flux errors + [Fe/H]: N=78245 median 0.980 scatter 0.037 dex
+  isochrone/FLAME dwarfs, [Fe/H]-reliable rows only: N=59847 median 0.989
+  isochrone/FLAME evolved, floor: N=11403 median 0.778 scatter 0.133 dex
+  isochrone/FLAME evolved, flux errors: N=11404 median 0.778 scatter 0.133 dex
+  isochrone/FLAME evolved, flux errors + [Fe/H]: N=10312 median 0.781 scatter 0.143 dex
+  isochrone/FLAME evolved, [Fe/H]-reliable rows only: N=7213 median 0.837

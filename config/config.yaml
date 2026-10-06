@@ -301,6 +301,12 @@ sample_selection:
     # #418 MP-Q34: dustmaps-package data dir for Bayestar19 posterior samples (host-specific;
     # also in host_profiles/laptop.yaml). Evaluation only; the CMD still uses Combined19.
     dustmaps_data_dir: dust_maps/dustmaps_data
+    # #418 (Ryan 2026-10-06; MOCK_POPULATION_SPEC §0.6): mwdust.Combined19 returns E(B-V) on the SFD
+    # scale = Bayestar19's native unit in the north (measured Bayestar19 / Combined19 = 0.884, the #295
+    # factor). Every pipeline consumer of Combined19 (dereddened CMD -> isochrone M1, giant classifier,
+    # 2-D Malmquist weight) multiplies by this. maps.green2019 below is converted by its own native_to_ebv.
+    # NOT applied to the El-Badry 2024 forward-model recipe (A_G = 2.8 x Combined19, the paper's own).
+    combined19_native_to_ebv: 0.884
     # Total-to-selective ratio A0 / E(B-V). Gaia convention "A_0 = 3.1 E(B-V)"
     # (Gaia Collaboration, Babusiaux et al. 2018, A&A 616, A10, §2); Lallement
     # et al. 2019 (App. A) also assume R = 3.1 for their A0 scale. Used for every

@@ -1436,6 +1436,8 @@ def combined19_a_g(parent: ParentSnapshot, cfg: ParentExtinctionConfig, *, cache
     ok = np.isfinite(d_kpc) & (d_kpc > 0)
     a_g = np.full(d_kpc.size, np.nan)
     if ok.any():
+        # Raw (SFD-scale) mwdust value on purpose: the legacy 1-D weight's A_G = 2.8 x Combined19
+        # follows El-Badry et al. (2024) §3 (#418, spec §0.6 keeps it unchanged).
         dust = mwdust.Combined19()
         l_deg = np.asarray(parent.columns["l"], float)[ok]
         b_deg = np.asarray(parent.columns["b"], float)[ok]

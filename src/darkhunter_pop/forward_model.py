@@ -1385,6 +1385,9 @@ def run_mock_injections_with_truth(
                 "extinction_model=combined19 requires the mwdust package; "
                 "pip install -e '.[gaiamock]' or set extinction_model=none"
             ) from exc
+        # Raw mwdust (SFD-scale) value, deliberately WITHOUT dust_maps.combined19_native_to_ebv:
+        # this is El-Badry et al. (2024)'s own recipe (A_G = 2.8 x Combined19), kept as the paper did
+        # (#418, MOCK_POPULATION_SPEC §0.6).
         combined19_ebv = mwdust.Combined19()
         ebv = combined19_ebv(l_deg, b_deg, d_pc / 1000.0)
         a_g = 2.80 * ebv

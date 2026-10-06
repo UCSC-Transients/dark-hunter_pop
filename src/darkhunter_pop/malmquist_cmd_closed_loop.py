@@ -53,6 +53,9 @@ class SyntheticDustConfig(_Strict):
     a_g_per_ebv: float = Field(..., gt=0)
     e_bp_rp_per_ebv: float = Field(..., gt=0)
     pipeline_fractional_error: float = Field(..., ge=0)  # the pipeline's E(B−V) = truth × (1 + ε N)
+    #: What-if (#418, E(B−V) unit question): the pipeline's E(B−V) is additionally multiplied by
+    #: this factor, e.g. 1/0.884 when the map's unit is 13% above the true E(B−V). 1 = unbiased.
+    pipeline_scale: float = Field(1.0, gt=0)
 
 
 class CmdClosedLoopConfig(_Strict):
@@ -238,7 +241,7 @@ def run_pipeline_on_parent(
     par = mcl.observe(u, base, rng)
     i = par.index
     c_obs = uc.colour_true[i] + cfg.colour_error_mag * rng.standard_normal(i.size)
-    e_hat = uc.ebv[i] * (1.0 + cfg.dust.pipeline_fractional_error * rng.standard_normal(i.size))
+    e_hat = cfg.dust.pipeline_scale * uc.ebv[i] * (1.0 + cfg.dust.pipeline_fractional_error * rng.standard_normal(i.size))
     a_hat = cfg.dust.a_g_per_ebv * e_hat
     ebr_hat = cfg.dust.e_bp_rp_per_ebv * e_hat
     mg0 = u.g_true[i] - mq.distance_modulus(par.r_med) - a_hat

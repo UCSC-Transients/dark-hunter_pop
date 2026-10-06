@@ -1,0 +1,82 @@
+{
+ "data_acquisition": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/output/20260930-022223-672b092/data_acquisition/c813f90b69f58b91.h5",
+ "methods": {
+  "MIST_isochrone": {
+   "bulk_funnel": {
+    "after_m2_cut": 19211,
+    "atmosphere_ok": 349098,
+    "input_candidates": 351268,
+    "m1_ok": 310869,
+    "m2_mc_cholesky_nugget": 0,
+    "m2_mc_eigen_clip": 0,
+    "m2_ok": 143441,
+    "skipped_m1_off_grid": 38229,
+    "skipped_m2_failed": 0,
+    "skipped_m2_sigma_failed": 0,
+    "skipped_no_atmosphere": 0,
+    "skipped_no_cmd": 2170,
+    "skipped_no_nss_covariance": 1736,
+    "skipped_no_orbit": 165692
+   },
+   "bulk_seconds": 4.136701345443726,
+   "known_truth": {
+    "Gaia-BH1": {
+     "m1": 0.9636614913667082,
+     "m1_sigma": 0.0703209148349935,
+     "m2": 12.82114825199144,
+     "m2_sigma": 2.7798864198925965,
+     "published_m1": 0.93,
+     "published_m2": 9.62
+    },
+    "Gaia-BH2": {
+     "m1": 1.0595291892451986,
+     "m1_sigma": 0.058234499519997686,
+     "m2": 8.497916321589011,
+     "m2_sigma": 0.522097433925729,
+     "published_m1": 1.07,
+     "published_m2": 8.94
+    }
+   },
+   "selection_seconds": 179.2610387802124,
+   "samples": {
+    "andrews2022": {
+     "mode": "reproduction",
+     "mass_source": "paper",
+     "n_parent": 134598,
+     "n_surviving": 25,
+     "survivors_sha": "12d00c857953",
+     "route_counts": {}
+    },
+    "andrews2022_modified": {
+     "mode": "forward_model",
+     "mass_source": "pipeline",
+     "n_parent": 134598,
+     "n_surviving": 24,
+     "survivors_sha": "e60223d38cf9",
+     "route_counts": {}
+    },
+    "elbadry2024": {
+     "mode": "reproduction",
+     "mass_source": "paper",
+     "n_parent": 443211,
+     "n_surviving": 48,
+     "survivors_sha": "f60afa3d52b6",
+     "route_counts": {}
+    },
+    "elbadry2026": {
+     "mode": "reproduction",
+     "mass_source": "paper",
+     "n_parent": 443211,
+     "n_surviving": 240,
+     "survivors_sha": "59ffc9b0e06c",
+     "route_counts": {
+      "main_sequence_min_companion_mass": 132,
+      "high_mass_function": 30,
+      "both": 11
+     }
+    }
+   },
+   "n_rows": 443211
+  }
+ }
+}

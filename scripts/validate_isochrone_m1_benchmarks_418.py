@@ -41,7 +41,11 @@ def read_debcat(path: Path) -> dict[str, dict[str, float]]:
             lm1, lm2 = float(p[6]), float(p[8])
         except (IndexError, ValueError):
             continue
-        out[name] = {"m1": 10.0**lm1, "m2": 10.0**lm2}
+        try:
+            moh = float(p[26])
+        except (IndexError, ValueError):
+            moh = -9.99
+        out[name] = {"m1": 10.0**lm1, "m2": 10.0**lm2, "moh": moh if moh > -9.0 else float("nan")}
     return out
 
 
@@ -61,7 +65,7 @@ def read_apokasc(path: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def fit(t: Any, cfg: Any) -> im.IsochronePosterior:
+def fit(t: Any, cfg: Any) -> tuple[im.IsochronePosterior, Any, np.ndarray, np.ndarray]:
     from astropy.coordinates import SkyCoord
     import astropy.units as u
 
@@ -74,7 +78,36 @@ def fit(t: Any, cfg: Any) -> im.IsochronePosterior:
     gal = SkyCoord(ra=f("ra") * u.deg, dec=f("dec") * u.deg).galactic
     cmd = giants.cmd_for_rows(f("phot_g_mean_mag"), f("bp_rp"), gal.l.deg, gal.b.deg, r_med, r_lo, r_hi, cfg, None)
     model = im.build_model(cfg.isochrone_mass, cfg.paths.data_root)
-    return model.fit(cmd.colour0, cmd.mg0, sigma_mu=cmd.sigma_mu, ebv=cmd.ebv, a_g=cmd.a_g, e_bp_rp=f("bp_rp") - cmd.colour0)
+    e_br = f("bp_rp") - cmd.colour0
+    post = model.fit(cmd.colour0, cmd.mg0, sigma_mu=cmd.sigma_mu, ebv=cmd.ebv, a_g=cmd.a_g, e_bp_rp=e_br)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ka = np.where(cmd.ebv > 0, cmd.a_g / cmd.ebv, 0.0)
+        ke = np.where(cmd.ebv > 0, e_br / cmd.ebv, 0.0)
+    sc, sm = im.likelihood_sigmas(cmd.sigma_mu, cmd.ebv, ka, ke, cfg.isochrone_mass.likelihood)
+    return post, cmd, sc, sm
+
+
+def deblend_known_q(post: im.IsochronePosterior, cmd: Any, sc: np.ndarray, sm: np.ndarray, q: np.ndarray,
+                    native: im.NativeGrid) -> np.ndarray:
+    """MP-Q36 with the dynamical q: on the row's posterior-mean coeval isochrone, solve for the
+    primary whose combined light with a coeval MS companion at q·M1 (MP-Q40 MIST flux ratio,
+    iterated twice) matches the observed system."""
+    from darkhunter_pop import malmquist_cmd as mc
+
+    out = np.full(q.size, np.nan)
+    for i in np.flatnonzero(post.ok & np.isfinite(q)):
+        iso = im.isochrone_at(native, float(post.feh_mean[i]), float(post.log_age_mean[i]))
+        if iso["star_mass"].size < 2:
+            continue
+        ms = mc.ms_colours(native, float(post.feh_mean[i]), float(post.log_age_mean[i]))
+        m1 = float(post.m1_mean[i])
+        for _ in range(2):
+            lf = float(ms.log10_flux_ratio(m1, q[i] * m1))
+            mm, _ = im.deblend_primary_mass(iso, cmd.colour0[i:i + 1], cmd.mg0[i:i + 1], sc[i:i + 1], sm[i:i + 1],
+                                            q[i:i + 1], np.array([lf]), evolved=np.array([post.p_evolved[i] > 0.5]))
+            m1 = float(mm[0])
+        out[i] = m1
+    return out
 
 
 def stats(r: np.ndarray) -> dict[str, float]:
@@ -102,24 +135,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.debcat and args.debcat_xmatch:
         cat = read_debcat(args.debcat)
         t = Table.read(args.debcat_xmatch, format="ascii.ecsv")
-        post = fit(t, cfg)
+        t = t[np.asarray(t["source_id"], np.int64) > 0]
+        _, first = np.unique(np.asarray(t["cat_id"]).astype(str), return_index=True)
+        t = t[np.sort(first)]
+        _, first = np.unique(np.asarray(t["source_id"], np.int64), return_index=True)
+        t = t[np.sort(first)]
+        post, cmd, sc, sm = fit(t, cfg)
         ids = [str(x) for x in t["cat_id"]]
         m1 = np.array([cat.get(i, {}).get("m1", np.nan) for i in ids])
         m2 = np.array([cat.get(i, {}).get("m2", np.nan) for i in ids])
         q = np.minimum(m1, m2) / np.maximum(m1, m2)
         mp = np.maximum(m1, m2)
+        native = im.load_native_grid(cfg.isochrone_mass, cfg.paths.data_root)
+        deb = deblend_known_q(post, cmd, sc, sm, q, native)
         r = post.m1_mean / mp
-        out["debcat"] = {"all": stats(r)}
-        rep.append(f"DEBCat: {len(t)} cross-matched systems; isochrone ok {int(post.ok.sum())}")
+        rd = deb / mp
+        out["debcat"] = {"blended_all": stats(r), "deblended_all": stats(rd)}
+        rep.append(f"DEBCat: {len(t)} systems with Gaia photometry (deduplicated); isochrone ok {int(post.ok.sum())}; "
+                   f"catalogue match {int(np.isfinite(m1).sum())}")
+        rep.append(f"  all: blended-CMD M1 / M1_dyn {stats(r)}; deblended with the dynamical q {stats(rd)}")
         for lo, hi in ((0.0, 0.5), (0.5, 0.8), (0.8, 0.95), (0.95, 1.01)):
             s = (q >= lo) & (q < hi)
-            out["debcat"][f"q_{lo}_{hi}"] = stats(r[s])
-            rep.append(f"  q in [{lo},{hi}): {out['debcat'][f'q_{lo}_{hi}']}")
+            out["debcat"][f"q_{lo}_{hi}"] = {"blended": stats(r[s]), "deblended": stats(rd[s])}
+            rep.append(f"  q in [{lo},{hi}): blended {stats(r[s])} | deblended {stats(rd[s])}")
+        for lo, hi in ((0.0, 0.7), (0.7, 1.3), (1.3, 3.0), (3.0, 100.0)):
+            s = (mp >= lo) & (mp < hi)
+            rep.append(f"  M1_dyn in [{lo},{hi}): deblended {stats(rd[s])}")
     if args.apokasc and args.apokasc_xmatch:
         cat = read_apokasc(args.apokasc)
         t = Table.read(args.apokasc_xmatch, format="ascii.ecsv")
-        post = fit(t, cfg)
-        ids = [str(x) for x in t["cat_id"]]
+        post, _, _, _ = fit(t, cfg)
+        ids = [str(x).replace("KIC", "").strip() for x in t["cat_id"]]
         ms = np.array([cat.get(i, {}).get("mass", np.nan) for i in ids])
         ev = np.array([cat.get(i, {}).get("evol", "") for i in ids])
         r = post.m1_mean / ms
