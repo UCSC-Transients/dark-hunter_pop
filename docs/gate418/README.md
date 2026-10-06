@@ -253,3 +253,80 @@ With the Jacobian the weight over-predicts the brightest companions; without it,
 **Item 8 (DEBCat, APOKASC-3).** `scripts/validate_isochrone_m1_benchmarks_418.py` is ready. It is not run because it needs a Gaia DR3 cross-match:
 - DEBCat has names only;
 - APOKASC-3 has KIC IDs only.
+
+## Update 2026-10-06: E(B−V) units fix, new Gaia columns, DEBCat / APOKASC-3
+
+**Combined19 × 0.884 (Ryan, spec §0.6).** The dereddened CMD now multiplies `mwdust.Combined19` by `dust_maps.combined19_native_to_ebv` = 0.884, and so do the isochrone M1, the giant classifier and the 2-D weight that use it. Before/after:
+
+| | before (raw Combined19) | after (× 0.884) |
+|---|---|---|
+| parent off-grid rows | 7,827 | 9,213 |
+| parent median M1 | 0.918 | 0.907 |
+| parent evolved fraction | 7.04% | 6.89% |
+| ridge-residual mode, 2–5 kpc | −0.15 | **−0.45** |
+| ridge-residual mode, > 5 kpc | −0.76 | −1.01 |
+| real orbits off-grid | 11,293 | 11,813 |
+| real evolved fraction | 14.37% | 14.20% |
+| isochrone / FLAME, dwarfs | 0.999 | 0.999 |
+| isochrone / FLAME, evolved | 0.780 | 0.779 |
+
+**What-if on the same pipeline** (`whatif_c19_0884.txt`, before the fix):
+
+| | parent | real orbits |
+|---|---|---|
+| off-grid | 3.72% → 4.29% | 6.94% → 7.05% |
+| C0 < 0.35 | 4.83% → 2.98% | 4.91% → 3.90% |
+| M1 change, median (16th %) | −2.1% (−6.4%) | −0.5% |
+
+**The data push back on the far end.** Less dereddening makes the distant MS residual *more* negative: the reddening vector is shallower than the MS, so M_G0 − R(C0) falls by about 0.75 δA. One reading is that distant rows want *more* extinction than Bayestar × 0.884 gives; the other is that the trend is the magnitude limit itself. The closed loop cannot separate the two: it uses synthetic dust.
+
+**Closed-loop sensitivity to a 13% E(B−V) scale error** (`closed_loop_cmd_small_ebv1131.json`): if the pipeline's E(B−V) is 1.131× the truth, the 2-D max |pull| goes from 8.2 to 10.3. The scale matters at the level of the remaining residual.
+
+**MP-Q34, per-star BP−RP errors** (`extra_columns_418.txt`):
+- The median BP−RP error is 0.016 mag in the parent and 0.0009 mag in the real orbits (they are bright).
+- Off-grid moves from 4.29% to 4.02% in the parent; the real orbits are unchanged.
+- M1 is unchanged (16–84%: 0.999–1.001).
+
+**MP-Q33, calibrated GSP-Phot [Fe/H]** (gdr3apcal, with the spec's reliability cut):
+- It is reliable for 14% of parent rows and 58% of real orbits. The calibrated [Fe/H] has a median of −0.09 / −0.11 (5–95%: −0.77 to +0.35).
+- On reliable rows, M1 shifts by a median of −0.9% / −1.4% (16–84%: −6% to +3%).
+- Isochrone / FLAME:
+
+  | | without [Fe/H] | with [Fe/H] | [Fe/H]-reliable rows only |
+  |---|---|---|---|
+  | dwarfs | 0.999 | 0.980 | 0.989 |
+  | evolved | 0.778 | 0.781 | 0.837 |
+
+- It stays **off by default** (`feh_likelihood.enabled: false`). σ_cal = 0.2 dex is provisional.
+
+**Item 8, DEBCat** (372 systems with Gaia photometry; 262 have an isochrone fit). The Gaia photometry is the eclipsing pair's combined light.
+
+| | M1 / M1_dyn | scatter |
+|---|---|---|
+| blended CMD fit | **1.056** | 0.053 dex |
+| deblended with the dynamical q (MP-Q36 + MP-Q40) | **0.997** | 0.043 dex |
+
+| dynamical q | blended | deblended |
+|---|---|---|
+| < 0.5 (17) | 0.954 | 0.955 |
+| 0.5–0.8 (64) | 0.985 | 0.978 |
+| 0.8–0.95 (89) | 1.080 | 1.016 |
+| 0.95–1 (92) | 1.118 | 1.008 |
+
+This directly validates the deblending: the blended-light bias grows to +12% for twins, and deblending removes it. By dynamical mass, deblended M1 is 0.995 at 0.7–1.3 M⊙ and 1.001 at 1.3–3 M⊙, but 0.75 above 3 M⊙ (N = 11) and 1.6 below 0.7 M⊙ (N = 4).
+
+**Item 8, APOKASC-3** (15,808 giants; 13,745 have an isochrone fit). Isochrone / seismic mass:
+
+| | median | scatter |
+|---|---|---|
+| RGB | 1.038 | 0.090 dex |
+| RC | 1.146 | 0.111 dex |
+
+| seismic mass (M⊙) | isochrone / seismic |
+|---|---|
+| < 1.0 | 1.54 |
+| 1.0–1.5 | 1.09 |
+| 1.5–2 | 0.88 |
+| > 2 | 0.78 |
+
+**The giant prior regresses masses toward about 1.2 M⊙** (CMD mass degeneracy plus the IMF × constant-SFR prior). The median bias is small for the RGB and +15% for the clump. The 0.78 isochrone/FLAME ratio for giants therefore partly reflects FLAME's own high-mass tail. Options for Ryan: an age prior that declines for old ages; a separate clump prior; or calibrating against APOKASC-3.

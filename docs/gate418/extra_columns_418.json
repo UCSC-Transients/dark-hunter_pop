@@ -1,0 +1,88 @@
+{
+ "parent": {
+  "rows": 214666,
+  "matched": 214666,
+  "sigma_colour_phot_pct_16_50_84": [
+   0.00352723373910998,
+   0.016377622824299526,
+   0.04208990387046789
+  ],
+  "off_grid_floor_only": 0.04291783514855636,
+  "off_grid_with_flux_errors": 0.040201988204932315,
+  "m1_ratio_flux_errors_over_floor_pct_16_50_84": [
+   0.9988211207595707,
+   1.0000104925715998,
+   1.001287431437696
+  ],
+  "feh_reliable_fraction": 0.13981720440125592,
+  "feh_cal_pct_5_50_95": [
+   -0.7702704400576584,
+   -0.08997216118821247,
+   0.34583136603177195
+  ],
+  "m1_ratio_with_feh_over_without_pct_16_50_84": [
+   0.9437751546232757,
+   0.991498563475141,
+   1.0271254200429691
+  ],
+  "posterior_feh_shift_median": -0.02136005501683457
+ },
+ "real": {
+  "rows": 168065,
+  "matched": 168065,
+  "sigma_colour_phot_pct_16_50_84": [
+   0.0005889422397397464,
+   0.0009191385644342143,
+   0.0018608718155359518
+  ],
+  "off_grid_floor_only": 0.07051438431559218,
+  "off_grid_with_flux_errors": 0.07030613155624311,
+  "m1_ratio_flux_errors_over_floor_pct_16_50_84": [
+   0.9999918675922979,
+   0.9999999557545787,
+   1.0000029687353447
+  ],
+  "feh_reliable_fraction": 0.5791747240650938,
+  "feh_cal_pct_5_50_95": [
+   -0.7581289105669984,
+   -0.11290847720807279,
+   0.3505638008296569
+  ],
+  "m1_ratio_with_feh_over_without_pct_16_50_84": [
+   0.9309797805871555,
+   0.9865296010504983,
+   1.0285795223670984
+  ],
+  "posterior_feh_shift_median": -0.036434354616323335,
+  "flame_dwarfs_floor": {
+   "n": 80382,
+   "median": 0.9994434482916731,
+   "scatter_dex": 0.03198394782686987
+  },
+  "flame_dwarfs_flux_errors": {
+   "n": 80392,
+   "median": 0.9994414080353287,
+   "scatter_dex": 0.03198037613069636
+  },
+  "flame_dwarfs_flux_errors_plus_FeH": {
+   "n": 78245,
+   "median": 0.9795666961938102,
+   "scatter_dex": 0.037318147309988434
+  },
+  "flame_evolved_floor": {
+   "n": 11403,
+   "median": 0.7783158949701356,
+   "scatter_dex": 0.13345319434889294
+  },
+  "flame_evolved_flux_errors": {
+   "n": 11404,
+   "median": 0.778338469110953,
+   "scatter_dex": 0.13342864537528504
+  },
+  "flame_evolved_flux_errors_plus_FeH": {
+   "n": 10312,
+   "median": 0.7814343421621752,
+   "scatter_dex": 0.1431116045573591
+  }
+ }
+}
