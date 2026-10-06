@@ -430,7 +430,9 @@ def _substep_coords(x: FloatArray, n: int) -> FloatArray:
 def prior_points(grid: NativeGrid, cfg: IsochroneMassConfig) -> PriorPoints:
     """Sub-step the native grid in [Fe/H] and age (EEP-matched) and attach prior weights.
 
-    Weight per point = ξ(M_init) ΔM_init × p(τ) Δτ × p([Fe/H]) Δ[Fe/H]; normalized to sum 1.
+    Weight per point = ξ(M_init) ΔM_init × p(τ) Δτ × p([Fe/H]) Δ[Fe/H] (× (τ/1 Gyr)^age_power, ×
+    ``provisional_cheb_weight`` on core-He-burning points; #418 APOKASC-3 calibration); normalized
+    to sum 1.
     """
     g = cfg.grid
     feh = _substep_coords(grid.feh, g.n_feh_substeps)
@@ -441,6 +443,8 @@ def prior_points(grid: NativeGrid, cfg: IsochroneMassConfig) -> PriorPoints:
         w_age = np.diff(10.0 ** lage_edges)
     else:
         w_age = np.diff(lage_edges)
+    if cfg.age.provisional_age_power != 0.0:  # #418 APOKASC-3 calibration (age / 1 Gyr)^power
+        w_age = w_age * (10.0 ** (lage - 9.0)) ** cfg.age.provisional_age_power
     from scipy.special import ndtr
 
     fe_edges = np.concatenate([[feh[0]], 0.5 * (feh[1:] + feh[:-1]), [feh[-1]]])
@@ -466,6 +470,8 @@ def prior_points(grid: NativeGrid, cfg: IsochroneMassConfig) -> PriorPoints:
             # A sub-stepped point between two phases gets the later phase's label rounding.
             dm = _segment_widths(mi)
             w = imf_density(mi, cfg.imf) * dm * w_age[:, None] * w_feh[fi]
+            if cfg.provisional_cheb_weight != 1.0:  # #418 red-clump weight (APOKASC-3 calibration)
+                w = np.where((ph >= 2.5) & (ph < 3.5), w * cfg.provisional_cheb_weight, w)
             ok = np.isfinite(w) & (w > 0) & np.isfinite(c[..., NATIVE_QUANTITIES.index("mg")])
             ok &= np.isfinite(ph)
             a_idx = np.nonzero(ok)[0]

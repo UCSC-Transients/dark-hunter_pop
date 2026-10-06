@@ -28,6 +28,12 @@ isochrone_mass:
   # Every other key is at the schema default (darkhunter_pop.isochrone_mass.IsochroneMassConfig);
   # provisional_* keys are open questions (MP-Q33-Q35), not decisions.
   mist_root: /Users/rfoley/.isochrones
+  age:
+    kind: uniform_linear
+    # #418 (Ryan 2026-10-07): APOKASC-3 calibration (docs/gate418/giant_prior_calibration.txt): extra
+    # (age/1 Gyr)^0.5 on the constant-SFR weight; held-out half: RGB M_hat/M_seis 1.039 -> 0.972,
+    # RC 1.151 -> 1.065. The CHeB weight (rho 0.4-1.6) moves the medians < 0.01 and stays 1.
+    provisional_age_power: 0.5
 mass_derivation:
   dark_companion_flux_ratio: 0.0
   uberms_m1_prior_max_msun: 3.0

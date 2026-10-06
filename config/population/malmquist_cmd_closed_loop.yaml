@@ -12,12 +12,15 @@ closed_loop_cmd:
   sizes:
     small: 1000000
     large: 3000000
-  dust:                          # E(B-V) = rate * d_kpc * (1 - exp(-x)) / x, x = d |sin b| / h
+  dust:
+    # #418 (Ryan 2026-10-07): the universe uses the real map with the pipeline's units (Combined19 x 0.884),
+    # seen by the pipeline with the measured Bayestar19 sigma(E)/E ~ 0.08-0.09 (docs/gate418/bayestar19_eval.txt).
+    kind: combined19
     ebv_per_kpc: 0.3             # ~ A_V 1 mag/kpc in the plane (synthetic)
     scale_height_pc: 100.0
     a_g_per_ebv: 2.7             # constant ratios in the synthetic world (the real pipeline uses Babusiaux 2018)
     e_bp_rp_per_ebv: 1.35
-    pipeline_fractional_error: 0.05   # the pipeline's E(B-V) = truth * (1 + 0.05 N(0,1)); it assumes sigma_A = 0 (MP-Q29)
+    pipeline_fractional_error: 0.085  # measured Bayestar19 posterior sigma(E)/E (parent 0.076, real 0.085)
   colour_error_mag: 0.01
   one_d_sigma_int_mag: 0.15      # §9.3 comparison run (zero point 0), as in #405
   universe_max_phase: 3.0        # MS + SGB/RGB + core-He burning primaries (evolved rows get W = 1, spec §10.6)
