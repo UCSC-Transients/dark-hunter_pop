@@ -994,7 +994,7 @@ def calibrated_gspphot_feh(
     out = np.full(n, np.nan)
     if ok.any():
         cal = GaiaDR3_GSPPhot_cal()
-        sub = df.loc[ok].copy()
+        sub = df.loc[ok].copy().reset_index(drop=True)  # gdr3apcal indexes positionally
         res = cal.calibrateMetallicity(sub)
         vals = np.asarray(res if not hasattr(res, "to_numpy") else res.to_numpy(), float).reshape(-1)
         out[np.flatnonzero(ok)] = vals[: int(ok.sum())]
