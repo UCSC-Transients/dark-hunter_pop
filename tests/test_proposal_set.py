@@ -570,6 +570,26 @@ def test_proposal_draws_go_through_epoch_model_run_cascade(monkeypatch: pytest.M
     rec = ps.simulate_one(draw, gaiamock=_FakeGaiamock(), c_funcs=None, cfg=frag.proposal, cuts=cuts, epoch=setup)
     src = seen["source"]
     assert (src.g_mag, src.l_deg, src.b_deg) == (15.0, 120.0, -30.0)  # type: ignore[attr-defined]
+    assert src.beta_deg is not None and np.isfinite(src.beta_deg)  # type: ignore[attr-defined]  # #442
     assert seen["config"] is setup.config
     assert seen["ruwe_min"] == frag.proposal.ruwe_min
     assert rec["solution_type"] is not None and not rec["accepted_orbital"]
+
+
+@pytest.mark.unit
+def test_epoch_source_context_feeds_visibility_period_loss() -> None:
+    """#442: with dr3.epoch_model.visibility_period_loss on, the draw's source context must
+    carry beta and b, or every simulate_one draw raises in thin_gost_mask."""
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.config_loader import load_config
+
+    cfg = em.epoch_model_config_from_mapping(load_config().dr3.epoch_model)
+    assert cfg.vp_loss is not None
+    for draw in ({"ra_deg": 10.0, "dec_deg": -5.0, "phot_g_mean_mag": 18.0},
+                 {"ra_deg": 266.4, "dec_deg": -28.9, "phot_g_mean_mag": 12.0, "l_deg": np.nan, "b_deg": None}):
+        src = ps.epoch_source_context(draw)
+        assert src.beta_deg is not None and src.b_deg is not None and src.l_deg is not None
+        jd = 2457000.0 + np.repeat(np.arange(0.0, 900.0, 3.0), 10) + np.tile(np.arange(10) * 5.0 / 86400.0, 300)
+        keep = em.thin_gost_mask(jd, cfg, em.gap_intervals_jd(cfg), g_mag=src.g_mag, rng=np.random.default_rng(0),
+                                 l_deg=src.l_deg, b_deg=src.b_deg, beta_deg=src.beta_deg)
+        assert keep.shape == jd.shape and keep.any()

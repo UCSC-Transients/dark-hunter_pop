@@ -992,6 +992,27 @@ class EpochSetup:
     gaps_jd: Any
 
 
+def epoch_source_context(draw: Mapping[str, Any]) -> Any:
+    """``epoch_model.SourceEpochContext`` for a stored draw (#442).
+
+    Built from the draw's (ra, dec) by ``epoch_model.source_context``, so Galactic (l, b)
+    and ecliptic latitude are always set: the #432 visibility-period loss needs beta and b,
+    and the continuous keep model needs l and b. The draw's stored ``l_deg`` / ``b_deg``
+    (the parent's catalogue values, #421) take precedence when finite.
+    """
+    import dataclasses
+
+    from darkhunter_pop import epoch_model as em
+
+    src = em.source_context(float(draw["ra_deg"]), float(draw["dec_deg"]), float(draw["phot_g_mean_mag"]))
+    upd = {}
+    for key in ("l_deg", "b_deg"):
+        v = draw.get(key)
+        if v is not None and np.isfinite(float(v)):
+            upd[key] = float(v)
+    return dataclasses.replace(src, **upd) if upd else src
+
+
 def simulate_one(
     draw: Mapping[str, Any],
     *,
@@ -1052,11 +1073,7 @@ def simulate_one(
             def predict() -> Any:
                 return gaiamock.predict_astrometry_luminous_binary(inc=math.radians(float(draw["inc_deg"])), **kw)
 
-            def _opt(key: str) -> float | None:
-                v = draw.get(key)
-                return float(v) if v is not None and np.isfinite(float(v)) else None
-
-            source = em.SourceEpochContext(g_mag=float(draw["phot_g_mean_mag"]), l_deg=_opt("l_deg"), b_deg=_opt("b_deg"))
+            source = epoch_source_context(draw)
             di = int(draw["draw_index"])
             run = em.run_cascade(
                 gaiamock, c_funcs, predict, epoch.config, source,
