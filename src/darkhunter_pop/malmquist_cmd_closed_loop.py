@@ -46,7 +46,15 @@ class _Strict(BaseModel):
 
 
 class SyntheticDustConfig(_Strict):
-    """Synthetic dust layer: E(B−V) = rate × d_kpc × (1 − e^{−x}) / x, x = d |sin b| / h."""
+    """Dust in the closed-loop universe.
+
+    ``kind: layer``: a synthetic layer, E(B−V) = rate × d_kpc × (1 − e^{−x}) / x, x = d |sin b| / h.
+    ``kind: combined19`` (#418, Ryan 2026-10-07): the real map at each universe position with the
+    pipeline's unit convention, E(B−V) = Combined19 × ``dust_maps.combined19_native_to_ebv``; the
+    pipeline then sees it with the measured fractional error ``pipeline_fractional_error``.
+    """
+
+    kind: Literal["layer", "combined19"] = "layer"
 
     ebv_per_kpc: float = Field(..., ge=0)
     scale_height_pc: float = Field(..., gt=0)
@@ -198,7 +206,14 @@ def make_cmd_universe(
     g_sys = -2.5 * np.log10(flux(pr["mg"]) + np.where(has, flux(g2), 0.0))
     bp_sys = -2.5 * np.log10(flux(pr["bp"]) + np.where(has, flux(g2 + np.nan_to_num(bpg2)), 0.0))
     rp_sys = -2.5 * np.log10(flux(pr["rp"]) + np.where(has, flux(g2 - np.nan_to_num(grp2)), 0.0))
-    ebv = synthetic_ebv(pos, cfg.dust)
+    if cfg.dust.kind == "combined19":
+        from darkhunter_pop.config_loader import load_config
+
+        nat = load_config().sample_selection.dust_maps.combined19_native_to_ebv
+        ebv = giants.combined19_ebv(pos["l_deg"], pos["b_deg"], pos["distance_pc"], native_to_ebv=float(nat))
+        ebv = np.where(np.isfinite(ebv), ebv, 0.0)
+    else:
+        ebv = synthetic_ebv(pos, cfg.dust)
     mu = mq.distance_modulus(pos["distance_pc"])
     g_app = g_sys + mu + cfg.dust.a_g_per_ebv * ebv
     c_abs = bp_sys - rp_sys
@@ -466,6 +481,22 @@ def run_cmd_closed_loop(
         "evolved_flagged": float(np.sum(pipe.evolved & keep)),
     }
     ess = {k: ps.kish_ess(np.where(keep[row], v, 0.0)) for k, v in mock.w.items()}
+    # #418 item 3: ridge-residual trend with distance on the synthetic parent (non-evolved,
+    # classified rows; the same estimator as docs/gate418 isochrone_m1_report), all rows and singles.
+    from darkhunter_pop import malmquist_cmd as _mc
+
+    rt = _mc.RidgeTables.from_ridge(pipe.ridge)
+    dm2 = _mc.ridge_residual(pipe.colour0, pipe.mg0, rt)
+    d_kpc = par.r_med / 1000.0
+    base_sel = keep & ~pipe.evolved & np.isfinite(dm2)
+    trend = []
+    for lo, hi in ((0.0, 0.3), (0.3, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 50.0)):
+        b = base_sel & (d_kpc >= lo) & (d_kpc < hi)
+        bs = b & ~has
+        trend.append({"lo": lo, "hi": hi, "n": int(b.sum()),
+                      "median": float(np.median(dm2[b])) if b.sum() > 30 else None,
+                      "median_singles": float(np.median(dm2[bs])) if bs.sum() > 30 else None})
+    tables["distance_trend"] = {"bins": trend}
     res = CmdClosedLoopResult(size=str(size), counts=par.counts, unit_counts=mock.unit_counts, m1_hat_vs_true=m1stats,
                               tables=tables, total=total, ess=ess)
     raw = {"universe": uc, "pipeline": pipe, "mock": mock}

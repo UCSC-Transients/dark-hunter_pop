@@ -126,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apokasc", type=Path)
     ap.add_argument("--apokasc-xmatch", type=Path)
     ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--feh-source", choices=("none", "catalog", "gspphot"), default="none")
+    ap.add_argument("--catalog-feh-sigma", type=float, default=0.1)
+    ap.add_argument("--gspphot-snapshot", type=Path, default=None)
+    ap.add_argument("--tag", default="")
     args = ap.parse_args(argv)
     from astropy.table import Table
 
@@ -148,9 +152,52 @@ def main(argv: list[str] | None = None) -> int:
         mp = np.maximum(m1, m2)
         native = im.load_native_grid(cfg.isochrone_mass, cfg.paths.data_root)
         deb = deblend_known_q(post, cmd, sc, sm, q, native)
+        # #418 item 2: the same with a [Fe/H] likelihood. ``--feh-source catalog`` uses DEBCat's own
+        # spectroscopic [M/H] (an upper bound on what any [Fe/H] measurement can add);
+        # ``--feh-source gspphot`` uses gdr3apcal-calibrated GSP-Phot [M/H] from ``--gspphot-snapshot``.
+        out.setdefault("debcat", {})
+        if args.feh_source != "none":
+            moh = np.array([cat.get(i, {}).get("moh", np.nan) for i in ids])
+            if args.feh_source == "gspphot":
+                import h5py
+
+                with h5py.File(args.gspphot_snapshot / "columns.h5", "r") as h:
+                    cols = {k: h[k][()] for k in h.keys()}
+                sidx = np.asarray(t["source_id"], np.int64)
+                order = np.argsort(cols["source_id"])
+                pos = np.clip(np.searchsorted(cols["source_id"], sidx, sorter=order), 0, order.size - 1)
+                hit = cols["source_id"][order[pos]] == sidx
+                sel = {k: (np.where(hit, v[order[pos]].astype(float), np.nan) if v.dtype.kind in "fi"
+                           else np.char.decode(v[order[pos]].astype("S16"))) for k, v in cols.items()}
+                from astropy.coordinates import SkyCoord
+                import astropy.units as u
+
+                bb = SkyCoord(ra=np.asarray(t["ra"], float) * u.deg, dec=np.asarray(t["dec"], float) * u.deg).galactic.b.deg
+                plx_snr = np.asarray(t["parallax"], float) / np.asarray(t["parallax_error"], float)
+                feh_meas, rel = im.calibrated_gspphot_feh({k: sel[k] for k in im.GDR3APCAL_COLUMNS}, bb, plx_snr,
+                                                          cfg.isochrone_mass.feh_likelihood)
+                feh_meas = np.where(rel, feh_meas, np.nan)
+                ok_cmp = rel & np.isfinite(moh)
+                if ok_cmp.sum() > 5:
+                    dd = feh_meas[ok_cmp] - moh[ok_cmp]
+                    out["debcat"]["gspphot_minus_spec"] = {"n": int(ok_cmp.sum()), "offset": float(np.median(dd)),
+                                                           "sigma_robust": float(1.4826 * np.median(np.abs(dd - np.median(dd))))}
+                    rep.append(f"  gdr3apcal [Fe/H] - DEBCat [M/H]: {out['debcat']['gspphot_minus_spec']}")
+                feh_sig = cfg.isochrone_mass.feh_likelihood.provisional_sigma_dex
+            else:
+                feh_meas, feh_sig = moh, args.catalog_feh_sigma
+            pts = im.prior_points(native, cfg.isochrone_mass)
+            lmap = im.build_layered_cmd_map(pts, cfg.isochrone_mass.cmd_map, native.feh)
+            del pts
+            fpost = im.posterior_moments_with_feh(cmd.colour0, cmd.mg0, sc, sm, feh_meas, feh_sig, lmap, cfg.isochrone_mass.likelihood)
+            debf = deblend_known_q(fpost, cmd, sc, sm, q, native)
+            has = np.isfinite(feh_meas) & np.isfinite(deb) & np.isfinite(debf)
+            out["debcat"][f"feh_{args.feh_source}"] = {"rows_with_feh": int(has.sum()), "without": stats(deb[has] / mp[has]),
+                                                       "with": stats(debf[has] / mp[has])}
+            rep.append(f"  [Fe/H] ({args.feh_source}) on {int(has.sum())} systems: deblended without {stats(deb[has] / mp[has])} | with {stats(debf[has] / mp[has])}")
         r = post.m1_mean / mp
         rd = deb / mp
-        out["debcat"] = {"blended_all": stats(r), "deblended_all": stats(rd)}
+        out["debcat"].update({"blended_all": stats(r), "deblended_all": stats(rd)})
         rep.append(f"DEBCat: {len(t)} systems with Gaia photometry (deduplicated); isochrone ok {int(post.ok.sum())}; "
                    f"catalogue match {int(np.isfinite(m1).sum())}")
         rep.append(f"  all: blended-CMD M1 / M1_dyn {stats(r)}; deblended with the dynamical q {stats(rd)}")
@@ -179,8 +226,9 @@ def main(argv: list[str] | None = None) -> int:
             out["apokasc3"][f"mass_{lo}_{hi}"] = stats(r[s])
             rep.append(f"  seismic mass [{lo},{hi}): {out['apokasc3'][f'mass_{lo}_{hi}']}")
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / "m1_benchmarks.json").write_text(json.dumps(out, indent=1, default=float))
-    (args.out_dir / "m1_benchmarks.txt").write_text("\n".join(rep) + "\n")
+    suf = f"_{args.tag}" if args.tag else ""
+    (args.out_dir / f"m1_benchmarks{suf}.json").write_text(json.dumps(out, indent=1, default=float))
+    (args.out_dir / f"m1_benchmarks{suf}.txt").write_text("\n".join(rep) + "\n")
     print("\n".join(rep))
     return 0
 

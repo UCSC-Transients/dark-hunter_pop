@@ -1535,6 +1535,9 @@ class AgePriorConfig(_IsoStrict):
     """Age prior. ``uniform_linear``: constant star-formation rate between the grid ends."""
 
     kind: Literal["uniform_linear", "uniform_log"] = "uniform_linear"
+    #: #418 (Ryan 2026-10-07): extra age weight (age / 1 Gyr)^power on top of ``kind`` (0 = constant
+    #: SFR). Calibrated against APOKASC-3 giants (docs/gate418); provisional until Ryan accepts it.
+    provisional_age_power: float = 0.0
 
 
 class FehPriorConfig(_IsoStrict):
@@ -1599,6 +1602,9 @@ class IsochroneMassConfig(_IsoStrict):
     age: AgePriorConfig = AgePriorConfig()
     provisional_feh_prior: FehPriorConfig = FehPriorConfig()
     feh_likelihood: FehLikelihoodConfig = FehLikelihoodConfig()
+    #: #418: prior-weight multiplier for core-He-burning points (MIST phase 2.5–3.5, the red clump),
+    #: calibrated against APOKASC-3 RC masses (docs/gate418); 1 = the isochrone lifetime weighting.
+    provisional_cheb_weight: float = Field(1.0, gt=0)
     likelihood: IsochroneLikelihoodConfig = IsochroneLikelihoodConfig()
     #: Which M1 summary feeds point uses (mock truth M1 and bulk M1): the posterior mean of
     #: M1 or exp of the mean of ln M1 (MP-Q35, provisional).
