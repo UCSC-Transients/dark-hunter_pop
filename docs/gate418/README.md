@@ -330,3 +330,14 @@ This directly validates the deblending: the blended-light bias grows to +12% for
 | > 2 | 0.78 |
 
 **The giant prior regresses masses toward about 1.2 M⊙** (CMD mass degeneracy plus the IMF × constant-SFR prior). The median bias is small for the RGB and +15% for the clump. The 0.78 isochrone/FLAME ratio for giants therefore partly reflects FLAME's own high-mass tail. Options for Ryan: an age prior that declines for old ages; a separate clump prior; or calibrating against APOKASC-3.
+
+**Literature counts after the units fix** (full DA artifact; MIST bulk recomputed with Combined19 × 0.884; `flip_remeasure_MIST_isochrone_c19x0884.*`). Every sample is identical to before the fix, with the same parent N, survivors and survivor-ID hash:
+
+| sample (mode) | survivors |
+|---|---|
+| `andrews2022` (reproduction) | 25 |
+| `andrews2022_modified` (forward model) | 24 |
+| `elbadry2024` | 48 |
+| `elbadry2026` | 240 |
+
+Bulk survivors of the M2 cut go from 19,476 to 19,211. Gaia BH1 M1 is 0.964 ± 0.070 and BH2 is 1.060 ± 0.058 (published 0.93 and 1.07).
