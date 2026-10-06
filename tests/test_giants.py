@@ -147,3 +147,31 @@ def test_evolved_flux_ratio_splits_total_light() -> None:
     assert -2.5 * math.log10(10 ** (-0.4 * mg2) * (1 + 1 / f)) == pytest.approx(mg2 - 3.0)
     # companion brighter than the whole system is impossible
     assert np.isnan(gi.evolved_log10_flux_ratio([0.8], [mg2 + 0.1])[0])
+
+
+@pytest.mark.unit
+def test_combined19_unit_convention_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#418 / spec §0.6: mwdust Combined19 (SFD scale) × 0.884 = E(B−V) in the dereddened CMD."""
+    import sys
+    import types
+
+    from darkhunter_pop.config_loader import load_config
+
+    class FakeC19:
+        def __call__(self, l, b, d):  # type: ignore[no-untyped-def]
+            return np.ones(np.asarray(l).shape)
+
+    monkeypatch.setitem(sys.modules, "mwdust", types.SimpleNamespace(Combined19=FakeC19))
+    cfg = load_config()
+    assert cfg.sample_selection.dust_maps.combined19_native_to_ebv == pytest.approx(0.884)
+    assert cfg.sample_selection.dust_maps.maps["green2019"].native_to_ebv == pytest.approx(0.884)
+    raw = gi.combined19_ebv(np.array([10.0]), np.array([5.0]), np.array([1000.0]))
+    assert raw[0] == pytest.approx(1.0)  # the raw value is untouched unless asked
+    rc = gi.cmd_for_rows(np.array([12.0]), np.array([1.5]), np.array([10.0]), np.array([5.0]),
+                         np.array([1000.0]), np.array([900.0]), np.array([1100.0]), cfg, None)
+    assert rc.ebv[0] == pytest.approx(0.884)
+    bad = cfg.model_copy(update={"sample_selection": cfg.sample_selection.model_copy(update={
+        "dust_maps": cfg.sample_selection.dust_maps.model_copy(update={"combined19_native_to_ebv": None})})})
+    with pytest.raises(ValueError, match="combined19_native_to_ebv"):
+        gi.cmd_for_rows(np.array([12.0]), np.array([1.5]), np.array([10.0]), np.array([5.0]),
+                        np.array([1000.0]), np.array([900.0]), np.array([1100.0]), bad, None)

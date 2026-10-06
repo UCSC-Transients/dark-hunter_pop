@@ -1365,6 +1365,11 @@ class DustMapsConfig(BaseModel):
     #: unless absolute). Holds ``bayestar/bayestar2019.h5`` for posterior-sample queries
     #: (``dustmaps.bayestar.BayestarQuery``; its ``fetch()`` is never called). #418 MP-Q34.
     dustmaps_data_dir: str | None = None
+    #: #418 (Ryan 2026-10-06, MOCK_POPULATION_SPEC §0.6): ``mwdust.Combined19`` returns E(B−V) on
+    #: the SFD scale (mwdust README), i.e. Bayestar19's native unit in the north (Green et al. 2019,
+    #: E(g−r) = 0.901 E). Pipeline consumers multiply it by this factor to get E(B−V) — the same
+    #: 0.884 #295 applies to ``maps.green2019`` (which is converted there, not again). No default.
+    combined19_native_to_ebv: float | None = Field(default=None, gt=0.0)
     r_v: float | None = Field(default=None, gt=0.0)
     maps: dict[str, DustMapFileSpec] = Field(default_factory=dict)
     gaia_band_extinction: GaiaBandExtinctionConfig = Field(
