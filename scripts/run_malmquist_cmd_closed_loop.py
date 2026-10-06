@@ -54,12 +54,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="override malmquist_cmd.single_star_density.provisional_model (MP-Q39)")
     ap.add_argument("--tag", default="", help="suffix for output names")
     ap.add_argument("--no-colour-jacobian", action="store_true", help="diagnostic: drop 1/|J| in the MIST-density L")
+    ap.add_argument("--ebv-scale", type=float, default=1.0, help="what-if: pipeline E(B-V) multiplied by this (e.g. 1.131)")
     args = ap.parse_args(argv)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     pc = load_config(host_profile=args.host_profile)
     t0 = time.time()
     size = args.size if args.size in ("small", "large") else int(args.size)
-    res, raw = cl.run_cmd_closed_loop(size, pipeline_config=pc, single_star_model=args.single_star_model,
+    ccfg = cl.load_cmd_closed_loop_config()
+    ccfg = ccfg.model_copy(update={"dust": ccfg.dust.model_copy(update={"pipeline_scale": args.ebv_scale})})
+    res, raw = cl.run_cmd_closed_loop(size, ccfg, pipeline_config=pc, single_star_model=args.single_star_model,
                                       colour_jacobian=not args.no_colour_jacobian)
     wall = time.time() - t0
     out = {
