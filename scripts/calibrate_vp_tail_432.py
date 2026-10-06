@@ -60,15 +60,17 @@ VARIANT_FREE = {
 }
 
 
-def load(path: Path, cfg: em.EpochModelConfig, random_offset: float, n_random: int, seed: int) -> dict[str, Any]:
+def load(path: Path, cfg: em.EpochModelConfig, random_offset: float, n_random: int, seed: int,
+         min_params: int = 0) -> dict[str, Any]:
     out: dict[str, Any] = {}
     rng = np.random.default_rng(seed)
     with h5py.File(path, "r") as f:
         for name in ("random", "nss"):
             g = f[name]
             d = {k: g[k][:] for k in g}
-            n = d["source_id"].size
-            idx = np.arange(n) if name == "nss" or n_random <= 0 else np.sort(rng.choice(n, min(n_random, n), replace=False))
+            pool = np.flatnonzero(d["astrometric_params_solved"] > min_params) if min_params else np.arange(d["source_id"].size)
+            n = pool.size
+            idx = pool if name == "nss" or n_random <= 0 else np.sort(rng.choice(pool, min(n_random, n), replace=False))
             off = d["vp_offsets"]
             sizes = [d["vp_ntr"][off[i]:off[i + 1]] for i in idx]
             vmax = max(len(s) for s in sizes)
@@ -225,14 +227,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--b-feature", choices=("abs_sin", "exp"), default="abs_sin")
     ap.add_argument("--b-scale-deg", type=float, default=10.0)
     ap.add_argument("--likelihood", choices=("star", "cell"), default="star")
+    ap.add_argument("--min-params", type=int, default=0,
+                    help="keep stars with astrometric_params_solved > this (3: 5/6-parameter only; #432 V2)")
     args = ap.parse_args(argv)
     global B_FEATURE, B_SCALE_DEG, LIKELIHOOD
     B_FEATURE, B_SCALE_DEG, LIKELIHOOD = args.b_feature, args.b_scale_deg, args.likelihood
     cfg = em.epoch_model_config_from_mapping(load_config().dr3.epoch_model)
     delta = float(json.loads(Path(args.keep_fit).read_text())["adopted"]["random_offset_log"])
-    data = load(Path(args.vp), cfg, delta, args.n_random, args.seed)
+    data = load(Path(args.vp), cfg, delta, args.n_random, args.seed, args.min_params)
     start = {"c0": -4.0, "c1": 1.0, "c2": 0.0, "c_beta": 0.0, "c_b": 0.0, "e0": -0.5, "d0": -3.5, "d1": 0.5}
-    results: dict[str, Any] = {"likelihood": LIKELIHOOD, "vp_file": str(args.vp), "b_feature": B_FEATURE, "b_scale_deg": B_SCALE_DEG,
+    results: dict[str, Any] = {"min_params": args.min_params, "likelihood": LIKELIHOOD, "vp_file": str(args.vp), "b_feature": B_FEATURE, "b_scale_deg": B_SCALE_DEG,
                                "n_random": int(data["random"]["G"].size), "n_nss": int(data["nss"]["G"].size),
                                "random_offset_log": delta, "variants": {}}
     prev = start
