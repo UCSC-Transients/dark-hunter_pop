@@ -366,3 +366,9 @@ Regression with seismic mass remains (RGB, test half, in seismic-mass bins <1, 1
 
 - The synthetic parent reproduces the real ridge-residual trend: −0.58 at 2–5 kpc and −1.16 beyond 5 kpc, against −0.34 / −0.45 (real median / mode) and −1.10 / −1.01. **The trend is selection**, so no extinction change is needed.
 - Worst |pull| is 6.7 with no weight, 8.8 with the 1-D weight and 7.6 with the 2-D weight. The ≤ 3 target is not met; the excess is at the brightest log f and the top M2 bins.
+
+**[Fe/H] likelihood decision: off** (`m1_benchmarks_feh_gspphot.*`, GSP-Phot snapshot `20261006T182414Z_debcat_isochrone_extra_columns`).
+
+- Compared with DEBCat [M/H] on 89 systems, gdr3apcal [Fe/H] has an offset of −0.12 dex and a robust σ_cal of 0.27 dex. That σ is larger than the provisional 0.2.
+- With the likelihood, deblended M1 / M_dyn gets worse on the 103 systems with a reliable value: scatter 0.040 → 0.043 dex and bias −0.014 → −0.018 dex.
+- `isochrone_mass.feh_likelihood.enabled` therefore stays `false`, so APOKASC-3 and FLAME are unaffected. **The M1 config is final: γ = 0.5 and no [Fe/H] likelihood.**
