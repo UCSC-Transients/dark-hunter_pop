@@ -73,6 +73,9 @@ class CmdClosedLoopConfig(_Strict):
     #: MP-Q35 + MP-Q36 (decided 2026-10-04): per draw, a posterior draw of the primary and the
     #: coeval deblended truth M1 (``proposal_set.apply_posterior_deblending``).
     posterior_deblending: bool = True
+    #: MP-Q40 (decided 2026-10-04): the universe's and the target's MS-companion G-flux ratio
+    #: come from the coeval MIST isochrone (``mist_coeval``) instead of Janssens.
+    mass_luminosity: Literal["janssens2022", "mist_coeval"] = "mist_coeval"
 
 
 def load_cmd_closed_loop_config(path: str | Path = "config/population/malmquist_cmd_closed_loop.yaml") -> CmdClosedLoopConfig:
@@ -134,6 +137,19 @@ def companion_colours_true(
     return bpg, grp
 
 
+def companion_mg_true(grid: im.NativeGrid, feh: FloatArray, log_age: FloatArray, m: FloatArray) -> FloatArray:
+    """M_G of a MS star of mass ``m`` at the nearest native ([Fe/H], age) of each primary."""
+    fi = np.abs(grid.feh[None, :] - feh[:, None]).argmin(axis=1)
+    ai = np.abs(grid.log_age[None, :] - log_age[:, None]).argmin(axis=1)
+    out = np.full(m.size, np.nan)
+    key = fi * grid.log_age.size + ai
+    for k in np.unique(key[np.isfinite(m)]):
+        sel = (key == k) & np.isfinite(m)
+        mass, rel = im.main_sequence_colour_relation(grid, float(grid.feh[k // grid.log_age.size]), float(grid.log_age[k % grid.log_age.size]))
+        out[sel] = np.interp(np.clip(m[sel], mass[0], mass[-1]), mass, rel["mg"])
+    return out
+
+
 def synthetic_ebv(pos: dict[str, FloatArray], dust: SyntheticDustConfig) -> FloatArray:
     d = pos["distance_pc"]
     x = d * np.abs(np.sin(np.radians(pos["b_deg"]))) / dust.scale_height_pc
@@ -154,13 +170,21 @@ def make_cmd_universe(
     pos = mcl.draw_positions(n, base.disk, rng)
     pr = _sample_primaries(pts, n, base.imf.m_min_msun, base.imf.m_max_msun, rng, cfg.universe_max_phase)
     m1 = pr["m1"]
-    parts = [mcl.draw_companions(m1[a:a + mcl.COMPANION_CHUNK], target, grid1d, rng) for a in range(0, n, mcl.COMPANION_CHUNK)]
+    mist = cfg.mass_luminosity == "mist_coeval"
+    cgrid = mc.build_q_grid(target, mc.load_cmd_malmquist_config(cfg.malmquist_cmd_config).grid) if mist else grid1d
+    parts = [mcl.draw_companions(m1[a:a + mcl.COMPANION_CHUNK], target, cgrid, rng, require_janssens=not mist)
+             for a in range(0, n, mcl.COMPANION_CHUNK)]
     comp = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     has = comp["has_companion"]
     # Evolved primaries (MIST phase >= 1.5): the companion is a MS star whose G light follows the
     # dwarf relation for M2 itself, f = L2 / L1 = 10^{-0.4 (M_G^J(M2) - M_G,1)} (spec §10.4), with
     # the decided 0.1 dex scatter; the dwarf-relation f(M1, M2) would be ~2 dex too bright.
     evolved_true = pr["phase"] >= 1.5
+    if cfg.mass_luminosity == "mist_coeval":  # MP-Q40: f from the primary's own MS, coeval
+        mg2 = companion_mg_true(native, pr["feh"], pr["log_age"], np.where(has, comp["m2_msun"], np.nan))
+        mg1_ms = companion_mg_true(native, pr["feh"], pr["log_age"], m1)
+        lf_ms = -0.4 * (mg2 - mg1_ms) + target.flux_sigma_dex * rng.standard_normal(n)
+        comp["log10_f"] = np.where(has & ~evolved_true, lf_ms, comp["log10_f"])
     with np.errstate(invalid="ignore"):
         lf_evo = -0.4 * (ps.janssens_absolute_g(comp["m2_msun"]) - pr["mg"]) + target.flux_sigma_dex * rng.standard_normal(n)
     comp["log10_f"] = np.where(has & evolved_true, np.where(np.isfinite(lf_evo), lf_evo, -np.inf), comp["log10_f"])
@@ -268,11 +292,14 @@ def run_cmd_mock(
     if cfg.posterior_deblending:
         truth = ps.apply_posterior_deblending(truth, parent, pipeline_config, prop, sampler=sampler, native=native)
     # #416 / spec §10.4: CMD-evolved rows use the evolved flux relation in the target.
-    log_lam = ps.mds17_luminous_log_intensity(truth, frag.target_mds17, evolved_mg0_system=ps.evolved_mg0_for_draws(truth, parent))
+    rel = ps.mist_relation_for_draws(truth, parent, pipeline_config, native=native) if frag.target_mds17.mass_luminosity == "mist_coeval" else None
+    log_lam = ps.mds17_luminous_log_intensity(truth, frag.target_mds17, evolved_mg0_system=ps.evolved_mg0_for_draws(truth, parent),
+                                              relation_log10_f=rel)
     n = [prop.n_draws]
     lq = [truth["log_q_total"]]
     w = {"none": ps.importance_weights(log_lam, lq, n, scale_to_full=1.0)}
-    _, f_lum = grid1d.interpolate(parent.m1_msun)
+    qf = mc.build_q_grid(frag.target_mds17, cmcfg.grid) if frag.target_mds17.mass_luminosity == "mist_coeval" else mc.build_qf_grid(frag.target_mds17, cmcfg.grid)
+    _, f_lum = qf.interpolate(parent.m1_msun)
     p_single = {"none": np.clip(1.0 - f_lum, 0.0, 1.0)}
     # 1-D §9.3 weight fed the isochrone M̂1 (zero point 0, configured σ_int)
     m1d = mcfg.model_copy(update={"provisional_sigma_int_mag": cfg.one_d_sigma_int_mag, "provisional_mg_zero_point_mag": 0.0,
@@ -287,7 +314,6 @@ def run_cmd_mock(
     ms = mc.ms_colour_bank(native, pipe.post.feh_mean, pipe.post.log_age_mean, cc)  # MP-Q37 coeval
     rows = mc.cmd_rows(pipe.colour0, pipe.mg0, pipe.sigma_mu, parent.m1_msun, rt, evolved=pipe.evolved,
                        a_g=pipe.a_g_hat, e_bp_rp=pipe.e_br_hat)
-    qf = mc.build_qf_grid(frag.target_mds17, cmcfg.grid)
     dens = None
     if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
         dens = mc.build_single_star_density(cmap, cmcfg.single_star_density, pipe.ridge)
@@ -349,6 +375,7 @@ def run_cmd_closed_loop(
     data_root: str | Path | None = None,
     pipeline_config: Any = None,
     single_star_model: Literal["gaussian_ridge", "mist_density_ridge_anchored"] | None = None,
+    colour_jacobian: bool = True,
 ) -> tuple[CmdClosedLoopResult, dict[str, Any]]:
     """Build, observe, run the pipeline, mock and compare (spec §11.5)."""
     from darkhunter_pop.config_loader import load_config
@@ -358,6 +385,7 @@ def run_cmd_closed_loop(
     droot = data_root or pc.paths.data_root
     base = mcl.load_closed_loop_config(cfg.base_config)
     frag = mcl.closed_loop_fragment(base)
+    frag = frag.model_copy(update={"target_mds17": frag.target_mds17.model_copy(update={"mass_luminosity": cfg.mass_luminosity})})
     mcfg = mq.load_malmquist_config(base.malmquist_config)
     cmcfg = mc.load_cmd_malmquist_config(cfg.malmquist_cmd_config)
     gcfg = giants.load_giants_config(cfg.giants_config)
@@ -370,9 +398,10 @@ def run_cmd_closed_loop(
     rng = np.random.default_rng(np.random.SeedSequence(cfg.seed, spawn_key=(418, n)))
     uc = make_cmd_universe(n, base, cfg, frag.target_mds17, grid1d, native, pts, rng)
     pipe = run_pipeline_on_parent(uc, base, cfg, model, gcfg, rng)
+    upd: dict[str, Any] = {"colour_jacobian": colour_jacobian}
     if single_star_model is not None:
-        cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(
-            update={"provisional_model": single_star_model})})
+        upd["provisional_model"] = single_star_model
+    cmcfg = cmcfg.model_copy(update={"single_star_density": cmcfg.single_star_density.model_copy(update=upd)})
     sampler = im.PosteriorSampler.build(pts, pc.isochrone_mass.cmd_map) if cfg.posterior_deblending else None
     mock = run_cmd_mock(pipe, base, cfg, frag, mcfg, cmcfg, grid1d, native, model.cmap, pipeline_config=pc, sampler=sampler)
     u, par = uc.base, pipe.par

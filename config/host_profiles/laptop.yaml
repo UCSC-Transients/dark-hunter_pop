@@ -23,3 +23,7 @@ isochrone_mass:
   # #418: MIST v1.2 vvcrit0.4 full isochrones + UBVRIplus BCs, read in place (21 GB; never copied).
   # Matches config.yaml's own value exactly, so selecting this profile stays behavior-neutral.
   mist_root: /Users/rfoley/.isochrones
+sample_selection:
+  dust_maps:
+    # #418 MP-Q34: dustmaps package data dir (bayestar/bayestar2019.h5). Matches config.yaml.
+    dustmaps_data_dir: dust_maps/dustmaps_data

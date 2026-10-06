@@ -28,6 +28,9 @@ gaiamock = ["healpy>=1.16", "joblib>=1.3", "mwdust>=1.0", "threadpoolctl>=3.7"]
 # Volume-limited Malmquist diagnostic only (#391 MP-Q32; installed with numpy<2 kept).
 volume_diagnostic = ["gaiaunlimited>=0.3.3"]
 sheets = ["google-api-python-client>=2.100", "google-auth>=2.22"]
+# #418: Bayestar19 posterior samples (MP-Q34 evaluation) and the GSP-Phot [M/H] calibration
+# (MP-Q33, Andrae et al. 2023). Installed with numpy 1.26.4 kept.
+isochrone = ["dustmaps>=1.0.14", "gdr3apcal>=0.4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -341,7 +341,11 @@ class MdS17TargetConfig(_Strict):
     provisional_low_mass_anchor_msun: float = Field(..., gt=0.0)
     provisional_low_mass_zero_msun: float = Field(..., gt=0.0)
     provisional_multiplicity: Literal["poisson_intensity"]  # MP-Q9
-    mass_luminosity: Literal["janssens2022"]  # MP-Q13, decided (spec §0.1)
+    # MP-Q13 (decided 2026-10-02): janssens2022. MP-Q40 (decided 2026-10-04, spec §0.4, §11.9):
+    # ``mist_coeval`` takes the main-sequence companion's G-flux ratio from the same coeval
+    # MIST isochrone as the primary, f = 10^{-0.4 (M_G(M2) - M_G(M1))}, with the same
+    # ``flux_sigma_dex`` scatter; callers pass it per draw (:func:`mist_relation_for_draws`).
+    mass_luminosity: Literal["janssens2022", "mist_coeval"]
     flux_sigma_dex: float = Field(..., gt=0.0)  # MP-Q13, decided (spec §0.1)
     provisional_compact_mixture: Literal["none"]  # MP-Q17
 
@@ -1098,6 +1102,7 @@ def mds17_luminous_log_intensity(
     target: MdS17TargetConfig,
     *,
     evolved_mg0_system: ArrayLike | None = None,
+    relation_log10_f: ArrayLike | None = None,
 ) -> FloatArray:
     """log λ(x | θ_MdS17) in the proposal's measure (per dex M2, per dex P, per unit e or
     the circular point mass, per dex f), for luminous MS companions only.
@@ -1137,7 +1142,12 @@ def mds17_luminous_log_intensity(
         (e == 0.0).astype(float),
         mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
     )
-    rel = relation_log10_flux_ratio(m1, m2)
+    if target.mass_luminosity == "mist_coeval":
+        if relation_log10_f is None:
+            raise ValueError("mass_luminosity mist_coeval: pass relation_log10_f (mist_relation_for_draws)")
+        rel = np.asarray(relation_log10_f, float)
+    else:
+        rel = relation_log10_flux_ratio(m1, m2)
     if evolved_mg0_system is not None:
         from darkhunter_pop.giants import evolved_log10_flux_ratio
 
@@ -1601,7 +1611,7 @@ def malmquist_cmd_log_weight(
         colour0=rows.colour0, mg0=rows.mg0, sigma_mu=rows.sigma_mu, k_ag_over_ebprp=rows.k_ag_over_ebprp,
         m1_msun=rows.m1_msun, unit_weight=rows.unit_weight | ~used, unit_reason=rows.unit_reason,
     )
-    qf = mc.build_qf_grid(target, cmcfg.grid)
+    qf = mc.build_q_grid(target, cmcfg.grid) if target.mass_luminosity == "mist_coeval" else mc.build_qf_grid(target, cmcfg.grid)
     dens = None
     if cmcfg.single_star_density.provisional_model == "mist_density_ridge_anchored":
         model = im.build_model(config.isochrone_mass, config.paths.data_root)
@@ -1697,5 +1707,39 @@ def apply_posterior_deblending(
     out["m2_proposal_msun"] = m2_prop
     out["m1_msun"] = m1_true
     out["m2_msun"] = q * m1_true
+    return out
+
+
+def mist_relation_for_draws(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    config: PipelineConfig,
+    *,
+    native: Any = None,
+    feh_step_dex: float = 0.05,
+) -> FloatArray:
+    """MP-Q40: log10 f = −0.4 [M_G(M2) − M_G(M1)] on the coeval MIST main sequence, per draw.
+
+    The isochrone is the draw's own posterior draw (``iso_feh`` / ``iso_log_age``, after
+    :func:`apply_posterior_deblending`) or else the row's posterior means; [Fe/H] is rounded
+    to ``feh_step_dex`` and linear between MIST files, the age is the nearest native one
+    (:func:`darkhunter_pop.malmquist_cmd.ms_colour_bank`). Masses are clamped to the MS mass
+    range of that isochrone.
+    """
+    from darkhunter_pop import isochrone_mass as im
+    from darkhunter_pop import malmquist_cmd as mc
+
+    if native is None:
+        native = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
+    r = np.asarray(truth["parent_row"], np.int64)
+    iso = parent.isochrone or {}
+    feh = np.asarray(truth.get("iso_feh", np.asarray(iso.get("feh_mean", np.full(parent.n_rows, np.nan)), float)[r]), float)
+    age = np.asarray(truth.get("iso_log_age", np.asarray(iso.get("log_age_mean", np.full(parent.n_rows, np.nan)), float)[r]), float)
+    bank = mc.ms_colour_bank(native, feh, age, mc.CompanionColourConfig(feh_step_dex=feh_step_dex))
+    m1 = np.asarray(truth["m1_msun"], float)
+    m2 = np.asarray(truth["m2_msun"], float)
+    out = np.full(r.size, np.nan)
+    for ms, pos in bank.for_rows(np.arange(r.size)):
+        out[pos] = ms.log10_flux_ratio(m1[pos], m2[pos])
     return out
 

@@ -244,8 +244,13 @@ def draw_companions(
     target: ps.MdS17TargetConfig,
     grid: mq.FluxMarginalGrid,
     rng: np.random.Generator,
+    *,
+    require_janssens: bool = True,
 ) -> dict[str, Any]:
     """At most one luminous MdS17 companion per primary (binary with probability F_lum(M1)).
+
+    ``grid`` only needs ``log_m1`` and ``interpolate`` (a :class:`malmquist_cmd.QGrid` works).
+    ``require_janssens=False`` (MP-Q40, #418) keeps companions outside the Janssens mass range.
 
     (log q, log P) by rejection from λ_{q,P}(M1) (the exact target factors); e by inverse CDF
     of e^η on [0, e_max); log10 f = log10 f_J(M1, M2) + σ_f N(0, 1). Draws whose M2 lies
@@ -271,7 +276,7 @@ def draw_companions(
         lam = mq.mds17_luminous_m2_p_intensity(m1[todo], cq, cp, target)
         rel = ps.relation_log10_flux_ratio(m1[todo], m1[todo] * 10.0**cq)
         n_over += int(np.sum(lam > env[todo]))
-        ok = (rng.uniform(size=todo.size) * env[todo] < lam) & np.isfinite(rel)
+        ok = (rng.uniform(size=todo.size) * env[todo] < lam) & (np.isfinite(rel) if require_janssens else True)
         log_q[todo[ok]] = cq[ok]
         log_p[todo[ok]] = cp[ok]
         todo = todo[~ok]

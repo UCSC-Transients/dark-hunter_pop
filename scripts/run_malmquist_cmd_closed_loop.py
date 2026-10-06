@@ -53,12 +53,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--single-star-model", default=None, choices=["gaussian_ridge", "mist_density_ridge_anchored"],
                     help="override malmquist_cmd.single_star_density.provisional_model (MP-Q39)")
     ap.add_argument("--tag", default="", help="suffix for output names")
+    ap.add_argument("--no-colour-jacobian", action="store_true", help="diagnostic: drop 1/|J| in the MIST-density L")
     args = ap.parse_args(argv)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     pc = load_config(host_profile=args.host_profile)
     t0 = time.time()
     size = args.size if args.size in ("small", "large") else int(args.size)
-    res, raw = cl.run_cmd_closed_loop(size, pipeline_config=pc, single_star_model=args.single_star_model)
+    res, raw = cl.run_cmd_closed_loop(size, pipeline_config=pc, single_star_model=args.single_star_model,
+                                      colour_jacobian=not args.no_colour_jacobian)
     wall = time.time() - t0
     out = {
         "size": res.size, "wall_seconds": wall, "counts": res.counts, "unit_weight_rows": res.unit_counts,
