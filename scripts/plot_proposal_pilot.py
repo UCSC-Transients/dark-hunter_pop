@@ -96,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--real-input-columns", type=Path, default=None,
                     help="snapshot from fetch_real_nss_input_columns.py (MP-Q24 real-side IPD/C* drop)")
     ap.add_argument("--rung2", type=Path, default=Path("config/population/rung2_validation.yaml"))
+    ap.add_argument("--cmd-malmquist", type=Path, default=None,
+                    help="2-D CMD Malmquist config (#418, malmquist_cmd.yaml); replaces --malmquist")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -128,7 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     acc = np.asarray(outcome["accepted_orbital"], bool)
     stype = np.asarray(outcome["solution_type"]).astype(str)
 
-    log_lam = mds17_luminous_log_intensity(truth, target)
+    # Target exactly as scripts/smoke_isochrone_weights.py: evolved-row flux relation (#416)
+    # and, for mass_luminosity mist_coeval (MP-Q40), the per-draw MIST relation.
+    import darkhunter_pop.proposal_set as _ps
+
+    evo = _ps.evolved_mg0_for_draws(truth, parent) if getattr(parent, "cmd", None) is not None else None
+    rel = (_ps.mist_relation_for_draws(truth, parent, cfg)
+           if getattr(target, "mass_luminosity", None) == "mist_coeval" else None)
+    log_lam = mds17_luminous_log_intensity(truth, target, evolved_mg0_system=evo, relation_log10_f=rel)
     ecc_shapes = sorted({gc.eccentricity.shape for gc in gen_cfgs})
     for gc in gen_cfgs:
         if gc.eccentricity.shape != "uniform":
@@ -150,6 +159,16 @@ def main(argv: list[str] | None = None) -> int:
             f"Malmquist weight (#405) with zp={mcfg.provisional_mg_zero_point_mag:+.3f} mag, "
             f"sigma_int={mcfg.provisional_sigma_int_mag:.3f} mag (MP-Q25 fit, see #414), Combined19 A_G"
         )
+    if args.cmd_malmquist is not None:
+        if args.malmquist is not None:
+            raise SystemExit("use either --malmquist (1-D, #405) or --cmd-malmquist (2-D CMD, #418), not both")
+        from darkhunter_pop import malmquist_cmd as _mc
+
+        cmcfg = _mc.load_cmd_malmquist_config(args.cmd_malmquist)
+        lw_c, cmd_counts = _ps.malmquist_cmd_log_weight(truth, parent, target, cmcfg, cfg)
+        log_lam = log_lam + lw_c
+        malm_counts = cmd_counts.get("by_row_reason", cmd_counts) if isinstance(cmd_counts, dict) else cmd_counts
+        zp_note = f"2-D CMD Malmquist weight (#418, {args.cmd_malmquist}); MIST coeval flux ratios"
     rung2 = __import__("yaml").safe_load(args.rung2.read_text())["rung2"]
     min_ess = float(rung2["min_ess_per_bin"])
     log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]

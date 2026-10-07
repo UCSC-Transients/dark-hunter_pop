@@ -111,6 +111,12 @@ def main(argv: list[str] | None = None) -> int:
         help="fetch_nss_bailer_jones.py output dir; without it the real side uses the inverse NSS parallax",
     )
     ap.add_argument("--flame-snapshot", type=Path, default=None, help="flame_enrichment query.ecsv")
+    ap.add_argument("--real-types", nargs="+", default=None,
+                    help="restrict the real side to these nss_solution_type values (e.g. Orbital); default: the comparison set")
+    ap.add_argument("--real-input-columns", type=Path, default=None,
+                    help="MP-Q24 snapshot (fetch_real_nss_input_columns.py): drop real rows failing IPD/C*")
+    ap.add_argument("--cmd-malmquist", type=Path, default=None,
+                    help="add the 2-D CMD Malmquist weight (#418) to the target")
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     ap.add_argument("--giants-config", type=Path, default=Path("config/population/giants.yaml"))
@@ -139,7 +145,18 @@ def main(argv: list[str] | None = None) -> int:
     outcome = {k: np.concatenate([p[1][k] for p in parts]) for k in parts[0][1]}
     gen_cfgs = [ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
     parent = load_parent_snapshot(args.parent_dir, cfg, gen_cfgs[0])
-    log_lam = mds17_luminous_log_intensity(truth, target)
+    # Current decided target (#391 restart): evolved-row relation (#416) and MIST coeval (MP-Q40).
+    import darkhunter_pop.proposal_set as _ps
+
+    evo = _ps.evolved_mg0_for_draws(truth, parent) if getattr(parent, "cmd", None) is not None else None
+    rel = (_ps.mist_relation_for_draws(truth, parent, cfg)
+           if getattr(target, "mass_luminosity", None) == "mist_coeval" else None)
+    log_lam = mds17_luminous_log_intensity(truth, target, evolved_mg0_system=evo, relation_log10_f=rel)
+    if args.cmd_malmquist is not None:
+        from darkhunter_pop import malmquist_cmd as _mc
+
+        lw_c, _ = _ps.malmquist_cmd_log_weight(truth, parent, target, _mc.load_cmd_malmquist_config(args.cmd_malmquist), cfg)
+        log_lam = log_lam + lw_c
     log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]
     w = importance_weights(log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=float(attrs["scale_to_full"]))
     acc = np.asarray(outcome["accepted_orbital"], bool)
@@ -196,12 +213,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---------------- real side ----------------
     real = Table.read(args.real_snapshot, format="ascii.ecsv")
-    types = list(cfg.active_dr().selection_function_astrometric.elbadry2024_comparison_nss_solution_types)
+    types = list(args.real_types or cfg.active_dr().selection_function_astrometric.elbadry2024_comparison_nss_solution_types)
     real = real[np.isin(np.asarray(real["nss_solution_type"]).astype(str), types)]
     _, first = np.unique(np.asarray(real["source_id"], np.int64), return_index=True)
     n_dup = len(real) - first.size
     real = real[np.sort(first)]
-    keep, kcounts = real_comparison_keep(real, gen_cfgs[0])
+    in_cols = None
+    if args.real_input_columns is not None:
+        from darkhunter_pop.proposal_set import load_real_input_columns
+
+        in_cols = load_real_input_columns(args.real_input_columns)
+    keep, kcounts = real_comparison_keep(real, gen_cfgs[0], in_cols)
     real = real[keep]
     sid = np.asarray(real["source_id"], np.int64)
     if args.real_bj_dir is not None:
