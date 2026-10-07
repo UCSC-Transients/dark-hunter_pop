@@ -1,126 +1,135 @@
-# #391 rung 2: MdS17-reweighted mock vs DR3. DIAGNOSTIC ONLY (pre-noise-fix, pre-Malmquist); run PAUSED
+# #391 rung 2: MdS17-reweighted mock vs the full DR3 orbit sample
 
-Issue #391. Spec: `docs/MOCK_POPULATION_SPEC.md` (decisions §0.1). Code: PRs #395 and #397.
+Issue #391. Spec: `docs/MOCK_POPULATION_SPEC.md`, §5 rung 2. The earlier paused diagnostic is in
+`superseded_paused_2026-10-03/`.
 
-**Status: diagnostic only, not a science result.** The figures are **pre-noise-fix**: they use the
-old epoch and noise model, which #398 and #400 replace. They are also **pre-Malmquist**: the
-magnitude-limit weights of #405 for Gaia-star primaries are not yet applied. Both changes will move
-every panel. What remains valid is the plumbing and the measured ESS per CPU-hour. The full laptop run (generation 11)
-was **paused at 154,518 of 370,000 draws** on 2026-10-02 at 23:34 PDT. The pause followed Ryan's
-approval of the forward-model noise and epoch fixes (#398, #400; PR #404, `docs/gate399/README.md`).
-Any change to the epochs or the noise invalidates every stored draw. The full run restarts once the
-new model lands. All outputs are kept.
+**What this is.** This is MdS17 at its **published parameters**, with luminous companions only and the compact-object mixture off (MP-Q17). It is reweighted onto proposal-set draws simulated with every model decided through 2026-10-06:
+- epoch model v2 (#441);
+- isochrone M1, deblended and drawn from the posterior (#418, #445);
+- MIST coeval flux ratios;
+- the bounded eccentricity proposal.
 
-## What ran
+Nothing was tuned toward the data. The 2-D CMD Malmquist weight still misses its closed-loop target (worst pull 7.6), so every result is shown **with and without** it. The weight is a reweightable target factor, so no draws had to be re-simulated.
 
-| Generation | Config | Draws | Accepted orbits | Workers | Wall | CPU |
-|---|---|---|---|---|---|---|
-| 10 (tuning) | `config/population/proposal_set_decided_tune.yaml` | 2,500 | 52 | 2 | 24.2 min | 0.72 CPU-h |
-| 11 (full, **paused**) | `config/population/proposal_set_decided_full.yaml` | 154,265 used, 154,518 completed of 370,000 planned | 3,497 | 8 | 5.57 h | 40.6 CPU-h |
+## Run
 
-- Parent: `data/dr3/gaia_snapshots/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj`. That is
-  K = 10⁶ and 214,666 rows. After the decided filters 164,397 are usable (attrition in
-  `rung2_diag_pre_noisefix_report.txt`), 519 of them flagged as giants.
-- Generation 11 was assembled from its partial JSONL by `scripts/assemble_partial_generation.py`. It
-  uses the contiguous prefix of completed draws (154,265), which is an iid sample of the proposal,
-  so the mixture weights use n = 154,265. The 253 draws that finished past the prefix are left out.
-  Sanity check: for the 3,497 accepted orbits the median |parallax pull| (fit − truth) is 0.70 and
-  the median |ΔP/P| is 0.003.
-- Generations 10 and 11 are combined with deterministic-mixture weights (spec §3.7).
-- Peak RSS: 0.53 GB for the parent process. Each worker is about 0.2 GB. The partial JSONL is
-  72 MB, about 0.47 kB per draw.
+| | generation 23 (tuning) | generation 24 (full) |
+|---|---|---|
+| Config | `config/population/proposal_set_restart_tune.yaml` | `config/population/proposal_set_restart_full.yaml` |
+| Draws | 25,000 | 430,000 |
+| Accepted orbits | 488 | 8,646 |
+| Wall time (8 workers, `nice`, BLAS at 1 thread) | 75.5 min | 497 min reported (the run spanned a laptop reboot at 187,500 draws, resumed by the coordinator; wall time is not additive) |
 
-## Measured efficiency (the number that sizes the restart)
+- Total compute: 129.5 CPU-h, a mean of 1.02 CPU s per draw.
+- Parent: `20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj`, of which 159,116 rows are usable.
+- The two generations are combined with deterministic-mixture weights. The only difference between them is the flux-proposal width: 0.15 dex in generation 23, 0.30 dex in generation 24.
 
-| | Accepted-set MdS17 Kish ESS | CPU-h | ESS per CPU-h | ESS per wall-hour at 8 workers |
-|---|---|---|---|---|
-| Generation 10 | 13.6 | 0.72 | 19 | (2 workers) |
-| Generation 11 | 500.3 | 40.6 | **12.3** | **≈ 90** |
-| Combined | 511.9 | 41.3 | 12.4 | |
+## Headline numbers
 
-- Cost by outcome: about 13–14 CPU s for any draw that reaches the 12-parameter fit (accepted or
-  not), and ≤ 0.01 CPU s for any other draw. The mean is 0.95 CPU s per draw.
-- At this efficiency, an accepted-set ESS of 2,000 needs **≈ 160 CPU-h ≈ 21 h wall at 8 workers**,
-  which is about 1.3 × the approved 125 CPU-h. The new noise and epoch model may change the cost per
-  draw and the acceptance rate, so re-measure with a short tuning generation before sizing the
-  restart.
-- Largest weight share among accepted draws: 0.010, so no single draw dominates.
+| | no Malmquist weight | 2-D CMD Malmquist weight |
+|---|---|---|
+| Accepted-set MdS17 Kish ESS | **354.8** | **290.3** |
+| Largest single weight share | 0.017 | 0.020 |
+| Expected accepted orbits vs real 167,911 | 1.07 × 10⁵ (0.64×) | 9.13 × 10⁴ (0.54×) |
 
-## Rung-2 comparison (diagnostic: pre-noise-fix, pre-Malmquist)
+- **Real comparison sample:** DR3 Orbital + AstroSpectroSB1, 167,911 of 168,065 rows. The filters are ϖ > 0.2 mas, an atmosphere present, and the Halbwachs IPD/C* cuts (MP-Q24).
+- **ESS shortfall:** the run reached ESS ≈ 290–355, against the 2,000 target. Efficiency was 2.7 ESS per CPU-h. It was flagged on #391 when the run was 2 h in.
 
-![six-panel](rung2_diag_pre_noisefix_six_panel_mds17.png)
+## Six-panel (shapes, unit area)
 
-![ESS per bin](rung2_diag_pre_noisefix_ess_per_bin.png)
+Grey bands mark bins with ESS < 30 (MP-Q19). The KS test uses only bins with ESS ≥ 30; the KS columns give D and p.
 
-- Real sample: DR3 Orbital + AstroSpectroSB1 with the mirror filters of spec §0.1 (ϖ > 0.2 mas, TAG10
-  atmosphere), 168,025 of 168,065 rows.
-- **KS (spec §3.6 gate): not computed for any panel.** No bin meets σ_MC/σ_Poisson < 0.1
-  (ESS_b ≥ 100 N_b, with N_b in real-count units of ~10⁴). As the spec anticipated, this criterion
-  cannot be met at rung 2 on the laptop. The minimum ESS for drawing a rung-2 bin is still
-  **MP-Q19** for Ryan.
-- Weighted KS, informational only (not a gate; n_eff ≈ 510):
+| Panel | Bins with ESS ≥ 30 | Real sample in those bins | KS, no W | KS, with W | Verdict |
+|---|---|---|---|---|---|
+| P_orb | 5/20 | 77% | 0.062, 0.17 | 0.051, 0.48 | **agrees** |
+| G | 7/20 | 89% (85% with W) | 0.061, 0.21 | 0.111, 0.006 | agrees without W; W makes it worse |
+| 1/ϖ | 6/20 | 53% | 0.071, 0.031 | 0.080, 0.046 | marginal (full-range informational KS D = 0.155: the mock sits closer) |
+| e | 6/20 (5/20 with W) | 48% (39%) | 0.146, 3 × 10⁻⁴ | 0.111, 0.032 | **disagrees** |
+| f_m | 6/20 (5/20 with W) | 75% (73%) | 0.088, 0.003 | 0.106, 9 × 10⁻⁴ | **disagrees** |
+| cos i | 2/20 | 12% | 0.078, 0.78 | 0.101, 0.52 | too few effective draws to test (full-range informational D = 0.047, p = 0.42) |
 
-  | Panel | D | p |
-  |---|---|---|
-  | P | 0.127 | 1.3e-7 |
-  | G | 0.125 | 2.4e-7 |
-  | 1/ϖ | 0.165 | 1.6e-12 |
-  | e | 0.188 | 4.4e-16 |
-  | f_m | 0.249 | 5.5e-28 |
-  | cos i | 0.032 | 0.66 |
-- Qualitative, by eye (old noise model, no Malmquist weights):
-  - cos i is reproduced, including the edge-on deficit.
-  - P and G are close.
-  - The mock is **more eccentric** than DR3, the same direction as El-Badry et al. (2024) Fig. 5.
-  - f_m is cut off sharply near 0.06 M⊙. Luminous MS companions under q ≤ 1 with the Janssens
-    mass–luminosity relation cannot produce larger photocentre mass functions. The real high-f_m
-    tail needs the compact-object mixture (MP-Q17) or q > 1 / triples.
-  - 1/ϖ is somewhat closer in than the real sample. This is exactly where the missing Malmquist
-    weights (#405) would act.
-- Solution-type mix (MdS17-weighted expected counts relative to the G < 19 parent): 1.17 × 10⁵
-  accepted orbits vs 168,025 real; 2.0 × 10⁵ published accelerations. The real denominator is still
-  ELBADRY2024 Q7 / MP-Q20. Full table in `rung2_diag_pre_noisefix_report.txt`.
+How each disagreement looks:
+- **Eccentricity:** the mock is too eccentric, the same direction as El-Badry et al. (2024) Fig. 5. MdS17 η at published values makes too many orbits with e > 0.5.
+- **f_m:** the mock cuts off near 0.06–0.1 M⊙. The real tail toward higher f_m needs dark or compact companions (MP-Q17) or companions outside q ≤ 1.
+- **1/ϖ:** the mock sits closer than the real sample. The Malmquist weight does not close this gap.
 
-## Observations to carry forward
+## Solution-type mix (MdS17-weighted expected counts, scaled to the full G < 19 parent)
 
-- **Few giants.** Only 519 of the 164,397 usable parent stars are flagged as giants. TAG10 prefers
-  MSC parameters, and MSC fits every source as an unresolved pair of main-sequence stars, so
-  `logg_msc1` is dwarf-like by construction. The same applies on the real side. Related to #393.
-- **The 0.1 MC-noise rule is a rung 3–5 criterion for compact-object bins.** It cannot gate luminous
-  rung-2 bins (MP-Q19).
+| Outcome | Mock, no W | Mock, with W | DR3 |
+|---|---|---|---|
+| Accepted orbits | 1.07 × 10⁵ | 9.1 × 10⁴ | 167,911 |
+| Published acceleration (7/9-parameter; s > 20, F2 < 22 for 7-parameter) | 1.8 × 10⁵ | 1.6 × 10⁵ | **not compared**: the real `nss_acceleration_astro` counts are not snapshotted (MP-Q20 / ELBADRY2024 Q7). Flag only |
+| 7-parameter / 9-parameter, all | 2.9 / 1.6 × 10⁵ | 2.6 / 1.4 × 10⁵ | — |
+| Orbit fitted but failing the cuts | 1.0 × 10⁷ | 9.9 × 10⁶ | — |
+| 5-parameter (binaries only) | 1.23 × 10⁸ | 1.36 × 10⁸ | 2.85 × 10⁸ stars with RUWE < 1.4 in the parent, singles included, so not like-for-like |
+| Fewer than 12 visibility periods | 1.28 × 10⁶ | 1.32 × 10⁶ | 5.0 × 10⁵ (0.17% of the usable parent, from each star's own `visibility_periods_used`) |
 
-## Outputs (gitignored; kept on the laptop)
+The mock's insufficient-visibility count comes from binaries only, yet it is 2.6× the real count for *all* stars. The real number is per star and the mock number is per companion draw, so this is indicative, not a gate. It needs a look under #428 / #432.
 
-Worktree `../dark-hunter_pop-worktrees/mock-population-decisions-391/output/proposal_set/`:
-- `decided_gen10_tune.h5`
-- `decided_gen11_full.partial.jsonl` (154,518 completed draws)
-- `decided_gen11_partial.h5` (assembled)
-- `gen11.log`
-- `launch_gen11.sh`
+## Giants: CMD-evolved primaries, Orbital only (`giants/`)
 
-## 2026-10-03: decisions wired in; restart smoke (plumbing only)
+| | Value |
+|---|---|
+| Real Orbital, evolved fraction | 0.0989 ± 0.0008 (12,627 of 127,657 CMD-classified rows; real distances use the inverse NSS parallax) |
+| Mock accepted, evolved, with W | 0.126 ± 0.020 |
+| Mock accepted, evolved, no W | 0.107 ± 0.017 |
+| Evolved-subset ESS | 12.7 (218 raw draws) |
 
-The 2026-10-03 decisions (spec §0.2) are implemented:
-- the bounded MdS17 eccentricity proposal (#409, #410);
-- the Malmquist weight (#405), with Combined19 A_G (MP-Q29), Gaussian distance marginalization (MP-Q30) and a fitted zero point and σ_int (MP-Q25);
-- the real-side IPD/C\* drop (MP-Q24: 168,025 → 167,911 rows, exactly the 114);
-- the ESS ≥ 30 shading and KS gate (MP-Q19);
-- the epoch-model hook (#400 E1);
-- BLAS pinning (verified: OpenBLAS and OpenMP at 1 thread in every worker) and `nice` (#408).
+- **The evolved fraction agrees within the mock error,** with or without the weight.
+- **Evolved six-panel** (informational only, n_eff = 12.6): KS p = 0.03, 0.008, 0.21, 0.01, 0.02, 0.38 for P, G, 1/ϖ, e, f_m and cos i.
+- **Evolved P medians agree:** 747 d mock vs 750 d DR3. The mock spreads wider: p10/p90 = 399/1,218 d against 472/1,040 d.
+- **Undersampled:** evolved primaries need their own proposal top-up before any shape test.
 
-**MP-Q25 fit (`malmquist_zero_point_fit.json`):** zp = −2.357 ± 0.006 mag and σ_int = 2.082 ± 0.007 mag on 161,776 RUWE < 1.4 dwarfs. The statistical error is far below the closed loop's 0.05 mag tolerance, but the fit is **not physically meaningful**:
-- ΔM runs from +0.64 mag at d < 0.5 kpc to −2.94 mag at 2–5 kpc.
-- It also runs from −3.0 mag at M1 < 0.6 M⊙ to +0.2 mag at M1 > 2 M⊙.
-- The causes are the TAG10 floor (#393) and evolved stars that MSC fits as dwarfs (MP-Q28).
-- Escalated as **#414**. With σ_int ≈ 2 mag the weight is nearly flat.
+## Agrees / disagrees (no tuning)
 
-**Smoke (generation 20, `config/population/proposal_set_restart_smoke.yaml`)** ran 1,000 draws with the #400 epoch model on, taken from its open branch (merged locally, not pushed), at 2 workers under `nice`:
-- 21 accepted orbits, ESS 5.5;
-- 0.78 CPU s per draw on average; a draw that reaches the orbital fit costs about 10 s (13 s before the epoch model);
-- 10.6 min wall, 0.22 CPU-h.
+**Agrees:**
+- the P shape;
+- the G shape without W;
+- cos i (full range, informational);
+- the evolved fraction (≈ 10%);
+- the evolved period median.
 
-Figures and the report are plumbing checks only (`smoke_epoch_report.txt`).
+**Disagrees:**
+- **e:** the mock is too eccentric;
+- **f_m:** no high-f_m tail;
+- **1/ϖ:** the mock is too close;
+- **the total:** 0.54–0.64 of the real count;
+- **G with W:** worse than without;
+- **insufficient visibility:** 2.6× DR3.
 
-**Projected full restart:** target accepted-set ESS ≈ 2,000.
-- Basis: the paused generation 11 ran at 12.3 ESS per CPU-h; the epoch model makes draws about 18% cheaper. The smoke itself gives about 25 ESS per CPU-h, but from only 21 accepted orbits.
-- Cost: ≈ 130 CPU-h (range 80–165), ≈ 16–21 h wall at 8 workers, ≈ 430k draws, ≈ 0.4 GB disk.
+**Not testable at this ESS:**
+- most tail bins;
+- the cos i core;
+- the evolved six-panel.
+
+## Caveats
+
+- **The real-side atmosphere filter is still the TAG10 atmosphere-present test** from PR #397. The parent now drops rows by isochrone-M1 availability, which removes 198,734 → 159,116 rows after IPD/C*. The real-side mirror of MP-Q5 under isochrone M1 is therefore not exactly symmetric; it removes only 37 real rows.
+- **The ESS is far below the 2,000 target.**
+  - Per-factor ESS, measured mid-run on 456 accepted draws:
+
+    | Factor | ESS |
+    |---|---|
+    | parent tilt | 158 |
+    | M2–P | 150 |
+    | flux | 135 |
+    | eccentricity | 312 |
+  - What would help: a MIST-centred flux proposal, M2 and P drawn from the MdS17 shape, a softer parent tilt, and an evolved-row top-up. Generation 24's draws stay usable through mixture weights.
+
+## Reproduce
+
+```bash
+D=data/dr3/gaia_snapshots
+python scripts/plot_proposal_pilot.py \
+  --artifact output/proposal_set/restart_gen23_tune.h5 \
+  --artifact output/proposal_set/restart_gen24_full.h5 \
+  --parent-dir $D/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj \
+  --real-snapshot $D/20260826T234425Z_3d3f740b080c/query.ecsv \
+  --real-input-columns $D/20261003T182211Z_nss_orbit_input_columns \
+  [--cmd-malmquist config/population/malmquist_cmd.yaml] --out-dir <dir> --prefix rung2_{noW,cmdW}
+
+python scripts/giant_population_diagnostics.py <same artifacts and parent> --real-types Orbital \
+  --real-input-columns ... [--cmd-malmquist ...] --out-dir <dir>
+```
+
+The artifacts are gitignored and kept in the `proposal-restart-391` worktree.
