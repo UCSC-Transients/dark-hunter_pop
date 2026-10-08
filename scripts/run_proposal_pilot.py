@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{int((parent.is_giant & parent.usable).sum())} usable giants (flag only); "
         f"scale_to_full = {parent.scale_to_full:.1f}; decision_ref: {prop.decision_ref}"
     )
-    truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
+    truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset, config=cfg)
     if prop.m1 == "isochrone_posterior_draw_deblended":  # MP-Q35 + MP-Q36 (spec §11.9)
         from darkhunter_pop.proposal_set import apply_posterior_deblending
 

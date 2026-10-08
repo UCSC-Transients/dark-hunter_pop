@@ -593,3 +593,100 @@ def test_epoch_source_context_feeds_visibility_period_loss() -> None:
         keep = em.thin_gost_mask(jd, cfg, em.gap_intervals_jd(cfg), g_mag=src.g_mag, rng=np.random.default_rng(0),
                                  l_deg=src.l_deg, b_deg=src.b_deg, beta_deg=src.beta_deg)
         assert keep.shape == jd.shape and keep.any()
+
+
+# ---------------------------------------------------------------------------
+# #391 efficiency (2026-10-08): MdS17-shaped (q, P), evolved top-up, MIST-centred flux
+# ---------------------------------------------------------------------------
+
+TUNE2 = "config/population/proposal_set_restart_tune2.yaml"
+
+
+def _tune2() -> ps.ProposalConfig:
+    return ps.load_proposal_set_fragment(TUNE2).proposal
+
+
+@pytest.mark.physics
+def test_m2_p_shape_table_normalized_and_joint_density_normalizes() -> None:
+    cfg = _tune2()
+    tab = ps.m2_period_shape_table(cfg.m2_p_shape)
+    np.testing.assert_allclose(tab.prob.sum(axis=(1, 2)), 1.0, rtol=1e-12)
+    for m1 in (0.5, 1.0, 2.5):
+        lm1 = np.log10(m1)
+        lm2 = np.linspace(-2.0, 2.0, 1601)
+        lp = np.linspace(-1.0, 9.0, 2001)
+        LM2, LP = np.meshgrid(lm2, lp, indexing="ij")
+        d = np.exp(ps.log_q_m2_p_joint(LM2, LP, np.full_like(LM2, lm1), cfg))
+        total = np.trapz(np.trapz(d, lp, axis=1), lm2)
+        assert total == pytest.approx(1.0, abs=5e-3)
+
+
+@pytest.mark.physics
+def test_m2_p_shape_weights_bounded() -> None:
+    from darkhunter_pop import malmquist as mq
+
+    cfg = _tune2()
+    tgt = ps.load_proposal_set_fragment(TUNE2).target_mds17
+    worst = 0.0
+    worst_box = 0.0
+    for m1 in (0.6, 0.9, 1.3, 3.0):
+        lq = np.linspace(-1.0, 0.0, 401)[1:-1]
+        lp = np.linspace(0.21, 7.99, 401)
+        LQ, LP = np.meshgrid(lq, lp, indexing="ij")
+        target = mq.mds17_luminous_m2_p_intensity(m1, LQ, LP, tgt)
+        target = target / np.trapz(np.trapz(target, lp, axis=1), lq)  # normalized shape
+        q = np.exp(ps.log_q_m2_p_joint(np.log10(m1) + LQ, LP, np.full_like(LQ, np.log10(m1)), cfg))
+        r = target / q
+        box = (LP >= cfg.m2_p_shape.log_p_min) & (LP <= cfg.m2_p_shape.log_p_max)
+        worst_box = max(worst_box, float(np.max(r[box])))
+        worst = max(worst, float(np.max(r)))
+    # Bounded everywhere by target max / defensive floor (finite variance); inside the shape
+    # box the ratio is ~ 1 / weight up to cell discretization (the twin step at q = 0.95).
+    assert np.isfinite(worst) and worst < 500.0
+    assert worst_box < 5.0
+
+
+@pytest.mark.unit
+def test_parent_evolved_component() -> None:
+    plx = np.array([1.0, 2.0, 5.0, 0.5])
+    usable = np.array([True, True, True, False])
+    evolved = np.array([False, True, False, True])
+    base_cfg = ps.ParentProposalConfig(uniform_fraction=0.3, parallax_power=0.75, parallax_cap_mas=10.0)
+    old = ps.parent_proposal_probabilities(plx, usable, base_cfg)
+    same = ps.parent_proposal_probabilities(plx, usable, base_cfg, evolved)
+    np.testing.assert_array_equal(old, same)  # evolved_weight 0 is bit-identical
+    cfg = base_cfg.model_copy(update={"evolved_weight": 0.1})
+    q = ps.parent_proposal_probabilities(plx, usable, cfg, evolved)
+    assert q.sum() == pytest.approx(1.0)
+    assert q[3] == 0.0  # unusable evolved row never drawn
+    assert q[1] == pytest.approx(0.9 * old[1] + 0.1)
+    assert np.all(q[usable] >= 0.9 * 0.3 / usable.sum())  # floor keeps 1/q bounded
+    with pytest.raises(ValueError):
+        ps.parent_proposal_probabilities(plx, usable, cfg)
+
+
+@pytest.mark.unit
+def test_mist_centre_requires_config() -> None:
+    fc = _tune2().flux
+    with pytest.raises(ValueError, match="PipelineConfig"):
+        ps.proposal_relation_centre(np.array([1.0]), np.array([0.5]), np.array([0]), None, fc)
+
+
+@pytest.mark.unit
+def test_shape_sampler_reproducible_and_logq_consistent(fragment: ps.ProposalSetFragment) -> None:
+    parent = _parent()
+    shape = _tune2().m2_p_shape
+    cfg = fragment.proposal.model_copy(update={"n_draws": 600, "m2_p_shape": shape})
+    a = ps.sample_proposal(parent, cfg)
+    b = ps.sample_proposal(parent, cfg)
+    for k in a:
+        np.testing.assert_array_equal(a[k], b[k])
+    assert "log_q_m2_p" in a and "log_q_log_m2" not in a
+    np.testing.assert_allclose(ps.log_q_total_for(a, parent, cfg), a["log_q_total"])
+    assert np.all(np.isfinite(a["log_q_total"]))
+    # draws inside the shape box are concentrated there (most come from the shape component)
+    lp = np.log10(a["period_days"])
+    assert np.mean((lp >= 1.0) & (lp <= 4.0)) > 0.75
+    # the main stream is untouched by the shape component (its own Generator)
+    old = ps.sample_proposal(parent, fragment.proposal.model_copy(update={"n_draws": 600}))
+    np.testing.assert_array_equal(old["parent_row"], a["parent_row"])

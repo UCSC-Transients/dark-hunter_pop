@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         zp_note = f"2-D CMD Malmquist weight (#418, {args.cmd_malmquist}); MIST coeval flux ratios"
     rung2 = __import__("yaml").safe_load(args.rung2.read_text())["rung2"]
     min_ess = float(rung2["min_ess_per_bin"])
-    log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]
+    log_qs = [log_q_total_for(truth, parent, gc, cfg) for gc in gen_cfgs]
     w = importance_weights(
         log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=scale
     )

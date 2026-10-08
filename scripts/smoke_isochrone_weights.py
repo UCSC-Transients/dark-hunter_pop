@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     log_lam = ps.mds17_luminous_log_intensity(truth, target, evolved_mg0_system=evo, relation_log10_f=rel)
     log_lam_dwarf = ps.mds17_luminous_log_intensity(truth, target, relation_log10_f=rel)
     lw, counts = ps.malmquist_cmd_log_weight(truth, parent, target, cmcfg, cfg)
-    lq = [ps.log_q_total_for(truth, parent, prop)]
+    lq = [ps.log_q_total_for(truth, parent, prop, cfg)]
     n = [prop.n_draws]
     w0 = ps.importance_weights(log_lam, lq, n, scale_to_full=parent.scale_to_full)
     w1 = ps.importance_weights(log_lam + lw, lq, n, scale_to_full=parent.scale_to_full)
