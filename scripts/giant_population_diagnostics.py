@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
         lw_c, _ = _ps.malmquist_cmd_log_weight(truth, parent, target, _mc.load_cmd_malmquist_config(args.cmd_malmquist), cfg)
         log_lam = log_lam + lw_c
-    log_qs = [log_q_total_for(truth, parent, gc) for gc in gen_cfgs]
+    log_qs = [log_q_total_for(truth, parent, gc, cfg) for gc in gen_cfgs]
     w = importance_weights(log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=float(attrs["scale_to_full"]))
     acc = np.asarray(outcome["accepted_orbital"], bool)
 

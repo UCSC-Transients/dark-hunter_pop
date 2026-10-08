@@ -152,11 +152,16 @@ class _Strict(BaseModel):
 
 
 class ParentProposalConfig(_Strict):
-    """``q(s) = (1-λ) uniform + λ ∝ min(ϖ, ϖ_cap)^β`` over usable snapshot rows."""
+    """``q(s) = (1-ε)[u uniform + (1-u) ∝ min(ϖ, ϖ_cap)^β] + ε U(evolved usable rows)``.
+
+    ``evolved_weight`` ε (#391 efficiency, 2026-10-08) is a top-up component uniform over the
+    usable CMD-evolved rows (``parent.is_giant``); 0 reproduces older generations exactly.
+    """
 
     uniform_fraction: float = Field(..., ge=0.0, le=1.0)
     parallax_power: float = Field(..., ge=0.0)
     parallax_cap_mas: float = Field(..., gt=0.0)
+    evolved_weight: float = Field(0.0, ge=0.0, lt=1.0)
 
 
 class M2ProposalConfig(_Strict):
@@ -169,6 +174,30 @@ class M2ProposalConfig(_Strict):
     m2_max_msun: float = Field(..., gt=0.0)
 
 
+class M2PeriodShapeConfig(_Strict):
+    """Joint (log q, log P) component shaped like the MdS17 target (#391 efficiency, 2026-10-08).
+
+    ``q(log M2, log P) = w T(log q, log P | M1 node) + (1 - w) q_M2(log M2) q_P(log P)``.
+    ``T`` is the MdS17 companion density f_logP;q>0.3 × p_q × q ln10 (Eqs. 2, 5–23; table at
+    ``table_path``) tabulated on ``n_log_q × n_log_p`` cells over q ∈ [``q_min``, ``q_max``]
+    and log P ∈ [``log_p_min``, ``log_p_max``], at the nearest M1 node on a log10 M1 grid of
+    step ``log_m1_step`` (M1 clamped to the table domain), normalized to one, uniform within
+    a cell. The defensive part is the generation's ordinary ``m2`` × ``period`` mixture, so
+    coverage stays complete. Efficiency only: the target is unchanged.
+    """
+
+    weight: float = Field(..., ge=0.0, lt=1.0)
+    table_path: str
+    m1_interpolation: mds.M1Interpolation
+    q_min: float = Field(..., gt=0.0)
+    q_max: float = Field(..., gt=0.0, le=1.0)
+    log_p_min: float
+    log_p_max: float
+    n_log_q: int = Field(..., ge=4)
+    n_log_p: int = Field(..., ge=4)
+    log_m1_step: float = Field(..., gt=0.0)
+
+
 class FluxProposalConfig(_Strict):
     """Point mass at f = 0 (``dark_fraction``) else a mixture in log10 f.
 
@@ -178,7 +207,11 @@ class FluxProposalConfig(_Strict):
     """
 
     dark_fraction: float = Field(..., ge=0.0, le=1.0)
-    relation: Literal["janssens2022"]
+    #: ``mist_coeval_row`` (#391 efficiency, 2026-10-08): centre on the MP-Q40 coeval MIST
+    #: relation at the row's posterior-mean isochrone and the proposal-space masses (row M̂1,
+    #: proposed M2), i.e. the target relation up to the per-draw posterior isochrone and the
+    #: deblending; needs ``config`` in :func:`sample_proposal` / :func:`log_q_total_for`.
+    relation: Literal["janssens2022", "mist_coeval_row"]
     relation_weight: float = Field(..., ge=0.0, le=1.0)
     relation_sigma_dex: float = Field(..., gt=0.0)
     log_f_min: float
@@ -195,6 +228,7 @@ def proposal_relation_centre(
     rows: NDArray[np.int64],
     parent: Any,
     cfg: FluxProposalConfig,
+    config: Any = None,
 ) -> FloatArray:
     """log10 f centre of the flux proposal's relation component per draw (MP-Q28d).
 
@@ -202,7 +236,16 @@ def proposal_relation_centre(
     ``cfg.evolved_rows_centre == "evolved_relation"``; NaN where neither is defined (the
     relation component then moves to the uniform one, in the sampler and the density alike).
     """
-    rel = relation_log10_flux_ratio(m1_msun, m2_msun)
+    if cfg.relation == "mist_coeval_row":
+        if config is None:
+            raise ValueError("flux.relation mist_coeval_row needs the PipelineConfig (config=...)")
+        rel = mist_relation_for_draws(
+            {"parent_row": np.asarray(rows, np.int64), "m1_msun": np.asarray(m1_msun, float),
+             "m2_msun": np.asarray(m2_msun, float)},
+            parent, config, native=_native_grid(config),
+        )
+    else:
+        rel = relation_log10_flux_ratio(m1_msun, m2_msun)
     if cfg.evolved_rows_centre == "evolved_relation" and getattr(parent, "cmd", None) is not None:
         from darkhunter_pop.giants import evolved_log10_flux_ratio
 
@@ -306,6 +349,9 @@ class ProposalConfig(_Strict):
     period: PeriodProposalConfig
     eccentricity: EccentricityProposalConfig
     acceleration_publication: AccelerationPublicationConfig
+    #: Optional joint target-shaped (log q, log P) component (#391 efficiency); None = the
+    #: independent ``m2`` × ``period`` proposal of earlier generations.
+    m2_p_shape: M2PeriodShapeConfig | None = None
     # Generation-time open questions (spec §3.5, §7). Recorded in the artifact.
     # Decided 2026-10-02 (spec §0.1; #391 comment 5963152741), or the pilot's provisional
     # placeholders for reading pilot artifacts. ``decision_ref`` names the source.
@@ -697,8 +743,26 @@ def relation_log10_flux_ratio(m1_msun: ArrayLike, m2_msun: ArrayLike) -> FloatAr
 # ---------------------------------------------------------------------------
 
 
-def parent_proposal_probabilities(parallax_mas: ArrayLike, usable: ArrayLike, cfg: ParentProposalConfig) -> FloatArray:
-    """Normalized ``q(s)`` over snapshot rows (zero for unusable rows)."""
+def parent_proposal_probabilities(
+    parallax_mas: ArrayLike, usable: ArrayLike, cfg: ParentProposalConfig, evolved: ArrayLike | None = None
+) -> FloatArray:
+    """Normalized ``q(s)`` over snapshot rows (zero for unusable rows).
+
+    ``evolved`` (per row) is required when ``cfg.evolved_weight > 0``; the evolved component
+    is uniform over usable evolved rows. With ``evolved_weight == 0`` the result is the
+    pre-2026-10-08 expression, bit for bit.
+    """
+    if cfg.evolved_weight > 0.0:
+        if evolved is None:
+            raise ValueError("evolved_weight > 0 needs the per-row evolved flag")
+        base = parent_proposal_probabilities(
+            parallax_mas, usable, cfg.model_copy(update={"evolved_weight": 0.0})
+        )
+        ev = np.asarray(evolved, bool) & np.asarray(usable, bool)
+        n_ev = int(ev.sum())
+        if n_ev == 0:
+            raise ValueError("evolved_weight > 0 but no usable evolved rows")
+        return (1.0 - cfg.evolved_weight) * base + cfg.evolved_weight * ev / n_ev
     plx = np.asarray(parallax_mas, dtype=np.float64)
     ok = np.asarray(usable, dtype=bool)
     n_ok = int(ok.sum())
@@ -763,6 +827,111 @@ def log_q_log_p(log_p: ArrayLike, cfg: PeriodProposalConfig) -> FloatArray:
     wide = ((lp >= cfg.log_p_min) & (lp <= cfg.log_p_max)) / (cfg.log_p_max - cfg.log_p_min)
     with np.errstate(divide="ignore"):
         return np.log(cfg.core_weight * core + (1.0 - cfg.core_weight) * wide)
+
+
+_NATIVE_CACHE: dict[str, Any] = {}
+
+
+def _native_grid(config: Any) -> Any:
+    """MIST native grid for ``config.isochrone_mass`` (cached per process)."""
+    from darkhunter_pop import isochrone_mass as im
+
+    key = json.dumps([config.isochrone_mass.model_dump(mode="json"), str(config.paths.data_root)], sort_keys=True, default=str)
+    if key not in _NATIVE_CACHE:
+        _NATIVE_CACHE[key] = im.load_native_grid(config.isochrone_mass, config.paths.data_root)
+    return _NATIVE_CACHE[key]
+
+
+@dataclass(frozen=True)
+class M2PeriodShapeTable:
+    """Normalized cell probabilities of :class:`M2PeriodShapeConfig` per M1 node."""
+
+    log_m1_nodes: FloatArray
+    lq_edges: FloatArray
+    lp_edges: FloatArray
+    prob: FloatArray  # (n_nodes, n_log_q, n_log_p), each node sums to one
+
+    def node_index(self, m1_msun: ArrayLike) -> NDArray[np.int64]:
+        lm = np.log10(np.asarray(m1_msun, float))
+        step = self.log_m1_nodes[1] - self.log_m1_nodes[0] if self.log_m1_nodes.size > 1 else 1.0
+        i = np.rint((lm - self.log_m1_nodes[0]) / step).astype(np.int64)
+        return np.clip(i, 0, self.log_m1_nodes.size - 1)
+
+    def log_density(self, log_q: ArrayLike, log_p: ArrayLike, m1_msun: ArrayLike) -> FloatArray:
+        """log of the cell density (per dex q per dex P); -inf outside the table."""
+        lq = np.asarray(log_q, float)
+        lp = np.asarray(log_p, float)
+        k = self.node_index(m1_msun)
+        iq = np.searchsorted(self.lq_edges, lq, side="right") - 1
+        ip = np.searchsorted(self.lp_edges, lp, side="right") - 1
+        inside = (iq >= 0) & (iq < self.lq_edges.size - 1) & (ip >= 0) & (ip < self.lp_edges.size - 1)
+        iqc = np.clip(iq, 0, self.lq_edges.size - 2)
+        ipc = np.clip(ip, 0, self.lp_edges.size - 2)
+        area = np.diff(self.lq_edges)[iqc] * np.diff(self.lp_edges)[ipc]
+        dens = np.where(inside, self.prob[k, iqc, ipc] / area, 0.0)
+        with np.errstate(divide="ignore"):
+            return np.log(dens)
+
+    def sample(self, m1_msun: ArrayLike, rng: np.random.Generator) -> tuple[FloatArray, FloatArray]:
+        """(log q, log P) per draw: a cell from the draw's node, uniform inside it."""
+        k = self.node_index(m1_msun)
+        n = k.size
+        nq, npp = self.lq_edges.size - 1, self.lp_edges.size - 1
+        cdf = np.cumsum(self.prob.reshape(self.prob.shape[0], -1), axis=1)
+        u = rng.uniform(size=n)
+        cell = np.array([np.searchsorted(cdf[kk], uu, side="right") for kk, uu in zip(k, u)], dtype=np.int64)
+        cell = np.clip(cell, 0, nq * npp - 1)
+        iq, ip = cell // npp, cell % npp
+        lq = self.lq_edges[iq] + rng.uniform(size=n) * np.diff(self.lq_edges)[iq]
+        lp = self.lp_edges[ip] + rng.uniform(size=n) * np.diff(self.lp_edges)[ip]
+        return lq, lp
+
+
+_SHAPE_CACHE: dict[str, M2PeriodShapeTable] = {}
+
+
+def m2_period_shape_table(cfg: M2PeriodShapeConfig) -> M2PeriodShapeTable:
+    """Tabulate (and cache) the MdS17-shaped (log q, log P) component (pure numpy)."""
+    key = json.dumps(cfg.model_dump(mode="json"), sort_keys=True)
+    if key in _SHAPE_CACHE:
+        return _SHAPE_CACHE[key]
+    table = mds.load_mds17_table(cfg.table_path)
+    lo, hi = np.log10(table.m1_range[0]), np.log10(table.m1_range[1])
+    nodes = np.arange(lo, hi + 0.5 * cfg.log_m1_step, cfg.log_m1_step)
+    lq_e = np.linspace(math.log10(cfg.q_min), math.log10(cfg.q_max), cfg.n_log_q + 1)
+    lp_e = np.linspace(cfg.log_p_min, cfg.log_p_max, cfg.n_log_p + 1)
+    lq_c = 0.5 * (lq_e[1:] + lq_e[:-1])
+    lp_c = 0.5 * (lp_e[1:] + lp_e[:-1])
+    LQ, LP = np.meshgrid(lq_c, lp_c, indexing="ij")
+    area = np.outer(np.diff(lq_e), np.diff(lp_e))
+    prob = np.zeros((nodes.size, cfg.n_log_q, cfg.n_log_p))
+    for i, lm in enumerate(nodes):
+        m1 = 10.0**lm
+        q = 10.0**LQ
+        dens = (mds.f_logp_q03(m1, LP, table)
+                * mds.q_density(q, m1, LP, table, m1_interpolation=cfg.m1_interpolation) * q * math.log(10.0))
+        cell = np.where(np.isfinite(dens) & (dens > 0), dens, 0.0) * area
+        prob[i] = cell / cell.sum()
+    out = M2PeriodShapeTable(log_m1_nodes=nodes, lq_edges=lq_e, lp_edges=lp_e, prob=prob)
+    _SHAPE_CACHE[key] = out
+    return out
+
+
+def log_q_m2_p_joint(
+    log_m2: ArrayLike, log_p: ArrayLike, log_m1: ArrayLike, cfg: ProposalConfig
+) -> FloatArray:
+    """log q(log M2, log P | M1): the shape component mixed with the independent defensive part."""
+    lm2 = np.asarray(log_m2, float)
+    lp = np.asarray(log_p, float)
+    lm1 = np.asarray(log_m1, float)
+    indep = log_q_log_m2(lm2, lm1, cfg.m2) + log_q_log_p(lp, cfg.period)
+    sh = cfg.m2_p_shape
+    if sh is None:
+        return indep
+    tab = m2_period_shape_table(sh)
+    shape = tab.log_density(lm2 - lm1, lp, 10.0**lm1)
+    with np.errstate(divide="ignore"):
+        return np.logaddexp(math.log(sh.weight) + shape, math.log(1.0 - sh.weight) + indep)
 
 
 def log_q_ecc(ecc: ArrayLike, period_days: ArrayLike, cfg: EccentricityProposalConfig) -> FloatArray:
@@ -833,8 +1002,13 @@ def check_eccentricity_bounded(cfg: EccentricityProposalConfig, target_eta_floor
         raise ValueError("floor_weight and support_weight must both be > 0 for bounded weights")
 
 
+#: ``SeedSequence`` spawn-key slot of the (log q, log P) shape component's own Generator, so
+#: generations without it keep their original main-stream draws bit for bit.
+M2_P_SHAPE_RNG_SLOT: int = 7
+
+
 def sample_proposal(
-    parent: ParentSnapshot, cfg: ProposalConfig, *, draw_index_offset: int = 0
+    parent: ParentSnapshot, cfg: ProposalConfig, *, draw_index_offset: int = 0, config: Any = None
 ) -> dict[str, NDArray[Any]]:
     """Draw ``cfg.n_draws`` systems from ``q``; return truth columns and log-q components.
 
@@ -846,7 +1020,7 @@ def sample_proposal(
     rng = np.random.default_rng(np.random.SeedSequence(entropy=cfg.base_seed, spawn_key=(stream, 0)))
     n = cfg.n_draws
     cols = parent.columns
-    qs = parent_proposal_probabilities(cols["parallax"], parent.usable, cfg.parent)
+    qs = parent_proposal_probabilities(cols["parallax"], parent.usable, cfg.parent, parent.is_giant)
     row = rng.choice(parent.n_rows, size=n, replace=True, p=qs)
     m1 = parent.m1_msun[row]
     log_m1 = np.log10(m1)
@@ -859,12 +1033,20 @@ def sample_proposal(
         log_m1 + rng.uniform(math.log10(m2c.q_min), math.log10(m2c.q_max), size=n),
         rng.uniform(math.log10(m2c.m2_min_msun), math.log10(m2c.m2_max_msun), size=n),
     )
+    shape_pick = np.zeros(n, dtype=bool)
+    shape_lp = np.full(n, np.nan)
+    if cfg.m2_p_shape is not None:
+        rng_s = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, M2_P_SHAPE_RNG_SLOT)))
+        shape_pick = rng_s.uniform(size=n) < cfg.m2_p_shape.weight
+        lq_s, lp_s = m2_period_shape_table(cfg.m2_p_shape).sample(m1, rng_s)
+        log_m2 = np.where(shape_pick, log_m1 + lq_s, log_m2)
+        shape_lp = lp_s
     m2 = 10.0**log_m2
 
     # Flux ratio
     fc = cfg.flux
     dark = rng.uniform(size=n) < fc.dark_fraction
-    rel = proposal_relation_centre(m1, m2, row, parent, fc)
+    rel = proposal_relation_centre(m1, m2, row, parent, fc, config)
     use_rel = (rng.uniform(size=n) < fc.relation_weight) & np.isfinite(rel)
     log_f = np.where(
         use_rel,
@@ -882,6 +1064,7 @@ def sample_proposal(
         rng.uniform(pc.core_log_p_min, pc.core_log_p_max, size=n),
         rng.uniform(pc.log_p_min, pc.log_p_max, size=n),
     )
+    log_p = np.where(shape_pick, shape_lp, log_p)
     period = 10.0**log_p
 
     # Eccentricity
@@ -895,11 +1078,14 @@ def sample_proposal(
     small_omega = rng.uniform(0.0, 2 * np.pi, size=n)
     tp = rng.uniform(0.0, 1.0, size=n) * period
 
+    if cfg.m2_p_shape is None:
+        mp_terms = {"log_q_log_m2": log_q_log_m2(log_m2, log_m1, m2c), "log_q_log_p": log_q_log_p(log_p, pc)}
+    else:
+        mp_terms = {"log_q_m2_p": log_q_m2_p_joint(log_m2, log_p, log_m1, cfg)}
     log_q = {
         "log_q_parent": np.log(qs[row]),
-        "log_q_log_m2": log_q_log_m2(log_m2, log_m1, m2c),
+        **mp_terms,
         "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc, centre=rel),
-        "log_q_log_p": log_q_log_p(log_p, pc),
         "log_q_ecc": log_q_ecc(ecc, period, ec),
     }
     out: dict[str, NDArray[Any]] = {
@@ -937,13 +1123,15 @@ def sample_proposal(
     return out
 
 
-def log_q_total_for(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot, cfg: ProposalConfig) -> FloatArray:
+def log_q_total_for(
+    truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot, cfg: ProposalConfig, config: Any = None
+) -> FloatArray:
     """Re-evaluate one proposal generation's log density at arbitrary stored draws.
 
     Needed for the deterministic-mixture denominator (spec §3.7), where every draw is
     evaluated under every generation's ``q_j``.
     """
-    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent)
+    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent, parent.is_giant)
     row = np.asarray(truth["parent_row"], dtype=np.int64)
     # Deblended draws (spec §11.9) keep the proposal-space masses separately: q was proposed
     # relative to the row's M̂1, so the density is evaluated there, not at the truth M1.
@@ -953,10 +1141,9 @@ def log_q_total_for(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot, c
         lqs = np.log(qs[row])
     return (
         lqs
-        + log_q_log_m2(np.log10(m2), np.log10(m1), cfg.m2)
+        + log_q_m2_p_joint(np.log10(m2), np.log10(np.asarray(truth["period_days"], float)), np.log10(m1), cfg)
         + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux,
-                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux))
-        + log_q_log_p(np.log10(np.asarray(truth["period_days"], float)), cfg.period)
+                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux, config))
         + log_q_ecc(truth["eccentricity"], truth["period_days"], cfg.eccentricity)
     )
 

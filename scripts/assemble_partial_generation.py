@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         n_prefix += 1
     if n_prefix == 0:
         raise SystemExit("no contiguous completed draws from the offset")
-    truth_full = sample_proposal(parent, prop, draw_index_offset=off)
+    truth_full = sample_proposal(parent, prop, draw_index_offset=off, config=cfg)
     truth = {k: np.asarray(v)[:n_prefix] for k, v in truth_full.items()}
     outcomes = [done[off + i] for i in range(n_prefix)]
     planned = prop.n_draws
