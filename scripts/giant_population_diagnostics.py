@@ -141,7 +141,10 @@ def main(argv: list[str] | None = None) -> int:
     attrs = parts[0][2]
     prov = json.loads(attrs["provenance_json"])
     target = MdS17TargetConfig.model_validate(prov["target_mds17_json"])
-    truth = {k: np.concatenate([p[0][k] for p in parts]) for k in parts[0][0]}
+    # Columns common to every generation (log-q component names differ when m2_p_shape is used;
+    # weights always re-evaluate q via log_q_total_for).
+    common = set.intersection(*(set(p[0]) for p in parts))
+    truth = {k: np.concatenate([p[0][k] for p in parts]) for k in parts[0][0] if k in common}
     outcome = {k: np.concatenate([p[1][k] for p in parts]) for k in parts[0][1]}
     gen_cfgs = [ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
     parent = load_parent_snapshot(args.parent_dir, cfg, gen_cfgs[0])
