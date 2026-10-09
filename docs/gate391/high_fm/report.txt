@@ -1,0 +1,26 @@
+#391 high-f_m characterization (real DR3 Orbital+AstroSpectroSB1, mirror filters)
+rows 167911; parallax zero point added per G bin {'0-11': 26.2, '11-13': 22.4, '13-15': 36.9, '15-17': 33.0, '17-25': 27.7} uas
+M1: MIST isochrone posterior mean (finite 0.930); AMRF limits from Janssens MS relation
+spuriousness model retained ('goodness_of_fit', 'a0_snr', 'log_implied_companion_mass', 'f2_x_g_break'); labelled sources matched 105
+
+per distance bin, f_m>0.1 (HI) vs <=0.1 (LO): N | frac AMRF class I/II/III | median plx/err, signif, F2, RUWE | frac P>0.8*1038d | median e | frac ipd_multi_peak>0 | median ipd_gof | frac M2dark>WD | mean P_spur | labels good/spur/unk
+  d 0-0.2 HI: N=587 | I/II/III 0.00/0.47/0.46 | snr 270.0 sig 88.7 F2 3.10 RUWE 12.11 | P>830d 0.34 | e 0.16 | ipdMP 0.089 | ipdGOF 0.017 | >WD 0.01 | Pspur 0.21 | lab 1/2/2
+  d 0-0.2 LO: N=16372 | I/II/III 0.72/0.08/0.00 | snr 324.5 sig 39.6 F2 3.54 RUWE 5.34 | P>830d 0.18 | e 0.38 | ipdMP 0.086 | ipdGOF 0.016 | >WD 0.00 | Pspur 0.28 | lab 0/0/0
+  d 0.2-0.4 HI: N=2563 | I/II/III 0.00/0.58/0.35 | snr 135.2 sig 52.7 F2 1.79 RUWE 6.30 | P>830d 0.31 | e 0.21 | ipdMP 0.087 | ipdGOF 0.017 | >WD 0.01 | Pspur 0.21 | lab 8/7/3
+  d 0.2-0.4 LO: N=34638 | I/II/III 0.76/0.13/0.00 | snr 158.7 sig 31.0 F2 2.67 RUWE 3.48 | P>830d 0.14 | e 0.35 | ipdMP 0.086 | ipdGOF 0.017 | >WD 0.00 | Pspur 0.28 | lab 0/0/0
+  d 0.4-0.7 HI: N=4914 | I/II/III 0.00/0.72/0.22 | snr 75.2 sig 32.5 F2 1.32 RUWE 4.00 | P>830d 0.35 | e 0.26 | ipdMP 0.101 | ipdGOF 0.017 | >WD 0.01 | Pspur 0.26 | lab 19/6/12
+  d 0.4-0.7 LO: N=46053 | I/II/III 0.76/0.19/0.00 | snr 89.6 sig 23.8 F2 1.54 RUWE 2.53 | P>830d 0.14 | e 0.31 | ipdMP 0.087 | ipdGOF 0.017 | >WD 0.00 | Pspur 0.26 | lab 1/1/0
+  d 0.7-1 HI: N=4220 | I/II/III 0.00/0.79/0.15 | snr 50.5 sig 23.6 F2 1.20 RUWE 3.00 | P>830d 0.41 | e 0.30 | ipdMP 0.103 | ipdGOF 0.017 | >WD 0.02 | Pspur 0.30 | lab 13/8/3
+  d 0.7-1 LO: N=28342 | I/II/III 0.73/0.25/0.00 | snr 56.3 sig 19.4 F2 0.59 RUWE 2.03 | P>830d 0.20 | e 0.30 | ipdMP 0.087 | ipdGOF 0.017 | >WD 0.00 | Pspur 0.23 | lab 0/0/0
+  d 1-1.5 HI: N=3967 | I/II/III 0.00/0.77/0.15 | snr 40.0 sig 18.5 F2 1.28 RUWE 2.41 | P>830d 0.50 | e 0.36 | ipdMP 0.094 | ipdGOF 0.016 | >WD 0.03 | Pspur 0.35 | lab 5/4/2
+  d 1-1.5 LO: N=19074 | I/II/III 0.66/0.31/0.00 | snr 41.1 sig 16.3 F2 0.29 RUWE 1.74 | P>830d 0.31 | e 0.29 | ipdMP 0.083 | ipdGOF 0.017 | >WD 0.00 | Pspur 0.23 | lab 0/0/0
+  d 1.5-3 HI: N=2702 | I/II/III 0.00/0.69/0.17 | snr 30.9 sig 14.5 F2 1.30 RUWE 1.98 | P>830d 0.66 | e 0.38 | ipdMP 0.094 | ipdGOF 0.013 | >WD 0.05 | Pspur 0.41 | lab 0/7/1
+  d 1.5-3 LO: N=4414 | I/II/III 0.51/0.42/0.00 | snr 32.0 sig 13.7 F2 0.63 RUWE 1.58 | P>830d 0.51 | e 0.31 | ipdMP 0.089 | ipdGOF 0.015 | >WD 0.00 | Pspur 0.30 | lab 0/0/0
+
+decomposition of f_m > 0.1 orbits by distance (fraction of all orbits in the bin; criteria in README):
+  d 0-0.2 (N=16959, high-f_m 0.035): plausibly spurious 0.015±0.001; plausibly compact 0.009±0.001; class III beyond WD limit 0.000±0.000; class II 0.009±0.001; class I 0.000±0.000
+  d 0.2-0.4 (N=37201, high-f_m 0.069): plausibly spurious 0.028±0.001; plausibly compact 0.015±0.001; class III beyond WD limit 0.000±0.000; class II 0.023±0.001; class I 0.000±0.000
+  d 0.4-0.7 (N=50967, high-f_m 0.096): plausibly spurious 0.044±0.001; plausibly compact 0.011±0.000; class III beyond WD limit 0.000±0.000; class II 0.039±0.001; class I 0.000±0.000
+  d 0.7-1 (N=32562, high-f_m 0.130): plausibly spurious 0.066±0.001; plausibly compact 0.007±0.000; class III beyond WD limit 0.001±0.000; class II 0.052±0.001; class I 0.000±0.000
+  d 1-1.5 (N=23041, high-f_m 0.172): plausibly spurious 0.102±0.002; plausibly compact 0.008±0.001; class III beyond WD limit 0.001±0.000; class II 0.057±0.002; class I 0.000±0.000
+  d 1.5-3 (N=7116, high-f_m 0.380): plausibly spurious 0.274±0.006; plausibly compact 0.010±0.001; class III beyond WD limit 0.003±0.001; class II 0.083±0.003; class I 0.000±0.000
