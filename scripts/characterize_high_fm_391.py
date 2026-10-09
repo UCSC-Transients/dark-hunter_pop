@@ -260,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         ax.bar(dc, frac[j], width=np.diff(DBIN) * 0.9, bottom=bottom, color=st["color"], label=cname, edgecolor="k")
         bottom += frac[j]
     apply_axes_style(ax, cfgp, xlabel="1/parallax, zero-point corrected (kpc)", ylabel="fraction of orbits with f_m > 0.1")
+    ax.set_ylim(0, float(bottom.max()) * 1.15)
     ax.legend(fontsize=10, loc="upper left")
     ax.set_title("Real DR3 high-f_m orbits: decomposition by distance (criteria in README)")
     fig.tight_layout()
