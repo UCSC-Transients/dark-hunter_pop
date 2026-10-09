@@ -1,0 +1,60 @@
+#391 symmetric spurious-cut diagnostic (analysis only; gens 23-27 mock, real mirror filters + ZP-corrected parallax)
+thresholds from real orbits at d > 0.7 kpc with P <= 830 d (KS split of high- vs low-f_m CDFs): F2 1.74 (high-f_m enriched above); significance 26.43 (high-f_m enriched above)
+mock F2 is known to sit ~1.2 below published F2 at fixed orbit (#390), so an F2 cut is NOT symmetric in effect; reported anyway.
+
+C0: real kept 167911 (1.000); mock kept weight 1.000; total ratio 0.649; ESS 881; mean e real 0.339 mock 0.440
+   ratio vs d: 0-0.2:1.02 0.2-0.4:0.74 0.4-0.7:0.65 0.7-1:0.49 1-1.5:0.40 1.5-3:0.83
+   ratio vs G: 5-10:1.10 10-12:0.69 12-13:0.75 13-14:0.58 14-15:0.60 15-16:0.42 16-19:0.51
+   high-f_m share real/mock vs d: 0.035/0.141 0.069/0.024 0.096/0.041 0.130/0.033 0.172/0.133 0.380/0.536
+   KS all noW (D,p,real-frac in ESS>=30 bins): P:0.045,0.053,0.98 G:0.076,0.00011,0.98 inv:0.091,4e-07,0.77 eccentricity:0.155,3.2e-20,0.97 f:0.059,0.0015,0.82 cos:0.022,0.78,0.89
+   KS all cmdW (D,p,real-frac in ESS>=30 bins): P:0.048,0.099,0.92 G:0.088,0.00013,0.96 inv:0.099,1e-06,0.77 eccentricity:0.145,1.4e-12,0.95 f:0.070,0.0012,0.79 cos:0.024,0.83,0.75
+   KS dwarfs noW (D,p,real-frac in ESS>=30 bins): P:0.061,0.0023,0.98 G:0.084,1.2e-05,0.98 inv:0.095,3.8e-07,0.83 eccentricity:0.166,7.9e-22,0.99 f:0.071,0.0001,0.85 cos:0.034,0.26,0.91
+   KS dwarfs cmdW (D,p,real-frac in ESS>=30 bins): P:0.069,0.0047,0.91 G:0.101,8.7e-06,0.96 inv:0.110,3.8e-07,0.77 eccentricity:0.161,1.2e-12,0.81 f:0.088,5.7e-05,0.82 cos:0.048,0.095,0.81
+C1: real kept 131169 (0.781); mock kept weight 0.789; total ratio 0.656; ESS 704; mean e real 0.331 mock 0.420
+   ratio vs d: 0-0.2:1.03 0.2-0.4:0.69 0.4-0.7:0.66 0.7-1:0.52 1-1.5:0.41 1.5-3:0.87
+   ratio vs G: 5-10:1.16 10-12:0.66 12-13:0.72 13-14:0.58 14-15:0.64 15-16:0.52 16-19:0.67
+   high-f_m share real/mock vs d: 0.028/0.168 0.056/0.029 0.075/0.026 0.100/0.032 0.131/0.083 0.299/0.244
+   KS all noW (D,p,real-frac in ESS>=30 bins): P:0.049,0.059,0.99 G:0.050,0.08,0.96 inv:0.079,0.00019,0.81 eccentricity:0.131,2.5e-12,0.96 f:0.054,0.012,0.85 cos:0.020,0.93,0.80
+   KS all cmdW (D,p,real-frac in ESS>=30 bins): P:0.036,0.46,0.93 G:0.069,0.019,0.92 inv:0.084,0.0006,0.75 eccentricity:0.148,1.1e-11,0.89 f:0.062,0.01,0.82 cos:0.018,0.99,0.75
+   KS dwarfs noW (D,p,real-frac in ESS>=30 bins): P:0.054,0.023,0.99 G:0.050,0.064,0.97 inv:0.088,5.9e-05,0.80 eccentricity:0.142,1.5e-13,0.98 f:0.068,0.00095,0.88 cos:0.027,0.67,0.82
+   KS dwarfs cmdW (D,p,real-frac in ESS>=30 bins): P:0.051,0.095,0.92 G:0.067,0.02,0.95 inv:0.102,6.6e-05,0.72 eccentricity:0.127,5.3e-07,0.82 f:0.081,0.00057,0.84 cos:0.048,0.17,0.77
+C2: real kept 68557 (0.408); mock kept weight 0.285; total ratio 0.453; ESS 373; mean e real 0.323 mock 0.392
+   ratio vs d: 0-0.2:0.80 0.2-0.4:0.47 0.4-0.7:0.47 0.7-1:0.44 1-1.5:0.31 1.5-3:0.36
+   ratio vs G: 5-10:0.00 10-12:0.02 12-13:0.30 13-14:0.45 14-15:0.55 15-16:0.45 16-19:0.75
+   high-f_m share real/mock vs d: 0.033/0.000 0.068/0.000 0.078/0.000 0.085/0.000 0.099/0.042 0.275/0.316
+   KS all noW (D,p,real-frac in ESS>=30 bins): P:0.093,0.0052,0.97 G:0.064,0.12,0.90 inv:0.066,0.1,0.48 eccentricity:0.135,0.005,0.37 f:0.067,0.13,0.79 cos:0.152,0.47,0.06
+   KS all cmdW (D,p,real-frac in ESS>=30 bins): P:0.080,0.05,0.97 G:0.068,0.14,0.90 inv:0.099,0.0099,0.48 eccentricity:nan,nan,0.00 f:0.099,0.015,0.79 cos:nan,nan,0.00
+   KS dwarfs noW (D,p,real-frac in ESS>=30 bins): P:0.095,0.0055,0.97 G:0.057,0.24,0.92 inv:0.067,0.097,0.51 eccentricity:0.133,0.0073,0.37 f:0.064,0.19,0.80 cos:0.160,0.42,0.06
+   KS dwarfs cmdW (D,p,real-frac in ESS>=30 bins): P:0.089,0.039,0.91 G:0.063,0.25,0.92 inv:0.100,0.01,0.51 eccentricity:nan,nan,0.00 f:0.100,0.018,0.80 cos:nan,nan,0.00
+C3: real kept 69387 (0.413); mock kept weight 0.517; total ratio 0.813; ESS 401; mean e real 0.377 mock 0.464
+   ratio vs d: 0-0.2:1.43 0.2-0.4:1.01 0.4-0.7:0.93 0.7-1:0.62 1-1.5:0.43 1.5-3:1.01
+   ratio vs G: 5-10:2.84 10-12:1.17 12-13:0.97 13-14:0.67 14-15:0.71 15-16:0.54 16-19:0.74
+   high-f_m share real/mock vs d: 0.006/0.218 0.018/0.023 0.037/0.018 0.059/0.018 0.081/0.036 0.227/0.237
+   KS all noW (D,p,real-frac in ESS>=30 bins): P:0.037,0.59,0.99 G:0.097,0.0025,0.89 inv:0.075,0.026,0.50 eccentricity:0.134,3.9e-07,0.85 f:0.034,0.61,0.87 cos:0.025,0.99,0.49
+   KS all cmdW (D,p,real-frac in ESS>=30 bins): P:0.028,0.95,0.99 G:0.060,0.26,0.73 inv:0.055,0.33,0.45 eccentricity:0.111,0.0054,0.60 f:0.051,0.27,0.84 cos:0.125,0.022,0.27
+   KS dwarfs noW (D,p,real-frac in ESS>=30 bins): P:0.037,0.53,0.99 G:0.081,0.0071,0.92 inv:0.077,0.015,0.55 eccentricity:0.159,1.8e-08,0.75 f:0.058,0.098,0.88 cos:0.057,0.67,0.28
+   KS dwarfs cmdW (D,p,real-frac in ESS>=30 bins): P:0.033,0.84,0.99 G:0.078,0.041,0.89 inv:0.079,0.06,0.50 eccentricity:0.161,0.0042,0.27 f:0.083,0.017,0.85 cos:nan,nan,0.00
+C1x0.8: real kept 102622 (0.611); mock kept weight 0.647; total ratio 0.687; ESS 661; mean e real 0.333 mock 0.407
+   ratio vs d: 0-0.2:1.02 0.2-0.4:0.67 0.4-0.7:0.72 0.7-1:0.60 1-1.5:0.40 1.5-3:0.53
+   ratio vs G: 5-10:1.15 10-12:0.66 12-13:0.71 13-14:0.62 14-15:0.72 15-16:0.54 16-19:0.75
+   high-f_m share real/mock vs d: 0.027/0.185 0.050/0.028 0.064/0.027 0.084/0.028 0.115/0.045 0.295/0.360
+C1x1.2: real kept 152305 (0.907); mock kept weight 0.888; total ratio 0.636; ESS 790; mean e real 0.331 mock 0.421
+   ratio vs d: 0-0.2:1.02 0.2-0.4:0.69 0.4-0.7:0.65 0.7-1:0.50 1-1.5:0.42 1.5-3:0.68
+   ratio vs G: 5-10:1.12 10-12:0.67 12-13:0.71 13-14:0.56 14-15:0.61 15-16:0.45 16-19:0.53
+   high-f_m share real/mock vs d: 0.030/0.160 0.062/0.027 0.085/0.035 0.115/0.035 0.153/0.125 0.339/0.314
+C2x0.8: real kept 63175 (0.376); mock kept weight 0.267; total ratio 0.461; ESS 346; mean e real 0.322 mock 0.390
+   ratio vs d: 0-0.2:0.88 0.2-0.4:0.48 0.4-0.7:0.47 0.7-1:0.43 1-1.5:0.33 1.5-3:0.39
+   ratio vs G: 5-10:0.00 10-12:0.03 12-13:0.33 13-14:0.45 14-15:0.54 15-16:0.47 16-19:0.73
+   high-f_m share real/mock vs d: 0.031/0.000 0.067/0.000 0.076/0.000 0.085/0.000 0.099/0.042 0.282/0.316
+C2x1.2: real kept 73314 (0.437); mock kept weight 0.308; total ratio 0.458; ESS 381; mean e real 0.323 mock 0.393
+   ratio vs d: 0-0.2:0.89 0.2-0.4:0.45 0.4-0.7:0.46 0.7-1:0.44 1-1.5:0.33 1.5-3:0.34
+   ratio vs G: 5-10:0.02 10-12:0.02 12-13:0.26 13-14:0.48 14-15:0.54 15-16:0.47 16-19:0.72
+   high-f_m share real/mock vs d: 0.032/0.000 0.067/0.000 0.078/0.000 0.087/0.000 0.102/0.038 0.273/0.316
+C3x0.8: real kept 51633 (0.308); mock kept weight 0.399; total ratio 0.842; ESS 314; mean e real 0.400 mock 0.481
+   ratio vs d: 0-0.2:1.23 0.2-0.4:0.96 0.4-0.7:1.00 0.7-1:0.71 1-1.5:0.45 1.5-3:1.13
+   ratio vs G: 5-10:2.67 10-12:1.27 12-13:0.96 13-14:0.75 14-15:0.75 15-16:0.56 16-19:0.76
+   high-f_m share real/mock vs d: 0.006/0.096 0.019/0.034 0.034/0.023 0.056/0.021 0.076/0.036 0.197/0.257
+C3x1.2: real kept 82513 (0.491); mock kept weight 0.595; total ratio 0.786; ESS 474; mean e real 0.365 mock 0.448
+   ratio vs d: 0-0.2:1.44 0.2-0.4:0.95 0.4-0.7:0.87 0.7-1:0.61 1-1.5:0.43 1.5-3:0.93
+   ratio vs G: 5-10:2.36 10-12:1.08 12-13:0.89 13-14:0.68 14-15:0.68 15-16:0.53 16-19:0.72
+   high-f_m share real/mock vs d: 0.007/0.176 0.020/0.020 0.042/0.021 0.064/0.027 0.092/0.080 0.257/0.244
