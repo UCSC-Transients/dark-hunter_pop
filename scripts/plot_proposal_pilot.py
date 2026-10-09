@@ -96,6 +96,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--real-input-columns", type=Path, default=None,
                     help="snapshot from fetch_real_nss_input_columns.py (MP-Q24 real-side IPD/C* drop)")
     ap.add_argument("--rung2", type=Path, default=Path("config/population/rung2_validation.yaml"))
+    ap.add_argument("--subset", choices=["all", "dwarf", "evolved"], default="all",
+                    help="restrict mock and real to CMD dwarfs or CMD-evolved primaries (same §10.2 classifier "
+                         "and parent-measured ridge on both sides; spec §10)")
+    ap.add_argument("--giants-config", type=Path, default=Path("config/population/giants.yaml"))
     ap.add_argument("--cmd-malmquist", type=Path, default=None,
                     help="2-D CMD Malmquist config (#418, malmquist_cmd.yaml); replaces --malmquist")
     args = ap.parse_args(argv)
@@ -110,7 +114,10 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("artifacts disagree on the target configuration")
         if at["parent_h5_sha256"] != attrs["parent_h5_sha256"]:
             raise ValueError("all generations must share one parent snapshot (spec §3.7)")
-    truth = {k: np.concatenate([p[0][k] for p in parts]) for k in parts[0][0]}
+    # Columns common to every generation (log-q component names differ when m2_p_shape is used;
+    # weights always re-evaluate q via log_q_total_for).
+    common = set.intersection(*(set(p[0]) for p in parts))
+    truth = {k: np.concatenate([p[0][k] for p in parts]) for k in parts[0][0] if k in common}
     outcome = {k: np.concatenate([p[1][k] for p in parts]) for k in parts[0][1]}
     if np.unique(truth["draw_index"]).size != truth["draw_index"].size:
         raise ValueError("draw_index reused across generations")
@@ -175,9 +182,24 @@ def main(argv: list[str] | None = None) -> int:
     w = importance_weights(
         log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=scale
     )
+    subset_note = "all primaries"
+    ridge = None
+    gcfg = None
+    if args.subset != "all":
+        from darkhunter_pop.giants import classify_parent, load_giants_config, parent_row_cmd
+
+        gcfg = load_giants_config(args.giants_config)
+        pcls, ridge = classify_parent(parent, cfg, gcfg, cmd=parent_row_cmd(parent, cfg, gcfg))
+        prow = np.asarray(truth["parent_row"], np.int64)
+        m_ev = pcls.evolved[prow]
+        m_cl = pcls.classified[prow]
+        keep_mock = m_cl & (m_ev if args.subset == "evolved" else ~m_ev)
+        acc = acc & keep_mock
+        subset_note = (f"{args.subset} primaries only (CMD classifier §10.2, ridge measured on the parent, "
+                       f"n_sigma={gcfg.provisional_n_sigma:g}; same on the real side)")
     per_gen = []
     for gc in gen_cfgs:
-        sel = (truth["generation"] == gc.generation) & np.asarray(outcome["accepted_orbital"], bool)
+        sel = (truth["generation"] == gc.generation) & acc
         per_gen.append((gc.generation, gc.n_draws, int(sel.sum()), kish_ess(w[sel])))
 
     # --- real sample (El-Badry et al. 2024 §4: Orbital + AstroSpectroSB1, uncut) ---
@@ -193,12 +215,38 @@ def main(argv: list[str] | None = None) -> int:
     # Mirror the decided parent filters on the real side (spec §0.1: MP-Q1, MP-Q5).
     in_cols = load_real_input_columns(args.real_input_columns) if args.real_input_columns else None
     keep, real_counts = real_comparison_keep(real_sel, gen_cfgs[0], in_cols)
+    if args.subset != "all":
+        # Real side: the same classifier and the parent's ridge. Distances are the inverse NSS
+        # parallax (no Bailer-Jones join for NSS rows; as in scripts/giant_population_diagnostics.py).
+        from astropy.coordinates import SkyCoord
+        import astropy.units as au
+
+        from darkhunter_pop.giants import classify_evolved, cmd_for_rows
+
+        rs = real_sel
+
+        def fcol(name: str) -> np.ndarray:
+            return np.ma.filled(np.ma.asarray(rs[name], float), np.nan)
+
+        plx, eplx = fcol("parallax"), fcol("parallax_error")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r_med = np.where(plx > 0, 1000.0 / plx, np.nan)
+            r_lo = np.where(plx > 0, 1000.0 / (plx + eplx), np.nan)
+            r_hi = np.where(plx - eplx > 0, 1000.0 / (plx - eplx), np.nan)
+        gal = SkyCoord(ra=fcol("ra") * au.deg, dec=fcol("dec") * au.deg).galactic
+        rcmd = cmd_for_rows(fcol("g_mag"), fcol("bp_mag") - fcol("rp_mag"), gal.l.deg, gal.b.deg,
+                            r_med, r_lo, r_hi, cfg, gcfg)
+        rcls = classify_evolved(rcmd.mg0, rcmd.colour0, rcmd.sigma_mu, ridge, gcfg.provisional_n_sigma)
+        rsub = rcls.classified & (rcls.evolved if args.subset == "evolved" else ~rcls.evolved)
+        real_counts[f"and_{args.subset}_cmd"] = int(np.sum(keep & rsub))
+        keep = keep & rsub
     real_panels, n_real = build_elbadry2024_comparison_panels(
         real_sel[keep], nss_solution_types=real_types, gaiamock=gm
     )
     real_label = (
         f"DR3 Orbital+AstroSpectroSB1, parallax > {gen_cfgs[0].parallax_floor_mas} mas, "
-        f"TAG10 atmosphere{', Halbwachs IPD/C* (MP-Q24)' if in_cols is not None else ''} "
+        f"TAG10 atmosphere{', Halbwachs IPD/C* (MP-Q24)' if in_cols is not None else ''}"
+        f"{', ' + args.subset + ' (CMD)' if args.subset != 'all' else ''} "
         f"(N={n_real} of {real_counts['rows']})"
     )
 
@@ -242,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     decided.update(mass_luminosity=target.mass_luminosity, flux_sigma_dex=target.flux_sigma_dex)
     lab = args.label
     caption = (
-        f"{lab} (#391, docs/MOCK_POPULATION_SPEC.md), validation rung 2. Real: {real_label}. {n_draw} proposal draws "
+        f"{lab} (#391, docs/MOCK_POPULATION_SPEC.md), validation rung 2, {subset_note}. Real: {real_label}. {n_draw} proposal draws "
         f"(generations {[g[0] for g in per_gen]}, deterministic-mixture weights, base seed "
         f"{prop_cfg['base_seed']}) through gaiamock_mod; "
         f"{n_acc} accepted orbits pass every orbital_solution_cut, {n_acc_wpos} with nonzero MdS17 weight; "
@@ -335,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts: " + ", ".join(str(a) for a in args.artifact),
         f"{lab} report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.",
         f"decision_ref: {prop_cfg['decision_ref']}; decided: {json.dumps(decided, sort_keys=True)}",
+        f"subset: {subset_note}",
         f"real comparison: {real_label}; filter counts {real_counts}",
         "parent attrition: " + json.dumps(json.loads(attrs["provenance_json"]).get("parent_attrition")),
         f"draws: {n_draw}; scale_to_full (N_full/N_snap): {scale:.2f}",

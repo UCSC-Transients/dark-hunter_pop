@@ -11,6 +11,10 @@ Issue #391. Spec: `docs/MOCK_POPULATION_SPEC.md`, §5 rung 2. The earlier paused
 
 Nothing was tuned toward the data. The 2-D CMD Malmquist weight still misses its closed-loop target (worst pull 7.6), so every result is shown **with and without** it. The weight is a reweightable target factor, so no draws had to be re-simulated.
 
+> **Update 2026-10-09:** generations 25 and 26 were added with the efficiency proposal (PRs #447 and #448). The **dwarf-only** rung-2 result (ESS 879 without W, 656 with W) is in [`dwarfs/README.md`](dwarfs/README.md).
+>
+> Evolved rows are excluded until the evolved-row flux fix lands. They held 19% of the weight at ESS 4.4.
+
 ## Run
 
 | | generation 23 (tuning) | generation 24 (full) |
