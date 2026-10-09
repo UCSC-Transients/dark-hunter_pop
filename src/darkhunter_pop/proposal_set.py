@@ -184,6 +184,13 @@ class M2PeriodShapeConfig(_Strict):
     step ``log_m1_step`` (M1 clamped to the table domain), normalized to one, uniform within
     a cell. The defensive part is the generation's ordinary ``m2`` × ``period`` mixture, so
     coverage stays complete. Efficiency only: the target is unchanged.
+
+    Optional **re-centring modifiers** (#391 rung 3, 2026-10-09; all default to 0 = the plain
+    MdS17 shape, so older artifacts re-evaluate bit for bit) multiply ``T`` before the per-node
+    normalization, with the same functional forms as the rung-3 fit (spec §12.3):
+    ``q^dgamma_q`` × ``exp(ln_f_twin)`` for q ≥ ``twin_q_min`` × ``exp(gamma_p (log P − log_p_pivot))``
+    × ``exp(ln_long_p · logistic((log P − long_p_centre) / long_p_width))``. The defensive part is
+    untouched, so weights stay bounded by the target maximum over ``1 − weight``.
     """
 
     weight: float = Field(..., ge=0.0, lt=1.0)
@@ -196,6 +203,14 @@ class M2PeriodShapeConfig(_Strict):
     n_log_q: int = Field(..., ge=4)
     n_log_p: int = Field(..., ge=4)
     log_m1_step: float = Field(..., gt=0.0)
+    dgamma_q: float = 0.0
+    ln_f_twin: float = 0.0
+    twin_q_min: float = Field(0.95, gt=0.0, le=1.0)
+    gamma_p: float = 0.0
+    log_p_pivot: float = 2.7
+    ln_long_p: float = 0.0
+    long_p_centre: float = 3.0
+    long_p_width: float = Field(0.1, gt=0.0)
 
 
 class FluxProposalConfig(_Strict):
@@ -925,6 +940,17 @@ class M2PeriodShapeTable:
 _SHAPE_CACHE: dict[str, M2PeriodShapeTable] = {}
 
 
+def m2_p_shape_modifier(q: ArrayLike, log_p: ArrayLike, cfg: M2PeriodShapeConfig) -> FloatArray:
+    """Multiplicative re-centring modifier of the shape component (1 with all defaults)."""
+    qq = np.asarray(q, float)
+    lp = np.asarray(log_p, float)
+    with np.errstate(divide="ignore", over="ignore"):
+        lm = cfg.dgamma_q * np.log(qq) + cfg.ln_f_twin * (qq >= cfg.twin_q_min)
+        lm = lm + cfg.gamma_p * (lp - cfg.log_p_pivot)
+        lm = lm + cfg.ln_long_p / (1.0 + np.exp(-(lp - cfg.long_p_centre) / cfg.long_p_width))
+    return np.exp(lm)
+
+
 def m2_period_shape_table(cfg: M2PeriodShapeConfig) -> M2PeriodShapeTable:
     """Tabulate (and cache) the MdS17-shaped (log q, log P) component (pure numpy)."""
     key = json.dumps(cfg.model_dump(mode="json"), sort_keys=True)
@@ -945,6 +971,7 @@ def m2_period_shape_table(cfg: M2PeriodShapeConfig) -> M2PeriodShapeTable:
         q = 10.0**LQ
         dens = (mds.f_logp_q03(m1, LP, table)
                 * mds.q_density(q, m1, LP, table, m1_interpolation=cfg.m1_interpolation) * q * math.log(10.0))
+        dens = dens * m2_p_shape_modifier(q, LP, cfg)
         cell = np.where(np.isfinite(dens) & (dens > 0), dens, 0.0) * area
         prob[i] = cell / cell.sum()
     out = M2PeriodShapeTable(log_m1_nodes=nodes, lq_edges=lq_e, lp_edges=lp_e, prob=prob)

@@ -764,3 +764,63 @@ def test_evolved27_config_loads() -> None:
     p = ps.load_proposal_set_fragment(EVO27).proposal
     assert p.generation == 27 and p.parent.evolved_weight == 1.0
     assert p.flux.evolved_rows_centre == "evolved_relation_deblended"
+
+
+# ---------------------------------------------------------------------------
+# #391 rung 3: re-centred shape component (generation 28)
+# ---------------------------------------------------------------------------
+
+RECENTRED28 = "config/population/proposal_set_restart_recentred28.yaml"
+
+
+@pytest.mark.unit
+def test_shape_modifier_defaults_are_identity() -> None:
+    cfg = _tune2().m2_p_shape
+    q = np.linspace(0.1, 1.0, 50)
+    lp = np.linspace(1.0, 4.0, 50)
+    np.testing.assert_array_equal(ps.m2_p_shape_modifier(q, lp, cfg), np.ones(50))
+
+
+@pytest.mark.physics
+def test_recentred_shape_table_follows_modifier_and_normalizes() -> None:
+    rec = ps.load_proposal_set_fragment(RECENTRED28).proposal
+    base = rec.m2_p_shape.model_copy(update={"dgamma_q": 0.0, "ln_f_twin": 0.0, "gamma_p": 0.0, "ln_long_p": 0.0})
+    t1, t0 = ps.m2_period_shape_table(rec.m2_p_shape), ps.m2_period_shape_table(base)
+    np.testing.assert_allclose(t1.prob.sum(axis=(1, 2)), 1.0, rtol=1e-12)
+    lq_c = 0.5 * (t1.lq_edges[1:] + t1.lq_edges[:-1])
+    lp_c = 0.5 * (t1.lp_edges[1:] + t1.lp_edges[:-1])
+    LQ, LP = np.meshgrid(lq_c, lp_c, indexing="ij")
+    mod = ps.m2_p_shape_modifier(10.0**LQ, LP, rec.m2_p_shape)
+    for k in (0, 10, 30):
+        expect = t0.prob[k] * mod
+        np.testing.assert_allclose(t1.prob[k], expect / expect.sum(), rtol=1e-10, atol=1e-15)
+    for m1 in (0.5, 1.0, 2.5):  # the full joint (shape + defensive) still integrates to one
+        lm1 = np.log10(m1)
+        lm2 = np.linspace(-2.0, 2.0, 1601)
+        lp = np.linspace(-1.0, 9.0, 2001)
+        LM2, LPP = np.meshgrid(lm2, lp, indexing="ij")
+        d = np.exp(ps.log_q_m2_p_joint(LM2, LPP, np.full_like(LM2, lm1), rec))
+        assert np.trapz(np.trapz(d, lp, axis=1), lm2) == pytest.approx(1.0, abs=5e-3)
+
+
+@pytest.mark.physics
+def test_recentred_proposal_weights_bounded_for_old_and_refit_targets() -> None:
+    """Gen-28 q(log q, log P) against both the MdS17 target and the rung-3 best-fit target."""
+    from darkhunter_pop import malmquist as mq
+
+    frag = ps.load_proposal_set_fragment(RECENTRED28)
+    cfg, tgt = frag.proposal, frag.target_mds17
+    ps.check_eccentricity_bounded(cfg.eccentricity, tgt.provisional_eta_floor)
+    for modified in (False, True):
+        worst = 0.0
+        for m1 in (0.6, 0.9, 1.3, 3.0):
+            lq = np.linspace(-1.0, 0.0, 401)[1:-1]
+            lp = np.linspace(0.21, 7.99, 401)
+            LQ, LP = np.meshgrid(lq, lp, indexing="ij")
+            target = mq.mds17_luminous_m2_p_intensity(m1, LQ, LP, tgt)
+            if modified:
+                target = target * ps.m2_p_shape_modifier(10.0**LQ, LP, cfg.m2_p_shape)
+            target = target / np.trapz(np.trapz(target, lp, axis=1), lq)
+            q = np.exp(ps.log_q_m2_p_joint(np.log10(m1) + LQ, LP, np.full_like(LQ, np.log10(m1)), cfg))
+            worst = max(worst, float(np.max(target / q)))
+        assert np.isfinite(worst) and worst < 500.0
