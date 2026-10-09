@@ -1,0 +1,53 @@
+artifacts: output/proposal_set/restart_gen23_tune.h5, output/proposal_set/restart_gen24_full.h5, output/proposal_set/restart_gen25_tune2.h5, output/proposal_set/restart_gen26_topup.h5
+RUNG 2 DWARFS (gen 23-26), 2-D CMD Malmquist weight report (#391; docs/MOCK_POPULATION_SPEC.md). Provisional settings are not decisions.
+decision_ref: Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1); decided: {"flux_sigma_dex": 0.1, "halbwachs_ipd_cstar_cuts": "applied_star_values", "light_split": "observed_g_is_system_total", "m1": "isochrone_posterior_draw_deblended", "mass_luminosity": "mist_coeval", "parallax_floor_mas": 0.2, "truth_distance": "bailer_jones2021_geometric"}
+subset: dwarf primaries only (CMD classifier §10.2, ridge measured on the parent, n_sigma=3; same on the real side)
+real comparison: DR3 Orbital+AstroSpectroSB1, parallax > 0.2 mas, TAG10 atmosphere, Halbwachs IPD/C* (MP-Q24), dwarf (CMD) (N=137744 of 168065); filter counts {'rows': 168065, 'parallax_floor': 168062, 'parallax_floor_and_atmosphere': 168025, 'missing_input_columns': 0, 'and_halbwachs_ipd_cstar': 167911, 'and_dwarf_cmd': 137744}
+parent attrition: {"bailer_jones_distance": 198734, "finite_astrometry_photometry": 214666, "halbwachs_cstar": 159116, "halbwachs_ipd": 179874, "isochrone_m1": 198734, "parallax_floor": 214666, "snapshot_rows": 214666}
+draws: 817000; scale_to_full (N_full/N_snap): 1811.71
+per generation (generation, n_draws, accepted, ESS of its accepted draws under mixture weights): (23, 25000, 444, 27.11); (24, 430000, 7819, 376.23); (25, 12000, 52, 6.92); (26, 350000, 2294, 250.40)
+accepted orbits: 10609; with nonzero MdS17 weight: 8104
+MdS17 Kish ESS: accepted 655.74; all draws 1949.99
+max weight share among accepted: 0.012
+expected accepted orbits relative to parent (MdS17, luminous): 7.601e+04 vs real 137744
+
+solution-type mix (raw proposal fraction | MdS17-weighted expected count):
+  insufficient_visibility      0.007 | 1.188e+06
+  five_parameter               0.911 | 1.332e+08
+  seven_parameter              0.018 | 2.747e+05
+  nine_parameter               0.012 | 1.507e+05
+  twelve_parameter_orbital     0.015 | 1.031e+05
+  orbital_failed_cuts          0.037 | 1.049e+07
+  published acceleration (s>20; F2<22 for 7-par): raw 0.015 | weighted 1.613e+05
+Malmquist: 2-D CMD Malmquist weight (#418, config/population/malmquist_cmd.yaml); MIST coeval flux ratios; unit-weight counts {'evolved': 70907, 'outside_ridge': 45308, 'weighted': 700785}
+eccentricity proposal shapes: ['mds17_bounded']
+
+per-panel ESS and KS (KS gated on MP-Q19, ESS_b >= 30):
+  P_orb_days: bins=20, max ESS_b=227.79, bins with ESS >= 30: 7/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 7 bins with ESS >= 30 (holding 91.3% of the real sample): D=0.069, n_eff=628.1, p=0.00514
+  G_mag: bins=20, max ESS_b=169.08, bins with ESS >= 30: 8/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 8 bins with ESS >= 30 (holding 95.7% of the real sample): D=0.100, n_eff=605.8, p=9.84e-06
+  inv_parallax_mas_inv: bins=20, max ESS_b=230.96, bins with ESS >= 30: 8/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 8 bins with ESS >= 30 (holding 75.3% of the real sample): D=0.108, n_eff=643.9, p=6.38e-07
+  eccentricity: bins=20, max ESS_b=84.82, bins with ESS >= 30: 12/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 12 bins with ESS >= 30 (holding 81.0% of the real sample): D=0.161, n_eff=542.3, p=1.17e-12
+  f_m_msun: bins=20, max ESS_b=169.08, bins with ESS >= 30: 6/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 6 bins with ESS >= 30 (holding 79.7% of the real sample): D=0.094, n_eff=670.4, p=1.34e-05
+  cos_inclination: bins=20, max ESS_b=58.24, bins with ESS >= 30: 16/20; (spec §3.6 sigma_MC/sigma_Poisson<0.1: 0/20); KS over the 16 bins with ESS >= 30 (holding 81.4% of the real sample): D=0.048, n_eff=649.1, p=0.0954
+
+informational weighted KS over the full panel range (NOT a gate):
+  P_orb_days: D=0.048, n_eff=652.6, p=0.0941
+  G_mag: D=0.102, n_eff=652.6, p=2.32e-06
+  inv_parallax_mas_inv: D=0.131, n_eff=652.6, p=3.35e-10
+  eccentricity: D=0.192, n_eff=652.6, p=2.17e-21
+  f_m_msun: D=0.162, n_eff=652.6, p=2.67e-15
+  cos_inclination: D=0.046, n_eff=652.6, p=0.129
+
+cost (CPU s per draw, gaiamock_mod, process_time in worker):
+  mean 0.79, median 0.01, p90 0.01, total 179.51 CPU h
+  insufficient_visibility      n= 6039 mean 0.01 s
+  five_parameter               n=743912 mean 0.01 s
+  seven_parameter              n=14765 mean 0.01 s
+  nine_parameter               n=10000 mean 0.01 s
+  twelve_parameter_orbital     n=12011 mean 14.85 s
+  orbital_failed_cuts          n=30273 mean 15.21 s
+  wall: 75.5 min at 8 workers
+  wall: 497.4 min at 8 workers
+  wall: 19.4 min at 8 workers
+  wall: 512.0 min at 8 workers
+provisional: {"provisional_compact_mixture": "none", "provisional_eta_floor": -0.9, "provisional_low_mass_anchor_msun": 0.8, "provisional_low_mass_policy": "log_linear_to_zero", "provisional_low_mass_zero_msun": 0.08, "provisional_m1_interpolation": "linear_m1", "provisional_multiplicity": "poisson_intensity"}
