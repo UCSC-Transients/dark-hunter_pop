@@ -1,0 +1,48 @@
+{
+ "overall": {
+  "real_orbits_c1": 131169,
+  "real_accel": 337960,
+  "real_ratio": 0.3881198958456622,
+  "noW": {
+   "mock_orbits_c1": 86033.034494078,
+   "mock_accel": 184908.4199167631,
+   "mock_ratio": 0.46527375298975543,
+   "orbit_mock_over_real": 0.6558945672687755,
+   "accel_mock_over_real": 0.5471310803549624,
+   "ess_orbits": 703.7475873220824,
+   "ess_accel": 1335.9564106028593
+  },
+  "cmdW": {
+   "mock_orbits_c1": 75754.58327850187,
+   "mock_accel": 160458.4719542715,
+   "mock_ratio": 0.47211332848845095,
+   "orbit_mock_over_real": 0.5775341984653529,
+   "accel_mock_over_real": 0.4747853945859613,
+   "ess_orbits": 572.4313183090115,
+   "ess_accel": 1091.5519619783977
+  }
+ },
+ "bin_0p7_1p5kpc_G13_16": {
+  "real_orbits_c1": 30017,
+  "real_accel": 81434,
+  "real_ratio": 0.36860525087801166,
+  "noW": {
+   "mock_orbits_c1": 15437.395060385134,
+   "mock_accel": 40488.92859812628,
+   "mock_ratio": 0.3812744766256802,
+   "orbit_mock_over_real": 0.5142884052498629,
+   "accel_mock_over_real": 0.49719930984756094,
+   "ess_orbits": 108.37215265565484,
+   "ess_accel": 205.70665906426726
+  },
+  "cmdW": {
+   "mock_orbits_c1": 13207.713268383024,
+   "mock_accel": 34043.95461284467,
+   "mock_ratio": 0.3879606061805698,
+   "orbit_mock_over_real": 0.4400077712090823,
+   "accel_mock_over_real": 0.4180557827546807,
+   "ess_orbits": 93.57144989356055,
+   "ess_accel": 162.61860301206445
+  }
+ }
+}
