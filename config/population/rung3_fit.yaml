@@ -1,0 +1,40 @@
+# Rung-3 reweighting fit (#391; docs/MOCK_POPULATION_SPEC.md §12, approved 2026-10-09).
+# Bin edges are fixed before fitting (§12.1). Population config, not config/fragments/.
+# Provisional defaults are labelled with their open option (MP-Q41-Q45); none is a decision.
+
+rung3:
+  c1_period_max_days: 830.4            # C1: 0.8 x 1038 d DR3 baseline, both sides
+  orbit_bins:                          # 4 x 4 x 4 x 3 = 192 (MP-Q45 a, default)
+    g_mag: [5.0, 12.0, 14.0, 16.0, 19.5]
+    distance_kpc: [0.0, 0.3, 0.7, 1.5, 6.0]
+    log10_period_days: [0.0, 2.3, 2.6, 2.75, 2.9193]
+    eccentricity: [0.0, 0.3, 0.6, 1.0]
+  acceleration_bins:                   # 4 x 4 = 16
+    g_mag: [5.0, 12.0, 14.0, 16.0, 19.5]
+    distance_kpc: [0.0, 0.3, 0.7, 1.5, 6.0]
+  likelihood: say_effective            # MP-Q41 a (default): Arguelles, Schneider & Yuan 2019
+  parameters:                          # name: [start, lower, upper]; MdS17 published = 0 except alpha_lo start
+    ln_A: [0.0, -3.0, 3.0]
+    alpha_lo: [0.5, -3.0, 5.0]         # replaces MP-Q7 below the pivot
+    alpha_hi: [0.0, -5.0, 5.0]
+    gamma_P: [0.0, -5.0, 5.0]
+    ln_L_P: [0.0, -3.0, 3.0]
+    dgamma_q: [0.0, -3.0, 3.0]         # MP-Q42 a (default): unnormalized
+    ln_F_twin: [0.0, -4.0, 3.0]
+    d_eta: [0.0, -1.5, 1.5]
+    f_s: [0.1, 0.0, 0.8]               # spurious share of real C1 orbits (all bins)
+    k_P: [0.0, -10.0, 10.0]
+    k_d: [0.0, -5.0, 5.0]
+  m1_pivot_msun: 0.8
+  log_p_tilt_pivot: 2.7
+  long_p_centre: 3.0
+  long_p_width: 0.1
+  twin_q_min: 0.95
+  eta_floor: -0.9                      # MP-Q11 floor, kept
+  spurious:                            # MP-Q43 a (default): p_G from real accelerations, p_e flat, none on accelerations
+    prior_bin_distance_kpc: [0.7, 1.5]
+    prior_bin_g_mag: [12.0, 16.0]      # nearest fixed G edges to the measured 13-16 bin
+    prior_mean: 0.21                   # PR #455 / #457 symmetric re-detection deficit
+    prior_sigma: 0.04
+  ess_collapse_threshold: 100
+  min_ess_per_bin: 30                  # MP-Q19

@@ -1,0 +1,107 @@
+#391 rung 3 first fit (spec §12): gens 23-27 reweighted; no new simulation
+
+real: 131168 C1 orbits in 192 bins, 337949 accelerations in 16 bins; prior bin (d 0.7-1.5 kpc, G 12-16) holds 36494 real orbits
+mock draws entering the likelihood: 22847
+
+[noW] converged True (Optimization terminated successfully.); -lnL best 2065.0 vs MdS17 (+ f_s=0) 505075.8
+    12 starts; 11 end within delta(-lnL) < 5 of the best ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 103.4])
+    name        best +- Laplace   [min, max over the near-best starts]
+    ln_A       +1.544 +- 0.133   [+1.54, +1.55]
+    alpha_lo   +0.886 +- 0.135   [+0.88, +0.89]
+    alpha_hi   +0.064 +- 0.157   [+0.06, +0.07]
+    gamma_P    -0.235 +- 0.165   [-0.24, -0.23]
+    ln_L_P     +0.580 +- 0.166   [+0.58, +0.58]
+    dgamma_q   +2.401 +- 0.279   [+2.40, +2.40]
+    ln_F_twin  -1.531 +- 0.232   [-1.53, -1.53]
+    d_eta      -0.454 +- 0.031   [-0.45, -0.45]
+    f_s        +0.100 +- 0.004   [+0.10, +0.10]
+    k_P        +6.395 +- 0.143   [+6.39, +6.39]
+    k_d        -1.603 +- 0.036   [-1.60, -1.60]
+    at bound: none
+    expected: mock orbits 129726 + spurious 13136 = 142861 vs real 131168; mock accelerations 334574 vs real 337949
+    spurious: f_s 0.100 of all C1 orbits; share in the prior bin 0.068 (prior 0.21 +- 0.04)
+    ESS at best fit: orbits 426, accelerations 877 (MdS17 weights: 704, 1336)
+    orbit bins with ESS_b < 30: 191/192, holding 99.1% of real orbits
+    Poisson-style deviance (orbits, incl. MC var): 2795 over 143 non-empty bins
+
+[cmdW] converged True (Optimization terminated successfully.); -lnL best 2042.2 vs MdS17 (+ f_s=0) 505446.4
+    12 starts; 12 end within delta(-lnL) < 5 of the best ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    name        best +- Laplace   [min, max over the near-best starts]
+    ln_A       +1.873 +- 0.164   [+1.87, +1.87]
+    alpha_lo   +1.818 +- 0.154   [+1.82, +1.82]
+    alpha_hi   -1.189 +- 0.184   [-1.19, -1.19]
+    gamma_P    -0.160 +- 0.136   [-0.16, -0.16]
+    ln_L_P     +0.521 +- 0.148   [+0.52, +0.52]
+    dgamma_q   +1.806 +- 0.238   [+1.80, +1.81]
+    ln_F_twin  -1.462 +- 0.249   [-1.46, -1.46]
+    d_eta      -0.463 +- 0.027   [-0.46, -0.46]
+    f_s        +0.116 +- 0.005   [+0.12, +0.12]
+    k_P        +6.586 +- 0.143   [+6.59, +6.59]
+    k_d        -1.701 +- 0.038   [-1.70, -1.70]
+    at bound: none
+    expected: mock orbits 138344 + spurious 15252 = 153596 vs real 131168; mock accelerations 345077 vs real 337949
+    spurious: f_s 0.116 of all C1 orbits; share in the prior bin 0.075 (prior 0.21 +- 0.04)
+    ESS at best fit: orbits 359, accelerations 581 (MdS17 weights: 572, 1092)
+    orbit bins with ESS_b < 30: 188/192, holding 94.1% of real orbits
+    Poisson-style deviance (orbits, incl. MC var): 2734 over 143 non-empty bins
+
+PPC six-panel (C1 orbits in the likelihood edges): real | MdS17 | best fit (+ spurious where defined); per-panel totals
+  P_orb_days: real 131168 | MdS17 86033 | fit 142861
+  G_mag: real 131168 | MdS17 86033 | fit 142861
+  inv_parallax_mas_inv: real 130727 | MdS17 85820 | fit 142618
+  eccentricity: real 131168 | MdS17 86033 | fit 142861
+  f_m_msun: real 131006 | MdS17 85949 | fit 129393
+  cos_inclination: real 131168 | MdS17 86033 | fit 129726
+
+PPC per distance bin (d edges [0.0, 0.3, 0.7, 1.5, 6.0]): mock/real orbits MdS17 -> fit | accelerations MdS17 -> fit | mean-e (bin centres) real / MdS17 / fit | orbit:accel real / fit
+  d 0.0-0.3: orbits 0.86 -> 1.33 [28855]; accels 0.60 -> 0.97 [60693]; <e> 0.374 / 0.460 / 0.406; o:a 0.475 / 0.655
+  d 0.3-0.7: orbits 0.66 -> 1.02 [58982]; accels 0.57 -> 1.00 [157362]; <e> 0.339 / 0.433 / 0.376; o:a 0.375 / 0.385
+  d 0.7-1.5: orbits 0.48 -> 0.93 [40272]; accels 0.49 -> 0.98 [112700]; <e> 0.322 / 0.368 / 0.311; o:a 0.357 / 0.337
+  d 1.5-6.0: orbits 0.87 -> 2.19 [3059]; accels 0.48 -> 1.20 [7194]; <e> 0.334 / 0.591 / 0.578; o:a 0.425 / 0.781
+  G 5.0-12.0: orbits 0.77 -> 1.22 [28805]; accels 0.53 -> 0.96 [64279]; o:a 0.448 / 0.574
+  G 12.0-14.0: orbits 0.63 -> 1.05 [65813]; accels 0.53 -> 0.97 [170405]; o:a 0.386 / 0.416
+  G 14.0-16.0: orbits 0.61 -> 1.06 [35217]; accels 0.58 -> 1.03 [99435]; o:a 0.354 / 0.365
+  G 16.0-19.5: orbits 0.67 -> 0.84 [1333]; accels 0.81 -> 1.24 [3830]; o:a 0.348 / 0.238
+
+ESS_b at best fit (noW), summed over G and e per (d, log P) cell: min ESS_b in cell / real orbits in cell
+  d 0.0-0.3: lP0.00-2.30:1/5825 lP2.30-2.60:1/8661 lP2.60-2.75:2/7226 lP2.75-2.92:1/7143
+  d 0.3-0.7: lP0.00-2.30:0/4003 lP2.30-2.60:0/15088 lP2.60-2.75:0/18623 lP2.75-2.92:1/21268
+  d 0.7-1.5: lP0.00-2.30:0/63 lP2.30-2.60:0/2640 lP2.60-2.75:0/13579 lP2.75-2.92:0/23990
+  d 1.5-6.0: lP0.00-2.30:0/1 lP2.30-2.60:nan/0 lP2.60-2.75:0/366 lP2.75-2.92:0/2692
+
+top-up (§12.8): gens 23-27 used 183 CPU-h; ESS of C1 orbits at the best fit 426 (2.3 per CPU-h)
+  bins holding >= 1% of real orbits: 33; of those below ESS_b 30: 33 (68.8% of real orbits)
+  ESS_b multiplier needed in those bins with the current proposal mix: median 3x, max 10x -> 478 / 1806 CPU-h if the mix were unchanged (an upper bound; a proposal re-centred on the best fit is the intended route)
+    G 5-12, d 0-0.3, log P 0-2.30, e 0.3-0.6: real 1313, ESS_b 12.8
+    G 5-12, d 0-0.3, log P 2.3-2.60, e 0-0.3: real 1358, ESS_b 27.1
+    G 5-12, d 0-0.3, log P 2.3-2.60, e 0.3-0.6: real 1596, ESS_b 20.1
+    G 5-12, d 0-0.3, log P 2.75-2.92, e 0-0.3: real 1476, ESS_b 13.9
+    G 5-12, d 0.3-0.7, log P 2.3-2.60, e 0-0.3: real 1448, ESS_b 11.5
+    G 5-12, d 0.3-0.7, log P 2.3-2.60, e 0.3-0.6: real 1356, ESS_b 9.0
+    G 5-12, d 0.3-0.7, log P 2.6-2.75, e 0-0.3: real 1766, ESS_b 8.2
+    G 5-12, d 0.3-0.7, log P 2.6-2.75, e 0.3-0.6: real 1435, ESS_b 4.9
+    G 5-12, d 0.3-0.7, log P 2.75-2.92, e 0-0.3: real 2618, ESS_b 12.3
+    G 5-12, d 0.3-0.7, log P 2.75-2.92, e 0.3-0.6: real 1763, ESS_b 9.3
+    G 5-12, d 0.7-1.5, log P 2.75-2.92, e 0-0.3: real 1334, ESS_b 3.0
+    G 12-14, d 0-0.3, log P 2.3-2.60, e 0.3-0.6: real 1538, ESS_b 24.6
+    G 12-14, d 0.3-0.7, log P 0-2.30, e 0-0.3: real 1322, ESS_b 7.9
+    G 12-14, d 0.3-0.7, log P 2.3-2.60, e 0-0.3: real 4161, ESS_b 28.6
+    G 12-14, d 0.3-0.7, log P 2.3-2.60, e 0.3-0.6: real 4087, ESS_b 27.0
+    G 12-14, d 0.3-0.7, log P 2.6-2.75, e 0-0.3: real 4231, ESS_b 19.0
+    G 12-14, d 0.3-0.7, log P 2.6-2.75, e 0.3-0.6: real 3876, ESS_b 18.6
+    G 12-14, d 0.3-0.7, log P 2.75-2.92, e 0-0.3: real 5045, ESS_b 16.7
+    G 12-14, d 0.3-0.7, log P 2.75-2.92, e 0.3-0.6: real 3926, ESS_b 18.7
+    G 12-14, d 0.7-1.5, log P 2.6-2.75, e 0-0.3: real 4170, ESS_b 8.4
+    G 12-14, d 0.7-1.5, log P 2.6-2.75, e 0.3-0.6: real 3431, ESS_b 10.4
+    G 12-14, d 0.7-1.5, log P 2.75-2.92, e 0-0.3: real 6189, ESS_b 13.7
+    G 12-14, d 0.7-1.5, log P 2.75-2.92, e 0.3-0.6: real 4623, ESS_b 4.8
+    G 14-16, d 0.3-0.7, log P 2.3-2.60, e 0-0.3: real 1411, ESS_b 9.0
+    G 14-16, d 0.3-0.7, log P 2.3-2.60, e 0.3-0.6: real 1314, ESS_b 11.2
+    G 14-16, d 0.3-0.7, log P 2.6-2.75, e 0-0.3: real 2597, ESS_b 16.9
+    G 14-16, d 0.3-0.7, log P 2.6-2.75, e 0.3-0.6: real 2540, ESS_b 15.5
+    G 14-16, d 0.3-0.7, log P 2.75-2.92, e 0-0.3: real 2932, ESS_b 19.1
+    G 14-16, d 0.3-0.7, log P 2.75-2.92, e 0.3-0.6: real 2497, ESS_b 7.6
+    G 14-16, d 0.7-1.5, log P 2.6-2.75, e 0-0.3: real 2195, ESS_b 9.1
+    G 14-16, d 0.7-1.5, log P 2.6-2.75, e 0.3-0.6: real 1689, ESS_b 3.4
+    G 14-16, d 0.7-1.5, log P 2.75-2.92, e 0-0.3: real 4906, ESS_b 11.4
+    G 14-16, d 0.7-1.5, log P 2.75-2.92, e 0.3-0.6: real 4141, ESS_b 10.0
