@@ -691,7 +691,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11, decided §0.4; MP-Q40 open, §11.9)
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11, decided §0.4; MP-Q40 open, §11.9; MP-Q41–Q45 from §12)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -728,7 +728,7 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   `nss_acceleration_astro` snapshot).
 - **MP-Q21 AstroSpectroSB1**: compared together with Orbital (as El-Badry did), or is the RV-chain
   input (G_RVS) modelled for that subset?
-- **MP-Q22 Rung 3 parameterization**: which MdS17 coefficients are free (all, or e.g. the
+- **MP-Q22 Rung 3 parameterization** (provisional defaults in §12, run 2026-10-09): which MdS17 coefficients are free (all, or e.g. the
   f_logP anchors, γ_largeq, F_twin, η), their priors (the published 1σ of Eqs. 8, 12, 16, 19, 24,
   25 are available), and the posterior-predictive acceptance thresholds.
 - **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
@@ -1546,10 +1546,128 @@ After the flip, re-measure the reproduction counts end to end (they must be unch
   Both are multi-GB downloads.
 - **The trade.** Combined19 stitches Marshall et al. (2006), Green et al. (2019) and Drimmel et al. (2003), and publishes no per-sightline error. A posterior-sample map gives σ_E(B−V) directly but covers less of the parent: Bayestar19 misses the southern sky, and Edenhofer is distance-limited. Coverage fractions are to be measured on the parent once the maps are available.
 
+## 12. Rung 3: fitting the luminous-binary population to the full DR3 sample (#391)
+
+Ryan approved this on 2026-10-09. The luminous-binary parameters are fit by **reweighting the existing gens 23–27 draws** (§3.4): there is no new simulation and no top-up. Whether a top-up is needed, how big and where, is an output of the first fit (§12.8). This section answers MP-Q22 provisionally. Every choice the data or the papers do not settle is a numbered option in §12.9, and the provisional default used to run is labelled **[default]**. None of these is a decision.
+
+### 12.1 Data and observed space
+
+- **Orbits.**
+  - *Real:* the rung-2 real sample, i.e. DR3 Orbital + AstroSpectroSB1 after the §0.2 mirror filters (167,911). C1 (P ≤ 0.8 × 1038 d = 830 d) leaves 131,169.
+  - *Mock:* `accepted_orbital` draws with fitted P ≤ 830 d.
+  - *Coordinates:* G; distance d; log₁₀ P; e.
+    - Real: published P and e, and d = 1 / (ϖ + ZP(G)). The ZP is the +22–37 µas G-binned zero point (`distance_count/`).
+    - Mock: fitted P and e, and d = 1 / ϖ_fit.
+- **Accelerations.**
+  - *Real:* the `nss_acceleration_astro` snapshot `20261009T205231Z` under the same mirror filters (337,960).
+  - *Mock:* `published_acceleration` draws, with d = 1 / ϖ of the 7/9-parameter fit.
+  - *Coordinates:* (G, d). Accelerations carry no period, but they are what constrains the long-P weight (§12.3).
+- **Bin edges, fixed before fitting** (`config/population/rung3_fit.yaml`):
+  - G: [5, 12, 14, 16, 19.5].
+  - d (kpc): [0, 0.3, 0.7, 1.5, 6].
+  - log₁₀ P (orbits): [0, 2.3, 2.6, 2.75, log₁₀ 830].
+  - e (orbits): [0, 0.3, 0.6, 1].
+  - That gives 4 × 4 × 4 × 3 = 192 orbit bins and 4 × 4 = 16 acceleration bins.
+  - The edges are chosen for ESS (about 900 accepted-orbit ESS in total), not from the counts. Rows outside the edges are dropped on both sides.
+
+### 12.2 Likelihood
+
+Binned Poisson on all 208 bins. The expected count per bin is μ_b(θ) = Σ_{i∈b} w_i(θ) + s_b(θ): the importance-weighted mock sum plus the spurious component (§12.4).
+
+MC noise enters through the **effective likelihood** of Argüelles, Schneider & Yuan (2019, JHEP 06, 030; "SAY"):
+- per bin, with σ_b² = Σ w_i²: α = μ_b² / σ_b² + 1 and β = μ_b / σ_b²;
+- L_b = β^α Γ(k_b + α) / [Γ(k_b + 1) (1 + β)^(k_b + α) Γ(α)];
+- it reduces to Poisson as σ_b → 0.
+
+The spurious term is analytic and noise-free, so it enters μ_b but not σ_b². A bin with μ_b = 0 and k_b > 0 contributes the Poisson limit at μ_b = s_b. **[default; option MP-Q41]**
+
+### 12.3 Free population parameters (MdS17-anchored)
+
+Each parameter is a multiplicative modifier of the published MdS17 intensity λ₀(x) (§2, `mds17_luminous_log_intensity`), so w_i(θ) = w_i⁰ · m(x_i; θ) / s_low(M1_i). λ₀ is evaluated **without** the MP-Q7 log-linear low-mass scale, which the low-mass slope replaces. All parameters are 0 at MdS17 except the amplitude.
+
+| θ | modifier | MdS17 value |
+|---|---|---|
+| ln A | overall companion-frequency amplitude e^{ln A} | 0 |
+| α_lo | (M1 / 0.8 M⊙)^{α_lo} for M1 < 0.8 M⊙, replacing MP-Q7 (whose log-linear-to-zero is ≈ α 0.5 near 0.4 M⊙) | free; start 0.5 |
+| α_hi | (M1 / 0.8 M⊙)^{α_hi} for M1 ≥ 0.8 M⊙ (a tilt on MdS17's own M1 dependence) | 0 |
+| γ_P | exp(γ_P (log P − 2.7)): a tilt of the log P distribution | 0 |
+| ln L_P | long-P weight e^{ln L_P · σ((log P − 3.0) / 0.1)}, with σ the logistic; set mainly by accelerations | 0 |
+| Δγ_q | q^{Δγ_q} (unnormalized; the amplitude absorbs the normalization **[default; MP-Q42]**) | 0 |
+| ln F_tw | twin-excess multiplier e^{ln F_tw} for q ≥ 0.95 | 0 |
+| Δη | η → η + Δη in p_e = (η + 1) e^η / e_max^{η+1} (normalized; the MP-Q11 floor still applies) | 0 |
+
+Priors are uniform within wide bounds **[default]**. The published 1σ ranges of MdS17's Eqs. 8–25 are an option (MP-Q22). Off in the baseline:
+- **Compact companions** (MP-Q17; about 1% of orbits).
+- **The Malmquist weight.** The baseline uses the noW weights because the 2-D CMD closed loop is not at "every pull ≤ 3" (§11.5). cmdW is the sensitivity case.
+
+### 12.4 Spurious-contamination component (orbits)
+
+s_b = N_s · p_G(G) · p_d(d) · p_P(log P) · p_e(e), integrated over each bin.
+
+- **p_P** ∝ exp(k_P (log P − 2.919)) and **p_d** ∝ exp(k_d d), each normalized over the bin edges; k_P and k_d are free. This concentrates the component at long P and large distance when k > 0.
+- **p_G:** the real **acceleration** sample's G distribution **[default; MP-Q43]**. It is independent of the orbit counts being fit and follows the scan and brightness mix.
+- **p_e:** flat in e **[default; MP-Q43]**.
+- **Prior** from the symmetric rung-1 re-detection deficit (PR #455 / #457): the spurious share of real C1 orbits in the bin (0.7–1.5 kpc, G 13–16) is N(0.21, 0.04), truncated at 0.
+- **No spurious component on accelerations** **[default; MP-Q43]**. DR3 accelerations are also contaminated, but nothing measures that yet.
+
+Free: f_s (the spurious share of all real C1 orbits, the reported quantity), k_P and k_d. With §12.3 that is 11 parameters.
+
+### 12.5 Fitter
+
+- **Maximum likelihood** (scipy L-BFGS-B within bounds; several starts).
+- **Uncertainties** from the inverse of a finite-difference Hessian (Laplace) **[default]**. A short dynesty run on the same likelihood is MP-Q44, for when the Laplace approximation is in doubt (bounded or skewed parameters).
+- Weights are recomputed from cached per-draw truth and baseline weights only. Nothing is re-simulated.
+
+### 12.6 ESS and MC-noise diagnostics
+
+These are reported at the best fit:
+- Kish ESS of the accepted orbits and of the published accelerations, against the MdS17 weights (881 / 696 at rung 2).
+- ESS_b per likelihood bin; the bins with ESS_b < 30 (MP-Q19) and the share of the real counts in them.
+- Σ σ_b² / μ_b² over the bins (the MC share of the variance).
+
+If the ESS at the best fit falls below about 100 the fit is reported as **ESS-collapsed**: the best fit sits where the draws are sparse, and the result is a pointer for a top-up, not a measurement.
+
+### 12.7 Posterior-predictive checks
+
+All at the best fit, with weights × m(θ) plus the spurious component:
+- the six-panel (as rung 2);
+- counts vs distance and vs G (the `distance_count/` deficit);
+- the e distribution vs distance (the +0.08–0.11 excess);
+- the orbit : acceleration ratio vs G and d (`orbit_vs_accel/`).
+
+Thresholds remain MP-Q22.
+
+### 12.8 Top-up rule
+
+A top-up is recommended where the best-fit weights put the likelihood bins below ESS_b 30 while they hold ≥ 1% of the real counts. It is sized for ESS_b ≥ 30 there at the measured ESS per CPU-h. The proposal is re-centred on the best-fit θ (deterministic mixture, §3.4), so no stored draw is invalidated.
+
+### 12.9 Options for Ryan (MP-Q41–Q45; none chosen)
+
+- **MP-Q41 MC-noise treatment.**
+  - (a) SAY effective likelihood **[default]**;
+  - (b) Barlow–Beeston-lite (one nuisance per bin);
+  - (c) Poisson with bins of ESS_b < 30 dropped.
+- **MP-Q42 q modifier normalization.**
+  - (a) unnormalized, with A absorbing it **[default]**;
+  - (b) renormalized over 0.3 ≤ q ≤ 1 per (M1, P), so A stays MdS17's f_logP;q>0.3.
+- **MP-Q43 Spurious template.**
+  - (a) p_G from real accelerations, p_e flat, no spurious accelerations **[default]**;
+  - (b) p_G and p_e from the real orbits that the symmetric rung-1 run fails to re-detect (300 systems);
+  - (c) add a spurious-acceleration fraction with its own prior.
+- **MP-Q44 Fitter.**
+  - (a) MLE + Laplace **[default]**;
+  - (b) dynesty on the 11 parameters.
+- **MP-Q45 Bins.**
+  - (a) the §12.1 edges **[default]**;
+  - (b) finer in log P and d once a top-up raises the ESS.
+
+The parameter set and priors themselves stay MP-Q22.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
 - Andrae, R. et al. 2023, A&A 674, A27 (GSP-Phot; [M/H] systematics).
+- Argüelles, C. A., Schneider, A. & Yuan, T. 2019, JHEP 06, 030 (effective likelihood with MC-noise, §12.2).
 - Babusiaux, C. et al. (Gaia Collaboration) 2018, A&A 616, A10 (Gaia-band extinction law).
 - Badenes, C. et al. 2018, ApJ 854, 147 (APOGEE close-binary fraction vs log g).
 - Bailer-Jones, C. A. L. et al. 2021, AJ 161, 147.
