@@ -690,3 +690,77 @@ def test_shape_sampler_reproducible_and_logq_consistent(fragment: ps.ProposalSet
     # the main stream is untouched by the shape component (its own Generator)
     old = ps.sample_proposal(parent, fragment.proposal.model_copy(update={"n_draws": 600}))
     np.testing.assert_array_equal(old["parent_row"], a["parent_row"])
+
+
+# ---------------------------------------------------------------------------
+# #391 option (i): evolved-row flux centred on the dark-companion deblended M2
+# ---------------------------------------------------------------------------
+
+EVO27 = "config/population/proposal_set_restart_evolved27.yaml"
+
+
+class _EvoParent:
+    """Minimal isochrone-mode stand-in: two rows, the second CMD-evolved."""
+
+    def __init__(self) -> None:
+        self.is_giant = np.array([False, True])
+        self.cmd = {"mg0": np.array([4.0, 1.0])}
+
+
+@pytest.mark.unit
+def test_deblended_evolved_centre_uses_q_times_dark_m1() -> None:
+    from darkhunter_pop.giants import evolved_log10_flux_ratio
+
+    fc = ps.load_proposal_set_fragment(EVO27).proposal.flux.model_copy(update={"relation": "janssens2022"})
+    par = _EvoParent()
+    rows = np.array([0, 1, 1])
+    m1 = np.array([1.0, 1.4, 1.4])
+    m2 = np.array([0.5, 0.7, 0.7])
+    dark = np.array([np.nan, 0.9, np.nan])  # third: no posterior -> falls back to proposal M2
+    c = ps.proposal_relation_centre(m1, m2, rows, par, fc, None, dark)
+    assert c[0] == pytest.approx(float(ps.relation_log10_flux_ratio(1.0, 0.5)))
+    assert c[1] == pytest.approx(float(evolved_log10_flux_ratio(0.5 * 0.9, 1.0)))
+    assert c[2] == pytest.approx(float(evolved_log10_flux_ratio(0.7, 1.0)))
+    with pytest.raises(ValueError, match="m1_deblend_dark"):
+        ps.proposal_relation_centre(m1, m2, rows, par, fc, None, None)
+    sig, wr = ps.flux_width_and_weight(rows, par, fc)
+    np.testing.assert_allclose(sig, [fc.relation_sigma_dex, 0.15, 0.15])
+    np.testing.assert_allclose(wr, [fc.relation_weight, 0.8, 0.8])
+
+
+@pytest.mark.physics
+def test_evolved_flux_weights_bounded_and_finite_variance() -> None:
+    # Target N(c_t, 0.1) per dex f vs the evolved proposal 0.8 N(c_q, 0.15) + 0.2 U[-7, 0.5]
+    # for any centre offset: the ratio is bounded by the defensive floor, so E_q[w^2] < inf;
+    # with the centre matched the IS mean recovers 1 with small error.
+    fc = ps.load_proposal_set_fragment(EVO27).proposal.flux
+    lf = np.linspace(fc.log_f_min, fc.log_f_max, 200001)
+    for offset in (0.0, 0.3, 1.5):
+        q = np.exp(ps.log_q_flux(lf, np.zeros_like(lf, bool), np.ones_like(lf), np.full_like(lf, 0.5), fc,
+                                 centre=np.full_like(lf, -2.0 + offset), sigma=np.full_like(lf, 0.15),
+                                 relation_weight=np.full_like(lf, 0.8))) / (1.0 - fc.dark_fraction)
+        p = np.exp(-0.5 * ((lf + 2.0) / 0.1) ** 2) / (0.1 * np.sqrt(2 * np.pi))
+        r = p / q
+        bound = (1.0 / (0.1 * np.sqrt(2 * np.pi))) / (0.2 / (fc.log_f_max - fc.log_f_min))
+        assert np.max(r) <= bound * (1 + 1e-9)
+        second_moment = np.trapz(p * r, lf)  # E_q[w^2] = ∫ p^2 / q
+        assert np.isfinite(second_moment)
+        if offset == 0.0:
+            assert second_moment < 2.0  # matched centre: ESS fraction > 50%
+
+
+@pytest.mark.unit
+def test_evolved_only_parent_component() -> None:
+    plx = np.array([1.0, 2.0, 5.0])
+    usable = np.array([True, True, True])
+    evolved = np.array([False, True, True])
+    cfg = ps.ParentProposalConfig(uniform_fraction=0.3, parallax_power=0.75, parallax_cap_mas=10.0, evolved_weight=1.0)
+    q = ps.parent_proposal_probabilities(plx, usable, cfg, evolved)
+    np.testing.assert_allclose(q, [0.0, 0.5, 0.5])
+
+
+@pytest.mark.unit
+def test_evolved27_config_loads() -> None:
+    p = ps.load_proposal_set_fragment(EVO27).proposal
+    assert p.generation == 27 and p.parent.evolved_weight == 1.0
+    assert p.flux.evolved_rows_centre == "evolved_relation_deblended"

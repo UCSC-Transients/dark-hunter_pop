@@ -178,6 +178,10 @@ def main(argv: list[str] | None = None) -> int:
         zp_note = f"2-D CMD Malmquist weight (#418, {args.cmd_malmquist}); MIST coeval flux ratios"
     rung2 = __import__("yaml").safe_load(args.rung2.read_text())["rung2"]
     min_ess = float(rung2["min_ess_per_bin"])
+    if any(gc.flux.evolved_rows_centre == "evolved_relation_deblended" for gc in gen_cfgs):
+        import darkhunter_pop.proposal_set as _pse
+
+        _pse.ensure_m1_deblend_dark(truth, parent, cfg, gen_cfgs)  # #391 option (i)
     log_qs = [log_q_total_for(truth, parent, gc, cfg) for gc in gen_cfgs]
     w = importance_weights(
         log_lam, log_qs, [gc.n_draws for gc in gen_cfgs], scale_to_full=scale

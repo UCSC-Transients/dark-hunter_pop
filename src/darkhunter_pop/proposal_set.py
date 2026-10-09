@@ -161,7 +161,7 @@ class ParentProposalConfig(_Strict):
     uniform_fraction: float = Field(..., ge=0.0, le=1.0)
     parallax_power: float = Field(..., ge=0.0)
     parallax_cap_mas: float = Field(..., gt=0.0)
-    evolved_weight: float = Field(0.0, ge=0.0, lt=1.0)
+    evolved_weight: float = Field(0.0, ge=0.0, le=1.0)
 
 
 class M2ProposalConfig(_Strict):
@@ -219,7 +219,15 @@ class FluxProposalConfig(_Strict):
     #: MP-Q28d (decided 2026-10-04): centre the relation component of CMD-evolved rows on the
     #: §10.4 evolved relation ``giants.evolved_log10_flux_ratio(M2, M_G0,sys)``. Generation-time
     #: (coverage); the default keeps older artifacts' densities unchanged.
-    evolved_rows_centre: Literal["dwarf_relation", "evolved_relation"] = "dwarf_relation"
+    evolved_rows_centre: Literal["dwarf_relation", "evolved_relation", "evolved_relation_deblended"] = "dwarf_relation"
+    #: ``evolved_relation_deblended`` (#391 option (i), Ryan 2026-10-09): on CMD-evolved rows the
+    #: centre is the evolved relation at M2 = q × M1_dark, the posterior-draw primary deblended
+    #: with a dark companion (:func:`deblended_m1_dark`); it needs ``config`` and the per-draw
+    #: ``m1_deblend_dark_msun`` (:func:`ensure_m1_deblend_dark`). ``evolved_sigma_dex`` and
+    #: ``evolved_relation_weight`` (None = the row-independent values) set the evolved rows' width
+    #: and relation share; the rest stays the defensive uniform, so weights remain bounded.
+    evolved_sigma_dex: float | None = Field(None, gt=0.0)
+    evolved_relation_weight: float | None = Field(None, ge=0.0, le=1.0)
 
 
 def proposal_relation_centre(
@@ -229,6 +237,7 @@ def proposal_relation_centre(
     parent: Any,
     cfg: FluxProposalConfig,
     config: Any = None,
+    m1_deblend_dark: ArrayLike | None = None,
 ) -> FloatArray:
     """log10 f centre of the flux proposal's relation component per draw (MP-Q28d).
 
@@ -246,12 +255,20 @@ def proposal_relation_centre(
         )
     else:
         rel = relation_log10_flux_ratio(m1_msun, m2_msun)
-    if cfg.evolved_rows_centre == "evolved_relation" and getattr(parent, "cmd", None) is not None:
+    if cfg.evolved_rows_centre != "dwarf_relation" and getattr(parent, "cmd", None) is not None:
         from darkhunter_pop.giants import evolved_log10_flux_ratio
 
         evo = np.asarray(parent.is_giant, bool)[rows]
         mg0 = np.asarray(parent.cmd["mg0"], float)[rows]
-        rel_e = evolved_log10_flux_ratio(m2_msun, np.where(evo, mg0, 0.0))
+        m2_c = np.asarray(m2_msun, float)
+        if cfg.evolved_rows_centre == "evolved_relation_deblended":
+            if m1_deblend_dark is None:
+                raise ValueError("evolved_relation_deblended needs m1_deblend_dark (ensure_m1_deblend_dark)")
+            md = np.asarray(m1_deblend_dark, float)
+            q = m2_c / np.asarray(m1_msun, float)
+            # No posterior draw / q > 1: fall back to the proposal-space M2 (deterministic).
+            m2_c = np.where(np.isfinite(md), q * md, m2_c)
+        rel_e = evolved_log10_flux_ratio(m2_c, np.where(evo, mg0, 0.0))
         rel = np.where(evo, rel_e, rel)
     return np.asarray(rel, float)
 
@@ -789,6 +806,21 @@ def log_q_log_m2(log_m2: ArrayLike, log_m1: ArrayLike, cfg: M2ProposalConfig) ->
         return np.log(dens)
 
 
+def flux_width_and_weight(rows: NDArray[np.int64], parent: Any, cfg: FluxProposalConfig) -> tuple[FloatArray, FloatArray]:
+    """Per-draw relation width (dex) and relation share: the evolved-row values on CMD-evolved
+    rows when configured, else the row-independent ``relation_sigma_dex`` / ``relation_weight``."""
+    n = np.asarray(rows).size
+    sig = np.full(n, cfg.relation_sigma_dex)
+    wr = np.full(n, cfg.relation_weight)
+    if getattr(parent, "cmd", None) is not None and cfg.evolved_rows_centre != "dwarf_relation":
+        evo = np.asarray(parent.is_giant, bool)[np.asarray(rows, np.int64)]
+        if cfg.evolved_sigma_dex is not None:
+            sig = np.where(evo, cfg.evolved_sigma_dex, sig)
+        if cfg.evolved_relation_weight is not None:
+            wr = np.where(evo, cfg.evolved_relation_weight, wr)
+    return sig, wr
+
+
 def log_q_flux(
     log10_f: ArrayLike,
     is_dark: ArrayLike,
@@ -797,6 +829,8 @@ def log_q_flux(
     cfg: FluxProposalConfig,
     *,
     centre: ArrayLike | None = None,
+    sigma: ArrayLike | None = None,
+    relation_weight: ArrayLike | None = None,
 ) -> FloatArray:
     """log proposal for the flux ratio: log(ρ_dark) for dark draws, else log of the
     luminous mixture density per dex of f times (1 - ρ_dark). ``centre`` overrides the
@@ -804,7 +838,7 @@ def log_q_flux(
     lf = np.asarray(log10_f, float)
     dark = np.asarray(is_dark, bool)
     rel = relation_log10_flux_ratio(m1_msun, m2_msun) if centre is None else np.asarray(centre, float)
-    sig = cfg.relation_sigma_dex
+    sig = cfg.relation_sigma_dex if sigma is None else np.asarray(sigma, float)
     with np.errstate(invalid="ignore"):
         gauss = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
     gauss = np.where(np.isfinite(gauss), gauss, 0.0)
@@ -813,7 +847,8 @@ def log_q_flux(
     # Without a finite relation value the relation component cannot be drawn, so its
     # weight moves to the uniform component (matches the sampler).
     has_rel = np.isfinite(rel)
-    wr = np.where(has_rel, cfg.relation_weight, 0.0)
+    base_wr = cfg.relation_weight if relation_weight is None else np.asarray(relation_weight, float)
+    wr = np.where(has_rel, base_wr, 0.0)
     lum = (1.0 - wr) * uni + wr * gauss
     with np.errstate(divide="ignore"):
         lum_log = np.log(1.0 - cfg.dark_fraction) + np.log(lum)
@@ -1046,11 +1081,17 @@ def sample_proposal(
     # Flux ratio
     fc = cfg.flux
     dark = rng.uniform(size=n) < fc.dark_fraction
-    rel = proposal_relation_centre(m1, m2, row, parent, fc, config)
-    use_rel = (rng.uniform(size=n) < fc.relation_weight) & np.isfinite(rel)
+    m1_dark = None
+    if fc.evolved_rows_centre == "evolved_relation_deblended":
+        if config is None:
+            raise ValueError("evolved_relation_deblended needs the PipelineConfig (config=...)")
+        m1_dark = m1_deblend_dark_for_generation(row, m1, m2, parent, config, cfg)
+    rel = proposal_relation_centre(m1, m2, row, parent, fc, config, m1_dark)
+    sig_f, wr_f = flux_width_and_weight(row, parent, fc)
+    use_rel = (rng.uniform(size=n) < wr_f) & np.isfinite(rel)
     log_f = np.where(
         use_rel,
-        np.nan_to_num(rel) + fc.relation_sigma_dex * rng.standard_normal(n),
+        np.nan_to_num(rel) + sig_f * rng.standard_normal(n),
         rng.uniform(fc.log_f_min, fc.log_f_max, size=n),
     )
     log_f = np.where(dark, -np.inf, log_f)
@@ -1085,7 +1126,7 @@ def sample_proposal(
     log_q = {
         "log_q_parent": np.log(qs[row]),
         **mp_terms,
-        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc, centre=rel),
+        "log_q_flux": log_q_flux(log_f, dark, m1, m2, fc, centre=rel, sigma=sig_f, relation_weight=wr_f),
         "log_q_ecc": log_q_ecc(ecc, period, ec),
     }
     out: dict[str, NDArray[Any]] = {
@@ -1118,9 +1159,44 @@ def sample_proposal(
         "omega_rad": small_omega,
         "Tp_days": tp,
     }
+    if m1_dark is not None:
+        out["m1_deblend_dark_msun"] = m1_dark
     out.update(log_q)
     out["log_q_total"] = sum(log_q.values())  # type: ignore[assignment]
     return out
+
+
+def m1_deblend_dark_for_generation(
+    rows: ArrayLike, m1_row: ArrayLike, m2_proposal: ArrayLike, parent: ParentSnapshot,
+    config: PipelineConfig, cfg: ProposalConfig,
+) -> FloatArray:
+    """:func:`deblended_m1_dark` on the CMD-evolved draws of one generation (its rows in draw
+    order); NaN on other rows. Uses that generation's own posterior draws."""
+    r = np.asarray(rows, np.int64)
+    draw, c0, g0, sc, sm = posterior_draws(r, parent, config, cfg)
+    q = np.asarray(m2_proposal, float) / np.asarray(m1_row, float)
+    evo = np.asarray(parent.is_giant, bool)[r]
+    return deblended_m1_dark(q, draw, c0, g0, sc, sm, evo, config)
+
+
+def ensure_m1_deblend_dark(
+    truth: dict[str, NDArray[Any]], parent: ParentSnapshot, config: PipelineConfig,
+    gen_cfgs: Sequence[ProposalConfig],
+) -> None:
+    """Fill ``truth["m1_deblend_dark_msun"]`` for every draw (each block with its own
+    generation's posterior draws), so any generation's ``evolved_relation_deblended`` q can be
+    evaluated at every draw (deterministic-mixture denominator). In place; a no-op if present."""
+    if "m1_deblend_dark_msun" in truth:
+        return
+    gen = np.asarray(truth["generation"], np.int64)
+    out = np.full(gen.size, np.nan)
+    m1 = np.asarray(truth.get("m1_row_msun", truth["m1_msun"]), float)
+    m2 = np.asarray(truth.get("m2_proposal_msun", truth["m2_msun"]), float)
+    for gc in gen_cfgs:
+        sel = np.flatnonzero(gen == gc.generation)
+        if sel.size:
+            out[sel] = m1_deblend_dark_for_generation(truth["parent_row"][sel], m1[sel], m2[sel], parent, config, gc)
+    truth["m1_deblend_dark_msun"] = out
 
 
 def log_q_total_for(
@@ -1143,7 +1219,10 @@ def log_q_total_for(
         lqs
         + log_q_m2_p_joint(np.log10(m2), np.log10(np.asarray(truth["period_days"], float)), np.log10(m1), cfg)
         + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux,
-                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux, config))
+                     centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux, config,
+                                                     truth.get("m1_deblend_dark_msun")),
+                     sigma=flux_width_and_weight(row, parent, cfg.flux)[0],
+                     relation_weight=flux_width_and_weight(row, parent, cfg.flux)[1])
         + log_q_ecc(truth["eccentricity"], truth["period_days"], cfg.eccentricity)
     )
 
@@ -1836,6 +1915,93 @@ def malmquist_cmd_log_weight(
 POSTERIOR_DRAW_RNG_SLOT: int = 2
 
 
+_SAMPLER_CACHE: dict[str, Any] = {}
+
+
+def posterior_draws(
+    rows: ArrayLike,
+    parent: ParentSnapshot,
+    config: PipelineConfig,
+    cfg: ProposalConfig,
+    *,
+    sampler: Any = None,
+    native: Any = None,
+) -> tuple[dict[str, FloatArray], FloatArray, FloatArray, FloatArray, FloatArray]:
+    """MP-Q35 posterior draw of (age, [Fe/H], M̂1, phase) per draw, and the row CMD inputs.
+
+    One draw per element of ``rows`` (the generation's ``parent_row`` in draw order) from
+    ``SeedSequence(base_seed, spawn_key=(PROPOSAL_RNG_STREAM_BASE + generation,
+    POSTERIOR_DRAW_RNG_SLOT))``: depends only on the rows and the generation, so the sampler
+    (:func:`sample_proposal`) and the runner (:func:`apply_posterior_deblending`) get the same
+    draws. Returns ``(draw, colour0, mg0, sigma_colour, sigma_mag)``.
+    """
+    from darkhunter_pop import isochrone_mass as im
+
+    icfg = config.isochrone_mass
+    if native is None:
+        native = _native_grid(config)
+    if sampler is None:
+        key = json.dumps([icfg.model_dump(mode="json"), str(config.paths.data_root)], sort_keys=True, default=str)
+        if key not in _SAMPLER_CACHE:
+            _SAMPLER_CACHE[key] = im.PosteriorSampler.build(im.prior_points(native, icfg), icfg.cmd_map)
+        sampler = _SAMPLER_CACHE[key]
+    stream = PROPOSAL_RNG_STREAM_BASE + cfg.generation
+    rng = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, POSTERIOR_DRAW_RNG_SLOT)))
+    r = np.asarray(rows, np.int64)
+    c0 = np.asarray(parent.cmd["colour0"], float)[r]  # type: ignore[index]
+    g0 = np.asarray(parent.cmd["mg0"], float)[r]  # type: ignore[index]
+    ebv = np.asarray(parent.cmd.get("ebv", np.zeros(parent.n_rows)), float)[r]  # type: ignore[union-attr]
+    a_g = np.asarray(parent.cmd.get("a_g", np.zeros(parent.n_rows)), float)[r]  # type: ignore[union-attr]
+    ebr = np.asarray(parent.cmd.get("e_bp_rp", np.zeros(parent.n_rows)), float)[r]  # type: ignore[union-attr]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ka = np.where(ebv > 0, a_g / ebv, 0.0)
+        ke = np.where(ebv > 0, ebr / ebv, 0.0)
+    sc, sm = im.likelihood_sigmas(np.asarray(parent.cmd["sigma_mu"], float)[r], ebv, ka, ke, icfg.likelihood)  # type: ignore[index]
+    draw = sampler.sample(c0, g0, sc, sm, rng, kernel_n_sigma=icfg.likelihood.kernel_n_sigma)
+    return draw, c0, g0, sc, sm
+
+
+def deblended_m1_dark(
+    q: ArrayLike,
+    draw: Mapping[str, FloatArray],
+    c0: FloatArray,
+    g0: FloatArray,
+    sc: FloatArray,
+    sm: FloatArray,
+    mask: ArrayLike,
+    config: PipelineConfig,
+    *,
+    native: Any = None,
+) -> FloatArray:
+    """Deblended primary mass with a **dark** companion (f = 0), on the posterior draw's branch.
+
+    The f-independent stand-in for the truth M1 that :func:`apply_posterior_deblending` will
+    produce (the companion of an evolved primary is faint, so f = 0 is close), used to centre the
+    evolved-row flux proposal (``evolved_rows_centre: evolved_relation_deblended``). Evaluated
+    only where ``mask``; NaN elsewhere and where no posterior draw exists. Deterministic.
+    """
+    from darkhunter_pop import isochrone_mass as im
+
+    if native is None:
+        native = _native_grid(config)
+    q = np.asarray(q, float)
+    out = np.full(q.size, np.nan)
+    ok = np.asarray(mask, bool) & np.isfinite(draw["m1"]) & np.isfinite(c0) & np.isfinite(g0) & (q <= 1.0)
+    key = np.round(draw["feh"], 4) * 1e4 + np.round(draw["log_age"], 4)
+    for k in np.unique(key[ok]):
+        sel = np.flatnonzero(ok & (key == k))
+        j = sel[0]
+        iso = im.isochrone_at(native, float(draw["feh"][j]), float(draw["log_age"][j]))
+        if iso["star_mass"].size < 2:
+            continue
+        for a in range(0, sel.size, 2000):
+            ss = sel[a:a + 2000]
+            mm, _ = im.deblend_primary_mass(iso, c0[ss], g0[ss], sc[ss], sm[ss], q[ss], np.full(ss.size, -np.inf),
+                                            evolved=draw["phase"][ss] >= 1.5)
+            out[ss] = mm
+    return out
+
+
 def apply_posterior_deblending(
     truth: Mapping[str, NDArray[Any]],
     parent: ParentSnapshot,
@@ -1863,25 +2029,11 @@ def apply_posterior_deblending(
 
     if parent.cmd is None:
         raise ValueError("posterior deblending needs an isochrone-mode parent (parent.cmd)")
-    icfg = config.isochrone_mass
     if native is None:
-        native = im.load_native_grid(icfg, config.paths.data_root)
-    if sampler is None:
-        sampler = im.PosteriorSampler.build(im.prior_points(native, icfg), icfg.cmd_map)
-    stream = PROPOSAL_RNG_STREAM_BASE + cfg.generation
-    rng = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, POSTERIOR_DRAW_RNG_SLOT)))
-    out = {k: np.asarray(v).copy() for k, v in truth.items()}
+        native = _native_grid(config)
     r = np.asarray(truth["parent_row"], np.int64)
-    c0 = np.asarray(parent.cmd["colour0"], float)[r]
-    g0 = np.asarray(parent.cmd["mg0"], float)[r]
-    ebv = np.asarray(parent.cmd.get("ebv", np.zeros(parent.n_rows)), float)[r]
-    a_g = np.asarray(parent.cmd.get("a_g", np.zeros(parent.n_rows)), float)[r]
-    ebr = np.asarray(parent.cmd.get("e_bp_rp", np.zeros(parent.n_rows)), float)[r]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ka = np.where(ebv > 0, a_g / ebv, 0.0)
-        ke = np.where(ebv > 0, ebr / ebv, 0.0)
-    sc, sm = im.likelihood_sigmas(np.asarray(parent.cmd["sigma_mu"], float)[r], ebv, ka, ke, icfg.likelihood)
-    draw = sampler.sample(c0, g0, sc, sm, rng, kernel_n_sigma=icfg.likelihood.kernel_n_sigma)
+    draw, c0, g0, sc, sm = posterior_draws(r, parent, config, cfg, sampler=sampler, native=native)
+    out = {k: np.asarray(v).copy() for k, v in truth.items()}
     m1_row = np.asarray(truth["m1_msun"], float)
     m2_prop = np.asarray(truth["m2_msun"], float)
     q = m2_prop / m1_row
@@ -1906,6 +2058,7 @@ def apply_posterior_deblending(
             m1_true[ss] = mm
             chi2[ss] = cc
     out["m1_hat_msun"] = draw["m1"]
+    out["iso_phase"] = np.asarray(draw["phase"], float)
     out["iso_feh"] = draw["feh"]
     out["iso_log_age"] = draw["log_age"]
     out["deblend_chi2"] = chi2
