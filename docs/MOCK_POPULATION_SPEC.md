@@ -1657,7 +1657,7 @@ A top-up is recommended where the best-fit weights put the likelihood bins below
 - **MP-Q44 Fitter.**
   - (a) MLE + Laplace **[default]**;
   - (b) dynesty on the 11 parameters.
-- **MP-Q45 Bins.**
+- **MP-Q45 Bins** (refit 3: chosen from ESS alone, §12.12).
   - (a) the §12.1 edges **[default]**;
   - (b) finer in log P and d once a top-up raises the ESS.
 
@@ -1722,6 +1722,42 @@ This replaces the §12.10 spurious term and the single η shift. The q normaliza
   So the bounds are a ∈ [0.1, 20] and b ∈ [1, 30]. The refit reports the maximum p/q of the fitted Beta against each generation's e proposal, and flags any range where coverage is poor. No new draws are generated for this.
 
 Free parameters: ln A, α_lo, α_hi, γ_P, ln L_P, Δγ_q and ln F_tw (§12.3, q normalized), a_1–a_3 and b_1–b_3, and N_s. That is 14.
+
+### 12.12 Refit 3: coarser bins chosen by ESS, and a floor on empty bins (Ryan, 2026-10-09)
+
+The §12.11 model is unchanged: the same 14 free parameters, no new priors, and the P < 100 d Beta range left free (Ryan declined priors on the Beta parameters and fixing that range). Two things change.
+
+**Bins chosen from ESS alone, before any fit residual is seen.**
+- **Candidates.** Each axis has a short list of nested edge sets:
+  - G: [5, 12, 14, 16, 19.5], [5, 13, 19.5] or one bin;
+  - d (kpc): [0, 0.3, 0.7, 1.5, 6], [0, 0.5, 1.0, 6] or [0, 0.7, 6];
+  - log P: [0, 2.3, 2.6, 2.75, 2.919], [0, 2.5, 2.75, 2.919] or [0, 2.6, 2.919];
+  - e: [0, 0.3, 0.6, 1], [0, 0.4, 1] or one bin.
+
+  The orbit candidates are every product of these. The acceleration candidates are every (G, d) product.
+- **ESS evaluation.** ESS_b of the gens 23–28 noW mock weights is computed in every bin at two parameter points:
+  - the refit-2 best fit (`docs/gate391/rung3_refit2/summary.json`);
+  - MdS17: ln A = 0, α_lo = 0.5, all other population modifiers 0, and Beta a = 1.4, b = 1 in every range, which is MdS17's power law at η ≈ 0.4.
+- **Rule** (ESS and real counts only; no fit residual is involved):
+  - "Big" bins are those holding ≥ 1% of the real orbits.
+  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice.
+  - Among those, take the candidate where every big bin has min-over-both-points ESS_b ≥ 30, with the most bins.
+  - If none qualifies, take the candidate that maximizes the share of real orbits in bins with ESS_b ≥ 30 at both points; break ties by more bins.
+  - The refit reports when no candidate qualifies, and compares the resulting number of data bins with the number of free parameters.
+- **Record.** The chosen edges are written to `config/population/rung3_refit3.yaml` before fitting.
+
+**Spurious prior in a binning-independent form.**
+- T_GD ∝ the real C1 orbits' (G, d) counts, and T_PE sums to one over (log P, e). So N_s · T gives the same spurious *share* of real orbits in every (G, d) region.
+- The §12.11 prior (0.21 ± 0.04 of the real orbits in 0.7–1.5 kpc, G 13–16) is therefore exactly N_s ~ N(0.21 · N_o, 0.04 · N_o), where N_o is the number of real C1 orbits inside the edges. This is fixed once.
+- T_PE is rebuilt on the chosen (log P, e) edges with the §12.10 rules: the PR #455 marginal ratios, shrinkage, and sparse bins set to 1. It is weighted by the real orbits in 0.7–1.5 kpc and G 13–16, taken unbinned in (G, d).
+
+**Floor on empty bins.**
+- An orbit or acceleration bin with **no mock draw** in gens 23–28 has a mock expectation of exactly 0 for every θ.
+- Its expectation is set to a fixed floor φ = 1 count, attributed to the spurious component, with the N_s · T term removed from it. The bin then contributes a θ-independent constant to −lnL, so it cannot move any parameter or pull N_s.
+- The value 1 (one expected orbit) only shifts the reported −lnL. It is the smallest count a real bin can hold.
+- These bins are listed separately: count, real orbits and location.
+
+Fits: noW (the baseline) and cmdW, each with ≥ 12 starts. The ESS rules, posterior-predictive checks and top-up rule of §12.6–12.8 apply. The top-up projection is re-centred on this fit only if the fit is stable and the checks close.
 
 ## References
 
