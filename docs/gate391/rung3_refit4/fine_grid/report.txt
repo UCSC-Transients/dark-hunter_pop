@@ -1,0 +1,63 @@
+#391 rung 3 refit 4 (spec §12.13): §12.12 machinery, §12.11 model; gens 23-29
+
+bins: orbits 18 (1 x 3 x 2 x 3) [[5.0, 19.5], [0.0, 0.5, 1.0, 6.0], [0.0, 2.6, 2.9193], [0.0, 0.3, 0.6, 1.0]]; accelerations 8 [[5.0, 12.0, 14.0, 16.0, 19.5], [0.0, 0.7, 6.0]]
+  bin choice: orbit: 54 eligible candidates, 0 with every big bin at ESS_b >= 30; chosen 18 bins (big 14; non-empty bins at ESS >= 30: 13/18; real share in them 0.984; median ESS_b 48): [[5.0, 19.5], [0.0, 0.5, 1.0, 6.0], [0.0, 2.6, 2.9193], [0.0, 0.3, 0.6, 1.0]]
+  bin choice: acceleration: 9 eligible candidates, 5 with every big bin at ESS_b >= 30; chosen 8 bins (big 7; non-empty bins at ESS >= 30: 7/8; real share in them 1.000; median ESS_b 223): [[5.0, 12.0, 14.0, 16.0, 19.5], [0.0, 0.7, 6.0]]
+real: 131168 C1 orbits, 337949 accelerations; big orbit bins (>= 1% of real): 14
+spurious: pi_bar 0.184; log P ratios [0.86, 1.02]; e ratios [0.97, 0.99, 1.35]; T_PE [[0.027, 0.023, 0.004], [0.472, 0.377, 0.097]]; T_GD = real (G, d) counts (EXTRAPOLATION); N_s ~ N(27545, 5247) = (0.21, 0.04) x N_o
+empty bins (no mock draw; fixed floor 1 count, spurious, theta-independent): orbits 1 holding 7 real orbits; accelerations 0 holding 0
+    orbit bin G 5-19.5 d 1-6 lP 0-2.60 e 0.6-1: 7 real
+
+[noW] 3/12 starts within delta(-lnL) < 5 of the best (offsets [0.0, 0.0, 0.03, 30.03, 31.12, 55.91, 59.78, 76.02, 87.38, 92.49, 1640.43, 1850.38]); -lnL 216.2; at bound: none
+    name        refit 4 +- Laplace  [near-best spread]   refit 3 (PR #465) +- Laplace
+    ln_A          +0.116 +- 0.289  [0.064]      -0.406 +- 0.371
+    alpha_lo      +1.209 +- 0.248  [0.014]      -0.090 +- 1.061
+    alpha_hi      +0.205 +- 0.198  [0.034]      +0.641 +- 0.434
+    gamma_P       -0.750 +- 0.385  [0.043]      -1.114 +- 0.808
+    ln_L_P        +1.127 +- 0.303  [0.036]      +1.655 +- 0.625
+    dgamma_q      +0.248 +- 0.399  [0.065]      +0.787 +- 0.836
+    ln_F_twin     +0.382 +- 0.777  [0.124]      -1.137 +- 1.980
+    a1            +7.058 +- 37.583  [12.919]      +4.400 +- nan
+    a2            +1.043 +- 0.273  [0.046]      +1.002 +- 0.406
+    a3            +1.275 +- 0.144  [0.013]      +0.681 +- nan
+    b1           +11.900 +- 55.077  [16.359]     +23.397 +- nan
+    b2            +1.141 +- 0.325  [0.051]      +1.019 +- 0.941
+    b3            +2.355 +- 0.285  [0.018]      +1.000 +- nan
+    N_s        +13552.243 +- 1858.837  [96.287]   +26611.795 +- 4886.014
+    N_s 13552 vs prior 27545 +- 5247: pull -2.7 sigma; spurious 0.103 of C1 orbits (+ floor 1)
+    totals: (mock + spurious)/real orbits 0.981; accelerations 0.990
+    ESS_b at this best fit, gens 23-28 -> 23-29 (noW weights): bin 0: 154.6 -> 173.4 (big); bin 1: 176.9 -> 79.6 (big); bin 2: 51.1 -> 58.7 (big); bin 3: 184.9 -> 215.5 (big); bin 4: 164.2 -> 192.9 (big); bin 5: 81.4 -> 101.1 (big); bin 6: 38.3 -> 55.4 (big); bin 7: 29.2 -> 37.5 (big); bin 8: 1.6 -> 3.4; bin 9: 97.8 -> 215.2 (big); bin 10: 83.2 -> 148.8 (big); bin 11: 21.4 -> 42.2 (big); bin 12: 1.0 -> 2.6; bin 13: 0.0 -> 0.0; bin 14: 0.0 -> 0.0; bin 15: 24.8 -> 58.7 (big); bin 16: 22.5 -> 62.1 (big); bin 17: 5.0 -> 20.1 (big)
+    ESS at best fit: orbits 1331 (before 906), accelerations 2682; orbit ESS_b (non-empty bins): median 59, min 0.0; below 30: 5/18 (big 1/14); acceleration ESS_b median 444, min 1.1
+
+[cmdW] 8/12 starts within delta(-lnL) < 5 of the best (offsets [0.0, 0.0, 0.0, 0.0, 0.0, 1.51, 3.26, 3.62, 179.05, 183.09, 304.05, 1914.9]); -lnL 213.9; at bound: none
+    name        refit 4 +- Laplace  [near-best spread]   refit 3 (PR #465) +- Laplace
+    ln_A          +0.274 +- 0.252  [0.098]      -0.541 +- 0.204
+    alpha_lo      +1.895 +- 0.313  [0.289]      -0.493 +- 0.753
+    alpha_hi      -0.224 +- 0.257  [0.214]      +0.616 +- 0.378
+    gamma_P       -0.771 +- 0.256  [0.643]      -1.168 +- 0.379
+    ln_L_P        +1.169 +- 0.215  [0.566]      +1.894 +- 0.385
+    dgamma_q      +0.302 +- 0.289  [0.545]      +0.683 +- 0.519
+    ln_F_twin     -0.156 +- 0.910  [0.712]      -3.928 +- nan
+    a1            +0.297 +- 1.079  [18.887]     +14.071 +- 52.187
+    a2            +1.021 +- 0.226  [0.122]      +6.138 +- nan
+    a3            +1.296 +- 0.154  [0.048]      +0.698 +- 0.223
+    b1            +7.148 +- 61.052  [3.490]     +30.000 +- 110.239
+    b2            +1.072 +- 0.302  [0.232]      +9.607 +- nan
+    b3            +2.475 +- 0.337  [0.126]      +1.000 +- 0.470
+    N_s        +14213.070 +- 1961.934  [1804.310]   +30314.667 +- 4715.355
+    N_s 14213 vs prior 27545 +- 5247: pull -2.5 sigma; spurious 0.108 of C1 orbits (+ floor 1)
+    totals: (mock + spurious)/real orbits 0.991; accelerations 0.993
+    ESS_b at this best fit, gens 23-28 -> 23-29 (noW weights): bin 0: 176.6 -> 171.8 (big); bin 1: 162.0 -> 45.2 (big); bin 2: 53.8 -> 64.0 (big); bin 3: 206.6 -> 188.1 (big); bin 4: 172.9 -> 75.9 (big); bin 5: 88.7 -> 47.0 (big); bin 6: 40.0 -> 47.6 (big); bin 7: 29.3 -> 35.3 (big); bin 8: 1.4 -> 2.8; bin 9: 97.9 -> 161.7 (big); bin 10: 84.1 -> 125.5 (big); bin 11: 24.5 -> 42.1 (big); bin 12: 1.0 -> 2.6; bin 13: 0.0 -> 0.0; bin 14: 0.0 -> 0.0; bin 15: 25.3 -> 58.2 (big); bin 16: 21.4 -> 62.1 (big); bin 17: 5.0 -> 18.3 (big)
+    ESS at best fit: orbits 944 (before 933), accelerations 1902; orbit ESS_b (non-empty bins): median 47, min 0.0; below 30: 5/18 (big 1/14); acceleration ESS_b median 275, min 1.0
+
+PPC e < 0.1 (two fine bins): real 14230 | refit 4 16038 (mock 13785) | refit 3 23256
+PPC G shape ((mock + spurious)/real per 1-mag bin): 7-8:1.03 8-9:2.15 9-10:1.22 10-11:1.17 11-12:0.89 12-13:1.08 13-14:0.95 14-15:0.93 15-16:0.68 16-17:0.79
+PPC per distance bin (noW): (mock + spurious)/real orbits | mock-only/real | accelerations | orbit:accel real / refit 4
+  d 0.0-0.3: 1.08 | 0.98 | 0.95 | 0.475 / 0.541  [28855]
+  d 0.3-0.7: 0.97 | 0.87 | 0.98 | 0.375 / 0.370  [58982]
+  d 0.7-1.5: 0.92 | 0.82 | 1.03 | 0.357 / 0.321  [40272]
+  d 1.5-6.0: 1.03 | 0.93 | 0.94 | 0.425 / 0.466  [3059]
+top-up projection at this fit, median big bin: x0.43 ESS -> 0 CPU-h at generation 29's rate here (2.4 ESS/CPU-h; all gens 5.6)
+top-up projection at this fit, 90% of big bins: x0.77 ESS -> 0 CPU-h at generation 29's rate here (2.4 ESS/CPU-h; all gens 5.6)
+top-up projection at this fit, all big bins: x1.49 ESS -> 271 CPU-h at generation 29's rate here (2.4 ESS/CPU-h; all gens 5.6)
+ESS-limited big orbit bins at this fit (focus of any further sampling): G 5-19.5 d 1-6 lP 2.6-2.92 e 0.6-1: real 1427, ESS_b 20.1

@@ -853,9 +853,10 @@ def test_parent_target_component_zero_weight_is_identity() -> None:
 
 
 @pytest.mark.unit
-def test_parent_target_component_normalized_bounded_and_targeted() -> None:
+@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml"])
+def test_parent_target_component_normalized_bounded_and_targeted(path: str) -> None:
     plx, g, m1, usable, evolved = _parent_rows()
-    cfg = ps.load_proposal_set_fragment(TOPUP29).proposal.parent
+    cfg = ps.load_proposal_set_fragment(path).proposal.parent
     base = ps.parent_proposal_probabilities(plx, usable, cfg.model_copy(update={"target_weight": 0.0}), evolved)
     q = ps.parent_proposal_probabilities(plx, usable, cfg, evolved, g, m1)
     assert q.sum() == pytest.approx(1.0, rel=1e-12)
@@ -866,9 +867,10 @@ def test_parent_target_component_normalized_bounded_and_targeted() -> None:
     (g0, g1), (p0, p1) = cfg.target_g_range, cfg.target_parallax_range_mas
     box = usable & (g >= g0) & (g < g1) & (plx >= p0) & (plx < p1)
     assert q[box].sum() > base[box].sum() + 0.5 * cfg.target_weight
-    hi = box & (m1 > 1.6)
-    lo = box & (m1 < 0.8)
-    assert np.mean(q[hi] - (1 - cfg.target_weight) * base[hi]) > np.mean(q[lo] - (1 - cfg.target_weight) * base[lo])
+    if cfg.target_m1_power > 0:  # the high-mass tilt favours M1 > pivot
+        hi = box & (m1 > 1.6)
+        lo = box & (m1 < 0.8)
+        assert np.mean(q[hi] - (1 - cfg.target_weight) * base[hi]) > np.mean(q[lo] - (1 - cfg.target_weight) * base[lo])
 
 
 @pytest.mark.unit
@@ -881,11 +883,15 @@ def test_parent_target_requires_rows_and_fields() -> None:
         cfg.model_copy(update={"target_g_range": None}).model_validate(cfg.model_dump() | {"target_g_range": None})
 
 
+TOPUP30 = "config/population/proposal_set_restart_topup30.yaml"
+
+
 @pytest.mark.physics
-def test_topup29_shape_and_ecc_bounded() -> None:
+@pytest.mark.parametrize("path", [TOPUP29, TOPUP30])
+def test_topup29_shape_and_ecc_bounded(path: str) -> None:
     from darkhunter_pop import malmquist as mq
 
-    frag = ps.load_proposal_set_fragment(TOPUP29)
+    frag = ps.load_proposal_set_fragment(path)
     cfg, tgt = frag.proposal, frag.target_mds17
     ps.check_eccentricity_bounded(cfg.eccentricity, tgt.provisional_eta_floor)
     for m1 in (0.5, 1.0, 2.5):  # joint (shape + defensive) density normalizes
