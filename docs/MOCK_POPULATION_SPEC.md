@@ -728,7 +728,7 @@ stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tu
   `nss_acceleration_astro` snapshot).
 - **MP-Q21 AstroSpectroSB1**: compared together with Orbital (as El-Badry did), or is the RV-chain
   input (G_RVS) modelled for that subset?
-- **MP-Q22 Rung 3 parameterization** (provisional defaults in §12, run 2026-10-09): which MdS17 coefficients are free (all, or e.g. the
+- **MP-Q22 Rung 3 parameterization** (provisional defaults in §12, run 2026-10-09; the eccentricity part is resolved by §12.11, Beta per log P range): which MdS17 coefficients are free (all, or e.g. the
   f_logP anchors, γ_largeq, F_twin, η), their priors (the published 1σ of Eqs. 8, 12, 16, 19, 24,
   25 are available), and the posterior-predictive acceptance thresholds.
 - **MP-Q23 Full laptop run**: approved 2026-10-02 (one ~1 h tuning generation, then the ~125 CPU-h run; §0.1 comment).
@@ -1692,6 +1692,37 @@ So e^{ln A} is again a multiplier of MdS17's f_logP;q>0.3, which separates A fro
 
 The first-fit options MP-Q41, Q44 and Q45 keep their defaults.
 
+### 12.11 Refit 2 model (Ryan, 2026-10-09: additive spurious component and Beta eccentricities)
+
+This replaces the §12.10 spurious term and the single η shift. The q normalization (MP-Q42b), the bins (§12.1), the likelihood (§12.2), the gens 23–28 mixture and the fitter (§12.5) are unchanged.
+
+**Spurious component: additive and independent of θ.**
+- **Expected counts.** μ_s,b = N_s · T_b, added to the mock expectation in each orbit bin. Accelerations carry no spurious term. T is a fixed, normalized shape, T_b = T_GD(G, d) · T_PE(log P, e), and it never depends on the population parameters or on the counts being fit.
+- **T_PE.** The non-re-detection fraction π(log P, e) from the PR #455 re-injection, built exactly as in §12.10: π̄ times the shrunk, separable log P and e ratios, with the sparse bins set to 1. It is multiplied by the real C1 orbit counts in the same (log P, e) cells *inside the measured bin* (0.7–1.5 kpc, G 12–16), then normalized. So T_PE is the (log P, e) distribution of the orbits that fail to re-detect there.
+- **T_GD.** Proportional to the real C1 orbits' marginal (G, d) distribution over all bins. **This is an extrapolation:** the 300 re-injected systems lie in one (G, d) bin and carry no information on how contamination varies with G or d. The template simply assumes it follows the orbit sample.
+- **Prior on the amplitude.** The spurious share of real C1 orbits in the prior bin is N(0.21, 0.04), truncated at 0. It is converted once, using the fixed observed count k_prior and the template mass T_prior in that bin: N_s ~ N(0.21 · k_prior / T_prior, 0.04 · k_prior / T_prior). This prior is not revisited.
+- **Sensitivity cases:**
+  - (b) N_s fixed at the prior mean (f_s = 1);
+  - (c) no spurious component (N_s = 0).
+
+**Eccentricity: Beta distributions per log P range.**
+- **Form.** p_e(e | P) = Beta(e / e_max(P); a_k, b_k) / e_max(P) on [0, e_max(P)), as used for exoplanet eccentricities by Kipping (2013). MdS17's e_max(P) truncation and the P ≤ 2 d circular class are kept.
+- **Ranges, fixed up front:**
+  - k = 1: log P < 2.0 (2–100 d);
+  - k = 2: 2.0 ≤ log P < 2.6;
+  - k = 3: log P ≥ 2.6.
+
+  That is six parameters, replacing Δη. Range 3 has no orbit constraint above log P 2.92, so its (a, b) are set by the orbits at 400–830 d and only extrapolated beyond. The draws there enter only the acceleration bins, which carry no e information.
+- **MP-Q22** (rung-3 eccentricity parameterization) is resolved by this choice.
+- **Bounds and proposal coverage.** Every generation's e proposal has a floor component ∝ e^{−0.9} on [0, e_max) (weight 0.30, or 0.45 in generation 28) and U(0, e_max) (0.50, or 0.40). Hence:
+  - p/q is bounded near e = 0 when a ≥ 0.1;
+  - p/q is bounded near e_max when b ≥ 1;
+  - the variance is finite near e = 0 when a > 0.05.
+
+  So the bounds are a ∈ [0.1, 20] and b ∈ [1, 30]. The refit reports the maximum p/q of the fitted Beta against each generation's e proposal, and flags any range where coverage is poor. No new draws are generated for this.
+
+Free parameters: ln A, α_lo, α_hi, γ_P, ln L_P, Δγ_q and ln F_tw (§12.3, q normalized), a_1–a_3 and b_1–b_3, and N_s. That is 14.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
@@ -1722,6 +1753,7 @@ The first-fit options MP-Q41, Q44 and Q45 keep their defaults.
 - Hayden, M. R. et al. 2015, ApJ 808, 132 (APOGEE MDFs across the disk).
 - Hesterberg, T. 1995, Technometrics 37, 185.
 - Janssens, S. et al. 2022, A&A 658, A129.
+- Kipping, D. M. 2013, MNRAS 434, L51 (Beta distribution for orbital eccentricities, §12.11).
 - Kjeldsen, H. & Bedding, T. R. 1995, A&A 293, 87 (asteroseismic scaling relations).
 - Kroupa, P. 2001, MNRAS 322, 231 (IMF).
 - Marshall, D. J. et al. 2006, A&A 453, 635 (3-D extinction in the inner Galaxy, part of Combined19).
