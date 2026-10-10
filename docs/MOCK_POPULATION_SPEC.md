@@ -1740,8 +1740,10 @@ The §12.11 model is unchanged: the same 14 free parameters, no new priors, and 
   - MdS17: ln A = 0, α_lo = 0.5, all other population modifiers 0, and Beta a = 1.4, b = 1 in every range, which is MdS17's power law at η ≈ 0.4.
 - **Rule** (ESS and real counts only; no fit residual is involved):
   - "Big" bins are those holding ≥ 1% of the real orbits.
-  - Among the candidates where every big bin has min-over-both-points ESS_b ≥ 30, take the one with the most bins.
+  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice.
+  - Among those, take the candidate where every big bin has min-over-both-points ESS_b ≥ 30, with the most bins.
   - If none qualifies, take the candidate that maximizes the share of real orbits in bins with ESS_b ≥ 30 at both points; break ties by more bins.
+  - The refit reports when no candidate qualifies, and compares the resulting number of data bins with the number of free parameters.
 - **Record.** The chosen edges are written to `config/population/rung3_refit3.yaml` before fitting.
 
 **Spurious prior in a binning-independent form.**
