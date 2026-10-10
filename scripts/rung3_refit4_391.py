@@ -222,7 +222,7 @@ def choose(args, fc, ns) -> None:
     import yaml
 
     hdr = ("# Rung-3 REFIT 4 fine grid (#391; spec §12.13, Ryan 2026-10-10). orbit_bins / acceleration_bins were CHOSEN BY\n"
-           "# `scripts/rung3_refit4_391.py choose` from ESS alone on gens 23-29 (before any fit residual), see bin_choice.\n")
+           f"# `scripts/rung3_refit4_391.py choose` from ESS alone on gens 23-{args.new_gen} (before any fit residual), see bin_choice.\n")
     args.fit_config.write_text(hdr + yaml.safe_dump({"rung3": newcfg}, sort_keys=False))
     print("\n".join(lines))
 
@@ -373,7 +373,7 @@ def fit(args, fc, ns) -> None:
         results[wkey]["_e"] = (w, mu_o, mu_a, s)
         rep.append(f"[{wkey}] {len(near)}/{len(sols)} starts within delta(-lnL) < 5 of the best (offsets {results[wkey]['start_nll']}); "
                    f"-lnL {best.fun:.1f}; at bound: {at_b or 'none'}")
-        rep.append("    name        refit 4 +- Laplace  [near-best spread]   refit 3 (PR #465) +- Laplace")
+        rep.append(f"    name        this fit +- Laplace  [near-best spread]   previous ({args.refit3.parent.name}) +- Laplace")
         for i_, nm in enumerate(NAMES):
             pj = prev["refit3"][wkey]
             rep.append(f"    {nm:10s} {th[i_]:+9.3f} +- {err[i_]:.3f}  [{spread.get(nm, float('nan')):.3f}]   "
@@ -442,7 +442,7 @@ def fit(args, fc, ns) -> None:
     fig.tight_layout()
     save_figure(fig, args.out_dir / "ppc_six_panel.png", dpi=int(cfg.diagnostics.figure_dpi))
     rep += [f"PPC e < 0.1 (two fine bins): real {e_low['real']:.0f} | refit 4 {e_low['refit3']:.0f} (mock {e_low['mock_only']:.0f}) | "
-            f"refit 3 {prev['refit3']['e_below_0p1'].get('refit3', float('nan')):.0f}"]
+            f"previous ({args.refit3.parent.name}) {prev['refit3']['e_below_0p1'].get('refit3', float('nan')):.0f}"]
     # G shape (six-panel G, fine bins): real vs fit, ratio per 1-mag bin
     gedg = np.arange(5.0, 19.6, 1.0)
     rg_ = np.histogram(ns.r_six["G_mag"], bins=gedg)[0].astype(float)
