@@ -1647,10 +1647,10 @@ A top-up is recommended where the best-fit weights put the likelihood bins below
   - (a) SAY effective likelihood **[default]**;
   - (b) Barlow–Beeston-lite (one nuisance per bin);
   - (c) Poisson with bins of ESS_b < 30 dropped.
-- **MP-Q42 q modifier normalization.**
+- **MP-Q42 q modifier normalization** (b adopted for the refit, Ryan 2026-10-09, §12.10).
   - (a) unnormalized, with A absorbing it **[default]**;
   - (b) renormalized over 0.3 ≤ q ≤ 1 per (M1, P), so A stays MdS17's f_logP;q>0.3.
-- **MP-Q43 Spurious template.**
+- **MP-Q43 Spurious template** (b adopted for the refit, Ryan 2026-10-09, §12.10).
   - (a) p_G from real accelerations, p_e flat, no spurious accelerations **[default]**;
   - (b) p_G and p_e from the real orbits that the symmetric rung-1 run fails to re-detect (300 systems);
   - (c) add a spurious-acceleration fraction with its own prior.
@@ -1662,6 +1662,35 @@ A top-up is recommended where the best-fit weights put the likelihood bins below
   - (b) finer in log P and d once a top-up raises the ESS.
 
 The parameter set and priors themselves stay MP-Q22.
+
+### 12.10 Refit model (Ryan, 2026-10-09: MP-Q42b and MP-Q43b adopted for the refit)
+
+These two changes are the refit's model. Everything else in §12.1–12.8 stands. The bins are unchanged, so the edges stay fixed before fitting.
+
+**Proposal.** The refit adds the re-centred tuning generation 28 (`config/population/proposal_set_restart_recentred28.yaml`) to gens 23–27 in the deterministic mixture (§3.4).
+- Its (log q, log P) shape component carries the first-fit modifiers (`M2PeriodShapeConfig` re-centring fields).
+- Its eccentricity mixture puts more weight on the e^{−0.9} floor component.
+- Its defensive parts are unchanged.
+
+**MP-Q42b: normalized q modifiers.** The q tilt and the twin multiplier are normalized per draw over MdS17's own q density on 0.3 ≤ q ≤ 1:
+
+m_q(q | M1, P) = g(q) / ∫_{0.3}^{1} p_q(q′ | M1, P) g(q′) dq′, with g(q) = q^{Δγ_q} e^{ln F_tw · [q ≥ 0.95]}.
+
+So e^{ln A} is again a multiplier of MdS17's f_logP;q>0.3, which separates A from Δγ_q and F_tw. The integral uses a fixed 200-point q grid of `moe_distefano.q_density` per draw, precomputed once.
+
+**MP-Q43b: spurious template from the non-re-detected real orbits.** In the PR #455 re-injection, 300 real orbits (0.7–1.5 kpc, G 13–16) were each re-injected 3 times at their own fitted orbits. The 218 matched mock accepted orbits were re-injected the same way.
+
+- **Per-cell spurious probability.** Define π(log P, e) = max(0, (A_mock − A_real) / A_mock): the excess failure of real orbits over the mock's own self-consistency failure. This is evaluated on the §12.1 (log P, e) cells.
+- **Sparsity.** The 300 systems are too sparse for the 4 × 3 joint cells: there is almost nothing at log P < 2.3, and only about 20–40 systems per cell elsewhere. So π is taken as **separable**, π(log P, e) = π̄ · r_P(log P) · r_e(e), from the two 1-D marginals.
+  - Each marginal ratio is shrunk toward 1 by n / (n + 20), where n is the number of real systems in the marginal bin.
+  - A log P bin with fewer than 10 real systems is set to r_P = 1.
+- **Extrapolation beyond the measured bin.** The template assumes the spurious share depends on (log P, e) through π and on distance only through a free tilt exp(k_d (d − 1.1 kpc)). It has **no G dependence**.
+  - The expected spurious count per bin is s_b = f_s · π(log P_b, e_b) · exp(k_d (d_b − 1.1)) · k_b. That is a share of the *observed* real count in the bin, so the template is data-anchored, not generative.
+  - This assumption is untested outside 0.7–1.5 kpc and G 13–16: the 300 systems carry no information on G or d.
+- **Amplitude prior.** Unchanged: the spurious share of real C1 orbits in the prior bin (d 0.7–1.5 kpc, G 12–16) is N(0.21, 0.04), truncated at 0.
+- **Parameter changes.** f_s is now the multiplier of the template, about 1 when the measured deficit is all spurious. k_P is dropped, because π carries the P shape. That leaves 10 free parameters.
+
+The first-fit options MP-Q41, Q44 and Q45 keep their defaults.
 
 ## References
 
