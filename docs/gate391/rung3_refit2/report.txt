@@ -1,0 +1,85 @@
+#391 rung 3 refit 2 (spec §12.11): additive spurious component, Beta eccentricities; gens 23-28
+
+real: 131168 C1 orbits / 337949 accelerations; mock draws in the likelihood: 23401
+spurious shape: pi_bar 0.184 (A_real 0.599, A_mock 0.734); log P ratios [1.0, 0.82, 0.17, 1.49]; e ratios [0.97, 0.99, 1.35]; T_PE [[0.001, 0.0, 0.0], [0.027, 0.024, 0.005], [0.029, 0.024, 0.006], [0.437, 0.354, 0.093]]
+  T_GD = real C1 orbits' (G, d) marginal: EXTRAPOLATION outside 0.7-1.5 kpc / G 12-16 (the 300 systems carry no G, d information)
+  prior bin: k = 36494, T mass 0.2782 -> N_s ~ N(27545, 5247) (= 0.21 +- 0.04 of the bin's real orbits), fixed once
+
+[noW] converged True; -lnL 15390.1; 4/12 starts within 5 of the best; at bound: ['dgamma_q', 'a1', 'b1']
+    name        refit 2 +- Laplace     previous refit (PR #461)
+    ln_A          +0.834 +- 0.208     +0.142 +- 0.064
+    alpha_lo      +0.384 +- 0.152     +0.707 +- 0.129
+    alpha_hi      +1.330 +- 0.224     +0.169 +- 0.156
+    gamma_P       -2.221 +- 0.283     -0.217 +- 0.173
+    ln_L_P        +1.840 +- 0.275     +0.838 +- 0.169
+    dgamma_q      +3.000 +- 0.280     +2.475 +- 0.264
+    ln_F_twin     +0.610 +- 0.333     -1.200 +- 0.289
+    a1           +20.000 +- 24.008     -
+    a2            +1.788 +- 0.193     -
+    a3            +1.112 +- 0.084     -
+    b1            +1.000 +- nan     -
+    b2            +1.411 +- 0.287     -
+    b3            +2.199 +- 0.193     -
+    N_s        +52207.428 +- 1823.910     -
+    N_s 52207 (prior 27545 +- 5247; pull +4.7 sigma); spurious share in the prior bin 0.398; of all C1 orbits 0.398
+    totals: mock orbits 179965 + spurious 52207 = 1.770 x real; accelerations 1.180 x real; deviance 29389
+    ESS at best fit: orbits 267, accelerations 335; bins with ESS_b < 30: 192/192 (big bins 33/33)
+
+[noW_Ns_fixed] converged True; -lnL 15571.1; 4/4 starts within 5 of the best; at bound: ['dgamma_q', 'a1', 'b1']
+    N_s 27545 (prior 27545 +- 5247; pull +0.0 sigma); spurious share in the prior bin 0.210; of all C1 orbits 0.210
+    totals: mock orbits 142032 + spurious 27545 = 1.293 x real; accelerations 1.160 x real; deviance 29774
+    ESS at best fit: orbits 263, accelerations 485; bins with ESS_b < 30: 192/192 (big bins 33/33)
+
+[noW_no_spurious] converged True; -lnL 501911.9; 3/4 starts within 5 of the best; at bound: ['alpha_hi', 'ln_L_P', 'dgamma_q', 'a1']
+    N_s 0 (prior 27545 +- 5247; pull -5.2 sigma); spurious share in the prior bin 0.000; of all C1 orbits 0.000
+    totals: mock orbits 24451141 + spurious 0 = 186.411 x real; accelerations 27.624 x real; deviance 1001965
+    ESS at best fit: orbits 32, accelerations 15; bins with ESS_b < 30: 192/192 (big bins 33/33)
+
+[cmdW] converged True; -lnL 15445.6; 4/4 starts within 5 of the best; at bound: ['dgamma_q', 'a1', 'b2']
+    name        refit 2 +- Laplace     previous refit (PR #461)
+    ln_A          +0.873 +- 0.095     +0.728 +- 0.078
+    alpha_lo      +1.193 +- 0.180     +1.754 +- 0.159
+    alpha_hi      +0.400 +- 0.208     -1.224 +- 0.176
+    gamma_P       -1.144 +- 0.285     +0.011 +- 0.147
+    ln_L_P        +0.879 +- 0.275     +0.627 +- 0.150
+    dgamma_q      +3.000 +- 0.252     +1.764 +- 0.211
+    ln_F_twin     -2.461 +- 0.249     -1.029 +- 0.330
+    a1           +20.000 +- 12.715     -
+    a2            +1.057 +- 0.103     -
+    a3            +1.503 +- 0.080     -
+    b1            +3.982 +- 2.513     -
+    b2            +1.000 +- 0.186     -
+    b3            +3.122 +- 0.225     -
+    N_s        +51831.135 +- 1984.793     -
+    N_s 51831 (prior 27545 +- 5247; pull +4.6 sigma); spurious share in the prior bin 0.395; of all C1 orbits 0.395
+    totals: mock orbits 217671 + spurious 51831 = 2.055 x real; accelerations 1.236 x real; deviance 29481
+    ESS at best fit: orbits 190, accelerations 197; bins with ESS_b < 30: 192/192 (big bins 33/33)
+
+orbit bins with real orbits but no mock draw at all: 16 holding 246 real orbits (0.19%); without a spurious floor these bins have mu = 0, which is why the no-spurious case runs away
+model comparison (-lnL; the free case includes its N_s prior term): noW 15390.1, noW_Ns_fixed 15571.1, noW_no_spurious 501911.9, cmdW 15445.6
+
+e-proposal coverage at the noW best fit: max p/q and the second moment E_q[(p/q)^2] per generation and log P range
+  generation 23: range 1 (log P 1.5): max 28.62, E[w^2] 14.66; range 2 (log P 2.3): max 1.85, E[w^2] 1.51; range 3 (log P 2.75): max 2.03, E[w^2] 1.55
+  generation 24: range 1 (log P 1.5): max 28.62, E[w^2] 14.66; range 2 (log P 2.3): max 1.85, E[w^2] 1.51; range 3 (log P 2.75): max 2.03, E[w^2] 1.55
+  generation 25: range 1 (log P 1.5): max 28.62, E[w^2] 14.66; range 2 (log P 2.3): max 1.85, E[w^2] 1.51; range 3 (log P 2.75): max 2.03, E[w^2] 1.55
+  generation 26: range 1 (log P 1.5): max 28.62, E[w^2] 14.66; range 2 (log P 2.3): max 1.85, E[w^2] 1.51; range 3 (log P 2.75): max 2.03, E[w^2] 1.55
+  generation 27: range 1 (log P 1.5): max 28.62, E[w^2] 14.66; range 2 (log P 2.3): max 1.85, E[w^2] 1.51; range 3 (log P 2.75): max 2.03, E[w^2] 1.55
+  generation 28: range 1 (log P 1.5): max 34.99, E[w^2] 17.91; range 2 (log P 2.3): max 2.24, E[w^2] 1.80; range 3 (log P 2.75): max 2.26, E[w^2] 1.73
+
+PPC e < 0.1 (two fine bins): real 14230 | refit 2 33853 (N_s-fixed case 24573) | previous refit 25433
+PPC per distance bin (noW): (mock + spurious)/real orbits | accelerations | <e> real / refit 2 | orbit:accel real / refit 2
+  d 0.0-0.3: orbits 2.06 [28855]; accels 1.00; <e> 0.374 / 0.367; o:a 0.475 / 0.980
+  d 0.3-0.7: orbits 1.63 [58982]; accels 1.04; <e> 0.339 / 0.375; o:a 0.375 / 0.584
+  d 0.7-1.5: orbits 1.59 [40272]; accels 1.32; <e> 0.322 / 0.284; o:a 0.357 / 0.430
+  d 1.5-6.0: orbits 4.11 [3059]; accels 3.44; <e> 0.334 / 0.515; o:a 0.425 / 0.507
+  G 5.0-12.0: orbits 2.42 [28805]; accels 1.50
+  G 12.0-14.0: orbits 1.69 [65813]; accels 1.22
+  G 14.0-16.0: orbits 1.41 [35217]; accels 0.90
+  G 16.0-19.5: orbits 1.13 [1333]; accels 1.18
+
+ESS at the refit-2 best fit (noW): C1 orbits gens 23-27 248 (1.35/CPU-h), generation 28 alone 11 (2.6/CPU-h), gens 23-28 267
+  33 big bins: ESS_b median 7.9, min 2.8, max 24.8; at >= 30: 0
+  top-up projection, median bin: x3.8 ESS -> 291 CPU-h at the re-centred rate (556 at the old rate)
+  top-up projection, 90% of bins: x6.9 ESS -> 607 CPU-h at the re-centred rate (1157 at the old rate)
+  top-up projection, all bins (worst): x10.7 ESS -> 1002 CPU-h at the re-centred rate (1912 at the old rate)
+  worst big bins (G, d, log P, e: real, ESS_b): G 12-14 d 0.7-1.5 lP 2.75-2.92 e 0.3-0.6: 4623, 2.8; G 5-12 d 0.7-1.5 lP 2.75-2.92 e 0-0.3: 1334, 3.0; G 14-16 d 0.7-1.5 lP 2.6-2.75 e 0.3-0.6: 1689, 3.5; G 12-14 d 0-0.3 lP 2.3-2.60 e 0.3-0.6: 1538, 4.4; G 5-12 d 0.3-0.7 lP 2.6-2.75 e 0.3-0.6: 1435, 4.4
