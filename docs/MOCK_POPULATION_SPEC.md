@@ -1759,6 +1759,25 @@ The §12.11 model is unchanged: the same 14 free parameters, no new priors, and 
 
 Fits: noW (the baseline) and cmdW, each with ≥ 12 starts. The ESS rules, posterior-predictive checks and top-up rule of §12.6–12.8 apply. The top-up projection is re-centred on this fit only if the fit is stable and the checks close.
 
+### 12.13 Staged top-up (generation 29, optionally 30) and refit 4 (Ryan, 2026-10-10)
+
+The model is §12.11 with the §12.12 machinery. Only the draws change.
+
+**Generation 29** (about 50 CPU-h; 330,000 draws, indices from 867,000; 10 workers under `nice`, BLAS pinned, `nohup`; the resume command is logged and posted on #391). Config: `config/population/proposal_set_restart_topup29.yaml`.
+- **Re-centring** on the robust part of refits 1–3: ln L_P ≈ +1.7 and γ_P ≈ −1.1 in the (log q, log P) shape component, with the MdS17 q shape; and α_hi ≈ +0.6 through the targeted parent component.
+- **Targeted parent component** (`ParentProposalConfig.target_*`).
+  - Weight 0.4 on usable rows with G in 12–16 and observed parallax in 0.667–1.429 mas (d 0.7–1.5 kpc), weighted by max(M1 / 0.8, 1)^0.6.
+  - The rest of q(s) is scaled by 0.6, so p/q stays bounded by 1/0.6 relative to the old mixture (tested).
+- **Period:** the defensive core is log P 2.3–3.3 at 50%, and the wide 0.2–8 part is at 50%. That keeps the maximum p/q under 500 against both the MdS17 and the re-centred targets (tested).
+- **Eccentricity:** broad, with U(0, e_max) at 0.55, the e^{−0.9} floor at 0.30 and U(0, 0.999) at 0.15.
+
+**Refit 4** (gens 23–29).
+- **(a)** The refit-3 configuration (8 orbit + 4 acceleration bins), for direct comparison.
+- **(b)** A finer grid chosen from ESS alone with the §12.12 rule (≥ 2 bins in log P and in e). It is evaluated at the refit-3 best fit and at MdS17, and **a candidate with a G split is preferred** among those where every big bin reaches ESS_b ≥ 30.
+- **Reported:** per-bin ESS before (gens 23–28) and after (gens 23–29) at the same θ.
+
+**Generation 30** (at most once, about 50 CPU-h, same settings). It runs only if refit 4 shows that **sampling** is still the limit: key bins below ESS_b 30, the finer grid not reachable, or parameters unidentified because of MC noise. It is re-centred on refit 4's robust parameters and targeted at the bins refit 4 reports as ESS-limited. It does not run if the limit is the model form. No further generation runs without asking.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
