@@ -162,6 +162,20 @@ class ParentProposalConfig(_Strict):
     parallax_power: float = Field(..., ge=0.0)
     parallax_cap_mas: float = Field(..., gt=0.0)
     evolved_weight: float = Field(0.0, ge=0.0, le=1.0)
+    # Targeted component (#391 rung-3 top-up, 2026-10-10): weight ε_t on usable rows inside a G and
+    # observed-parallax box, ∝ max(M1 / pivot, 1)^power (the high-mass frequency tilt). 0 reproduces
+    # older generations exactly; the rest of q(s) is scaled by (1 - ε_t), so p/q stays bounded.
+    target_weight: float = Field(0.0, ge=0.0, lt=1.0)
+    target_g_range: tuple[float, float] | None = None
+    target_parallax_range_mas: tuple[float, float] | None = None
+    target_m1_pivot_msun: float = Field(0.8, gt=0.0)
+    target_m1_power: float = 0.0
+
+    @model_validator(mode="after")
+    def _target_fields(self) -> ParentProposalConfig:
+        if self.target_weight > 0 and (self.target_g_range is None or self.target_parallax_range_mas is None):
+            raise ValueError("target_weight > 0 needs target_g_range and target_parallax_range_mas")
+        return self
 
 
 class M2ProposalConfig(_Strict):
@@ -776,14 +790,32 @@ def relation_log10_flux_ratio(m1_msun: ArrayLike, m2_msun: ArrayLike) -> FloatAr
 
 
 def parent_proposal_probabilities(
-    parallax_mas: ArrayLike, usable: ArrayLike, cfg: ParentProposalConfig, evolved: ArrayLike | None = None
+    parallax_mas: ArrayLike, usable: ArrayLike, cfg: ParentProposalConfig, evolved: ArrayLike | None = None,
+    g_mag: ArrayLike | None = None, m1_msun: ArrayLike | None = None,
 ) -> FloatArray:
     """Normalized ``q(s)`` over snapshot rows (zero for unusable rows).
+
+    ``g_mag`` and ``m1_msun`` (per row) are required when ``cfg.target_weight > 0``: the targeted
+    component is uniform over usable rows with G in ``target_g_range`` and parallax in
+    ``target_parallax_range_mas``, weighted by max(M1 / pivot, 1)^``target_m1_power``.
 
     ``evolved`` (per row) is required when ``cfg.evolved_weight > 0``; the evolved component
     is uniform over usable evolved rows. With ``evolved_weight == 0`` the result is the
     pre-2026-10-08 expression, bit for bit.
     """
+    if cfg.target_weight > 0.0:
+        if g_mag is None or m1_msun is None:
+            raise ValueError("target_weight > 0 needs the per-row G and M1")
+        base = parent_proposal_probabilities(parallax_mas, usable, cfg.model_copy(update={"target_weight": 0.0}), evolved)
+        g = np.asarray(g_mag, float)
+        plx = np.asarray(parallax_mas, float)
+        m1 = np.asarray(m1_msun, float)
+        (g0, g1), (p0, p1) = cfg.target_g_range, cfg.target_parallax_range_mas  # type: ignore[misc]
+        box = np.asarray(usable, bool) & (g >= g0) & (g < g1) & (plx >= p0) & (plx < p1) & np.isfinite(m1) & (m1 > 0)
+        if not box.any():
+            raise ValueError("targeted parent component selects no usable rows")
+        tw = np.where(box, np.maximum(np.where(box, m1, 1.0) / cfg.target_m1_pivot_msun, 1.0) ** cfg.target_m1_power, 0.0)
+        return (1.0 - cfg.target_weight) * base + cfg.target_weight * tw / tw.sum()
     if cfg.evolved_weight > 0.0:
         if evolved is None:
             raise ValueError("evolved_weight > 0 needs the per-row evolved flag")
@@ -1082,7 +1114,8 @@ def sample_proposal(
     rng = np.random.default_rng(np.random.SeedSequence(entropy=cfg.base_seed, spawn_key=(stream, 0)))
     n = cfg.n_draws
     cols = parent.columns
-    qs = parent_proposal_probabilities(cols["parallax"], parent.usable, cfg.parent, parent.is_giant)
+    qs = parent_proposal_probabilities(cols["parallax"], parent.usable, cfg.parent, parent.is_giant,
+                                       cols["phot_g_mean_mag"], parent.m1_msun)
     row = rng.choice(parent.n_rows, size=n, replace=True, p=qs)
     m1 = parent.m1_msun[row]
     log_m1 = np.log10(m1)
@@ -1234,7 +1267,8 @@ def log_q_total_for(
     Needed for the deterministic-mixture denominator (spec §3.7), where every draw is
     evaluated under every generation's ``q_j``.
     """
-    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent, parent.is_giant)
+    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent, parent.is_giant,
+                                       parent.columns["phot_g_mean_mag"], parent.m1_msun)
     row = np.asarray(truth["parent_row"], dtype=np.int64)
     # Deblended draws (spec §11.9) keep the proposal-space masses separately: q was proposed
     # relative to the row's M̂1, so the density is evaluated there, not at the truth M1.
