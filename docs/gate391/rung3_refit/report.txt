@@ -1,0 +1,99 @@
+#391 rung 3 refit (spec §12.10): gens 23-28 (generation 28 re-centred), MP-Q42b + MP-Q43b
+
+real: 131168 C1 orbits / 337949 accelerations; mock draws in the likelihood: 23401 (554 from generation 28)
+
+A. Sampling gain of generation 28, at the first-fit best θ (PR #459 model; noW)
+  CPU-h: gens 23-27 183.1, generation 28 4.10
+  ESS of C1 orbits in the likelihood: gens 23-27 426 (2.33 per CPU-h); generation 28 alone 30 (7.4 per CPU-h); gens 23-28 461 (marginal 8.6 per CPU-h of generation 28)
+  the 33 bins holding >= 1% of real orbits: ESS_b median 11.5 -> 12.4 (generation 28 alone 1.0); min 3.0 -> 3.1; bins at ESS_b >= 30: 0 -> 1
+  projection (ESS_b additive; generation-28 per-bin rates): CPU-h to bring every one of the 33 bins to ESS_b >= 30: inf (set by the worst bin); median bin 72; to reach it in 90% of them nan
+  projection by total-ESS scaling, median bin: x2.4 ESS -> 89 CPU-h at generation 28's 7.4 ESS/CPU-h (282 at the old 2.3)
+  projection by total-ESS scaling, 90% of bins: x5.0 ESS -> 248 CPU-h at generation 28's 7.4 ESS/CPU-h (787 at the old 2.3)
+  projection by total-ESS scaling, all bins (worst): x9.7 ESS -> 544 CPU-h at generation 28's 7.4 ESS/CPU-h (1723 at the old 2.3)
+  per bin (G, d, log P, e): real | ESS_b gens 23-27 -> 23-28 | gen 28 alone | CPU-h to 30 (per-bin rate; noisy)
+    G 5-12 d 0-0.3 lP 0-2.30 e 0.3-0.6: 1313 | 12.8 -> 13.1 | 1.0 | 69
+    G 5-12 d 0-0.3 lP 2.3-2.60 e 0-0.3: 1358 | 27.1 -> 28.7 | 3.0 | 2
+    G 5-12 d 0-0.3 lP 2.3-2.60 e 0.3-0.6: 1596 | 20.1 -> 20.4 | 0.0 | inf
+    G 5-12 d 0-0.3 lP 2.75-2.92 e 0-0.3: 1476 | 13.9 -> 14.9 | 1.0 | 62
+    G 5-12 d 0.3-0.7 lP 2.3-2.60 e 0-0.3: 1448 | 11.5 -> 11.6 | 1.0 | 75
+    G 5-12 d 0.3-0.7 lP 2.3-2.60 e 0.3-0.6: 1356 | 9.0 -> 9.0 | 1.0 | 86
+    G 5-12 d 0.3-0.7 lP 2.6-2.75 e 0-0.3: 1766 | 8.2 -> 8.5 | 1.3 | 67
+    G 5-12 d 0.3-0.7 lP 2.6-2.75 e 0.3-0.6: 1435 | 4.9 -> 5.0 | 0.0 | inf
+    G 5-12 d 0.3-0.7 lP 2.75-2.92 e 0-0.3: 2618 | 12.3 -> 13.0 | 1.0 | 69
+    G 5-12 d 0.3-0.7 lP 2.75-2.92 e 0.3-0.6: 1763 | 9.3 -> 9.2 | 1.0 | 85
+    G 5-12 d 0.7-1.5 lP 2.75-2.92 e 0-0.3: 1334 | 3.0 -> 3.1 | 0.0 | inf
+    G 12-14 d 0-0.3 lP 2.3-2.60 e 0.3-0.6: 1538 | 24.6 -> 26.5 | 2.0 | 7
+    G 12-14 d 0.3-0.7 lP 0-2.30 e 0-0.3: 1322 | 7.9 -> 8.1 | 1.0 | 90
+    G 12-14 d 0.3-0.7 lP 2.3-2.60 e 0-0.3: 4161 | 28.6 -> 31.2 | 3.3 | 0
+    G 12-14 d 0.3-0.7 lP 2.3-2.60 e 0.3-0.6: 4087 | 27.0 -> 28.2 | 1.0 | 7
+    G 12-14 d 0.3-0.7 lP 2.6-2.75 e 0-0.3: 4231 | 19.0 -> 20.0 | 1.1 | 39
+    G 12-14 d 0.3-0.7 lP 2.6-2.75 e 0.3-0.6: 3876 | 18.6 -> 18.9 | 1.0 | 46
+    G 12-14 d 0.3-0.7 lP 2.75-2.92 e 0-0.3: 5045 | 16.7 -> 18.0 | 1.0 | 49
+    G 12-14 d 0.3-0.7 lP 2.75-2.92 e 0.3-0.6: 3926 | 18.7 -> 19.4 | 1.0 | 44
+    G 12-14 d 0.7-1.5 lP 2.6-2.75 e 0-0.3: 4170 | 8.4 -> 8.6 | 1.0 | 88
+    G 12-14 d 0.7-1.5 lP 2.6-2.75 e 0.3-0.6: 3431 | 10.4 -> 9.2 | 1.9 | 44
+    G 12-14 d 0.7-1.5 lP 2.75-2.92 e 0-0.3: 6189 | 13.7 -> 14.0 | 1.0 | 66
+    G 12-14 d 0.7-1.5 lP 2.75-2.92 e 0.3-0.6: 4623 | 4.8 -> 5.7 | 1.0 | 100
+    G 14-16 d 0.3-0.7 lP 2.3-2.60 e 0-0.3: 1411 | 9.0 -> 9.8 | 1.0 | 80
+    G 14-16 d 0.3-0.7 lP 2.3-2.60 e 0.3-0.6: 1314 | 11.2 -> 11.9 | 1.0 | 74
+    G 14-16 d 0.3-0.7 lP 2.6-2.75 e 0-0.3: 2597 | 16.9 -> 17.6 | 2.8 | 18
+    G 14-16 d 0.3-0.7 lP 2.6-2.75 e 0.3-0.6: 2540 | 15.5 -> 15.8 | 0.0 | inf
+    G 14-16 d 0.3-0.7 lP 2.75-2.92 e 0-0.3: 2932 | 19.1 -> 20.3 | 1.0 | 40
+    G 14-16 d 0.3-0.7 lP 2.75-2.92 e 0.3-0.6: 2497 | 7.6 -> 9.0 | 1.0 | 86
+    G 14-16 d 0.7-1.5 lP 2.6-2.75 e 0-0.3: 2195 | 9.1 -> 9.6 | 1.0 | 84
+    G 14-16 d 0.7-1.5 lP 2.6-2.75 e 0.3-0.6: 1689 | 3.4 -> 3.6 | 0.0 | inf
+    G 14-16 d 0.7-1.5 lP 2.75-2.92 e 0-0.3: 4906 | 11.4 -> 12.4 | 1.0 | 72
+    G 14-16 d 0.7-1.5 lP 2.75-2.92 e 0.3-0.6: 4141 | 10.0 -> 10.7 | 1.0 | 79
+
+B. MP-Q43b spurious template from the PR #455 re-injection
+  300 real systems x 3 (A_real 0.599); 218 mock accepted orbits x 3 (A_mock 0.734); pi_bar 0.184
+  log P marginal: 0-2.30: n_real 1, n_mock 1 -> r = 1 (too sparse); 2.3-2.60: n_real 21, n_mock 18, A_real 0.60, A_mock 0.69, raw 0.65 -> r 0.82; 2.6-2.75: n_real 95, n_mock 88, A_real 0.76, A_mock 0.76, raw 0.00 -> r 0.17; 2.75-2.92: n_real 183, n_mock 111, A_real 0.52, A_mock 0.72, raw 1.55 -> r 1.49
+  e marginal: 0-0.30: n_real 159, n_mock 111, A_real 0.64, A_mock 0.77, raw 0.96 -> r 0.97; 0.3-0.60: n_real 121, n_mock 88, A_real 0.58, A_mock 0.70, raw 0.99 -> r 0.99; 0.6-1.00: n_real 20, n_mock 19, A_real 0.43, A_mock 0.63, raw 1.71 -> r 1.35
+
+[new_noW] converged True; -lnL 1481.3; 12/12 starts within 5 of the best
+    name        refit +- Laplace   [near-best range]   first fit (PR #459)
+    ln_A       +0.142 +- 0.064   [+0.14, +0.14]   +1.544 +- 0.133
+    alpha_lo   +0.707 +- 0.129   [+0.71, +0.71]   +0.886 +- 0.135
+    alpha_hi   +0.169 +- 0.156   [+0.17, +0.17]   +0.064 +- 0.157
+    gamma_P    -0.217 +- 0.173   [-0.22, -0.22]   -0.235 +- 0.165
+    ln_L_P     +0.838 +- 0.169   [+0.84, +0.84]   +0.580 +- 0.166
+    dgamma_q   +2.475 +- 0.264   [+2.48, +2.48]   +2.401 +- 0.279
+    ln_F_twin  -1.200 +- 0.289   [-1.20, -1.20]   -1.531 +- 0.232
+    d_eta      -0.452 +- 0.030   [-0.45, -0.45]   -0.454 +- 0.031
+    f_s        +2.434 +- 0.077   [+2.43, +2.43]   +0.100 +- 0.004
+    k_d        +0.252 +- 0.018   [+0.25, +0.25]   -1.603 +- 0.036
+    expected: mock orbits 105783 + spurious 51012 = 156795 vs real 131168; accelerations 328110 vs 337949
+    spurious: total 51012 (0.389 of C1 orbits); share in the prior bin 0.451 (prior 0.21 +- 0.04; pull +6.0 sigma; first fit 0.068)
+    ESS at the best fit: orbits 397, accelerations 915
+    orbit bins with ESS_b < 30: 190/192 (95.9% of real); of the 33 big bins: 32
+    deviance (orbits, incl. MC var): 1600 over 143 non-empty bins (first fit 2795)
+
+[new_cmdW] converged True; -lnL 1474.0; 12/12 starts within 5 of the best
+    name        refit +- Laplace   [near-best range]   first fit (PR #459)
+    ln_A       +0.728 +- 0.078   [+0.73, +0.73]   +1.873 +- 0.164
+    alpha_lo   +1.754 +- 0.159   [+1.75, +1.76]   +1.818 +- 0.154
+    alpha_hi   -1.224 +- 0.176   [-1.22, -1.22]   -1.189 +- 0.184
+    gamma_P    +0.011 +- 0.147   [+0.01, +0.02]   -0.160 +- 0.136
+    ln_L_P     +0.627 +- 0.150   [+0.62, +0.63]   +0.521 +- 0.148
+    dgamma_q   +1.764 +- 0.211   [+1.76, +1.77]   +1.806 +- 0.238
+    ln_F_twin  -1.029 +- 0.330   [-1.04, -1.03]   -1.462 +- 0.249
+    d_eta      -0.458 +- 0.026   [-0.46, -0.46]   -0.463 +- 0.027
+    f_s        +2.553 +- 0.078   [+2.55, +2.55]   +0.116 +- 0.005
+    k_d        +0.234 +- 0.018   [+0.23, +0.23]   -1.701 +- 0.038
+    expected: mock orbits 114421 + spurious 53720 = 168141 vs real 131168; accelerations 340240 vs 337949
+    spurious: total 53720 (0.410 of C1 orbits); share in the prior bin 0.473 (prior 0.21 +- 0.04; pull +6.6 sigma; first fit 0.075)
+    ESS at the best fit: orbits 320, accelerations 545
+    orbit bins with ESS_b < 30: 190/192 (96.1% of real); of the 33 big bins: 32
+    deviance (orbits, incl. MC var): 1563 over 143 non-empty bins (first fit 2734)
+
+PPC eccentricity, e < 0.1 (two fine six-panel bins): real 14230 | first fit 22824 (mock 21511 + flat spurious 1314) | refit 25433
+
+PPC per distance bin: mock+spurious/real orbits | accelerations | <e> real / refit | orbit:accel real / refit
+  d 0.0-0.3: orbits 1.31 [28855]; accels 0.97; <e> 0.374 / 0.402; o:a 0.475 / 0.638
+  d 0.3-0.7: orbits 1.10 [58982]; accels 0.96; <e> 0.339 / 0.365; o:a 0.375 / 0.428
+  d 0.7-1.5: orbits 1.14 [40272]; accels 0.96; <e> 0.322 / 0.312; o:a 0.357 / 0.423
+  d 1.5-6.0: orbits 2.72 [3059]; accels 1.25; <e> 0.334 / 0.491; o:a 0.425 / 0.926
+  G 5.0-12.0: orbits 1.32 [28805]; accels 0.95
+  G 12.0-14.0: orbits 1.16 [65813]; accels 0.96
+  G 14.0-16.0: orbits 1.16 [35217]; accels 1.00
+  G 16.0-19.5: orbits 1.05 [1333]; accels 1.26
