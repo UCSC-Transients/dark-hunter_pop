@@ -1,0 +1,190 @@
+# Rung-3 REFIT 4 fine grid (#391; spec §12.13, Ryan 2026-10-10). orbit_bins / acceleration_bins were CHOSEN BY
+# `scripts/rung3_refit4_391.py choose` from ESS alone on gens 23-29 (before any fit residual), see bin_choice.
+rung3:
+  c1_period_max_days: 830.4
+  likelihood: say_effective
+  parameters:
+    ln_A:
+    - 0.0
+    - -3.0
+    - 3.0
+    alpha_lo:
+    - 0.5
+    - -3.0
+    - 5.0
+    alpha_hi:
+    - 0.0
+    - -5.0
+    - 5.0
+    gamma_P:
+    - 0.0
+    - -5.0
+    - 5.0
+    ln_L_P:
+    - 0.0
+    - -3.0
+    - 3.0
+    dgamma_q:
+    - 0.0
+    - -3.0
+    - 3.0
+    ln_F_twin:
+    - 0.0
+    - -4.0
+    - 3.0
+    a1:
+    - 1.4
+    - 0.1
+    - 20.0
+    a2:
+    - 1.4
+    - 0.1
+    - 20.0
+    a3:
+    - 1.4
+    - 0.1
+    - 20.0
+    b1:
+    - 1.0
+    - 1.0
+    - 30.0
+    b2:
+    - 1.0
+    - 1.0
+    - 30.0
+    b3:
+    - 1.0
+    - 1.0
+    - 30.0
+    N_s:
+    - 0.0
+    - 0.0
+    - 0.0
+  m1_pivot_msun: 0.8
+  log_p_tilt_pivot: 2.7
+  long_p_centre: 3.0
+  long_p_width: 0.1
+  twin_q_min: 0.95
+  eta_floor: -0.9
+  q_normalization: mds17_q03_to_1
+  q_norm_grid_points: 200
+  spurious_template: additive_pr455_shape_binning_independent_prior
+  ecc_log_p_ranges:
+  - 2.0
+  - 2.6
+  spurious:
+    prior_bin_distance_kpc:
+    - 0.7
+    - 1.5
+    prior_bin_g_mag:
+    - 12.0
+    - 16.0
+    prior_mean: 0.21
+    prior_sigma: 0.04
+    shrink_n0: 20
+    min_systems_per_marginal_bin: 10
+  ess_collapse_threshold: 100
+  min_ess_per_bin: 30
+  outer:
+    g_mag:
+    - 5.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 1.0
+  candidates:
+    g_mag:
+    - - 5.0
+      - 12.0
+      - 14.0
+      - 16.0
+      - 19.5
+    - - 5.0
+      - 13.0
+      - 19.5
+    - - 5.0
+      - 19.5
+    distance_kpc:
+    - - 0.0
+      - 0.3
+      - 0.7
+      - 1.5
+      - 6.0
+    - - 0.0
+      - 0.5
+      - 1.0
+      - 6.0
+    - - 0.0
+      - 0.7
+      - 6.0
+    log10_period_days:
+    - - 0.0
+      - 2.3
+      - 2.6
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.5
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.6
+      - 2.9193
+    eccentricity:
+    - - 0.0
+      - 0.3
+      - 0.6
+      - 1.0
+    - - 0.0
+      - 0.4
+      - 1.0
+    - - 0.0
+      - 1.0
+  empty_bin_floor: 1.0
+  orbit_bins:
+    g_mag:
+    - 5.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 0.5
+    - 1.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.6
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 0.3
+    - 0.6
+    - 1.0
+  acceleration_bins:
+    g_mag:
+    - 5.0
+    - 12.0
+    - 14.0
+    - 16.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 0.7
+    - 6.0
+  bin_choice:
+    rule: "spec \xA712.12/\xA712.13: >= 2 bins in log P and e; most bins with every\
+      \ >=1%-of-real bin at min-over-(refit-3 best fit, MdS17) ESS_b >= 30, preferring\
+      \ a G split; else max real share in ESS_b >= 30 bins"
+    report:
+    - 'orbit: 54 eligible candidates, 0 with every big bin at ESS_b >= 30; chosen
+      18 bins (big 14; non-empty bins at ESS >= 30: 13/18; real share in them 0.984;
+      median ESS_b 48): [[5.0, 19.5], [0.0, 0.5, 1.0, 6.0], [0.0, 2.6, 2.9193], [0.0,
+      0.3, 0.6, 1.0]]'
+    - 'acceleration: 9 eligible candidates, 5 with every big bin at ESS_b >= 30; chosen
+      8 bins (big 7; non-empty bins at ESS >= 30: 7/8; real share in them 1.000; median
+      ESS_b 223): [[5.0, 12.0, 14.0, 16.0, 19.5], [0.0, 0.7, 6.0]]'

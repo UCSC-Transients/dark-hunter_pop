@@ -1,0 +1,109 @@
+# STAGED TOP-UP generation 29 (#391 rung 3, Ryan 2026-10-10: "smaller staged top-up, ~50 CPU-h, 10 workers").
+# Same models and generation-time settings as generations 23-28 (target unchanged; sampling efficiency only).
+# Re-centred on the ROBUST part of rung-3 refits 1-3 (docs/gate391/rung3_refit3/): ln L_P ~ +1.7, gamma_P ~ -1.1,
+# alpha_hi ~ +0.6 (ln A is a normalization and does not enter the proposal); q shape back to MdS17 (dgamma_q,
+# ln_f_twin unidentified in refit 3); eccentricity kept broad. Targeted at the persistently weakest likelihood
+# cells (d 0.7-1.5 kpc, log P > 2.6, e 0.3-0.6, G 12-16):
+#   * parent: 40% targeted component on usable rows with G 12-16 and observed parallax 0.667-1.429 mas
+#     (d 0.7-1.5 kpc), weighted (M1/0.8)^0.6 above 0.8 Msun (alpha_hi); the old mixture keeps 60%;
+#   * (log q, log P) shape component: gamma_p -1.1, ln_long_p +1.7 (MdS17 q shape);
+#   * defensive period part: core log P 2.3-3.3 (50%), wide 0.2-8 (50%; raised from 20% so the long-P weight
+#     e^1.7 above log P 4, outside the shape box, keeps max p/q < 500);
+#   * eccentricity: support U(0, e_max) 0.50 -> 0.55, floor e^-0.9 0.30, defensive U(0, 0.999) 0.15 (broad).
+# Defensive components unchanged in form -> bounded, finite-variance weights (tests).
+# 330,000 draws: measured 0.49 CPU-s/draw (generation 28) to 0.79 (gens 23-27) -> ~45-72 CPU-h; ~5 h at 10 workers.
+# draw_index from 867,000 (after generation 28: 837,000-866,999). Not under config/fragments/.
+
+proposal:
+  generation: 29
+  n_draws: 330000
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
+    uniform_fraction: 0.3
+    parallax_power: 0.75
+    parallax_cap_mas: 10.0
+    evolved_weight: 0.1
+    target_weight: 0.4
+    target_g_range: [12.0, 16.0]
+    target_parallax_range_mas: [0.6667, 1.4286]
+    target_m1_pivot_msun: 0.8
+    target_m1_power: 0.6
+  m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
+    q_tied_weight: 0.9
+    q_min: 0.08
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+  flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
+    dark_fraction: 0.1
+    relation: mist_coeval_row
+    relation_weight: 0.9
+    relation_sigma_dex: 0.20
+    log_f_min: -7.0                  # MP-Q28d: evolved-row targets reach ~1e-6 (spec §10.4, §11.9)
+    log_f_max: 0.5
+    evolved_rows_centre: evolved_relation   # MP-Q28d (decided 2026-10-04)
+  period:                            # log P mixture: core + MdS17-wide defensive component
+    core_weight: 0.5
+    core_log_p_min: 2.3
+    core_log_p_max: 3.3
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:                      # #409/#410: covers MdS17 e < e_max(P); bounded weights
+    shape: mds17_bounded
+    circular_period_days: 2.0        # MdS17 §2: P <= 2 d circular (matches the target)
+    floor_eta: -0.9                  # must be <= target provisional_eta_floor (checked)
+    floor_weight: 0.30
+    support_weight: 0.55
+    defensive_e_max: 0.999           # covers e > e_max for alternative models (MP-Q12)
+    e_max_period_scale_days: 2.0     # MdS17 Eq. 3
+    e_max_exponent: -0.6666666666666666
+  m2_p_shape:                        # MdS17-shaped joint (log q, log P) component
+    weight: 0.7
+    table_path: config/population/moe_distefano2017.yaml
+    m1_interpolation: linear_m1
+    q_min: 0.1
+    q_max: 1.0
+    log_p_min: 1.0
+    log_p_max: 4.0
+    n_log_q: 40
+    n_log_p: 45
+    log_m1_step: 0.05
+    dgamma_q: 0.0                    # MdS17 q shape (refit 3: unidentified)
+    ln_f_twin: 0.0
+    twin_q_min: 0.95
+    gamma_p: -1.1
+    log_p_pivot: 2.7
+    ln_long_p: 1.7
+    long_p_centre: 3.0
+    long_p_width: 0.1
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  # Generation-time decisions (spec §0.1).
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1)"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0                    # step (b), <=
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
+  m1: isochrone_posterior_draw_deblended            # MP-Q5/Q28c/Q35/Q36 (#418, spec §0.4, §11.9)
+  giant_flag_logg_max: 3.6                          # TAG10 mode only (isochrone mode uses the §10.2 CMD flag)
+  light_split: observed_g_is_system_total           # MP-Q6
+  epoch_model: dr3_config                           # #400 E1 decided: on (dr3.epoch_model)
+
+target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1           # MP-Q10
+  provisional_eta_floor: -0.9                       # MP-Q11
+  provisional_low_mass_policy: log_linear_to_zero   # MP-Q7 (El-Badry et al. 2024 §3)
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity       # MP-Q9
+  mass_luminosity: mist_coeval                      # MP-Q40 decided 2026-10-04 (replaces MP-Q13 Janssens for MS companions)
+  flux_sigma_dex: 0.1                               # MP-Q13, decided
+  provisional_compact_mixture: none                 # MP-Q17

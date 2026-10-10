@@ -824,3 +824,93 @@ def test_recentred_proposal_weights_bounded_for_old_and_refit_targets() -> None:
             q = np.exp(ps.log_q_m2_p_joint(np.log10(m1) + LQ, LP, np.full_like(LQ, np.log10(m1)), cfg))
             worst = max(worst, float(np.max(target / q)))
         assert np.isfinite(worst) and worst < 500.0
+
+
+# ---------------------------------------------------------------------------
+# #391 rung 3 staged top-up: targeted parent component (generation 29)
+# ---------------------------------------------------------------------------
+
+TOPUP29 = "config/population/proposal_set_restart_topup29.yaml"
+
+
+def _parent_rows(n: int = 5000, seed: int = 3) -> tuple[np.ndarray, ...]:
+    rng = np.random.default_rng(seed)
+    plx = rng.uniform(0.2, 5.0, n)
+    g = rng.uniform(6.0, 19.0, n)
+    m1 = rng.uniform(0.2, 2.5, n)
+    usable = rng.uniform(size=n) > 0.1
+    evolved = rng.uniform(size=n) > 0.9
+    return plx, g, m1, usable, evolved
+
+
+@pytest.mark.unit
+def test_parent_target_component_zero_weight_is_identity() -> None:
+    plx, g, m1, usable, evolved = _parent_rows()
+    cfg = ps.load_proposal_set_fragment(TOPUP29).proposal.parent
+    off = cfg.model_copy(update={"target_weight": 0.0})
+    base = ps.parent_proposal_probabilities(plx, usable, off, evolved)
+    np.testing.assert_array_equal(base, ps.parent_proposal_probabilities(plx, usable, off, evolved, g, m1))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml"])
+def test_parent_target_component_normalized_bounded_and_targeted(path: str) -> None:
+    plx, g, m1, usable, evolved = _parent_rows()
+    cfg = ps.load_proposal_set_fragment(path).proposal.parent
+    base = ps.parent_proposal_probabilities(plx, usable, cfg.model_copy(update={"target_weight": 0.0}), evolved)
+    q = ps.parent_proposal_probabilities(plx, usable, cfg, evolved, g, m1)
+    assert q.sum() == pytest.approx(1.0, rel=1e-12)
+    assert np.all(q[~usable] == 0.0)
+    # any target that the old mixture covered stays covered: p/q <= (p/base) / (1 - eps)
+    ok = base > 0
+    assert np.max(base[ok] / q[ok]) <= 1.0 / (1.0 - cfg.target_weight) + 1e-12
+    (g0, g1), (p0, p1) = cfg.target_g_range, cfg.target_parallax_range_mas
+    box = usable & (g >= g0) & (g < g1) & (plx >= p0) & (plx < p1)
+    assert q[box].sum() > base[box].sum() + 0.5 * cfg.target_weight
+    if cfg.target_m1_power > 0:  # the high-mass tilt favours M1 > pivot
+        hi = box & (m1 > 1.6)
+        lo = box & (m1 < 0.8)
+        assert np.mean(q[hi] - (1 - cfg.target_weight) * base[hi]) > np.mean(q[lo] - (1 - cfg.target_weight) * base[lo])
+
+
+@pytest.mark.unit
+def test_parent_target_requires_rows_and_fields() -> None:
+    plx, g, m1, usable, evolved = _parent_rows()
+    cfg = ps.load_proposal_set_fragment(TOPUP29).proposal.parent
+    with pytest.raises(ValueError):
+        ps.parent_proposal_probabilities(plx, usable, cfg, evolved)
+    with pytest.raises(ValueError):
+        cfg.model_copy(update={"target_g_range": None}).model_validate(cfg.model_dump() | {"target_g_range": None})
+
+
+TOPUP30 = "config/population/proposal_set_restart_topup30.yaml"
+
+
+@pytest.mark.physics
+@pytest.mark.parametrize("path", [TOPUP29, TOPUP30])
+def test_topup29_shape_and_ecc_bounded(path: str) -> None:
+    from darkhunter_pop import malmquist as mq
+
+    frag = ps.load_proposal_set_fragment(path)
+    cfg, tgt = frag.proposal, frag.target_mds17
+    ps.check_eccentricity_bounded(cfg.eccentricity, tgt.provisional_eta_floor)
+    for m1 in (0.5, 1.0, 2.5):  # joint (shape + defensive) density normalizes
+        lm1 = np.log10(m1)
+        lm2 = np.linspace(-2.0, 2.0, 1601)
+        lp = np.linspace(-1.0, 9.0, 2001)
+        LM2, LPP = np.meshgrid(lm2, lp, indexing="ij")
+        d = np.exp(ps.log_q_m2_p_joint(LM2, LPP, np.full_like(LM2, lm1), cfg))
+        assert np.trapz(np.trapz(d, lp, axis=1), lm2) == pytest.approx(1.0, abs=5e-3)
+    for modified in (False, True):
+        worst = 0.0
+        for m1 in (0.6, 0.9, 1.3, 3.0):
+            lq = np.linspace(-1.0, 0.0, 401)[1:-1]
+            lp = np.linspace(0.21, 7.99, 401)
+            LQ, LP = np.meshgrid(lq, lp, indexing="ij")
+            target = mq.mds17_luminous_m2_p_intensity(m1, LQ, LP, tgt)
+            if modified:
+                target = target * ps.m2_p_shape_modifier(10.0**LQ, LP, cfg.m2_p_shape)
+            target = target / np.trapz(np.trapz(target, lp, axis=1), lq)
+            q = np.exp(ps.log_q_m2_p_joint(np.log10(m1) + LQ, LP, np.full_like(LQ, np.log10(m1)), cfg))
+            worst = max(worst, float(np.max(target / q)))
+        assert np.isfinite(worst) and worst < 500.0
