@@ -145,6 +145,7 @@ def parse_many(casc: np.ndarray, cuts: Any) -> dict[str, np.ndarray]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global D_LO, D_HI, G_LO, G_HI
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--artifact-dir", type=Path, default=Path("output/proposal_set"))
     ap.add_argument("--cache", type=Path, default=Path("output/proposal_set/weights_gen23_27.npz"))
@@ -161,7 +162,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--inject-log", type=Path, required=True, help="resumable JSONL of re-injection realizations")
     ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--d-range", type=float, nargs=2, default=(D_LO, D_HI), help="bin in ZP-corrected 1/parallax (kpc)")
+    ap.add_argument("--g-range", type=float, nargs=2, default=(G_LO, G_HI))
     args = ap.parse_args(argv)
+    (D_LO, D_HI), (G_LO, G_HI) = args.d_range, args.g_range
 
     import dataclasses
     import h5py
@@ -184,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     parent = ps.load_parent_snapshot(args.parent_dir, cfg, prop)
     gcfg = load_giants_config(Path("config/population/giants.yaml"))
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    rep: list[str] = ["#391 detection vs population test: 0.7-1.5 kpc, G 13-16, C1 (P <= 830 d) on both sides", ""]
+    rep: list[str] = [f"#391 detection vs population test: {D_LO:g}-{D_HI:g} kpc, G {G_LO:g}-{G_HI:g}, C1 (P <= 830 d) on both sides", ""]
 
     # ================= mock truth (gens 23-27, cache order) =================
     keys = ("m1_msun", "m2_msun", "flux_ratio", "period_days", "eccentricity", "parallax_mas", "phot_g_mean_mag",
@@ -380,9 +384,13 @@ def main(argv: list[str] | None = None) -> int:
     xrec = [done[(xr["seed_id"], 0)] for xr in xrows]
     x_acc = np.array([bool(d["accepted"]) and np.isfinite(d["period"]) and d["period"] <= P_MAX for d in xrec])
     x_stored = m_acc_c1[xdraw]
-    fx = it.binomial_fraction_interval(int(x_acc.sum()), x_acc.size)
-    fs = it.binomial_fraction_interval(int(x_stored.sum()), x_stored.size)
-    both = np.mean(x_acc == x_stored)
+    if xdraw.size:
+        fx = it.binomial_fraction_interval(int(x_acc.sum()), x_acc.size)
+        fs = it.binomial_fraction_interval(int(x_stored.sum()), x_stored.size)
+        both = np.mean(x_acc == x_stored)
+    else:  # --n-cross 0: engine cross-check skipped
+        fx = fs = (float("nan"),) * 3
+        both = float("nan")
     rep += [f"  engine cross-check: {xdraw.size} matched mock draws ({args.n_cross} nearest per re-injected system), "
             f"mock truth re-simulated through the rung-1 path: accepted {fx[0]:.3f} ({fx[1]:.3f}-{fx[2]:.3f}) vs their stored "
             f"proposal-runner outcome {fs[0]:.3f} ({fs[1]:.3f}-{fs[2]:.3f}); per-draw agreement {both:.3f}"]
