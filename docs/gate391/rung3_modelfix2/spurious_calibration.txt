@@ -1,0 +1,42 @@
+#391 spurious-template calibration (§12.16): 430 real systems (far 300, near 130), 327 mock accepted orbits; 1288 + 981 realizations
+ΔBIC inclusion threshold 6.0 (config/spuriousness_model.yaml); slope prior N(0, 1.0^2) on standardized covariates
+A_mock covariates selected: ['log10_a0_snr', 'log10_parallax_snr']; coefficients [1.71, 1.042, 0.418] ± [0.102, 0.129, 0.115]
+pi covariates selected: ['log10_a0_snr']; coefficients [-1.531, -0.58] ± [0.11, 0.12]
+mean pi over the re-injected real systems: all 0.192; far 0.214; near 0.143
+
+forward-selection trail (keys: ΔBIC vs the previous model):
+  A_mock ('g_mag',): 27.33
+  A_mock ('bp_rp',): -5.0
+  A_mock ('distance_kpc',): 20.97
+  A_mock ('log10_period',): 1.81
+  A_mock ('eccentricity',): -3.91
+  A_mock ('log10_a0_snr',): 114.59
+  A_mock ('log10_parallax_snr',): 53.91
+  A_mock ('log10_a0_snr', 'g_mag'): -2.09
+  A_mock ('log10_a0_snr', 'bp_rp'): -5.84
+  A_mock ('log10_a0_snr', 'distance_kpc'): -2.77
+  A_mock ('log10_a0_snr', 'log10_period'): -5.48
+  A_mock ('log10_a0_snr', 'eccentricity'): -1.44
+  A_mock ('log10_a0_snr', 'log10_parallax_snr'): 6.62
+  A_mock ('log10_a0_snr', 'log10_parallax_snr', 'g_mag'): -6.63
+  A_mock ('log10_a0_snr', 'log10_parallax_snr', 'bp_rp'): -3.9
+  A_mock ('log10_a0_snr', 'log10_parallax_snr', 'distance_kpc'): -5.79
+  A_mock ('log10_a0_snr', 'log10_parallax_snr', 'log10_period'): -3.55
+  A_mock ('log10_a0_snr', 'log10_parallax_snr', 'eccentricity'): -5.33
+  pi ('g_mag',): 4.62
+  pi ('bp_rp',): -3.19
+  pi ('distance_kpc',): -0.24
+  pi ('log10_period',): -5.97
+  pi ('eccentricity',): -7.12
+  pi ('log10_a0_snr',): 16.87
+  pi ('log10_parallax_snr',): 8.64
+  pi ('goodness_of_fit',): -1.13
+  pi ('harmonic_distance',): -3.62
+  pi ('log10_a0_snr', 'g_mag'): -6.14
+  pi ('log10_a0_snr', 'bp_rp'): -2.95
+  pi ('log10_a0_snr', 'distance_kpc'): -7.12
+  pi ('log10_a0_snr', 'log10_period'): -7.16
+  pi ('log10_a0_snr', 'eccentricity'): -6.01
+  pi ('log10_a0_snr', 'log10_parallax_snr'): -5.82
+  pi ('log10_a0_snr', 'goodness_of_fit'): -6.54
+  pi ('log10_a0_snr', 'harmonic_distance'): -1.79

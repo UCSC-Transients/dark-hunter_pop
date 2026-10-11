@@ -1,0 +1,10 @@
+#391 §12.14 feasibility (+ CMD-class axis) at the refit-5 best fit
+
+grid [2, 3, 3, 3] x class (108 bins, 23 big): failing 5 (11.7% of real), min big ESS_b 12.5; cost ~216 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+grid [2, 3, 3, 4] x class (144 bins, 30 big): failing 9 (15.7% of real), min big ESS_b 7.8; cost ~441 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+grid [2, 4, 3, 3] x class (144 bins, 26 big): failing 8 (15.2% of real), min big ESS_b 5.7; cost ~660 CPU-h (total-ESS scaling), worst per-cell 161 CPU-h
+grid [2, 4, 3, 4] x class (192 bins, 33 big): failing 11 (15.7% of real), min big ESS_b 3.4; cost ~1214 CPU-h (total-ESS scaling), worst per-cell 421 CPU-h
+grid [4, 3, 3, 3] x class (216 bins, 29 big): failing 11 (19.6% of real), min big ESS_b 7.6; cost ~461 CPU-h (total-ESS scaling), worst per-cell 298 CPU-h
+grid [4, 3, 3, 4] x class (288 bins, 34 big): failing 16 (26.1% of real), min big ESS_b 5.5; cost ~695 CPU-h (total-ESS scaling), worst per-cell 346 CPU-h
+grid [4, 4, 3, 3] x class (288 bins, 29 big): failing 14 (24.9% of real), min big ESS_b 8.6; cost ~386 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+grid [4, 4, 3, 4] x class (384 bins, 30 big): failing 13 (20.4% of real), min big ESS_b 5.8; cost ~649 CPU-h (total-ESS scaling), worst per-cell 469 CPU-h
