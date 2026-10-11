@@ -1,0 +1,33 @@
+#391 §12.14 bin-rule feasibility on gens 23-30 (axis requirements built in; ESS_b >= 30 in every big bin)
+
+grid [2, 3, 3, 3] (54 bins, 24 big): failing big bins 11 holding 26.8% of real; min big ESS_b 7.5; cost to 30: ~534 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 473 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 4, 3, 3] (72 bins, 24 big): failing big bins 13 holding 36.4% of real; min big ESS_b 6.1; cost to 30: ~702 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 525 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 3, 3, 3] (108 bins, 27 big): failing big bins 15 holding 39.4% of real; min big ESS_b 5.9; cost to 30: ~729 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 691 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 3, 3, 4] (72 bins, 31 big): failing big bins 18 holding 43.9% of real; min big ESS_b 7.0; cost to 30: ~584 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 785 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 4, 3, 3] (144 bins, 28 big): failing big bins 18 holding 36.5% of real; min big ESS_b 5.7; cost to 30: ~769 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 572 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 4, 3, 4] (96 bins, 33 big): failing big bins 22 holding 44.9% of real; min big ESS_b 5.1; cost to 30: ~873 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 525 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 4, 5, 3] (240 bins, 31 big): failing big bins 22 holding 39.0% of real; min big ESS_b 4.2; cost to 30: ~1099 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 971 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 4, 3, 4] (192 bins, 32 big): failing big bins 23 holding 43.9% of real; min big ESS_b 6.4; cost to 30: ~658 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 572 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 4, 5, 4] (320 bins, 27 big): failing big bins 23 holding 41.4% of real; min big ESS_b 6.1; cost to 30: ~696 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 751 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 4, 5, 3] (120 bins, 32 big): failing big bins 24 holding 48.3% of real; min big ESS_b 5.5; cost to 30: ~800 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 484 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 3, 5, 3] (90 bins, 36 big): failing big bins 26 holding 55.9% of real; min big ESS_b 4.7; cost to 30: ~965 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 670 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 3, 3, 4] (144 bins, 36 big): failing big bins 26 holding 53.2% of real; min big ESS_b 3.6; cost to 30: ~1321 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 691 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 4, 5, 4] (160 bins, 33 big): failing big bins 27 holding 50.8% of real; min big ESS_b 3.8; cost to 30: ~1249 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 541 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 3, 5, 3] (180 bins, 37 big): failing big bins 29 holding 58.1% of real; min big ESS_b 4.4; cost to 30: ~1051 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 509 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [2, 3, 5, 4] (120 bins, 39 big): failing big bins 32 holding 58.1% of real; min big ESS_b 3.3; cost to 30: ~1429 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 583 CPU-h (0 failing cells got no gen-30 ESS at all)
+grid [4, 3, 5, 4] (240 bins, 40 big): failing big bins 39 holding 63.0% of real; min big ESS_b 4.1; cost to 30: ~1116 CPU-h (total-ESS scaling at the gen-30 rate); worst per-cell gen-30 estimate 444 CPU-h (0 failing cells got no gen-30 ESS at all)
+
+least-failing grid [2, 3, 3, 3]: [[5.0, 13.0, 19.5], [0.0, 0.5, 1.0, 6.0], [0.0, 2.0, 2.6, 2.9193], [0.0, 0.3, 0.6, 1.0]]
+  failing big bin G 5-13 d 0-0.5 lP 2-2.60 e 0-0.3: real 6108, min ESS_b 26.6
+  failing big bin G 5-13 d 0-0.5 lP 2-2.60 e 0.3-0.6: real 6740, min ESS_b 18.4
+  failing big bin G 5-13 d 0-0.5 lP 2-2.60 e 0.6-1: real 1832, min ESS_b 18.3
+  failing big bin G 5-13 d 0-0.5 lP 2.6-2.92 e 0.6-1: real 2575, min ESS_b 11.6
+  failing big bin G 5-13 d 0.5-1 lP 2-2.60 e 0-0.3: real 1627, min ESS_b 12.8
+  failing big bin G 5-13 d 0.5-1 lP 2-2.60 e 0.3-0.6: real 1515, min ESS_b 9.0
+  failing big bin G 5-13 d 0.5-1 lP 2.6-2.92 e 0.3-0.6: real 5437, min ESS_b 28.3
+  failing big bin G 5-13 d 1-6 lP 2.6-2.92 e 0-0.3: real 2188, min ESS_b 12.1
+  failing big bin G 5-13 d 1-6 lP 2.6-2.92 e 0.3-0.6: real 1796, min ESS_b 7.5
+  failing big bin G 13-19.5 d 0.5-1 lP 2-2.60 e 0-0.3: real 2937, min ESS_b 18.9
+  failing big bin G 13-19.5 d 0.5-1 lP 2.6-2.92 e 0.6-1: real 2403, min ESS_b 12.0
+
+FEASIBLE grids (no failing big bin): 0 -> CONFLICT: the axis requirements and ESS_b >= 30 cannot both hold with gens 23-30 (spec §12.14: report, do not relax)

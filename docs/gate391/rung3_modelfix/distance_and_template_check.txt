@@ -1,0 +1,23 @@
+r_G normalisation over real C1 orbits: 1.009
+noW d 0-0.3: real 28855, ESS 316, mock/real 1.09, +uniform spurious 1.19, +G-dep spurious 1.19, +G-dep at prior share 1.29; median G real 12.4
+noW d 0.3-0.7: real 58982, ESS 355, mock/real 0.84, +uniform spurious 0.94, +G-dep spurious 0.94, +G-dep at prior share 1.05; median G real 13.2
+noW d 0.7-1.5: real 40272, ESS 331, mock/real 0.80, +uniform spurious 0.90, +G-dep spurious 0.90, +G-dep at prior share 1.01; median G real 13.7
+noW d 1.5-6: real 3059, ESS 19, mock/real 1.63, +uniform spurious 1.74, +G-dep spurious 1.73, +G-dep at prior share 1.83; median G real 13.3
+noW G 6-9: real 1968, mock/real 2.01, +uniform 2.12, +G-dep 2.11, +G-dep at prior share 2.20
+noW G 9-10: real 3937, mock/real 1.07, +uniform 1.17, +G-dep 1.16, +G-dep at prior share 1.26
+noW G 10-12: real 22863, mock/real 0.94, +uniform 1.05, +G-dep 1.04, +G-dep at prior share 1.13
+noW G 12-14: real 65813, mock/real 0.93, +uniform 1.03, +G-dep 1.02, +G-dep at prior share 1.12
+noW G 14-15: real 26509, mock/real 0.82, +uniform 0.93, +G-dep 0.94, +G-dep at prior share 1.05
+noW G 15-16: real 8708, mock/real 0.53, +uniform 0.64, +G-dep 0.71, +G-dep at prior share 0.89
+noW G 16-18: real 1330, mock/real 0.53, +uniform 0.63, +G-dep 0.71, +G-dep at prior share 0.88
+cmdW d 0-0.3: real 28855, ESS 216, mock/real 1.01, +uniform spurious 1.12, +G-dep spurious 1.12, +G-dep at prior share 1.22; median G real 12.4
+cmdW d 0.3-0.7: real 58982, ESS 251, mock/real 0.87, +uniform spurious 0.98, +G-dep spurious 0.98, +G-dep at prior share 1.08; median G real 13.2
+cmdW d 0.7-1.5: real 40272, ESS 321, mock/real 0.83, +uniform spurious 0.93, +G-dep spurious 0.93, +G-dep at prior share 1.04; median G real 13.7
+cmdW d 1.5-6: real 3059, ESS 20, mock/real 1.38, +uniform spurious 1.49, +G-dep spurious 1.48, +G-dep at prior share 1.58; median G real 13.3
+cmdW G 6-9: real 1968, mock/real 1.89, +uniform 2.00, +G-dep 1.99, +G-dep at prior share 2.08
+cmdW G 9-10: real 3937, mock/real 1.02, +uniform 1.12, +G-dep 1.11, +G-dep at prior share 1.20
+cmdW G 10-12: real 22863, mock/real 1.10, +uniform 1.21, +G-dep 1.20, +G-dep at prior share 1.29
+cmdW G 12-14: real 65813, mock/real 0.89, +uniform 1.00, +G-dep 0.99, +G-dep at prior share 1.08
+cmdW G 14-15: real 26509, mock/real 0.79, +uniform 0.90, +G-dep 0.91, +G-dep at prior share 1.02
+cmdW G 15-16: real 8708, mock/real 0.55, +uniform 0.66, +G-dep 0.73, +G-dep at prior share 0.91
+cmdW G 16-18: real 1330, mock/real 0.52, +uniform 0.63, +G-dep 0.70, +G-dep at prior share 0.88
