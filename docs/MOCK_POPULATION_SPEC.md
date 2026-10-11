@@ -1740,7 +1740,7 @@ The §12.11 model is unchanged: the same 14 free parameters, no new priors, and 
   - MdS17: ln A = 0, α_lo = 0.5, all other population modifiers 0, and Beta a = 1.4, b = 1 in every range, which is MdS17's power law at η ≈ 0.4.
 - **Rule** (ESS and real counts only; no fit residual is involved):
   - "Big" bins are those holding ≥ 1% of the real orbits.
-  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice.
+  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice. *(Superseded by the §12.14 bin rule, Ryan, 2026-10-10.)*
   - Among those, take the candidate where every big bin has min-over-both-points ESS_b ≥ 30, with the most bins.
   - If none qualifies, take the candidate that maximizes the share of real orbits in bins with ESS_b ≥ 30 at both points; break ties by more bins.
   - The refit reports when no candidate qualifies, and compares the resulting number of data bins with the number of free parameters.
@@ -1777,6 +1777,29 @@ The model is §12.11 with the §12.12 machinery. Only the draws change.
 - **Reported:** per-bin ESS before (gens 23–28) and after (gens 23–29) at the same θ.
 
 **Generation 30** (at most once, about 50 CPU-h, same settings). It runs only if refit 4 shows that **sampling** is still the limit: key bins below ESS_b 30, the finer grid not reachable, or parameters unidentified because of MC noise. It is re-centred on refit 4's robust parameters and targeted at the bins refit 4 reports as ESS-limited. It does not run if the limit is the model form. No further generation runs without asking.
+
+### 12.14 Bin rule: bins resolve every correction (Ryan, 2026-10-10)
+
+Ryan's rule replaces the §12.12 eligibility amendment (≥ 2 bins in log P and in e):
+
+> "The number of bins and their edges should be chosen so the corrections can make the model match the data."
+
+**Reading.** The likelihood grid must **resolve every axis on which a model correction acts**, so that each correction parameter is constrained by bins that can show its effect. ESS_b ≥ 30 in every bin holding ≥ 1% of the real orbits still applies, as a constraint on top of that.
+
+**Axis requirements**, derived from the model structure only:
+
+| correction | parameters | the grid must have |
+|---|---|---|
+| Period shape (§12.3) | γ_P, ln L_P | ≥ 2 orbit log P bins inside the C1 range, and the acceleration likelihood (long-P weight) |
+| Beta eccentricities (§12.11) | (a_k, b_k) per log P range | an orbit log P edge at every Beta range edge that falls inside the C1 range (2.0, 2.6), so each range has its own cells, and ≥ 3 e bins in each range: the e shape has two parameters, so two bins only fix one combination |
+| M1 slopes (§12.3) | α_lo, α_hi | an axis that separates primary mass at fixed G and d. On the current grid that is G at fixed d; a G split is required |
+| Evolved-primary correction (§12.15, when adopted) | its parameters | the axis it acts on (a G split, or an evolved / dwarf split) |
+| Spurious component (§12.11) | N_s (shape fixed) | no extra axis: a single amplitude |
+| Distance behaviour | the d dependence of all of the above | ≥ 3 d bins, so the near and far ends are separate from the middle |
+
+**Guardrail** (CLAUDE.md, statistical guardrails). Edges are fixed from the model structure and the mock-side ESS **before real counts are examined**. Real counts enter only through the "≥ 1% of real orbits" definition of a big bin, as in §12.12. Edges are never tuned on real residuals.
+
+**Conflict.** If no grid satisfies both the axis requirements and the ESS constraint, the refit reports that, together with the draw cost to resolve it: the CPU-h needed to bring the failing cells to ESS_b ≥ 30 at the current re-centred rate. Neither requirement is relaxed.
 
 ## References
 
