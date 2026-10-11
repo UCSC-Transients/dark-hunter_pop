@@ -1836,8 +1836,8 @@ For real system i, the number of re-detections is k_i ~ Binomial(3, A_mock(x_i) 
 - The amplitude is N_s = f_s · Σ_i π̂(x_i). The prior on f_s is N(1, σ_cal), where σ_cal is the relative calibration uncertainty of Σ π̂ propagated from the coefficient covariance.
 - This prior replaces the 0.21 ± 0.04 bin prior, which came from the first of these two samples anyway.
 
-**Outside the calibrated covariate range** (MP-Q46, open for Ryan):
-- (i) clamp each covariate to the calibrated range (the provisional default, used only in labelled interim evaluations);
+**Outside the calibrated covariate range** (MP-Q46, **decided 2026-10-11: (i) clamp**, Ryan; config key `spurious_extrapolation: clamp`). The options considered were:
+- (i) clamp each covariate to the calibrated range (**adopted**);
 - (ii) the linear-logit extrapolation of the fitted model;
 - (iii) π = 0 outside the range.
 
