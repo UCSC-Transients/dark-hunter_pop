@@ -380,9 +380,17 @@ def feasibility(args, fc, ns):
         e30 = r4.ess_b(w30, ob, n_ob) / ns.cpu_28
         with np.errstate(divide="ignore", invalid="ignore"):
             cell = np.where(fail, (args.min_ess - emin) / e30, 0.0)
+        shp5 = [len(c) - 1 for c in combo] + [2]
+        cells = []
+        for b_ in np.flatnonzero(fail):
+            i = np.unravel_index(b_, shp5)
+            cells.append("G {:g}-{:g} d {:g}-{:g} lP {:g}-{:.2f} e {:g}-{:g} {}: real {}, ESS {:.1f}".format(
+                combo[0][i[0]], combo[0][i[0] + 1], combo[1][i[1]], combo[1][i[1] + 1], combo[2][i[2]], combo[2][i[2] + 1],
+                combo[3][i[3]], combo[3][i[3] + 1], "evolved" if i[4] else "dwarf", int(k_o[b_]), emin[b_]))
         rep.append(f"grid {[len(c) - 1 for c in combo]} x class ({n_ob} bins, {int(big.sum())} big): failing {int(fail.sum())} "
                    f"({k_o[fail].sum() / k_o.sum():.1%} of real), min big ESS_b {emin[big].min():.1f}; cost ~{max(0, fac - 1) * e_all / rate:.0f} CPU-h "
                    f"(total-ESS scaling), worst per-cell {np.nanmax(np.where(np.isfinite(cell), cell, np.nan)) if fail.any() else 0:.0f} CPU-h")
+        rep += [f"    failing: {c_}" for c_ in cells]
     (args.out_dir / "feasibility.txt").write_text("\n".join(rep) + "\n")
     print("\n".join(rep))
 
@@ -391,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("mode", choices=("choose", "fit", "feasibility"))
     ap.add_argument("--model", choices=("old", "new"), default="new")
-    ap.add_argument("--extrapolation", choices=("clamp", "logit"), default="clamp")
+    ap.add_argument("--extrapolation", choices=("clamp", "logit"), default=None,
+                    help="MP-Q46; default from the fit config key spurious_extrapolation (decided: clamp, Ryan 2026-10-11)")
     ap.add_argument("--cache", type=Path, default=Path("output/proposal_set/weights_gen23_30.npz"))
     ap.add_argument("--artifact-dir", type=Path, default=Path("output/proposal_set"))
     ap.add_argument("--control", type=Path, default=Path("docs/gate391/rung3_refit4/gens23_30_gen29_fine_grid/summary.json"))
@@ -413,6 +422,8 @@ def main(argv: list[str] | None = None) -> int:
     import yaml
 
     fc = yaml.safe_load((args.base_config if args.mode == "choose" else args.fit_config).read_text())["rung3"]
+    if args.extrapolation is None:
+        args.extrapolation = fc.get("spurious_extrapolation", "clamp")
     ns = extend(args, fc, r4.setup(args, fc))
     {"choose": choose, "fit": fit, "feasibility": feasibility}[args.mode](args, fc, ns)
     return 0

@@ -70,6 +70,7 @@ rung3:
   q_normalization: mds17_q03_to_1
   q_norm_grid_points: 200
   spurious_template: additive_pr455_shape_binning_independent_prior
+  spurious_extrapolation: clamp      # MP-Q46 decided (i) clamp, Ryan 2026-10-11 (spec §12.16)
   ecc_log_p_ranges:
   - 2.0
   - 2.6
