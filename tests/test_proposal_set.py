@@ -853,7 +853,7 @@ def test_parent_target_component_zero_weight_is_identity() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml", "config/population/proposal_set_restart_batch31.yaml"])
+@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml", "config/population/proposal_set_restart_batch31.yaml", "config/population/proposal_set_restart_batch32.yaml"])
 def test_parent_target_component_normalized_bounded_and_targeted(path: str) -> None:
     plx, g, m1, usable, evolved = _parent_rows()
     cfg = ps.load_proposal_set_fragment(path).proposal.parent
@@ -888,7 +888,7 @@ TOPUP30 = "config/population/proposal_set_restart_topup30.yaml"
 
 
 @pytest.mark.physics
-@pytest.mark.parametrize("path", [TOPUP29, TOPUP30, "config/population/proposal_set_restart_batch31.yaml"])
+@pytest.mark.parametrize("path", [TOPUP29, TOPUP30, "config/population/proposal_set_restart_batch31.yaml", "config/population/proposal_set_restart_batch32.yaml"])
 def test_topup29_shape_and_ecc_bounded(path: str) -> None:
     from darkhunter_pop import malmquist as mq
 
