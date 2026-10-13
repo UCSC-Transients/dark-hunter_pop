@@ -1922,6 +1922,20 @@ Both change the parent CMD, and therefore the isochrone M1 drawn at generation t
   - It is reported against MdS17's quoted uncertainties on the solar-type and A/late-B anchors, together with whether it stays ≥ 0.
 - **Rule.** If α_br is unconstrained (σ > 1) or drives the total slope strongly negative, the result is reported as unphysical and Ryan decides between keeping it and option C (document the residual).
 
+**(c) MdS17's own mass scale (#486; Ryan, 2026-10-13). This runs before (b).**
+- **The mismatch.** MdS17 assign M1 from spectral type via the Pecaut & Mamajek (2013, PM13) dwarf relations. Their q-from-contrast uses Padova tracks. MIST does not enter.
+  - Evaluating MdS17 at the MIST v1.2 isochrone M1 can bias the frequency wherever the two scales differ.
+- **The table.** The living PM13 table, version 2022.04.16, snapshot `data/external_catalogs/mamajek_pecaut2013_20261013T192950Z/`. It is read only through the config key `rung3.mds17_mass_scale.pm13_table`.
+  - Its UPDATES log changes the mass column on 2011-12-13 (FGK), 2015-06-18 (main-sequence masses from Eker et al. 2015) and 2020-04-02 (O through early L vetted).
+  - So the A/F masses may differ slightly from what MdS17 (2017) used.
+- **The check.** On parent CMD dwarfs, compare M1_PM13, interpolated on (BP−RP)₀ (the spectral-type proxy) and on M_G0 as a cross-check, with the MIST M1.
+  - The comparison is binned three ways: by MIST M1, by PM13 mass, and by their geometric mean (regression dilution).
+- **The option.** `rung3.mds17_mass_scale.method: mist | pm13_colour`.
+  - `pm13_colour` builds the monotone median mapping M1_PM13(M1_MIST) on the parent's CMD dwarfs (bins `mapping_edges_msun`, ≥ `mapping_min_count` stars). Beyond the ends the end ratio is kept.
+  - It reweights every draw by f_logP;q>0.3(M1_PM13) / f_logP;q>0.3(M1_law), the frequency term only. The q and e laws stay at M1_law.
+  - This is reweight-only.
+- **The refit.** The §12.19(b) slope-break refit is run with both `mist` and `pm13_colour`. The report states how much of α_br the scale absorbs, and interprets the break relative to MdS17 on their own mass scale.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
