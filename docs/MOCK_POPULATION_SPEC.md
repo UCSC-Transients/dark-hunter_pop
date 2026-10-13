@@ -1885,6 +1885,43 @@ Both change the parent CMD, and therefore the isochrone M1 drawn at generation t
 - The real side calls the same function with a zero-point-corrected 1/ϖ distance.
 - Two paths still use the raw SFD-scale value, both by design and both outside the decided chain: `proposal_set.combined19_a_g` (the legacy 1-D Malmquist weight, A_G = 2.8 × raw) and `forward_model` (El-Badry et al. 2024's own recipe for the `selection_function_astrometric` box mock).
 
+### 12.19 MdS17 at M1,ZAMS and a frequency-slope break above 1.4 M⊙ (Ryan, 2026-10-13; #483, #484)
+
+**Both changes act on the target intensity only.** `fragment_fingerprint` hashes the proposal section alone, so both are applied by reweighting the stored draws. **Neither invalidates a draw.**
+
+**(a) M1,ZAMS (#483). The code now follows §10.**
+- `target_mds17.m1_law_mass: current | initial`.
+  - `initial` evaluates the MdS17 frequency, the q law and the e law (and the low-mass taper) at M1,ZAMS, with q_ZAMS = M2 / M1,ZAMS.
+  - The per-dex-M2 Jacobian is q_ZAMS ln 10, because M2 is fixed.
+  - The flux-ratio term is unchanged.
+- Per draw, M1,ZAMS = (drawn M1) × (MIST `initial_mass` / `star_mass` posterior means of the parent row), from `isochrone_mass.IsochronePosterior.m_init_mean / m1_mean`.
+- The default stays `current`, so existing weight caches reproduce. The rung-3 fit config sets `m1_law_mass: initial` and multiplies every weight by λ_initial / λ_current.
+- **Generation time.** The proposal still draws q against current M1. That only shapes the proposal, which the deterministic-mixture denominator already accounts for, so future generations need no change either.
+- **Size** (gate391 recheck):
+  - median MIST m_init / M_now is 1.001 over evolved draws (95th percentile 1.029);
+  - the evolved MdS17 frequency factor is 1.005.
+  - MIST's RGB mass loss is smaller than the asteroseismic ≈ 0.1 M⊙ (Miglio et al. 2012), so the residual is a ledger systematic of at most about +2–3% in evolved frequency.
+
+**(b) Frequency-slope break (#484).**
+- The rung-3 log modifier gains α_br · max(0, ln(M1,law / M_br)).
+- It is applied to every primary, dwarf or evolved: the MdS17 frequency depends on M1, not on the evolutionary stage. f_evo (§12.15) still absorbs any stage-level offset.
+- α_br is free, uniform in [−5, 5], and 0 at the §12.14 model.
+- **Why it is needed.**
+  - The G 8–10 excess (×1.4–1.5) sits in F/A dwarfs of about 1.3–2 M⊙.
+  - The bright-G re-injection rules out detection: the mock noise is not low (PR #482).
+  - The isochrone M1 is unbiased there: DEBCat deblended M1_dyn 1.3–3 M⊙ gives a ratio of 0.981.
+  - So the deficit of real orbits is attributed to the frequency.
+- **M_br is fixed at 1.4 M⊙. It is not fitted.**
+  1. It is fixed before fitting, like the bin edges (§12.14). It marks where the residual begins, and it is not tuned to counts.
+  2. A free hinge location is degenerate with α_br on the few bright cells that constrain it, and the hinge makes the likelihood non-smooth for L-BFGS.
+  3. Over 1.2–2.0 M⊙ the profile in M_br is reported as a diagnostic only. If it prefers another value by more than 2 in Δ ln L, that goes to Ryan; it is not adopted silently.
+- **The pivot is M1,law**, the MdS17 evaluation mass of (a). The §12.10 α_lo / α_hi terms keep using current M1, which differs from M1,law by ≤ 3% on 95% of draws.
+- **Comparison with MdS17.**
+  - Averaged over log P 2.0–2.92, MdS17's f_logP;q>0.3 has a local slope d ln f / d ln M1 of 0.82 (1.0–1.2 M⊙), 0.67 (1.4–1.7) and 0.55 (2.0–2.5).
+  - The fitted total slope above M_br is that slope plus α_hi + α_br.
+  - It is reported against MdS17's quoted uncertainties on the solar-type and A/late-B anchors, together with whether it stays ≥ 0.
+- **Rule.** If α_br is unconstrained (σ > 1) or drives the total slope strongly negative, the result is reported as unphysical and Ryan decides between keeping it and option C (document the residual).
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
