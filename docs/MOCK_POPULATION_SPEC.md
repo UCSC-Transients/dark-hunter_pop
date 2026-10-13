@@ -1852,10 +1852,38 @@ The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decisio
 | §12.14 bin rule (2026-10-10) | no | it acts only on the rung-3 likelihood bins; the closed loop has its own bins | unchanged (7.6) |
 | MP-Q28 option A, f_evo (§12.15) | no, by construction | §10.6 sets W = 1 for giants, so a multiplier on evolved rows does not interact with W; the closed loop's synthetic universe uses the MdS17 target, which f_evo does not alter | unchanged (7.6); re-run if f_evo is ever applied to the universe |
 | Spurious template (§12.16) | no | it is a rung-3 fit component on the real side; the closed loop has no spurious solutions | unchanged (7.6) |
+| MP-Q47 (i): no change to the reddening inside about 100 pc (§12.18, 2026-10-13) | no | it keeps the inputs as they were; zeroing them would move the CMD log weight by only −0.04 to +0.09 on 0.07% of parent rows | unchanged (7.6) |
 
 **Rung-3 quantities that depend on W**, reported for noW and cmdW in every refit:
 - α_lo and α_hi: gens 23–30 control fit, noW +1.46 / −0.10, cmdW +2.26 / −0.68;
 - the near-distance (< 0.3 kpc) residual: mock-only 1.09 (noW) vs 1.01 (cmdW).
+
+**Update 2026-10-13** (§12.14-compliant 108-bin grid, gens 23–32; the cmdW fit re-run with 36 starts, seeded from the noW fit):
+- α_lo: +0.36 ± 0.18 (noW) vs +0.26 ± 0.18 (cmdW).
+- **α_hi: +0.42 ± 0.08 (noW) vs +0.18 ± 0.09 (cmdW), Δ ≈ 2σ.** α_hi is the rung-3 parameter that depends on W.
+- Near-distance (< 0.3 kpc) residual, (mock + spurious) / real: 1.07 (noW) vs 1.11 (cmdW); mock-only 0.90 vs 0.94.
+- Reddening check (`docs/gate391/rung3_nearbright/`): Combined19 × 0.884 is about 0 inside 100 pc (90th percentile ≤ 0.02). Setting it to 0 changes the CMD log weight of the affected draws by +0.00 at the median (5–95%: −0.04 to +0.09) and flips no evolved class. The closed loop is unaffected; the worst 2-D pull is still 7.6.
+
+### 12.18 Reddening inside ~100 pc (MP-Q47; Ryan, 2026-10-13: option (i), no change)
+
+**Decision: no change.** The 2-D CMD, the isochrone M1 and the CMD Malmquist weight keep using Combined19 × 0.884 at every distance.
+
+**Reasoning, on file:**
+- **No map inside 63 pc.** Green et al. (2019), §4: Bayestar19 has "120 distance bins spaced logarithmically in distance from 63 pc to 63 kpc", so it has no grid point inside 63 pc.
+- **Unclipped extrapolation.** `mwdust.Combined19` uses the same grid (µ = 4–18.875). It evaluates with `InterpolatedUnivariateSpline(k = 1)`, which extrapolates linearly below 63 pc, and `giants.combined19_ebv` does not clip it.
+- **Measured near-zero reddening** (`docs/gate391/rung3_nearbright/`): E(B−V) = Combined19 × 0.884 is ≈ 0 inside 200 pc (median 0.000). The 90th percentile is ≤ 0.009 inside 63 pc and 0.018 at 63–100 pc, for both the parent rows and the real orbits, and it never goes negative.
+- **Effect of zeroing it.** Setting E(B−V) = 0 inside 100 pc flips no evolved class. It changes the CMD Malmquist log weight of the affected draws by +0.00 at the median (5–95%: −0.04 to +0.09).
+
+**Options not taken:**
+- (ii) clamp the extrapolation below 63 pc;
+- (iii) a Local-Bubble taper.
+
+Both change the parent CMD, and therefore the isochrone M1 drawn at generation time. That would invalidate the stored draws (about 480 CPU-h to re-simulate gens 23–32) for an effect measured to be negligible.
+
+**Mock and data use the same lookup.**
+- The mock parent's CMD (`giants.parent_row_cmd` and `proposal_set.parent_cmd_isochrone`, which feed the isochrone M1, the evolved class and the CMD weight) calls `cmd_for_rows` → `combined19_ebv(native_to_ebv = 0.884)` at the row's (l, b, Bailer-Jones `r_med_geo`).
+- The real side calls the same function with a zero-point-corrected 1/ϖ distance.
+- Two paths still use the raw SFD-scale value, both by design and both outside the decided chain: `proposal_set.combined19_a_g` (the legacy 1-D Malmquist weight, A_G = 2.8 × raw) and `forward_model` (El-Badry et al. 2024's own recipe for the `selection_function_astrometric` box mock).
 
 ## References
 
