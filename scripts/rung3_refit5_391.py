@@ -342,6 +342,13 @@ def fit(args, fc, ns):
                                               for j, (v, (lo, hi)) in enumerate(zip(x0w, bounds))])
             r = minimize(nll, s0, args=(wkey,), method="L-BFGS-B", bounds=bounds, options={"maxiter": 4000, "maxfun": 40000})
             r = minimize(nll, r.x, args=(wkey,), method="Powell", bounds=bounds, options={"maxiter": 30000, "xtol": 1e-4, "ftol": 1e-8})
+            # guard (#484): L-BFGS-B can end above its start (1e30 walls); also try Powell from the start and keep the best
+            r2 = minimize(nll, s0, args=(wkey,), method="Powell", bounds=bounds, options={"maxiter": 30000, "xtol": 1e-4, "ftol": 1e-8})
+            if r2.fun < r.fun:
+                r = r2
+            f_s0 = nll(s0, wkey)
+            if f_s0 < r.fun:
+                r.x, r.fun = np.asarray(s0, float).copy(), f_s0
             sols.append((float(r.fun), r.x.copy()))
             if best is None or r.fun < best.fun:
                 best = r
