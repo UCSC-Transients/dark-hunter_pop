@@ -66,6 +66,7 @@ def extend(args, fc, ns):
     if prow.size != np.load(args.cache, allow_pickle=True)["generation"].size:
         raise SystemExit("artifact list does not match the weight cache")
     ns.m_cls = (pcls.classified & pcls.evolved)[prow[ns.rel]].astype(float)
+    ns.prow = prow[ns.rel]
     # §12.19(a) (#483): MdS17 laws at M1,ZAMS by reweighting; §12.19(b) (#484): the slope-break hinge on that mass
     zc = np.load(args.cache, allow_pickle=True)
     m1c = np.asarray(zc["m1_msun"], float)[ns.rel]
@@ -306,6 +307,23 @@ def fit(args, fc, ns):
         t[:13] = th[:13]
         return t
 
+    # §12.20 (#488): MC variance per bin. ``draw``: Σ w² (draws independent). ``parent_row``: Σ_rows (Σ_{draws of row in bin} w)²,
+    # the variance of the bin expectation under resampling the parent subsample (draws sharing a parent row are correlated).
+    mc_var = fc.get("mc_variance", "draw")
+    if getattr(args, "mc_variance", None):
+        mc_var = args.mc_variance
+    rep.append(f"MC variance: {mc_var}")
+
+    from darkhunter_pop.rung3_model import clustered_bin_variance, row_bin_groups
+
+    grp_o, grp_a = row_bin_groups(ob, ns.prow), row_bin_groups(ab, ns.prow)
+
+    def bin_var(w, bins, grp, n):
+        if mc_var == "draw":
+            s_ = bins >= 0
+            return np.bincount(bins[s_], weights=w[s_] ** 2, minlength=n)
+        return clustered_bin_variance(w, grp, n)
+
     def expected(th, wkey):
         lm = ns.log_mod(full(th)) + (evolved_log_modifier(evo, th[i_fe]) if i_fe is not None else 0.0)
         if i_br is not None:
@@ -313,8 +331,8 @@ def fit(args, fc, ns):
         w = ns.W[wkey] * np.exp(lm)
         so, sa = ob >= 0, ab >= 0
         keep_o, keep_a = ~empty_o, ~empty_a
-        return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob) * keep_o, np.bincount(ob[so], weights=w[so] ** 2, minlength=n_ob) * keep_o,
-                np.bincount(ab[sa], weights=w[sa], minlength=n_ab) * keep_a, np.bincount(ab[sa], weights=w[sa] ** 2, minlength=n_ab) * keep_a)
+        return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob) * keep_o, bin_var(w, ob, grp_o, n_ob) * keep_o,
+                np.bincount(ab[sa], weights=w[sa], minlength=n_ab) * keep_a, bin_var(w, ab, grp_a, n_ab) * keep_a)
 
     def nll(th, wkey):
         _, mu_o, v_o, mu_a, v_a = expected(th, wkey)
@@ -371,6 +389,18 @@ def fit(args, fc, ns):
         except np.linalg.LinAlgError:
             err = np.full(n_par, np.nan)
         w, mu_o, v_o, mu_a, v_a = expected(th, wkey)
+        # §12.20: relative MC error per orbit bin, draw-independent vs parent-row clustered, at the best fit
+        so_ = ob >= 0
+        vd = np.bincount(ob[so_], weights=w[so_] ** 2, minlength=n_ob)
+        vr = clustered_bin_variance(w, grp_o, n_ob)
+        nrow = np.bincount(grp_o[2], minlength=n_ob)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_d, rel_r = np.sqrt(vd) / mu_o, np.sqrt(vr) / mu_o
+        idx = np.unravel_index(np.arange(n_ob), shp)
+        bins_tab = [dict(g=int(idx[0][b]), d=int(idx[1][b]), lp=int(idx[2][b]), e=int(idx[3][b]), cls=int(idx[4][b]), k=float(k_o[b]),
+                         mu=float(mu_o[b]), rel_err_draw=float(rel_d[b]), rel_err_row=float(rel_r[b]), n_rows=int(nrow[b]),
+                         z_pois=float(np.sqrt(k_o[b]) / max(k_o[b], 1)))
+                    for b in range(n_ob) if mu_o[b] > 0]
         s = th[i_ns] * T + floor_o
         eb = np.where(v_o > 0, mu_o**2 / np.maximum(v_o, 1e-300), 0.0)
         near = [f_ - best.fun for f_, _ in sols]
@@ -403,6 +433,7 @@ def fit(args, fc, ns):
                              d_orbit_accel_real=(rdn / radn).tolist(), g_ratio=((mgn + sgn) / rgn).tolist(), g_edges=gb.tolist(),
                              ess_orbits=float(ps.kish_ess(w[so])), n_big_low=int(np.sum(big & (eb < args.min_ess))), n_big=int(big.sum()),
                              ess_b_big_min=float(eb[big].min()), ess_b_big_median=float(np.median(eb[big])))
+        results[wkey]["bins"] = bins_tab
         R5 = results[wkey]
         rep.append(f"[{wkey}] {R5['n_near']}/{R5['n_starts']} starts within delta(-lnL) < 5 (offsets {R5['start_offsets']}); -lnL {best.fun:.1f}; at bound: {at_b or 'none'}")
         for nm, v, e_ in zip(names, th, err):
@@ -499,6 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
     args = ap.parse_args(argv)

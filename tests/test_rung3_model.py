@@ -38,3 +38,17 @@ def test_spurious_template_normalized_sum() -> None:
     t, tot = r3.spurious_template(idx, pi, 4)
     assert tot == pytest.approx(1.2)
     np.testing.assert_allclose(t, np.array([0.3, 0.5, 0.4, 0.0]) / 1.2)
+
+
+@pytest.mark.unit
+def test_clustered_bin_variance() -> None:
+    """§12.20 (#488): two draws of one row in a bin add before squaring; other rows/bins separate."""
+    from darkhunter_pop.rung3_model import clustered_bin_variance, row_bin_groups
+
+    w = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    bins = np.array([0, 0, 0, 1, -1])
+    rows = np.array([7, 7, 2, 7, 7])
+    g = row_bin_groups(bins, rows)
+    v = clustered_bin_variance(w, g, 2)
+    np.testing.assert_allclose(v, [(1 + 2) ** 2 + 3**2, 16.0])
+    assert np.all(v >= np.bincount(bins[bins >= 0], weights=w[bins >= 0] ** 2, minlength=2))
