@@ -66,6 +66,50 @@ def extend(args, fc, ns):
     if prow.size != np.load(args.cache, allow_pickle=True)["generation"].size:
         raise SystemExit("artifact list does not match the weight cache")
     ns.m_cls = (pcls.classified & pcls.evolved)[prow[ns.rel]].astype(float)
+    # §12.19(a) (#483): MdS17 laws at M1,ZAMS by reweighting; §12.19(b) (#484): the slope-break hinge on that mass
+    zc = np.load(args.cache, allow_pickle=True)
+    m1c = np.asarray(zc["m1_msun"], float)[ns.rel]
+    ns.m1_law_mass = fc.get("m1_law_mass", "current")
+    ns.m1_law = m1c * ps.initial_to_current_ratio(parent.isochrone)[prow[ns.rel]] if ns.m1_law_mass == "initial" else m1c
+    ns.m1_law_lr = np.zeros(m1c.size)
+    if ns.m1_law_mass == "initial":
+        tgt = ps.load_proposal_set_fragment(args.fragment).target_mds17
+        ns.m1_law_lr = ps.m1_law_log_ratio(m1c, ns.m1_law, np.asarray(zc["m2_msun"], float)[ns.rel],
+                                           np.asarray(zc["period_days"], float)[ns.rel], np.asarray(zc["eccentricity"], float)[ns.rel], tgt)
+        ns.W = {k: v * np.exp(ns.m1_law_lr) for k, v in ns.W.items()}
+    # §12.19(c) (#486): MdS17 frequency on Pecaut & Mamajek (2013)'s mass scale (their M1 source), by reweighting
+    ns.mass_scale = (fc.get("mds17_mass_scale") or {}).get("method", "mist")
+    if getattr(args, "mass_scale", None):
+        ns.mass_scale = args.mass_scale
+    ns.mass_scale_lr, ns.mass_scale_map = np.zeros(m1c.size), None
+    if ns.mass_scale == "pm13_colour":
+        from darkhunter_pop import moe_distefano as mds
+
+        msc = fc["mds17_mass_scale"]
+        tab13 = mds.load_pm13_dwarf_table(args.parent_dir.parents[2] / msc["pm13_table"])
+        iso = parent.isochrone
+        dwarf = parent.usable & np.asarray(iso["ok"], bool) & pcls.classified & ~pcls.evolved
+        pm = mds.pm13_mass_from_colour(np.asarray(pcls.colour0, float)[dwarf], tab13)
+        cen, mp = mds.mass_scale_mapping(np.asarray(iso["m1_mean"], float)[dwarf], pm, np.asarray(msc["mapping_edges_msun"], float),
+                                         min_count=int(msc["mapping_min_count"]))
+        ns.mass_scale_map = (cen, mp)
+        tgt = ps.load_proposal_set_fragment(args.fragment).target_mds17
+        table = mds.load_mds17_table(tgt.table_path)
+        lp_t = np.log10(np.asarray(zc["period_days"], float)[ns.rel])
+
+        def lf(m):
+            ms_ = np.clip(m, table.m1_range[0], table.m1_range[1])
+            f = mds.f_logp_q03(ms_, lp_t, table) * mds.low_mass_frequency_scale(
+                m, m1_anchor_msun=tgt.provisional_low_mass_anchor_msun, m1_zero_msun=tgt.provisional_low_mass_zero_msun)
+            with np.errstate(divide="ignore"):
+                return np.log(f)
+
+        a_, b_ = lf(mds.apply_mass_scale(ns.m1_law, cen, mp)), lf(ns.m1_law)
+        ns.mass_scale_lr = np.where(np.isfinite(a_) & np.isfinite(b_), a_ - b_, 0.0)
+        ns.W = {k: v * np.exp(ns.mass_scale_lr) for k, v in ns.W.items()}
+    m_br = getattr(args, "m_break", None) or fc.get("m1_break_msun")
+    ns.m_break = float(m_br) if m_br else None
+    ns.hinge = np.maximum(0.0, np.log(ns.m1_law / ns.m_break)) if ns.m_break else np.zeros(m1c.size)
     pc = parent.columns
     pg = np.asarray(pc["phot_g_mean_mag"], float)
     snr = np.asarray(pc["parallax"], float) / np.asarray(pc["parallax_error"], float)
@@ -242,7 +286,11 @@ def fit(args, fc, ns):
         sums = np.array([pi_hat(cal, ns.r_cov, clamp=(args.extrapolation == "clamp"), beta=b).sum() for b in bs])
         sig_cal = float(np.std(sums) / S0)
         prior = (S0, sig_cal * S0)
-        names = NAMES
+        names = POP + ("ln_f_evo",) + (("alpha_br",) if ns.m_break else ()) + ("N_s",)
+        rep.append(f"M1 law mass: {ns.m1_law_mass} (|Δ ln w| median {np.median(np.abs(ns.m1_law_lr)):.4f}); slope break M_br = {ns.m_break}")
+        if ns.mass_scale_map is not None:
+            rep.append("MdS17 mass scale pm13_colour, M1_PM13(M1_MIST): " + " ".join(f"{a:.2f}->{b:.2f}" for a, b in zip(*ns.mass_scale_map))
+                       + f"; Δ ln w median {np.median(ns.mass_scale_lr):+.3f}")
         rep.append(f"spurious template §12.16: pi covariates {cal['pi_keys']}; Σ pi_hat over real C1 orbits = {S0:.0f} ({S0 / N_o:.3f} of them), "
                    f"σ_cal {sig_cal:.3f} (relative); extrapolation: {args.extrapolation}")
     T = np.where(empty_o, 0.0, T)
@@ -250,6 +298,7 @@ def fit(args, fc, ns):
     n_par = len(names)
     i_ns = names.index("N_s")
     i_fe = names.index("ln_f_evo") if "ln_f_evo" in names else None
+    i_br = names.index("alpha_br") if "alpha_br" in names else None
     evo = ns.m_cls
 
     def full(th):
@@ -259,6 +308,8 @@ def fit(args, fc, ns):
 
     def expected(th, wkey):
         lm = ns.log_mod(full(th)) + (evolved_log_modifier(evo, th[i_fe]) if i_fe is not None else 0.0)
+        if i_br is not None:
+            lm = lm + th[i_br] * ns.hinge
         w = ns.W[wkey] * np.exp(lm)
         so, sa = ob >= 0, ab >= 0
         keep_o, keep_a = ~empty_o, ~empty_a
@@ -272,8 +323,10 @@ def fit(args, fc, ns):
         return -ll if np.isfinite(ll) else 1e30
 
     par = fc["parameters"]
-    x0 = np.array([par[n][0] for n in POP] + ([0.0] if i_fe is not None else []) + [prior[0]], float)
-    bounds = [(par[n][1], par[n][2]) for n in POP] + ([(-3.0, 3.0)] if i_fe is not None else []) + [(0.0, max(5 * prior[0], 1.0))]
+    br = par.get("alpha_br", [0.0, -5.0, 5.0])
+    x0 = np.array([par[n][0] for n in POP] + ([0.0] if i_fe is not None else []) + ([br[0]] if i_br is not None else []) + [prior[0]], float)
+    bounds = ([(par[n][1], par[n][2]) for n in POP] + ([(-3.0, 3.0)] if i_fe is not None else [])
+              + ([(br[1], br[2])] if i_br is not None else []) + [(0.0, max(5 * prior[0], 1.0))])
     rng = np.random.default_rng(args.seed)
     results = {}
     init = json.loads(args.init_from.read_text())["results"] if args.init_from else None
@@ -282,7 +335,8 @@ def fit(args, fc, ns):
         x0w = x0.copy()
         if init is not None:  # start from a previous best fit (the noW one by default) and scatter around it
             src = init.get(args.init_key or wkey) or init["noW"]
-            x0w = np.clip(np.array(src["theta"], float), [b[0] for b in bounds], [b[1] for b in bounds])
+            th_src = dict(zip(src.get("names", names), src["theta"]))
+            x0w = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
         for s_ in range(args.n_starts):
             s0 = x0w if s_ == 0 else np.array([rng.uniform(max(lo, v - 1), min(hi, v + 1)) if j != i_ns else rng.uniform(0.5 * v, 1.5 * v)
                                               for j, (v, (lo, hi)) in enumerate(zip(x0w, bounds))])
@@ -437,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-from", type=Path, default=None, help="summary.json whose best θ seeds the starts")
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
+    ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
     args = ap.parse_args(argv)
     import yaml
