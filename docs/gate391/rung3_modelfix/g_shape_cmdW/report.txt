@@ -1,0 +1,47 @@
+#391 step (a): G-shape diagnosis, evolved vs dwarf primaries (gens 23-30 control fit, cmdW)
+
+real C1 orbits 131168; spurious share N_s/N_o = 0.106 (added uniformly in G); mock weights = control best fit
+class fractions (real | mock): dwarf 0.845 | 0.822, evolved 0.112 | 0.147, unclassified 0.043 | 0.031
+
+per G bin: real n | (mock + spurious)/real all | mock/real dwarf | mock/real evolved | evolved share real / mock | median d real / mock (kpc)
+  G 6-7: ESS 2.0 (evolved 1.6; heaviest draw 71% of the bin; 122 draws)
+  G 6-7: 179 | 4.19 | 17.14 | 0.35 | 0.75 / 0.05 | 0.18 / 0.04
+  G 7-8: ESS 11.8 (evolved 3.0; heaviest draw 14% of the bin; 71 draws)
+  G 7-8: 468 | 0.76 | 0.28 | 0.45 | 0.67 / 0.35 | 0.20 / 0.14
+  G 8-9: ESS 17.6 (evolved 6.4; heaviest draw 13% of the bin; 340 draws)
+  G 8-9: 1321 | 2.14 | 1.57 | 2.10 | 0.49 / 0.48 | 0.21 / 0.31
+  G 9-10: ESS 61.4 (evolved 18.4; heaviest draw 7% of the bin; 624 draws)
+  G 9-10: 3937 | 1.12 | 0.89 | 1.49 | 0.35 / 0.47 | 0.25 / 0.24
+  G 10-11: ESS 39.7 (evolved 13.8; heaviest draw 11% of the bin; 1111 draws)
+  G 10-11: 8296 | 1.57 | 1.69 | 1.52 | 0.25 / 0.24 | 0.31 / 0.28
+  G 11-12: ESS 69.1 (evolved 11.8; heaviest draw 7% of the bin; 1237 draws)
+  G 11-12: 14567 | 1.01 | 1.10 | 0.71 | 0.17 / 0.12 | 0.39 / 0.32
+  G 12-13: ESS 132.4 (evolved 27.9; heaviest draw 4% of the bin; 2481 draws)
+  G 12-13: 26783 | 1.03 | 1.03 | 1.23 | 0.13 / 0.16 | 0.51 / 0.47
+  G 13-14: ESS 212.8 (evolved 26.1; heaviest draw 4% of the bin; 3306 draws)
+  G 13-14: 39030 | 0.97 | 0.93 | 1.52 | 0.08 / 0.13 | 0.65 / 0.68
+  G 14-15: ESS 317.4 (evolved 11.3; heaviest draw 1% of the bin; 2803 draws)
+  G 14-15: 26509 | 0.90 | 0.89 | 1.28 | 0.03 / 0.05 | 0.66 / 0.66
+  G 15-16: ESS 87.3 (evolved 1.0; heaviest draw 4% of the bin; 1259 draws)
+  G 15-16: 8708 | 0.66 | 0.68 | 0.11 | 0.01 / 0.00 | 0.53 / 0.53
+  G 16-17: ESS 18.7 (evolved 0.0; heaviest draw 13% of the bin; 428 draws)
+  G 16-17: 1226 | 0.66 | 0.74 | 0.11 | 0.00 / 0.00 | 0.31 / 0.28
+  G 17-18: ESS 2.8 (evolved 0.0; heaviest draw 55% of the bin; 120 draws)
+  G 17-18: 104 | 0.26 | 0.14 | 0.00 | 0.00 / 0.00 | 0.15 / 0.27
+
+by dereddened M_G0 band: real n | (mock + spurious)/real | median G real / mock
+  M_G0 -3-0: 1311 | 0.81 | 9.7 / 9.7 | ESS 14.3
+  M_G0 0-1.5: 6468 | 1.48 | 11.4 / 10.8 | ESS 48.0
+  M_G0 1.5-2.5: 10574 | 1.02 | 12.2 / 12.5 | ESS 33.9
+  M_G0 2.5-3.5: 25177 | 0.95 | 12.7 / 12.4 | ESS 199.9
+  M_G0 3.5-4.5: 32324 | 1.02 | 13.2 / 13.2 | ESS 185.0
+  M_G0 4.5-5.5: 24241 | 1.19 | 13.6 / 13.3 | ESS 107.8
+  M_G0 5.5-7: 20009 | 0.80 | 14.0 / 14.1 | ESS 255.8
+  M_G0 7-9: 8538 | 0.81 | 14.6 / 14.3 | ESS 175.1
+
+by log10 P and class: real n | (mock + spurious)/real, dwarf | evolved
+  log P 0-2.3: dwarf 9265 | 1.13; evolved 422 | 1.18
+  log P 2.3-2.5: dwarf 20002 | 0.96; evolved 1555 | 1.46
+  log P 2.5-2.65: dwarf 10369 | 1.14; evolved 695 | 1.23
+  log P 2.65-2.8: dwarf 42532 | 0.98; evolved 6293 | 1.41
+  log P 2.8-2.92: dwarf 28695 | 0.89; evolved 5747 | 1.11
