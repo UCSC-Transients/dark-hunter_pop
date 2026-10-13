@@ -65,3 +65,23 @@ def spurious_template(bin_of_orbit: ArrayLike, pi: ArrayLike, n_bins: int) -> tu
     t = np.bincount(idx[ok], weights=p[ok], minlength=n_bins).astype(float)
     total = float(t.sum())
     return (t / total if total > 0 else t), total
+
+
+def row_bin_groups(bins: ArrayLike, rows: ArrayLike) -> tuple[NDArray[np.bool_], NDArray[np.int64], NDArray[np.int64], int]:
+    """Spec §12.20 (#488): group draws by (bin, parent row). Returns (in-bin mask, group index
+    per in-bin draw, bin of each group, number of groups). Bins < 0 are outside the grid."""
+    b = np.asarray(bins, np.int64)
+    r = np.asarray(rows, np.int64)
+    ok = b >= 0
+    base = int(r.max()) + 1 if r.size else 1
+    u, inv = np.unique(b[ok] * base + r[ok], return_inverse=True)
+    return ok, inv.astype(np.int64), (u // base).astype(np.int64), int(u.size)
+
+
+def clustered_bin_variance(w: ArrayLike, groups: tuple[Any, ...], n_bins: int) -> NDArray[np.float64]:
+    """Σ_rows (Σ_{draws of the row in the bin} w)² per bin: the MC variance of the bin
+    expectation when draws sharing a parent row are correlated (parent-subsample resampling).
+    It is ≥ the draw-independent Σ w² for non-negative weights."""
+    ok, inv, gbin, ng = groups
+    tot = np.bincount(inv, weights=np.asarray(w, float)[ok], minlength=ng)
+    return np.bincount(gbin, weights=tot**2, minlength=n_bins)

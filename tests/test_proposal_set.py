@@ -915,3 +915,56 @@ def test_topup29_shape_and_ecc_bounded(path: str) -> None:
             q = np.exp(ps.log_q_m2_p_joint(np.log10(m1) + LQ, LP, np.full_like(LQ, np.log10(m1)), cfg))
             worst = max(worst, float(np.max(target / q)))
         assert np.isfinite(worst) and worst < 500.0
+
+
+@pytest.mark.physics
+def test_m1_law_mass_initial_reweight(fragment: ps.ProposalSetFragment) -> None:
+    """Spec §12.19(a) (#483): ``initial`` evaluates the MdS17 laws at M1,ZAMS; the ratio helper
+    equals the intensity difference, is 0 when M1,ZAMS = M1, and the flux term is untouched."""
+    tgt = fragment.target_mds17
+    m1 = np.array([1.0, 1.5, 2.0])
+    truth = {
+        "m1_msun": m1,
+        "m2_msun": np.array([0.5, 0.6, 1.0]),
+        "period_days": np.array([300.0, 500.0, 200.0]),
+        "eccentricity": np.array([0.3, 0.2, 0.4]),
+        "is_dark": np.zeros(3, bool),
+        "log10_flux_ratio": ps.relation_log10_flux_ratio(m1, [0.5, 0.6, 1.0]),
+    }
+    cur = ps.mds17_luminous_log_intensity(truth, tgt)
+    ini_t = tgt.model_copy(update={"m1_law_mass": "initial"})
+    with pytest.raises(ValueError):
+        ps.mds17_luminous_log_intensity(truth, ini_t)
+    np.testing.assert_allclose(ps.mds17_luminous_log_intensity(truth, ini_t, m1_law_msun=m1), cur)
+    mz = m1 * np.array([1.0, 1.05, 1.1])
+    ini = ps.mds17_luminous_log_intensity(truth, ini_t, m1_law_msun=mz)
+    r = ps.m1_law_log_ratio(m1, mz, truth["m2_msun"], truth["period_days"], truth["eccentricity"], tgt)
+    np.testing.assert_allclose(r, ini - cur, atol=1e-12)
+    assert r[0] == 0.0 and np.all(r[1:] != 0.0)
+
+
+@pytest.mark.unit
+def test_initial_to_current_ratio() -> None:
+    iso = {"m_init_mean": np.array([1.1, np.nan, 2.0, 1.0]), "m1_mean": np.array([1.0, 1.0, 0.0, 1.0])}
+    np.testing.assert_allclose(ps.initial_to_current_ratio(iso), [1.1, 1.0, 1.0, 1.0])
+
+
+@pytest.mark.unit
+def test_pm13_table_and_mass_scale_mapping(tmp_path: Path) -> None:
+    """§12.19(c) (#486): PM13 table parse, colour interpolation, monotone mapping, end-ratio extrapolation."""
+    from darkhunter_pop import moe_distefano as mds
+
+    hdr = "#SpT Teff Bp-Rp M_G Msun #SpT"
+    body = ["A0V 9700 -0.037 1.00 2.18 A0V", "F0V 7220 0.377 2.51 1.61 F0V", "G2V 5770 0.823 4.635 1.00 G2V",
+            "X9V 1 ... ... ... X9V", "#SpT trailer"]
+    p = tmp_path / "eem.txt"
+    p.write_text("# comment\n" + hdr + "\n" + "\n".join(body) + "\n")
+    t = mds.load_pm13_dwarf_table(p)
+    np.testing.assert_allclose(t["mass"], [2.18, 1.61, 1.00])
+    np.testing.assert_allclose(mds.pm13_mass_from_colour([0.377, 0.6, 2.0], t), [1.61, 1.305, np.nan], atol=1e-3)
+    x = np.repeat([1.05, 1.15, 1.25], 40)
+    y = np.repeat([1.2, 1.1, 1.3], 40)
+    cen, mp = mds.mass_scale_mapping(x, y, [1.0, 1.1, 1.2, 1.3, 1.4], min_count=30)
+    np.testing.assert_allclose(cen, [1.05, 1.15, 1.25])
+    np.testing.assert_allclose(mp, [1.2, 1.2, 1.3])  # running maximum
+    np.testing.assert_allclose(mds.apply_mass_scale([1.1, 2.5, 0.525], cen, mp), [1.2, 2.5 * 1.3 / 1.25, 0.525 * 1.2 / 1.05])
