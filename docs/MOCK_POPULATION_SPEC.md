@@ -1936,6 +1936,39 @@ Both change the parent CMD, and therefore the isochrone M1 drawn at generation t
   - This is reweight-only.
 - **The refit.** The §12.19(b) slope-break refit is run with both `mist` and `pm13_colour`. The report states how much of α_br the scale absorbs, and interprets the break relative to MdS17 on their own mass scale.
 
+**(b) status (Ryan, 2026-10-13): off by default.**
+- The noW and cmdW refits found α_br unconstrained (+0.8 ± 0.8 on the MIST scale, +1.2 ± 0.8 on PM13). The G 5–9 ratio did not move (1.57 → 1.63).
+- The reason: the §12.14 grid splits G only at 13, so the likelihood cannot see the G < 10 excess.
+- The code stays (`rung3.m1_break_msun`, `alpha_br`) but is left out of the model until it is testable, for example once a G < 10 bin exists.
+
+### 12.20 Parent-row MC variance (Ryan, 2026-10-13; #488)
+
+**Problem.** The parent is a K = 10⁶ subsample of `gaia_source`, so every draw from parent row r carries the scale N_full / K.
+- In the bright and near cells a few rows carry all the weight. G 8–10 at d 0.2–0.5 kpc has 61 usable rows, 23 of them clump-box, giving 430 draws.
+- Draws that share a row are correlated: they share its CMD, M1 posterior, class and astrometry.
+- The SAY variance Σ w² treats them as independent, so it understates the uncertainty of the mock expectation in those bins.
+
+**Model.** `rung3.mc_variance: draw | parent_row`.
+- With `parent_row`, the per-bin variance entering the SAY likelihood (§12.2), for orbit and acceleration bins alike, is v_b = Σ_r (Σ_{i∈r, i∈b} w_i)².
+- This is the variance of μ_b under resampling the parent subsample. It is ≥ Σ w² for non-negative weights, and it contains the within-row draw noise to leading order.
+- It is implemented in `rung3_model.row_bin_groups` / `clustered_bin_variance` and is reweight-only.
+
+**Report.** Per bin, the relative MC error both ways and the number of parent rows, at the best fit; the change in parameter errors. If the bright or near bins become dominated by parent-row variance, the alternative is a cut (for example G > 10, or d > 0.1 kpc) on both mock and real. That is proposed only and is Ryan's decision.
+
+### 12.21 Open items recorded 2026-10-13
+
+- **Clump interaction (open; Ryan: model it eventually).**
+  - In the clump box (G 8–10, d 0.2–0.5 kpc), real orbits have e < 0.1 for 28% against 13% in the mock, and median P 494 d against 399 d. The excess is concentrated at log P 2.0–2.6 (×4.5).
+  - Per parent row, the mock yields clump orbits at a rate similar to other giants. The real clump yield per row is about 0.37 × the mock's.
+  - This is consistent with post-RGB-tip interaction modifying the orbits (circularizing them, shifting P) rather than removing them. Ryan notes the Gaia NS binaries survived a common envelope or similar stage.
+  - Not modelled yet; MP-Q28b truncation is not used.
+- **Companion light in the mock CMD (MP-Q6).**
+  - Under MP-Q6 the parent row's observed photometry is the system, so the mock system's G, (BP−RP), evolved class, clump box and CMD weight all use the observed system CMD, which already contains the row's real companion light.
+  - The drawn companion enters through the deblended M1 (MP-Q36, generation time) and the flux ratio f.
+  - What is missing is the conditioning on the observed CMD: the per-draw deblending χ² (`deblend_chi2`, stored per draw) is not in the weights. So a row whose colour needs a bright, hot companion (a blue composite giant) gets companions independent of that.
+  - A reweight by the deblend likelihood is possible without new draws. Its normalization against the single-star hypothesis (the row's isochrone evidence) is a model choice for Ryan.
+- **Resolved companions (MP-Q27, open).** See the #391 report of 2026-10-13: orbit solutions (P ≤ 830 d) are never resolved beyond 0.1″, and accelerations at d < 0.1 kpc are 29% at 0.1–0.4″.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
