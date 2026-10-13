@@ -1,0 +1,20 @@
+by G:
+  G 5-8: real 0.90 (16) | mock 0.92 (12) | excess failure +0.02
+  G 8-9: real 0.82 (26) | mock 0.98 (19) | excess failure +0.16
+  G 9-10: real 0.84 (88) | mock 0.89 (64) | excess failure +0.06
+by class:
+  dwarf: real 0.89 (85) | mock 0.94 (92) | excess failure +0.06
+  evolved: real 0.76 (45) | mock 0.88 (30) | excess failure +0.13
+by distance (kpc):
+  d 0-0.1: real 0.90 (24) | mock 0.95 (22) | excess failure +0.05
+  d 0.1-0.2: real 0.95 (29) | mock 0.93 (46) | excess failure -0.02
+  d 0.2-0.5: real 0.82 (57) | mock 0.92 (42) | excess failure +0.10
+  d 0.5-6: real 0.67 (20) | mock 0.83 (12) | excess failure +0.20
+
+noise-level check: recovered / published, median over re-injected real orbits (orbital outcomes only)
+  bright G<10: significance ratio 0.71, parallax-error ratio 1.18 (n=124)
+  near d<0.5: significance ratio 0.84, parallax-error ratio 1.13 (n=123)
+    G 5-10: significance 0.74, parallax error 1.10 (n=10)
+    G 10-13: significance 0.74, parallax error 1.17 (n=67)
+    G 13-20: significance 0.93, parallax error 1.10 (n=46)
+  far 0.7-1.5 kpc G13-16: significance ratio 0.90, parallax-error ratio 1.07 (n=266)
