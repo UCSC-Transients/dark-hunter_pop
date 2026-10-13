@@ -276,11 +276,16 @@ def fit(args, fc, ns):
     bounds = [(par[n][1], par[n][2]) for n in POP] + ([(-3.0, 3.0)] if i_fe is not None else []) + [(0.0, max(5 * prior[0], 1.0))]
     rng = np.random.default_rng(args.seed)
     results = {}
-    for wkey in ("noW", "cmdW"):
+    init = json.loads(args.init_from.read_text())["results"] if args.init_from else None
+    for wkey in args.wkeys:
         sols, best = [], None
+        x0w = x0.copy()
+        if init is not None:  # start from a previous best fit (the noW one by default) and scatter around it
+            src = init.get(args.init_key or wkey) or init["noW"]
+            x0w = np.clip(np.array(src["theta"], float), [b[0] for b in bounds], [b[1] for b in bounds])
         for s_ in range(args.n_starts):
-            s0 = x0 if s_ == 0 else np.array([rng.uniform(max(lo, v - 1), min(hi, v + 1)) if j != i_ns else rng.uniform(0.5 * v, 1.5 * v)
-                                              for j, (v, (lo, hi)) in enumerate(zip(x0, bounds))])
+            s0 = x0w if s_ == 0 else np.array([rng.uniform(max(lo, v - 1), min(hi, v + 1)) if j != i_ns else rng.uniform(0.5 * v, 1.5 * v)
+                                              for j, (v, (lo, hi)) in enumerate(zip(x0w, bounds))])
             r = minimize(nll, s0, args=(wkey,), method="L-BFGS-B", bounds=bounds, options={"maxiter": 4000, "maxfun": 40000})
             r = minimize(nll, r.x, args=(wkey,), method="Powell", bounds=bounds, options={"maxiter": 30000, "xtol": 1e-4, "ftol": 1e-8})
             sols.append((float(r.fun), r.x.copy()))
@@ -428,6 +433,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--artifacts", nargs="+", default=None, help="artifact file names in cache order (default: gens 23-30)")
     ap.add_argument("--min-ess", type=float, default=30.0)
     ap.add_argument("--n-starts", type=int, default=12)
+    ap.add_argument("--wkeys", nargs="+", default=["noW", "cmdW"], choices=["noW", "cmdW"])
+    ap.add_argument("--init-from", type=Path, default=None, help="summary.json whose best θ seeds the starts")
+    ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
     args = ap.parse_args(argv)

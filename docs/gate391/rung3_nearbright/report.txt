@@ -1,0 +1,58 @@
+#391 bright / near diagnosis (analysis only); E(B-V) = Combined19 x 0.884
+
+A. E(B-V) vs distance (pc): bin: parent n, median, 90th pct, frac > 0.02, frac < 0 | real C1 orbits n, median, 90th pct
+  0-40: 10, 0.0002, 0.0051, 0.000, 0.000 | 230, 0.0000, 0.0042
+  40-63: 31, 0.0000, 0.0091, 0.000, 0.000 | 708, 0.0000, 0.0123
+  63-100: 70, 0.0000, 0.0181, 0.071, 0.000 | 2158, 0.0000, 0.0188
+  100-150: 251, 0.0000, 0.0303, 0.179, 0.000 | 4637, 0.0000, 0.0325
+  150-200: 430, 0.0000, 0.0675, 0.312, 0.000 | 6110, 0.0000, 0.0594
+  200-300: 1368, 0.0354, 0.1414, 0.610, 0.000 | 15013, 0.0328, 0.1238
+
+B. E(B-V) -> 0 inside 100 pc: 111 usable parent rows (0.0698% of usable); A_G median 0.0000 (90th 0.0247), E(BP-RP) median 0.0000 (90th 0.0274) mag; setting E = 0 makes M_G0 fainter by A_G and (BP-RP)_0 redder by E(BP-RP)
+  parent evolved flags changed inside 100 pc: 0 of 111 (evolved 0 -> 0)
+  [noW] mock C1-orbit weight on rows inside 100 pc: 2.9643%; real C1 orbits inside: 2.3603%
+  [cmdW] mock C1-orbit weight on rows inside 100 pc: 4.1188%; real C1 orbits inside: 2.3603%
+  CMD Malmquist log-weight change on the 5616 affected draws: median +0.000, 5-95% -0.041 .. +0.091
+  real C1 orbits inside 100 pc: 3096; evolved among them now 39 (the CMD shift of 0.000 mag in M_G0 is far below the classifier margin)
+
+C. bright / near cells at the batch-2 compliant-grid fit: real n | (mock+spurious)/real | mock ESS (noW; cmdW)
+  [noW] G 5-8 d 0-0.1 dwarf: 151 | 1.34 | 26
+  [noW] G 5-8 d 0.1-0.2 evolved: 127 | 0.88 | 10
+  [noW] G 5-8 d 0.2-0.5 evolved: 261 | 0.92 | 11
+  [noW] G 5-8 d 0.5-6 evolved: 61 | 0.19 | 0
+  [noW] G 8-10 d 0-0.1 dwarf: 611 | 1.10 | 95
+  [noW] G 8-10 d 0.1-0.2 dwarf: 1331 | 1.46 | 116
+  [noW] G 8-10 d 0.1-0.2 evolved: 157 | 0.28 | 1
+  [noW] G 8-10 d 0.2-0.5 dwarf: 1253 | 1.39 | 50
+  [noW] G 8-10 d 0.2-0.5 evolved: 849 | 1.82 | 77
+  [noW] G 8-10 d 0.5-6 dwarf: 55 | 2.49 | 2
+  [noW] G 8-10 d 0.5-6 evolved: 996 | 1.27 | 55
+  [noW] G 10-12 d 0-0.1 dwarf: 720 | 1.03 | 21
+  [noW] G 10-12 d 0.1-0.2 dwarf: 3247 | 1.04 | 88
+  [noW] G 10-12 d 0.2-0.5 dwarf: 10828 | 0.99 | 583
+  [noW] G 10-12 d 0.2-0.5 evolved: 1197 | 0.77 | 53
+  [noW] G 10-12 d 0.5-6 dwarf: 3450 | 1.13 | 90
+  [noW] G 10-12 d 0.5-6 evolved: 3407 | 1.10 | 134
+  [cmdW] G 5-8 d 0-0.1 dwarf: 151 | 2.36 | 13
+  [cmdW] G 5-8 d 0.1-0.2 evolved: 127 | 0.83 | 10
+  [cmdW] G 5-8 d 0.2-0.5 evolved: 261 | 0.83 | 10
+  [cmdW] G 5-8 d 0.5-6 evolved: 61 | 0.19 | 0
+  [cmdW] G 8-10 d 0-0.1 dwarf: 611 | 1.18 | 54
+  [cmdW] G 8-10 d 0.1-0.2 dwarf: 1331 | 1.39 | 100
+  [cmdW] G 8-10 d 0.1-0.2 evolved: 157 | 0.27 | 1
+  [cmdW] G 8-10 d 0.2-0.5 dwarf: 1253 | 1.25 | 48
+  [cmdW] G 8-10 d 0.2-0.5 evolved: 849 | 1.70 | 80
+  [cmdW] G 8-10 d 0.5-6 dwarf: 55 | 2.62 | 2
+  [cmdW] G 8-10 d 0.5-6 evolved: 996 | 1.22 | 53
+  [cmdW] G 10-12 d 0-0.1 dwarf: 720 | 1.07 | 43
+  [cmdW] G 10-12 d 0.1-0.2 dwarf: 3247 | 1.12 | 94
+  [cmdW] G 10-12 d 0.2-0.5 dwarf: 10828 | 1.07 | 274
+  [cmdW] G 10-12 d 0.2-0.5 evolved: 1197 | 0.79 | 51
+  [cmdW] G 10-12 d 0.5-6 dwarf: 3450 | 1.14 | 77
+  [cmdW] G 10-12 d 0.5-6 evolved: 3407 | 1.10 | 133
+
+D. near (d < 0.5 kpc) re-injection self-consistency by G: real acceptance (n) | mock-symmetric acceptance (n)
+  G 5-10: 0.90 (10) | 0.96 (8)
+  G 10-12: 0.81 (40) | 0.95 (31)
+  G 12-14: 0.77 (47) | 0.92 (43)
+  G 14-20: 0.65 (33) | 0.81 (27)
