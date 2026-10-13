@@ -1,0 +1,57 @@
+#391 detection vs population test: 0-0.5 kpc, G 5-19.5, C1 (P <= 830 d) on both sides
+
+mock draws (gens 23-27): 837000; in the padded true-space box: 296429 (11534 accepted)
+real orbits after mirror filters: 167911; in the bin (ZP-corrected d, G, published P <= 830 d): 61316
+kNN match: k = 50 in ('log10 a0', 'log10 P', 'e', 'G', 'd', '|beta|', '|cos i|') scaled by [0.1, 0.1, 0.1, 0.5, 0.15, 20.0, 0.1]; median scaled distance to the k-th neighbour 2.78 (per-dim median |offset| in scale units: 0.70, 0.72, 0.73, 0.72, 0.52, 0.63, 0.67)
+mock acceptance of matched true orbits, mean over all 61316 real systems: 0.530
+  mean signed neighbour offset (scale units): -0.14, +0.09, -0.10, +0.14, -0.08, -0.19, +0.00; pooled acceptance slopes per scale unit: +0.040, -0.045, -0.040, -0.016, -0.056, +0.076, +0.004
+  local-linear (offset-corrected) mock acceptance, all real systems: 0.548
+
+re-injection: 110 real systems (seed 3911 random subset of the bin) x 3 realizations, current epoch model (v2 + N2d + VP loss), base_seed 42; median CPU 12.77 s
+  re-injection acceptance (C1): 247/330 = 0.748 (1-sigma 0.724-0.772)
+  mock acceptance of matched true orbits, same 110 systems: 0.550
+  paired difference mock - re-injection: -0.199 (bootstrap 1-sigma 0.030; 95% -0.257 to -0.138)
+  offset-corrected mock acceptance, same systems: 0.564; paired difference -0.184 (bootstrap 1-sigma 0.030)
+  engine cross-check: 0 matched mock draws (0 nearest per re-injected system), mock truth re-simulated through the rung-1 path: accepted nan (nan-nan) vs their stored proposal-runner outcome nan (nan-nan); per-draw agreement nan
+  SYMMETRIC rung 1: 109 mock accepted orbits (1 nearest per real system on recovered quantities; median scaled distance 1.52) re-injected at their fitted orbit x 3: acceptance 0.906 (0.889-0.921) vs real 0.748; paired difference +0.158 (bootstrap 1-sigma 0.037); outcomes 5-par 0.006 | 7/9-par 0.006 (real 0.021 | 0.055); median recovered significance 27.65 (real 29.63)
+  (the 0 nearest neighbours alone give mock acceptance nan for the re-injected systems)
+  real re-injection | symmetric mock re-injection, acceptance (7/9-par share) [n realizations]:
+    by significance: 0-10: 0.44 (0.17) [18] | 0.83 (0.00) [6]; 10-15: 0.40 (0.00) [30] | 0.78 (0.00) [51]; 15-25: 0.67 (0.06) [54] | 0.83 (0.02) [84]; 25-1e+09: 0.84 (0.05) [228] | 0.97 (0.00) [189]
+    by P (d): 0-300: 0.72 (0.01) [132] | 0.87 (0.00) [135]; 300-500: 0.78 (0.01) [78] | 0.93 (0.00) [75]; 500-650: 0.77 (0.16) [81] | 0.94 (0.01) [93]; 650-830.4: 0.74 (0.08) [39] | 0.89 (0.04) [27]
+  #390 (no epoch model) in the same region: 489 systems, 2124/2445 realizations accepted = 0.869 (1-sigma 0.862-0.875); #390 is stratified, so this is not the bin's population mix
+
+outcome / first-failing-cut fractions (matched mock neighbours of the re-injected systems | re-injection):
+  accepted                     0.550 | 0.748
+  accepted, P > 830 d          0.019 | 0.018
+  insufficient visibility      0.002 | 0.000
+  5-par                        0.046 | 0.021
+  7/9-par                      0.137 | 0.055
+  fails a0_over_err            0.098 | 0.039
+  fails a0_over_err_sqrt_p     0.067 | 0.058
+  fails parallax_over_error    0.076 | 0.061
+  fails sigma_e                0.003 | 0.000
+  fails f2                     0.002 | 0.000
+  orbital: other               0.000 | 0.000
+  median recovered significance a0/sigma_a0 (orbital): mock 24.43 (n=4481) | re-injection 29.63 (n=305)
+  median RUWE (all outcomes): mock 3.01 (n=5487) | re-injection 3.27 (n=330)
+
+acceptance vs real published variable (bin centre: mock matched truth | real re-injection | symmetric mock re-injection [n systems]):
+  log10 true a0 (mas): -0.38:0.33|0.46|0.75[8] -0.12:0.48|0.64|0.85[39] 0.12:0.60|0.81|0.95[41] 0.38:0.68|0.96|0.98[17]
+  log10 P (d): 2.12:0.60|0.85|0.89[9] 2.38:0.53|0.71|0.88[35] 2.62:0.63|0.81|0.94[38] 2.88:0.45|0.69|0.90[26]
+  eccentricity: 0.10:0.61|0.75|0.90[27] 0.30:0.54|0.79|0.89[42] 0.50:0.52|0.72|0.93[27] 0.70:0.53|0.69|0.93[14]
+  G (mag): 13.25:0.48|0.81|0.95[7] 13.75:0.57|0.83|0.89[6] 14.25:0.56|0.67|0.87[13] 14.75:0.46|0.76|0.79[11]
+  d (kpc, ZP-corrected): 
+  |ecliptic latitude| (deg): 7.50:0.46|0.67|0.82[13] 22.50:0.49|0.62|0.90[26] 37.50:0.60|0.75|0.97[23] 52.50:0.57|0.88|0.90[31] 67.50:0.65|0.86|0.88[14]
+  log10 f_m (Msun; published): -2.75:0.43|0.52|0.88[22] -1.75:0.58|0.84|0.91[37] -1.25:0.58|0.80|0.90[41] -0.25:0.59|0.67|0.96[9]
+  dereddened M_G (mag): 3.00:0.60|0.81|0.90[14] 4.00:0.51|0.72|0.95[19] 6.00:0.58|0.79|0.90[59]
+  published RUWE: 1.70:0.32|0.57|0.76[21] 2.50:0.47|0.71|0.86[23] 26.50:0.65|0.82|0.97[66]
+
+population: accepted orbits in the bin (observed d for both, mock recovered P <= 830 d): real 61316; mock noW 47851 (ratio 0.78, ESS 559); mock cmdW 42027 (ratio 0.69, ESS 430)
+mock/real accepted-count ratio per bin (noW | cmdW) [real n]:
+  log10 P (d): 1.14:0.00|0.00[2] 1.41:0.00|0.00[29] 1.69:0.66|0.62[300] 1.96:1.29|0.61[2175] 2.23:0.71|0.64[10962] 2.51:0.82|0.69[17257] 2.78:0.75|0.71[30591]
+  log10 f_m (Msun): -3.75:0.85|0.50[312] -3.25:1.00|0.73[1087] -2.75:0.79|0.97[3566] -2.25:0.73|0.70[9484] -1.75:0.84|0.73[19441] -1.25:0.70|0.60[24033] -0.75:0.59|0.63[3152] -0.25:20.48|3.93[76]
+  dereddened M_G (mag; M1 proxy): -0.50:3.11|3.11[130] 0.50:2.76|2.76[550] 1.50:0.81|0.77[1264] 2.50:0.80|0.75[4214] 3.50:0.67|0.64[9640] 4.50:0.83|0.76[12584] 5.50:0.71|0.54[12705] 6.50:0.72|0.57[9337]
+mock (noW) true-parameter distributions in the bin (true d, G, P <= 830 d): pre-detection share | accepted share | acceptance:
+  true M1 (Msun): 0.40:0.317|0.044|0.0091 0.60:0.250|0.139|0.0363 0.80:0.228|0.377|0.1077 1.00:0.116|0.252|0.1420 1.20:0.050|0.100|0.1317 1.40:0.019|0.049|0.1729 1.60:0.010|0.014|0.0936 1.80:0.007|0.010|0.0980 2.00:0.005|0.014|0.1925
+  true q = M2/M1: 0.05:0.000|0.000|nan 0.15:0.094|0.059|0.0394 0.25:0.107|0.103|0.0598 0.35:0.116|0.182|0.0972 0.45:0.091|0.153|0.1046 0.55:0.087|0.123|0.0882 0.65:0.082|0.135|0.1020 0.75:0.072|0.106|0.0919 0.85:0.067|0.066|0.0613 0.95:0.284|0.072|0.0158 1.05:0.000|0.000|nan 1.15:0.000|0.000|nan
+  true log10 P (d): 1.14:0.107|0.000|0.0000 1.41:0.107|0.000|0.0000 1.69:0.120|0.005|0.0032 1.96:0.127|0.033|0.0209 2.23:0.147|0.145|0.0802 2.51:0.186|0.314|0.1373 2.78:0.206|0.504|0.1982

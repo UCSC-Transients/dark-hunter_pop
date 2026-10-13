@@ -1,0 +1,48 @@
+#391 rung 3 refit 5, model 'old' — INTERIM, not §12.14-compliant (best ESS-feasible grid with the CMD-class axis)
+
+orbit bins 16 (1 x 2 x 2 x 2 x 2) [[5.0, 19.5], [0.0, 0.7, 6.0], [0.0, 2.6, 2.9193], [0.0, 0.4, 1.0]] x class; accelerations 4
+real: 131168 C1 orbits (0.112 evolved), 337949 accelerations (0.116 evolved); empty bins: orbit 0 (0 real), acceleration 0
+N_s prior N(27545, 5247)
+[noW] 10/12 starts within delta(-lnL) < 5 (offsets [0.0, 0.08, 0.2, 0.2, 0.25, 0.35, 0.44, 0.46, 0.59, 1.46, 5.68, 52.66]); -lnL 152.8; at bound: ['a1', 'b2']
+    ln_A           -0.557 +- 0.290
+    alpha_lo       -1.904 +- 0.682
+    alpha_hi       +1.463 +- 0.525
+    gamma_P        -0.865 +- 0.495
+    ln_L_P         +1.471 +- 0.425
+    dgamma_q       +1.999 +- 0.904
+    ln_F_twin      -0.930 +- 0.899
+    a1            +20.000 +- 31.590
+    a2             +0.768 +- 0.286
+    a3             +1.174 +- 0.446
+    b1            +19.956 +- 32.793
+    b2             +1.000 +- 0.533
+    b3             +2.293 +- 1.019
+    N_s        +27385.159 +- 4642.993
+    N_s 27385 vs prior 27545 +- 5247 (pull -0.0); (mock + spurious)/real 0.988; accelerations 0.998
+    evolved share of C1 orbits: real 0.112, mock 0.105 (with spurious 0.107)
+    d bins <0.3 / 0.3-0.7 / 0.7-1.5 / >1.5: (mock+spur)/real 1.32 / 0.85 / 0.91 / 1.59; mock-only 1.15 / 0.62 / 0.70 / 1.38; orbit:accel real 0.475 / 0.375 / 0.357 / 0.425 fit 0.442 / 0.394 / 0.326 / 0.413
+    G bins 5-9:1.61 9-10:1.17 10-12:0.98 12-14:0.90 14-15:0.96 15-16:1.16 16-19.5:3.40
+    ESS orbits 1159; big bins below ESS_b 30: 2/10 (min 18.4, median 97)
+
+    e < 0.1: real 14230, fit 18086
+[cmdW] 10/12 starts within delta(-lnL) < 5 (offsets [0.0, 0.01, 0.03, 0.04, 0.43, 0.44, 0.49, 0.67, 0.92, 2.22, 19.29, 40.19]); -lnL 152.7; at bound: ['a1', 'b2']
+    ln_A           -0.340 +- 0.368
+    alpha_lo       -1.581 +- 1.053
+    alpha_hi       +1.026 +- 0.704
+    gamma_P        -0.645 +- 0.599
+    ln_L_P         +1.283 +- 0.462
+    dgamma_q       +0.914 +- 0.748
+    ln_F_twin      -0.559 +- 0.915
+    a1            +20.000 +- 63.959
+    a2             +0.721 +- 0.307
+    a3             +1.257 +- 0.476
+    b1            +19.627 +- 58.627
+    b2             +1.000 +- 0.449
+    b3             +2.487 +- 1.078
+    N_s        +25788.403 +- 4647.043
+    N_s 25788 vs prior 27545 +- 5247 (pull -0.3); (mock + spurious)/real 0.987; accelerations 0.999
+    evolved share of C1 orbits: real 0.112, mock 0.109 (with spurious 0.110)
+    d bins <0.3 / 0.3-0.7 / 0.7-1.5 / >1.5: (mock+spur)/real 1.32 / 0.85 / 0.91 / 1.45; mock-only 1.16 / 0.64 / 0.72 / 1.26; orbit:accel real 0.475 / 0.375 / 0.357 / 0.425 fit 0.446 / 0.390 / 0.327 / 0.408
+    G bins 5-9:1.82 9-10:1.16 10-12:1.08 12-14:0.87 14-15:0.95 15-16:1.14 16-19.5:3.19
+    ESS orbits 947; big bins below ESS_b 30: 1/10 (min 26.9, median 63)
+

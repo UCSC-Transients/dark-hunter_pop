@@ -1,0 +1,97 @@
+#391 §12.14 feasibility (+ CMD-class axis) at the refit-5 best fit
+
+grid [2, 3, 3, 3] x class (108 bins, 23 big): failing 5 (11.7% of real), min big ESS_b 12.5; cost ~216 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+    failing: G 5-13 d 0-0.5 lP 2-2.60 e 0.3-0.6 dwarf: real 6256, ESS 14.7
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0-0.3 evolved: real 2070, ESS 24.9
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0.3-0.6 dwarf: real 3893, ESS 26.8
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0.3-0.6 evolved: real 1544, ESS 21.9
+    failing: G 5-13 d 1-6 lP 2.6-2.92 e 0-0.3 evolved: real 1647, ESS 12.5
+grid [2, 3, 3, 4] x class (144 bins, 30 big): failing 9 (15.7% of real), min big ESS_b 7.8; cost ~441 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+    failing: G 5-13 d 0-0.5 lP 2-2.60 e 0.4-0.6 dwarf: real 3806, ESS 7.8
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0-0.2 evolved: real 1344, ESS 18.0
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0.2-0.4 dwarf: real 3729, ESS 12.8
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0.2-0.4 evolved: real 1386, ESS 13.1
+    failing: G 5-13 d 0.5-1 lP 2.6-2.92 e 0.4-0.6 dwarf: real 2159, ESS 20.4
+    failing: G 13-19.5 d 0-0.5 lP 2-2.60 e 0.4-0.6 dwarf: real 2926, ESS 16.7
+    failing: G 13-19.5 d 0.5-1 lP 2-2.60 e 0-0.2 dwarf: real 1646, ESS 24.1
+    failing: G 13-19.5 d 0.5-1 lP 2-2.60 e 0.2-0.4 dwarf: real 2279, ESS 22.3
+    failing: G 13-19.5 d 0.5-1 lP 2-2.60 e 0.4-0.6 dwarf: real 1329, ESS 23.6
+grid [2, 4, 3, 3] x class (144 bins, 26 big): failing 8 (15.2% of real), min big ESS_b 5.7; cost ~660 CPU-h (total-ESS scaling), worst per-cell 161 CPU-h
+    failing: G 5-13 d 0-0.3 lP 2-2.60 e 0.3-0.6 dwarf: real 3638, ESS 16.9
+    failing: G 5-13 d 0.3-0.7 lP 2-2.60 e 0.3-0.6 dwarf: real 3570, ESS 5.7
+    failing: G 5-13 d 0.3-0.7 lP 2.6-2.92 e 0-0.3 evolved: real 1452, ESS 23.1
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0-0.3 evolved: real 2369, ESS 21.3
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2115, ESS 17.2
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0.3-0.6 evolved: real 1644, ESS 21.8
+    failing: G 13-19.5 d 0-0.3 lP 2-2.60 e 0.3-0.6 dwarf: real 2452, ESS 8.1
+    failing: G 13-19.5 d 0-0.3 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2748, ESS 29.2
+grid [2, 4, 3, 4] x class (192 bins, 33 big): failing 11 (15.7% of real), min big ESS_b 3.4; cost ~1214 CPU-h (total-ESS scaling), worst per-cell 421 CPU-h
+    failing: G 5-13 d 0-0.3 lP 2-2.60 e 0.4-0.6 dwarf: real 2228, ESS 9.0
+    failing: G 5-13 d 0-0.3 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2639, ESS 22.9
+    failing: G 5-13 d 0.3-0.7 lP 2-2.60 e 0-0.2 dwarf: real 1953, ESS 25.5
+    failing: G 5-13 d 0.3-0.7 lP 2-2.60 e 0.4-0.6 dwarf: real 2150, ESS 3.4
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0-0.2 dwarf: real 1461, ESS 21.6
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0-0.2 evolved: real 1564, ESS 13.9
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0.2-0.4 dwarf: real 1892, ESS 13.6
+    failing: G 5-13 d 0.7-1.5 lP 2.6-2.92 e 0.2-0.4 evolved: real 1483, ESS 15.0
+    failing: G 13-19.5 d 0-0.3 lP 2-2.60 e 0.4-0.6 dwarf: real 1437, ESS 5.3
+    failing: G 13-19.5 d 0-0.3 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2082, ESS 24.2
+    failing: G 13-19.5 d 0-0.3 lP 2.6-2.92 e 0.4-0.6 dwarf: real 1664, ESS 19.0
+grid [4, 3, 3, 3] x class (216 bins, 29 big): failing 11 (19.6% of real), min big ESS_b 7.6; cost ~461 CPU-h (total-ESS scaling), worst per-cell 298 CPU-h
+    failing: G 5-12 d 0-0.5 lP 2.6-2.92 e 0.6-1 dwarf: real 1404, ESS 27.8
+    failing: G 5-12 d 0.5-1 lP 2.6-2.92 e 0-0.3 dwarf: real 1410, ESS 7.6
+    failing: G 5-12 d 0.5-1 lP 2.6-2.92 e 0-0.3 evolved: real 1463, ESS 14.1
+    failing: G 12-14 d 0-0.5 lP 2-2.60 e 0.3-0.6 dwarf: real 5669, ESS 10.0
+    failing: G 12-14 d 0.5-1 lP 2.6-2.92 e 0.6-1 dwarf: real 1715, ESS 26.6
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0-0.3 dwarf: real 3483, ESS 23.7
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0-0.3 evolved: real 1823, ESS 18.7
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2697, ESS 28.4
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0.3-0.6 evolved: real 1628, ESS 21.7
+    failing: G 14-16 d 0-0.5 lP 2-2.60 e 0.3-0.6 dwarf: real 2238, ESS 23.9
+    failing: G 14-16 d 1-6 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2167, ESS 29.1
+grid [4, 3, 3, 4] x class (288 bins, 34 big): failing 16 (26.1% of real), min big ESS_b 5.5; cost ~695 CPU-h (total-ESS scaling), worst per-cell 346 CPU-h
+    failing: G 5-12 d 0-0.5 lP 2.6-2.92 e 0.2-0.4 dwarf: real 3284, ESS 25.8
+    failing: G 5-12 d 0-0.5 lP 2.6-2.92 e 0.6-1 dwarf: real 1404, ESS 27.8
+    failing: G 12-14 d 0-0.5 lP 2-2.60 e 0.4-0.6 dwarf: real 3310, ESS 5.5
+    failing: G 12-14 d 0.5-1 lP 2-2.60 e 0-0.2 dwarf: real 1796, ESS 28.8
+    failing: G 12-14 d 0.5-1 lP 2-2.60 e 0.2-0.4 dwarf: real 2603, ESS 24.3
+    failing: G 12-14 d 0.5-1 lP 2-2.60 e 0.4-0.6 dwarf: real 1563, ESS 23.8
+    failing: G 12-14 d 0.5-1 lP 2.6-2.92 e 0.6-1 dwarf: real 1715, ESS 26.6
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0-0.2 dwarf: real 2113, ESS 13.9
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2535, ESS 19.4
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0.2-0.4 evolved: real 1436, ESS 18.5
+    failing: G 12-14 d 1-6 lP 2.6-2.92 e 0.4-0.6 dwarf: real 1532, ESS 18.1
+    failing: G 14-16 d 0-0.5 lP 2-2.60 e 0.2-0.4 dwarf: real 1929, ESS 22.0
+    failing: G 14-16 d 0-0.5 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2991, ESS 20.8
+    failing: G 14-16 d 0-0.5 lP 2.6-2.92 e 0.4-0.6 dwarf: real 2111, ESS 20.4
+    failing: G 14-16 d 1-6 lP 2.6-2.92 e 0-0.2 dwarf: real 1778, ESS 24.8
+    failing: G 14-16 d 1-6 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2108, ESS 23.5
+grid [4, 4, 3, 3] x class (288 bins, 29 big): failing 14 (24.9% of real), min big ESS_b 8.6; cost ~386 CPU-h (total-ESS scaling), worst per-cell 343 CPU-h
+    failing: G 5-12 d 0-0.3 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2268, ESS 22.2
+    failing: G 5-12 d 0.3-0.7 lP 2-2.60 e 0-0.3 dwarf: real 1389, ESS 20.0
+    failing: G 5-12 d 0.3-0.7 lP 2-2.60 e 0.3-0.6 dwarf: real 1324, ESS 13.3
+    failing: G 5-12 d 0.3-0.7 lP 2.6-2.92 e 0-0.3 dwarf: real 3176, ESS 24.9
+    failing: G 5-12 d 0.3-0.7 lP 2.6-2.92 e 0.3-0.6 dwarf: real 2358, ESS 26.6
+    failing: G 5-12 d 0.7-1.5 lP 2.6-2.92 e 0-0.3 evolved: real 1487, ESS 8.6
+    failing: G 12-14 d 0-0.3 lP 2-2.60 e 0.3-0.6 dwarf: real 2450, ESS 9.5
+    failing: G 12-14 d 0.3-0.7 lP 2-2.60 e 0.3-0.6 dwarf: real 5191, ESS 10.7
+    failing: G 12-14 d 0.7-1.5 lP 2.6-2.92 e 0-0.3 evolved: real 1802, ESS 23.7
+    failing: G 12-14 d 0.7-1.5 lP 2.6-2.92 e 0.3-0.6 evolved: real 1682, ESS 26.1
+    failing: G 14-16 d 0-0.3 lP 2.6-2.92 e 0.3-0.6 dwarf: real 1373, ESS 24.3
+    failing: G 14-16 d 0.3-0.7 lP 2-2.60 e 0-0.3 dwarf: real 1603, ESS 14.7
+    failing: G 14-16 d 0.3-0.7 lP 2-2.60 e 0.3-0.6 dwarf: real 1488, ESS 19.2
+    failing: G 14-16 d 0.3-0.7 lP 2.6-2.92 e 0.3-0.6 dwarf: real 5013, ESS 27.0
+grid [4, 4, 3, 4] x class (384 bins, 30 big): failing 13 (20.4% of real), min big ESS_b 5.8; cost ~649 CPU-h (total-ESS scaling), worst per-cell 469 CPU-h
+    failing: G 5-12 d 0-0.3 lP 2-2.60 e 0.2-0.4 dwarf: real 1813, ESS 22.4
+    failing: G 5-12 d 0-0.3 lP 2.6-2.92 e 0.2-0.4 dwarf: real 1797, ESS 14.5
+    failing: G 5-12 d 0.3-0.7 lP 2.6-2.92 e 0-0.2 dwarf: real 1994, ESS 17.0
+    failing: G 5-12 d 0.3-0.7 lP 2.6-2.92 e 0.2-0.4 dwarf: real 2213, ESS 12.6
+    failing: G 5-12 d 0.3-0.7 lP 2.6-2.92 e 0.4-0.6 dwarf: real 1327, ESS 21.6
+    failing: G 12-14 d 0-0.3 lP 2-2.60 e 0.4-0.6 dwarf: real 1469, ESS 6.5
+    failing: G 12-14 d 0-0.3 lP 2.6-2.92 e 0.2-0.4 dwarf: real 1650, ESS 26.6
+    failing: G 12-14 d 0-0.3 lP 2.6-2.92 e 0.4-0.6 dwarf: real 1362, ESS 26.8
+    failing: G 12-14 d 0.3-0.7 lP 2-2.60 e 0.4-0.6 dwarf: real 2974, ESS 5.8
+    failing: G 12-14 d 0.7-1.5 lP 2.6-2.92 e 0.2-0.4 evolved: real 1521, ESS 21.1
+    failing: G 14-16 d 0.3-0.7 lP 2-2.60 e 0.2-0.4 dwarf: real 1355, ESS 11.7
+    failing: G 14-16 d 0.3-0.7 lP 2.6-2.92 e 0.2-0.4 dwarf: real 4285, ESS 18.0
+    failing: G 14-16 d 0.3-0.7 lP 2.6-2.92 e 0.4-0.6 dwarf: real 2977, ESS 24.0

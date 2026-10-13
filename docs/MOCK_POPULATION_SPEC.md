@@ -691,7 +691,7 @@ MP-Q19) needs ≈ 125 CPU h. That is ≈ 31 h wall at 4 workers, or ≈ 16 h at 
 stays out of reach on the laptop by a factor of ~10⁵. A further 2–3k-draw tuning generation
 (≈ 1 h) would firm up the efficiency before the full run is sized.
 
-## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11, decided §0.4; MP-Q40 open, §11.9; MP-Q41–Q45 from §12)
+## 8. Open questions for Ryan (MP-Q1–Q6, Q13 decided §0.1; MP-Q19, Q24–Q26, Q29, Q30, Q32 decided §0.2; MP-Q28a/b/c/f decided §0.3; MP-Q25–Q32 from §9; MP-Q33–Q39 from §11, decided §0.4; MP-Q40 open, §11.9; MP-Q41–Q45 from §12; MP-Q46 §12.16)
 
 - **MP-Q1**: decided 2026-10-02, see §0.1.
 - **MP-Q2**: decided 2026-10-02, see §0.1.
@@ -1124,6 +1124,7 @@ model depends on G and sky position only, and that is consistent with this.
 
 ### 10.8 Options for Ryan (MP-Q28a–g; none chosen)
 
+- *(MP-Q28: option A, a free evolved-primary multiplier, adopted for rung 3 on 2026-10-10, §12.15; the items below stay open.)*
 - **MP-Q28a, classifier margin n_σ** (§10.2): 3 (provisional), 2, 4 or 5. The real Orbital +
   AstroSpectroSB1 evolved fraction moves 16.5 / 14.4 / 13.3 / 12.4%. Alternatively, use a
   probabilistic membership P(evolved) from σ_tot instead of a hard flag.
@@ -1740,7 +1741,7 @@ The §12.11 model is unchanged: the same 14 free parameters, no new priors, and 
   - MdS17: ln A = 0, α_lo = 0.5, all other population modifiers 0, and Beta a = 1.4, b = 1 in every range, which is MdS17's power law at η ≈ 0.4.
 - **Rule** (ESS and real counts only; no fit residual is involved):
   - "Big" bins are those holding ≥ 1% of the real orbits.
-  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice.
+  - Only candidates with **at least two bins in log P and in e** are eligible, because the period tilt and the Beta parameters need them to be identifiable. This is a model requirement, not a residual-based choice. *(Superseded by the §12.14 bin rule, Ryan, 2026-10-10.)*
   - Among those, take the candidate where every big bin has min-over-both-points ESS_b ≥ 30, with the most bins.
   - If none qualifies, take the candidate that maximizes the share of real orbits in bins with ESS_b ≥ 30 at both points; break ties by more bins.
   - The refit reports when no candidate qualifies, and compares the resulting number of data bins with the number of free parameters.
@@ -1777,6 +1778,112 @@ The model is §12.11 with the §12.12 machinery. Only the draws change.
 - **Reported:** per-bin ESS before (gens 23–28) and after (gens 23–29) at the same θ.
 
 **Generation 30** (at most once, about 50 CPU-h, same settings). It runs only if refit 4 shows that **sampling** is still the limit: key bins below ESS_b 30, the finer grid not reachable, or parameters unidentified because of MC noise. It is re-centred on refit 4's robust parameters and targeted at the bins refit 4 reports as ESS-limited. It does not run if the limit is the model form. No further generation runs without asking.
+
+### 12.14 Bin rule: bins resolve every correction (Ryan, 2026-10-10)
+
+Ryan's rule replaces the §12.12 eligibility amendment (≥ 2 bins in log P and in e):
+
+> "The number of bins and their edges should be chosen so the corrections can make the model match the data."
+
+**Reading.** The likelihood grid must **resolve every axis on which a model correction acts**, so that each correction parameter is constrained by bins that can show its effect. ESS_b ≥ 30 in every bin holding ≥ 1% of the real orbits still applies, as a constraint on top of that.
+
+**Axis requirements**, derived from the model structure only:
+
+| correction | parameters | the grid must have |
+|---|---|---|
+| Period shape (§12.3) | γ_P, ln L_P | ≥ 2 orbit log P bins inside the C1 range, and the acceleration likelihood (long-P weight) |
+| Beta eccentricities (§12.11) | (a_k, b_k) per log P range | an orbit log P edge at every Beta range edge that falls inside the C1 range (2.0, 2.6), so each range has its own cells, and ≥ 3 e bins in each range: the e shape has two parameters, so two bins only fix one combination |
+| M1 slopes (§12.3) | α_lo, α_hi | an axis that separates primary mass at fixed G and d. On the current grid that is G at fixed d; a G split is required |
+| Evolved-primary correction (§12.15, when adopted) | its parameters | the axis it acts on (a G split, or an evolved / dwarf split) |
+| Spurious component (§12.11) | N_s (shape fixed) | no extra axis: a single amplitude |
+| Distance behaviour | the d dependence of all of the above | ≥ 3 d bins, so the near and far ends are separate from the middle |
+
+**Guardrail** (CLAUDE.md, statistical guardrails). Edges are fixed from the model structure and the mock-side ESS **before real counts are examined**. Real counts enter only through the "≥ 1% of real orbits" definition of a big bin, as in §12.12. Edges are never tuned on real residuals.
+
+**Conflict.** If no grid satisfies both the axis requirements and the ESS constraint, the refit reports that, together with the draw cost to resolve it: the CPU-h needed to bring the failing cells to ESS_b ≥ 30 at the current re-centred rate. Neither requirement is relaxed.
+
+### 12.15 Evolved-primary frequency multiplier (MP-Q28 option A; Ryan, 2026-10-10)
+
+**Diagnosis** (`docs/gate391/rung3_modelfix/`). Evolved primaries make up 15.0% of the mock C1 orbits against 11.2% in the real sample. The excess is flat in period, so a short-P truncation (MP-Q28b) cannot remove it.
+
+**Model.** λ(x) → λ(x) · f_evo for every draw whose parent row is CMD-evolved under the §10.2 classifier (`giants.classify_parent`, the provisional n_σ, unchanged).
+- ln f_evo is a free rung-3 parameter, uniform in [−3, 3], and 0 at MdS17.
+- It is a target change, so it is applied by reweighting and **does not invalidate stored draws**.
+- MP-Q28a (classifier margin), MP-Q28b (truncation) and MP-Q28c/e (evolved M1) stay open and are not used.
+
+**Likelihood axis (§12.14).** Orbit and acceleration bins gain a CMD-class axis: evolved vs dwarf + unclassified.
+- The real side is classified with the same ridge and margin (`giants.cmd_for_rows` + `classify_evolved`) as the mock parent.
+- The class axis is required whenever f_evo is free. It may replace the G split only if the G split is not needed for another correction; under §12.14 it usually is (the M1 slopes).
+
+### 12.16 Spurious template calibrated on the re-injection samples (Ryan, 2026-10-10)
+
+This replaces the §12.11 / §12.12 shape (T_GD ∝ the real (G, d) counts × T_PE) and the 0.21 ± 0.04 bin prior.
+
+**What is measured.** Two re-injection samples, each re-injected 3 times, provide the data:
+- the PR #455 sample: 300 real C1 orbits at 0.7–1.5 kpc, G 13–16, plus 218 matched mock accepted orbits;
+- the d < 0.5 kpc sample: about 220 real orbits at all G, plus matched mock orbits, approved 2026-10-10 (about 2 CPU-h).
+
+For real system i, the number of re-detections is k_i ~ Binomial(3, A_mock(x_i) · (1 − π(x_i))):
+- **A_mock(x)** is the mock's own self-consistency re-detection probability. It is a logistic model fitted to the mock systems on covariates that exist on both sides.
+- **π(x)**, the probability that the real solution is spurious or non-Keplerian, is logistic.
+
+**Covariates.** The candidates are G, observed BP−RP, d (zero-point-corrected), log P, e, log(a0/σ_a0), log(ϖ/σ_ϖ), F2 (real only, so in π only) and the harmonic distance.
+- The definitions, and the ΔBIC inclusion rule from `config/spuriousness_model.yaml` / `sensitivity_analysis`, are **reused** from the shared `spuriousness_model`.
+- That fitted model is **not** reused. It predicts a different label (whether a source is a usable compact-object candidate), trained on 293 high-mass-function candidates, whereas this template needs the self-consistency failure of the bulk orbit sample.
+- Shrinkage: an N(0, 1) prior on the standardized slopes. Inclusion: forward selection by ΔBIC. The refit reports the coefficients, their Laplace errors and the ΔBIC.
+
+**Template.** T_b ∝ Σ_{real C1 orbits i in b} π̂(x_i): the expected spurious count, a fixed shape.
+- The amplitude is N_s = f_s · Σ_i π̂(x_i). The prior on f_s is N(1, σ_cal), where σ_cal is the relative calibration uncertainty of Σ π̂ propagated from the coefficient covariance.
+- This prior replaces the 0.21 ± 0.04 bin prior, which came from the first of these two samples anyway.
+
+**Outside the calibrated covariate range** (MP-Q46, **decided 2026-10-11: (i) clamp**, Ryan; config key `spurious_extrapolation: clamp`). The options considered were:
+- (i) clamp each covariate to the calibrated range (**adopted**);
+- (ii) the linear-logit extrapolation of the fitted model;
+- (iii) π = 0 outside the range.
+
+### 12.17 2-D CMD Malmquist closed-loop ledger (Ryan, 2026-10-10; tracking issue #471)
+
+The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decision, this ledger records whether it can change the §11.5 closed loop, how, and the current worst pull. The latest closed-loop run (`docs/gate418/`, small run, Combined19 real dust, σ(E)/E 0.085) has a worst |pull| of 7.6 with the 2-D weight (6.7 with none, 8.8 with 1-D). The "every pull ≤ 3" target is not met.
+
+| decision | can it change the closed loop? | how | worst 2-D pull after it |
+|---|---|---|---|
+| MP-Q40 coeval MIST companions (2026-10-04) | yes, and it did | it changes the companion light in the synthetic universe and in W's single-star model | 8.2 (MIST density + Jacobian), then 6.6 with deblending + posterior M1 |
+| Combined19 E(B−V) native-units factor 0.884 (§0.6, #295) | yes | E(B−V) scale enters A_G and the dereddened CMD; a 13% scale error moves the max \|pull\| 8.2 → 10.3 | 7.6 (real-dust run) |
+| §12.14 bin rule (2026-10-10) | no | it acts only on the rung-3 likelihood bins; the closed loop has its own bins | unchanged (7.6) |
+| MP-Q28 option A, f_evo (§12.15) | no, by construction | §10.6 sets W = 1 for giants, so a multiplier on evolved rows does not interact with W; the closed loop's synthetic universe uses the MdS17 target, which f_evo does not alter | unchanged (7.6); re-run if f_evo is ever applied to the universe |
+| Spurious template (§12.16) | no | it is a rung-3 fit component on the real side; the closed loop has no spurious solutions | unchanged (7.6) |
+| MP-Q47 (i): no change to the reddening inside about 100 pc (§12.18, 2026-10-13) | no | it keeps the inputs as they were; zeroing them would move the CMD log weight by only −0.04 to +0.09 on 0.07% of parent rows | unchanged (7.6) |
+
+**Rung-3 quantities that depend on W**, reported for noW and cmdW in every refit:
+- α_lo and α_hi: gens 23–30 control fit, noW +1.46 / −0.10, cmdW +2.26 / −0.68;
+- the near-distance (< 0.3 kpc) residual: mock-only 1.09 (noW) vs 1.01 (cmdW).
+
+**Update 2026-10-13** (§12.14-compliant 108-bin grid, gens 23–32; the cmdW fit re-run with 36 starts, seeded from the noW fit):
+- α_lo: +0.36 ± 0.18 (noW) vs +0.26 ± 0.18 (cmdW).
+- **α_hi: +0.42 ± 0.08 (noW) vs +0.18 ± 0.09 (cmdW), Δ ≈ 2σ.** α_hi is the rung-3 parameter that depends on W.
+- Near-distance (< 0.3 kpc) residual, (mock + spurious) / real: 1.07 (noW) vs 1.11 (cmdW); mock-only 0.90 vs 0.94.
+- Reddening check (`docs/gate391/rung3_nearbright/`): Combined19 × 0.884 is about 0 inside 100 pc (90th percentile ≤ 0.02). Setting it to 0 changes the CMD log weight of the affected draws by +0.00 at the median (5–95%: −0.04 to +0.09) and flips no evolved class. The closed loop is unaffected; the worst 2-D pull is still 7.6.
+
+### 12.18 Reddening inside ~100 pc (MP-Q47; Ryan, 2026-10-13: option (i), no change)
+
+**Decision: no change.** The 2-D CMD, the isochrone M1 and the CMD Malmquist weight keep using Combined19 × 0.884 at every distance.
+
+**Reasoning, on file:**
+- **No map inside 63 pc.** Green et al. (2019), §4: Bayestar19 has "120 distance bins spaced logarithmically in distance from 63 pc to 63 kpc", so it has no grid point inside 63 pc.
+- **Unclipped extrapolation.** `mwdust.Combined19` uses the same grid (µ = 4–18.875). It evaluates with `InterpolatedUnivariateSpline(k = 1)`, which extrapolates linearly below 63 pc, and `giants.combined19_ebv` does not clip it.
+- **Measured near-zero reddening** (`docs/gate391/rung3_nearbright/`): E(B−V) = Combined19 × 0.884 is ≈ 0 inside 200 pc (median 0.000). The 90th percentile is ≤ 0.009 inside 63 pc and 0.018 at 63–100 pc, for both the parent rows and the real orbits, and it never goes negative.
+- **Effect of zeroing it.** Setting E(B−V) = 0 inside 100 pc flips no evolved class. It changes the CMD Malmquist log weight of the affected draws by +0.00 at the median (5–95%: −0.04 to +0.09).
+
+**Options not taken:**
+- (ii) clamp the extrapolation below 63 pc;
+- (iii) a Local-Bubble taper.
+
+Both change the parent CMD, and therefore the isochrone M1 drawn at generation time. That would invalidate the stored draws (about 480 CPU-h to re-simulate gens 23–32) for an effect measured to be negligible.
+
+**Mock and data use the same lookup.**
+- The mock parent's CMD (`giants.parent_row_cmd` and `proposal_set.parent_cmd_isochrone`, which feed the isochrone M1, the evolved class and the CMD weight) calls `cmd_for_rows` → `combined19_ebv(native_to_ebv = 0.884)` at the row's (l, b, Bailer-Jones `r_med_geo`).
+- The real side calls the same function with a zero-point-corrected 1/ϖ distance.
+- Two paths still use the raw SFD-scale value, both by design and both outside the decided chain: `proposal_set.combined19_a_g` (the legacy 1-D Malmquist weight, A_G = 2.8 × raw) and `forward_model` (El-Badry et al. 2024's own recipe for the `selection_function_astrometric` box mock).
 
 ## References
 
