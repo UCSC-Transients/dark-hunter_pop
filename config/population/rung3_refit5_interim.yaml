@@ -67,6 +67,7 @@ rung3:
   eta_floor: -0.9
   q_normalization: mds17_q03_to_1
   q_norm_grid_points: 200
+  spurious_extrapolation: clamp
   spurious_template: additive_pr455_shape_binning_independent_prior
   ecc_log_p_ranges:
   - 2.0

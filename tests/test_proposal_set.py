@@ -853,7 +853,7 @@ def test_parent_target_component_zero_weight_is_identity() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml"])
+@pytest.mark.parametrize("path", [TOPUP29, "config/population/proposal_set_restart_topup30.yaml", "config/population/proposal_set_restart_batch31.yaml", "config/population/proposal_set_restart_batch32.yaml"])
 def test_parent_target_component_normalized_bounded_and_targeted(path: str) -> None:
     plx, g, m1, usable, evolved = _parent_rows()
     cfg = ps.load_proposal_set_fragment(path).proposal.parent
@@ -866,7 +866,8 @@ def test_parent_target_component_normalized_bounded_and_targeted(path: str) -> N
     assert np.max(base[ok] / q[ok]) <= 1.0 / (1.0 - cfg.target_weight) + 1e-12
     (g0, g1), (p0, p1) = cfg.target_g_range, cfg.target_parallax_range_mas
     box = usable & (g >= g0) & (g < g1) & (plx >= p0) & (plx < p1)
-    assert q[box].sum() > base[box].sum() + 0.5 * cfg.target_weight
+    # the targeted component puts all of its weight eps inside the box
+    assert q[box].sum() == pytest.approx((1 - cfg.target_weight) * base[box].sum() + cfg.target_weight, rel=1e-10)
     if cfg.target_m1_power > 0:  # the high-mass tilt favours M1 > pivot
         hi = box & (m1 > 1.6)
         lo = box & (m1 < 0.8)
@@ -887,7 +888,7 @@ TOPUP30 = "config/population/proposal_set_restart_topup30.yaml"
 
 
 @pytest.mark.physics
-@pytest.mark.parametrize("path", [TOPUP29, TOPUP30])
+@pytest.mark.parametrize("path", [TOPUP29, TOPUP30, "config/population/proposal_set_restart_batch31.yaml", "config/population/proposal_set_restart_batch32.yaml"])
 def test_topup29_shape_and_ecc_bounded(path: str) -> None:
     from darkhunter_pop import malmquist as mq
 

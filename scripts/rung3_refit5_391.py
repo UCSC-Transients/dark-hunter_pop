@@ -61,7 +61,10 @@ def extend(args, fc, ns):
     parent = ps.load_parent_snapshot(args.parent_dir, cfg, prop)
     gcfg = load_giants_config(Path("config/population/giants.yaml"))
     pcls, ridge = classify_parent(parent, cfg, gcfg, cmd=parent_row_cmd(parent, cfg, gcfg))
-    prow = np.concatenate([np.asarray(ps.read_proposal_artifact(args.artifact_dir / a)[0]["parent_row"], np.int64) for a in GEN_ARTIFACTS])
+    arts = args.artifacts or GEN_ARTIFACTS
+    prow = np.concatenate([np.asarray(ps.read_proposal_artifact(args.artifact_dir / a)[0]["parent_row"], np.int64) for a in arts])
+    if prow.size != np.load(args.cache, allow_pickle=True)["generation"].size:
+        raise SystemExit("artifact list does not match the weight cache")
     ns.m_cls = (pcls.classified & pcls.evolved)[prow[ns.rel]].astype(float)
     pc = parent.columns
     pg = np.asarray(pc["phot_g_mean_mag"], float)
@@ -200,8 +203,13 @@ def fit(args, fc, ns):
     big = k_o >= 0.01 * N_o
     shp = [e.size - 1 for e in oe] + [2]
     phi = float(fc["empty_bin_floor"])
-    empty_o = np.bincount(ob[ob >= 0], minlength=n_ob) == 0
-    empty_a = np.bincount(ab[ab >= 0], minlength=n_ab) == 0
+    # §12.12 floor: a bin is "empty" when its mock expectation is zero for every θ, i.e. no draw with positive
+    # θ-independent base weight (the modifiers are multiplicative), under either weighting.
+    base_o = sum(np.bincount(ob[ob >= 0], weights=ns.W[k][ob >= 0], minlength=n_ob) for k in ("noW", "cmdW"))
+    base_a = sum(np.bincount(ab[ab >= 0], weights=ns.W[k][ab >= 0], minlength=n_ab) for k in ("noW", "cmdW"))
+    # "zero" = below 0.5 expected counts at the base (θ = 0) weights: a bin held by a single ~1e-284-weight draw is
+    # empty in practice, but k·ln μ would still pull θ through it. Its mock term is dropped (θ-independent).
+    empty_o, empty_a = base_o < 0.5, base_a < 0.5
     floor_o, floor_a = np.where(empty_o, phi, 0.0), np.where(empty_a, phi, 0.0)
     rep = [f"#391 rung 3 refit 5, model '{args.model}' — {fc.get('label', 'INTERIM')}", "",
            f"orbit bins {n_ob} ({' x '.join(map(str, shp))}) {[e.tolist() for e in oe]} x class; accelerations {n_ab}",
@@ -253,8 +261,9 @@ def fit(args, fc, ns):
         lm = ns.log_mod(full(th)) + (evolved_log_modifier(evo, th[i_fe]) if i_fe is not None else 0.0)
         w = ns.W[wkey] * np.exp(lm)
         so, sa = ob >= 0, ab >= 0
-        return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob), np.bincount(ob[so], weights=w[so] ** 2, minlength=n_ob),
-                np.bincount(ab[sa], weights=w[sa], minlength=n_ab), np.bincount(ab[sa], weights=w[sa] ** 2, minlength=n_ab))
+        keep_o, keep_a = ~empty_o, ~empty_a
+        return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob) * keep_o, np.bincount(ob[so], weights=w[so] ** 2, minlength=n_ob) * keep_o,
+                np.bincount(ab[sa], weights=w[sa], minlength=n_ab) * keep_a, np.bincount(ab[sa], weights=w[sa] ** 2, minlength=n_ab) * keep_a)
 
     def nll(th, wkey):
         _, mu_o, v_o, mu_a, v_a = expected(th, wkey)
@@ -355,7 +364,7 @@ def fit(args, fc, ns):
 
 def feasibility(args, fc, ns):
     """§12.14 compliant grids + class axis at this fit's θ (noW, cmdW) and MdS17; draw cost."""
-    res = json.loads((args.out_dir / "summary.json").read_text())["results"]
+    res = json.loads((args.theta_summary or (args.out_dir / "summary.json")).read_text())["results"]
     lm = {}
     for k in ("noW", "cmdW"):
         th = np.array(res[k]["theta"])
@@ -380,9 +389,18 @@ def feasibility(args, fc, ns):
         e30 = r4.ess_b(w30, ob, n_ob) / ns.cpu_28
         with np.errstate(divide="ignore", invalid="ignore"):
             cell = np.where(fail, (args.min_ess - emin) / e30, 0.0)
+        shp5 = [len(c) - 1 for c in combo] + [2]
+        cells = []
+        for b_ in np.flatnonzero(fail):
+            i = np.unravel_index(b_, shp5)
+            cells.append("G {:g}-{:g} d {:g}-{:g} lP {:g}-{:.2f} e {:g}-{:g} {}: real {}, ESS {:.1f}".format(
+                combo[0][i[0]], combo[0][i[0] + 1], combo[1][i[1]], combo[1][i[1] + 1], combo[2][i[2]], combo[2][i[2] + 1],
+                combo[3][i[3]], combo[3][i[3] + 1], "evolved" if i[4] else "dwarf", int(k_o[b_]), emin[b_]))
         rep.append(f"grid {[len(c) - 1 for c in combo]} x class ({n_ob} bins, {int(big.sum())} big): failing {int(fail.sum())} "
                    f"({k_o[fail].sum() / k_o.sum():.1%} of real), min big ESS_b {emin[big].min():.1f}; cost ~{max(0, fac - 1) * e_all / rate:.0f} CPU-h "
                    f"(total-ESS scaling), worst per-cell {np.nanmax(np.where(np.isfinite(cell), cell, np.nan)) if fail.any() else 0:.0f} CPU-h")
+        rep += [f"    failing: {c_}" for c_ in cells]
+    args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "feasibility.txt").write_text("\n".join(rep) + "\n")
     print("\n".join(rep))
 
@@ -391,7 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("mode", choices=("choose", "fit", "feasibility"))
     ap.add_argument("--model", choices=("old", "new"), default="new")
-    ap.add_argument("--extrapolation", choices=("clamp", "logit"), default="clamp")
+    ap.add_argument("--extrapolation", choices=("clamp", "logit"), default=None,
+                    help="MP-Q46; default from the fit config key spurious_extrapolation (decided: clamp, Ryan 2026-10-11)")
     ap.add_argument("--cache", type=Path, default=Path("output/proposal_set/weights_gen23_30.npz"))
     ap.add_argument("--artifact-dir", type=Path, default=Path("output/proposal_set"))
     ap.add_argument("--control", type=Path, default=Path("docs/gate391/rung3_refit4/gens23_30_gen29_fine_grid/summary.json"))
@@ -405,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-config", type=Path, default=Path("config/population/rung3_refit3_base.yaml"))
     ap.add_argument("--fit-config", type=Path, default=Path("config/population/rung3_refit5_interim.yaml"))
     ap.add_argument("--new-gen", type=int, default=30)
+    ap.add_argument("--theta-summary", type=Path, default=None, help="feasibility: θ from this summary.json")
+    ap.add_argument("--artifacts", nargs="+", default=None, help="artifact file names in cache order (default: gens 23-30)")
     ap.add_argument("--min-ess", type=float, default=30.0)
     ap.add_argument("--n-starts", type=int, default=12)
     ap.add_argument("--seed", type=int, default=391)
@@ -413,6 +434,8 @@ def main(argv: list[str] | None = None) -> int:
     import yaml
 
     fc = yaml.safe_load((args.base_config if args.mode == "choose" else args.fit_config).read_text())["rung3"]
+    if args.extrapolation is None:
+        args.extrapolation = fc.get("spurious_extrapolation", "clamp")
     ns = extend(args, fc, r4.setup(args, fc))
     {"choose": choose, "fit": fit, "feasibility": feasibility}[args.mode](args, fc, ns)
     return 0
