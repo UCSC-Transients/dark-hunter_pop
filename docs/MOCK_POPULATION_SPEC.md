@@ -1857,6 +1857,12 @@ The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decisio
 - α_lo and α_hi: gens 23–30 control fit, noW +1.46 / −0.10, cmdW +2.26 / −0.68;
 - the near-distance (< 0.3 kpc) residual: mock-only 1.09 (noW) vs 1.01 (cmdW).
 
+**Update 2026-10-13** (§12.14-compliant 108-bin grid, gens 23–32; the cmdW fit re-run with 36 starts, seeded from the noW fit):
+- α_lo: +0.36 ± 0.18 (noW) vs +0.26 ± 0.18 (cmdW).
+- **α_hi: +0.42 ± 0.08 (noW) vs +0.18 ± 0.09 (cmdW), Δ ≈ 2σ.** α_hi is the rung-3 parameter that depends on W.
+- Near-distance (< 0.3 kpc) residual, (mock + spurious) / real: 1.07 (noW) vs 1.11 (cmdW); mock-only 0.90 vs 0.94.
+- Reddening check (`docs/gate391/rung3_nearbright/`): Combined19 × 0.884 is about 0 inside 100 pc (90th percentile ≤ 0.02). Setting it to 0 changes the CMD log weight of the affected draws by +0.00 at the median (5–95%: −0.04 to +0.09) and flips no evolved class. The closed loop is unaffected; the worst 2-D pull is still 7.6.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
