@@ -20,6 +20,7 @@ Choices MdS17 does not settle (spec §8) are explicit arguments, never silent de
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -378,3 +379,76 @@ def low_mass_frequency_scale(
         np.log10(m1_anchor_msun) - np.log10(m1_zero_msun)
     )
     return np.clip(t, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# MdS17's own primary-mass scale (spec §12.19(c), #486)
+# ---------------------------------------------------------------------------
+#: MdS17 assign M1 from spectral type via Pecaut & Mamajek (2013) dwarf relations. The
+#: living table (``EEM_dwarf_UBVIJHK_colors_Teff.txt``) is read from its snapshot; these are
+#: its header names for the columns used.
+PM13_COLUMNS: tuple[str, ...] = ("Bp-Rp", "M_G", "Msun")
+
+
+def load_pm13_dwarf_table(path: str | Path) -> dict[str, FloatArray]:
+    """Rows of the Pecaut & Mamajek dwarf table with finite (BP−RP, M_G, Msun), sorted by BP−RP.
+
+    The header line starting ``#SpT`` names the columns; the table ends at the next ``#SpT``
+    line. Missing values (``...``) drop the row.
+    """
+    lines = Path(path).read_text().splitlines()
+    starts = [i for i, ln in enumerate(lines) if ln.startswith("#SpT")]
+    if not starts:
+        raise ValueError(f"{path}: no '#SpT' header line")
+    head = lines[starts[0]].lstrip("#").split()
+    idx = [head.index(c) for c in PM13_COLUMNS]
+    end = starts[1] if len(starts) > 1 else len(lines)
+    rows = []
+    for ln in lines[starts[0] + 1:end]:
+        f = ln.split()
+        if ln.startswith("#") or len(f) < len(head):
+            continue
+        try:
+            rows.append([float(f[i]) for i in idx])
+        except ValueError:
+            continue
+    a = np.array(rows, float)
+    a = a[np.argsort(a[:, 0])]
+    return {"bp_rp": a[:, 0], "m_g": a[:, 1], "mass": a[:, 2]}
+
+
+def pm13_mass_from_colour(colour0: ArrayLike, table: Mapping[str, FloatArray]) -> FloatArray:
+    """PM13 dwarf mass at dereddened (BP−RP)₀ by linear interpolation; NaN outside the table."""
+    return np.interp(np.asarray(colour0, float), table["bp_rp"], table["mass"], left=np.nan, right=np.nan)
+
+
+def mass_scale_mapping(
+    m_ours: ArrayLike, m_other: ArrayLike, edges: ArrayLike, *, min_count: int
+) -> tuple[FloatArray, FloatArray]:
+    """Monotone median mapping m_other(m_ours) on ``edges`` bins with ≥ ``min_count`` finite pairs.
+
+    Returns (bin centres, medians), non-decreasing (running maximum); bins below the count
+    are dropped. Apply with :func:`apply_mass_scale`.
+    """
+    x = np.asarray(m_ours, float)
+    y = np.asarray(m_other, float)
+    e = np.asarray(edges, float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    cen, med = [], []
+    for lo, hi in zip(e[:-1], e[1:]):
+        s = ok & (x >= lo) & (x < hi)
+        if s.sum() >= min_count:
+            cen.append(0.5 * (lo + hi))
+            med.append(float(np.median(y[s])))
+    if len(cen) < 2:
+        raise ValueError("mass_scale_mapping: fewer than two populated bins")
+    return np.array(cen), np.maximum.accumulate(np.array(med))
+
+
+def apply_mass_scale(m: ArrayLike, centres: FloatArray, mapped: FloatArray) -> FloatArray:
+    """Interpolate the mapping; beyond either end keep the end ratio (mapped / centre) fixed."""
+    m = np.asarray(m, float)
+    out = np.interp(m, centres, mapped)
+    lo, hi = m < centres[0], m > centres[-1]
+    out = np.where(lo, m * mapped[0] / centres[0], out)
+    return np.where(hi, m * mapped[-1] / centres[-1], out)

@@ -440,6 +440,10 @@ class MdS17TargetConfig(_Strict):
     mass_luminosity: Literal["janssens2022", "mist_coeval"]
     flux_sigma_dex: float = Field(..., gt=0.0)  # MP-Q13, decided (spec §0.1)
     provisional_compact_mixture: Literal["none"]  # MP-Q17
+    # Spec §10 / §12.19(a) (#483): the mass at which the MdS17 frequency, q and e laws are
+    # evaluated. ``initial`` = M1,ZAMS (MIST ``initial_mass``), passed per draw as
+    # ``m1_law_msun`` (:func:`m1_initial_for_draws`). ``current`` keeps the stored caches.
+    m1_law_mass: Literal["current", "initial"] = "current"
 
     @model_validator(mode="after")
     def _low_mass_order(self) -> MdS17TargetConfig:
@@ -1447,6 +1451,7 @@ def mds17_luminous_log_intensity(
     *,
     evolved_mg0_system: ArrayLike | None = None,
     relation_log10_f: ArrayLike | None = None,
+    m1_law_msun: ArrayLike | None = None,
 ) -> FloatArray:
     """log λ(x | θ_MdS17) in the proposal's measure (per dex M2, per dex P, per unit e or
     the circular point mass, per dex f), for luminous MS companions only.
@@ -1460,32 +1465,22 @@ def mds17_luminous_log_intensity(
     :func:`evolved_mg0_for_draws`): for evolved primaries the f density is centred on
     ``giants.evolved_log10_flux_ratio(M2, M_G0,sys)`` instead of the dwarf relation, and is
     zero where the companion alone would outshine the system. Dwarf rows are unchanged.
+
+    ``target.m1_law_mass == "initial"`` (spec §12.19(a)): the frequency, q and e laws use
+    ``m1_law_msun`` (M1,ZAMS per draw) with q = M2 / M1,ZAMS; required in that mode. The
+    flux-ratio term always uses the current ``m1_msun``.
     """
-    table = mds.load_mds17_table(target.table_path)
     m1 = np.asarray(truth["m1_msun"], float)
-    m2 = np.asarray(truth["m2_msun"], float)
-    p = np.asarray(truth["period_days"], float)
-    e = np.asarray(truth["eccentricity"], float)
     lf = np.asarray(truth["log10_flux_ratio"], float)
     dark = np.asarray(truth["is_dark"], bool)
-    lp = np.log10(p)
-    m1_shape = np.clip(m1, table.m1_range[0], table.m1_range[1])
-    q = m2 / m1
-    interp = target.provisional_m1_interpolation
-    freq = mds.f_logp_q03(m1_shape, lp, table)
-    freq = freq * mds.low_mass_frequency_scale(
-        m1,
-        m1_anchor_msun=target.provisional_low_mass_anchor_msun,
-        m1_zero_msun=target.provisional_low_mass_zero_msun,
-    )
-    pq = mds.q_density(q, m1_shape, lp, table, m1_interpolation=interp)
-    per_dex_m2 = pq * q * math.log(10.0)
-    circ = mds.is_circular(p, table)
-    pe = np.where(
-        circ,
-        (e == 0.0).astype(float),
-        mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
-    )
+    m2 = np.asarray(truth["m2_msun"], float)
+    if target.m1_law_mass == "initial":
+        if m1_law_msun is None:
+            raise ValueError("m1_law_mass initial: pass m1_law_msun (m1_initial_for_draws)")
+        m1_law = np.asarray(m1_law_msun, float)
+    else:
+        m1_law = m1
+    lam_orbit = mds17_orbit_intensity(m1_law, m2, truth["period_days"], truth["eccentricity"], target)
     if target.mass_luminosity == "mist_coeval":
         if relation_log10_f is None:
             raise ValueError("mass_luminosity mist_coeval: pass relation_log10_f (mist_relation_for_draws)")
@@ -1502,9 +1497,71 @@ def mds17_luminous_log_intensity(
     with np.errstate(invalid="ignore"):
         pf = np.exp(-0.5 * ((lf - rel) / sig) ** 2) / (sig * math.sqrt(2 * math.pi))
     pf = np.where(np.isfinite(pf) & ~dark, pf, 0.0)
-    lam = freq * per_dex_m2 * pe * pf
+    lam = lam_orbit * pf
     with np.errstate(divide="ignore"):
         return np.log(np.where(np.isfinite(lam) & (lam > 0), lam, 0.0))
+
+
+def mds17_orbit_intensity(
+    m1_law_msun: ArrayLike, m2_msun: ArrayLike, period_days: ArrayLike, eccentricity: ArrayLike,
+    target: MdS17TargetConfig,
+) -> FloatArray:
+    """The M1-dependent part of :func:`mds17_luminous_log_intensity` (no flux term, linear):
+    f_logP;q>0.3(M1) × s_low(M1) × p_q(M2/M1) × (M2/M1) ln10 × p_e(M1), at ``m1_law_msun``."""
+    table = mds.load_mds17_table(target.table_path)
+    m1 = np.asarray(m1_law_msun, float)
+    m2 = np.asarray(m2_msun, float)
+    p = np.asarray(period_days, float)
+    e = np.asarray(eccentricity, float)
+    lp = np.log10(p)
+    m1_shape = np.clip(m1, table.m1_range[0], table.m1_range[1])
+    q = m2 / m1
+    interp = target.provisional_m1_interpolation
+    freq = mds.f_logp_q03(m1_shape, lp, table)
+    freq = freq * mds.low_mass_frequency_scale(
+        m1,
+        m1_anchor_msun=target.provisional_low_mass_anchor_msun,
+        m1_zero_msun=target.provisional_low_mass_zero_msun,
+    )
+    pq = mds.q_density(q, m1_shape, lp, table, m1_interpolation=interp)
+    circ = mds.is_circular(p, table)
+    pe = np.where(
+        circ,
+        (e == 0.0).astype(float),
+        mds.e_density(e, m1_shape, p, table, m1_interpolation=interp, eta_floor=target.provisional_eta_floor),
+    )
+    return np.asarray(freq * pq * q * math.log(10.0) * pe, float)
+
+
+def m1_law_log_ratio(
+    m1_current_msun: ArrayLike, m1_initial_msun: ArrayLike, m2_msun: ArrayLike, period_days: ArrayLike,
+    eccentricity: ArrayLike, target: MdS17TargetConfig,
+) -> FloatArray:
+    """ln λ_initial − ln λ_current per draw (spec §12.19(a) reweighting factor); 0 where
+    either intensity is zero or non-finite (those draws carry no target weight)."""
+    a = mds17_orbit_intensity(m1_initial_msun, m2_msun, period_days, eccentricity, target)
+    b = mds17_orbit_intensity(m1_current_msun, m2_msun, period_days, eccentricity, target)
+    ok = np.isfinite(a) & np.isfinite(b) & (a > 0) & (b > 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(ok, np.log(np.where(ok, a, 1.0)) - np.log(np.where(ok, b, 1.0)), 0.0)
+
+
+def m1_initial_for_draws(truth: Mapping[str, NDArray[Any]], parent: ParentSnapshot) -> FloatArray:
+    """Per draw M1,ZAMS = drawn M1 × (MIST ``initial_mass`` / ``star_mass`` posterior means of
+    the parent row) (spec §12.19(a)). Rows without an isochrone fit keep the drawn M1."""
+    if parent.isochrone is None:
+        raise ValueError("parent has no isochrone posterior; load it in isochrone mode")
+    r = np.asarray(truth["parent_row"], np.int64)
+    return np.asarray(truth["m1_msun"], float) * initial_to_current_ratio(parent.isochrone)[r]
+
+
+def initial_to_current_ratio(isochrone: Mapping[str, NDArray[Any]]) -> FloatArray:
+    """Per parent row MIST ``m_init_mean / m1_mean``; 1 where undefined."""
+    mi = np.asarray(isochrone["m_init_mean"], float)
+    mn = np.asarray(isochrone["m1_mean"], float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = mi / mn
+    return np.where(np.isfinite(r) & (r > 0), r, 1.0)
 
 
 def importance_weights(
