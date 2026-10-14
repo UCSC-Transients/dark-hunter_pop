@@ -135,7 +135,14 @@ def extend(args, fc, ns):
         norm, F = bce.row_factor(lam, llr)
         qd = np.asarray(zc["m2_msun"], float)[ns.rel] / m1c
         ns.cmd_factor = bce.draw_factor(qd, inv_u, qc, llr, norm)
-        ns.W = {k: v * ns.cmd_factor for k, v in ns.W.items()}
+        if bcc.get("normalization", "theta") == "baseline":  # superseded fixed-MdS17 normalization (diagnostic only)
+            ns.W = {k: v * ns.cmd_factor for k, v in ns.W.items()}
+        else:  # §12.22 amendment: θ-dependent normalization inside the likelihood
+            ns.cond = dict(grids=bce.precompute_theta_grids(np.where(np.isfinite(m1r), m1r, 1.0), qe, tgt),
+                           llr=llr, inv=inv_u, lr_draw=bce.draw_factor(qd, inv_u, qc, llr, np.ones(rows_u.size)),
+                           lm1=np.log(np.where(np.isfinite(m1r), m1r, 1.0) / float(fc["m1_pivot_msun"])),
+                           lo=np.where(np.isfinite(m1r), m1r, 1.0) < float(fc["m1_pivot_msun"]),
+                           evo=(pcls.classified & pcls.evolved)[rows_u].astype(float))
         ns.cmd_summary = dict(rows=int(rows_u.size), rows_undefined=int((~np.isfinite(les)).sum()),
                               factor_q=np.percentile(ns.cmd_factor, [5, 25, 50, 75, 95]).round(3).tolist(),
                               F_median=float(np.median(F)))
@@ -390,11 +397,25 @@ def fit(args, fc, ns):
             return np.bincount(bins[s_], weights=w[s_] ** 2, minlength=n)
         return clustered_bin_variance(w, grp, n)
 
+    def cond_factor(th):
+        """§12.22 amendment: per-draw LR(q) × (1+F_r(θ))/(1+Σ Λ_r(q;θ) LR_r(q)) with the current modifiers."""
+        from darkhunter_pop import binary_cmd_evidence as bce
+
+        c = ns.cond
+        lnA, alo, ahi, gP, lnL, dq, lnT = th[:7]
+        log_s = lnA + np.where(c["lo"], alo, ahi) * c["lm1"] + (th[i_fe] * c["evo"] if i_fe is not None else 0.0)
+        lpc = c["grids"]["lpc"]
+        log_mp = gP * (lpc - fc["log_p_tilt_pivot"]) + lnL / (1.0 + np.exp(-(lpc - fc["long_p_centre"]) / fc["long_p_width"]))
+        norm = bce.theta_row_norm(c["grids"], c["llr"], log_s, log_mp, dq, lnT, float(fc["twin_q_min"]))
+        return c["lr_draw"] * norm[c["inv"]]
+
     def expected(th, wkey):
         lm = ns.log_mod(full(th)) + (evolved_log_modifier(evo, th[i_fe]) if i_fe is not None else 0.0)
         if i_br is not None:
             lm = lm + th[i_br] * ns.hinge
         w = ns.W[wkey] * np.exp(lm)
+        if getattr(ns, "cond", None) is not None:
+            w = w * cond_factor(th)
         so, sa = ob >= 0, ab >= 0
         keep_o, keep_a = ~empty_o, ~empty_a
         return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob) * keep_o, bin_var(w, ob, grp_o, n_ob) * keep_o,
@@ -411,6 +432,12 @@ def fit(args, fc, ns):
     x0 = np.array([par[n][0] for n in POP] + ([0.0] if i_fe is not None else []) + ([br[0]] if i_br is not None else []) + [prior[0]], float)
     bounds = ([(par[n][1], par[n][2]) for n in POP] + ([(-3.0, 3.0)] if i_fe is not None else [])
               + ([(br[1], br[2])] if i_br is not None else []) + [(0.0, max(5 * prior[0], 1.0))])
+    for item in (getattr(args, "fix", None) or []):  # profile: hold a parameter fixed (tiny box)
+        nm_, val_ = item.split("=")
+        j_ = names.index(nm_)
+        bounds[j_] = (float(val_) - 1e-9, float(val_) + 1e-9)
+        x0[j_] = float(val_)
+        rep.append(f"profile: {nm_} fixed at {float(val_)}")
     rng = np.random.default_rng(args.seed)
     results = {}
     init = json.loads(args.init_from.read_text())["results"] if args.init_from else None
@@ -596,6 +623,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--fix", nargs="*", default=None, help="NAME=VALUE parameters held fixed (profiles)")
     ap.add_argument("--below-envelope", choices=("none", "hold"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
     ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")

@@ -51,3 +51,20 @@ def test_row_and_draw_factor_identity_and_direction() -> None:
     assert f[0] > 1.0 > f[1] and f[2] == 1.0
     # posterior companion probability sums to Σ Λ LR / (1 + Σ Λ LR)
     np.testing.assert_allclose(norm[0], 1.6 / (1 + 0.1 + 0.2 + 3.0))
+
+
+@pytest.mark.unit
+def test_theta_row_norm_identity_and_scaling() -> None:
+    """§12.22 amendment: LR ≡ 1 gives 1 for any θ; larger intensity strengthens the pull."""
+    rng = np.random.default_rng(0)
+    R, P, K, J = 3, 4, 5, 6
+    grids = {"lam0": rng.uniform(0.01, 0.05, (R, P, K)), "pqn": rng.uniform(0.1, 0.2, (R, P, J)),
+             "qc": np.linspace(0.15, 0.975, K), "qn": np.linspace(0.35, 0.98, J)}
+    one = np.zeros((R, K))
+    np.testing.assert_allclose(bce.theta_row_norm(grids, one, np.zeros(R), np.zeros(P), 0.5, 0.3, 0.95), 1.0)
+    llr = np.tile(np.array([0, 0, 0, 0.5, 1.0]), (R, 1))
+    a = bce.theta_row_norm(grids, llr, np.zeros(R), np.zeros(P), 0.0, 0.0, 0.95)
+    b = bce.theta_row_norm(grids, llr, np.full(R, 1.0), np.zeros(P), 0.0, 0.0, 0.95)
+    assert np.all(a < 1.0) and np.all(b < a)
+    llr[1, 2] = np.nan
+    assert bce.theta_row_norm(grids, llr, np.zeros(R), np.zeros(P), 0.0, 0.0, 0.95)[1] == 1.0
