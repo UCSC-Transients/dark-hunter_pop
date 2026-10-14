@@ -2013,6 +2013,22 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 - **If that is too slow:** a per-row lookup on a θ grid. It must be reported as an approximation; there is no silent fallback to the fixed baseline.
 - **Diagnostic.** A profile in α_lo, with and without conditioning.
 
+**Second amendment (Ryan, 2026-10-14): fixing the low-mass conditioning.**
+- **Finding.** With the θ-dependent version, α_lo goes to +4.9 (no conditioning: +0.68) and −lnL is worse by 3. Below M1 ≈ 0.7 M⊙ the mean draw factor is ×3–4. Real K/M dwarfs sit off MIST's low-mass main sequence in colour at fixed M_G, so the composite map fits them better than the single-star map. This is an isochrone systematic, so the stop rule applied.
+- **(a) Restricted variant (quick check).** `cmd_binary_conditioning.m1_min_msun: 0.8`. Rows whose isochrone M1 is below this get LR ≡ 1, i.e. factor 1.
+- **(b) Empirical single-star MS (proper fix).** `cmd_binary_conditioning.ms_locus: ridge`. Main-sequence prior points (MIST phase < 0.5) and the companion photometry are moved in colour onto the measured single-star MS ridge, at fixed M_G and keeping G.
+  - The ridge is `giants.fit_ms_ridge`, the one the evolved classifier already uses. It is the smoothed mode of M_G0 vs (BP−RP)₀ on the parent's usable rows, with RUWE below the ridge cut and a parallax S/N floor; binaries are excluded through the faint-side mode, and its faint-side width is measured. It is statistical; nothing is done per star.
+  - Δc(M_G) = c_ridge(M_G) − c_MIST(M_G). Here c_MIST is the prior-weighted median colour of MIST MS points (M < `join_hi`) in each M_G bin.
+  - The shift enters with weight t(M) = 1 for M ≤ `join_lo_msun` (0.7), falling linearly to 0 at `join_hi_msun` (0.9). Above 0.9 M⊙ the evidence is pure MIST, which DEBCat validates (ratio 0.98).
+  - Masses and M_G are unchanged, and so is the generation-time isochrone M1.
+- **Check of the isochrone M1 below 0.8 M⊙** (it uses the same MIST track).
+  - Against the Pecaut & Mamajek M_G-based dwarf masses, which for M dwarfs are the post-2019 Mann-type calibration: PM13/MIST is 0.96–1.04 (−0.02 to +0.02 dex) in every bin from 0.1 to 0.8 M⊙, binned either way.
+  - Colour-based PM13 is +0.02 to +0.04 dex at 0.3–0.8 M⊙ and +0.1 dex below 0.3 M⊙. That is the same colour offset that drives the LR.
+  - DEBCat has only 4 systems below 0.7 M⊙.
+  - The Mann et al. (2019) M_Ks check needs 2MASS Ks, which is requested.
+  - No generation-time change is made.
+- **Refits.** noW and cmdW for (a) and for (b), each with MP-Q27 = ORB6 and an α_lo profile.
+
 ### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
 
 **Before §12.23.**
@@ -2037,6 +2053,8 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 - `hold`: the innermost calibrated P_pass, held down to `hold_min_arcsec`.
 
 Both are reported. The ORB6 calibration of this regime is not yet approved.
+
+**Decided (Ryan, 2026-10-14): `below_envelope: orb6` is the default.** It improves noW −lnL by 8.6 over `none` and restores the near-distance orbit:acceleration ratio (0.476, against a real 0.475). `none` and `hold` stay as brackets.
 
 **Amendment (2026-10-14): the regime below the envelope is calibrated on ORB6 × DR3, replacing the `none` / `hold` placeholders, which stay as brackets.**
 - **Data.** The Sixth Orbit Catalog (USNO), snapshot `data/external_catalogs/orb6_usno_20261014T042048Z/` (SHA256-verified, located by `rung3.resolved_companions.orb6.snapshot_dir`), CDS-XMatched to Gaia DR3 within 5″.
