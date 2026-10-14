@@ -108,6 +108,37 @@ def extend(args, fc, ns):
         a_, b_ = lf(mds.apply_mass_scale(ns.m1_law, cen, mp)), lf(ns.m1_law)
         ns.mass_scale_lr = np.where(np.isfinite(a_) & np.isfinite(b_), a_ - b_, 0.0)
         ns.W = {k: v * np.exp(ns.mass_scale_lr) for k, v in ns.W.items()}
+    # §12.22 (#491): condition each row's companion on its observed CMD (single-star vs star + MdS17 companion evidence)
+    ns.cmd_factor = np.ones(m1c.size)
+    bcc = fc.get("cmd_binary_conditioning") or {}
+    if getattr(args, "cmd_conditioning", None) is not None:
+        bcc = dict(bcc, enabled=args.cmd_conditioning == "on")
+    if bcc.get("enabled"):
+        from darkhunter_pop import binary_cmd_evidence as bce
+        from darkhunter_pop import isochrone_mass as im_
+
+        rows_u, inv_u = np.unique(ns.prow, return_inverse=True)
+        pcm = {k: np.asarray(v, float)[rows_u] for k, v in parent.cmd.items() if k in ("colour0", "mg0", "sigma_mu", "ebv", "a_g", "e_bp_rp")}
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ka = np.where(pcm["ebv"] > 0, pcm["a_g"] / pcm["ebv"], 0.0)
+            ke = np.where(pcm["ebv"] > 0, pcm["e_bp_rp"] / pcm["ebv"], 0.0)
+        sc_, sm_ = im_.likelihood_sigmas(pcm["sigma_mu"], pcm["ebv"], ka, ke, cfg.isochrone_mass.likelihood)
+        native = im_.load_native_grid(cfg.isochrone_mass, cfg.paths.data_root)
+        pts = im_.prior_points(native, cfg.isochrone_mass)
+        qe = np.asarray(bcc["q_edges"], float)
+        qc = 0.5 * (qe[1:] + qe[:-1])
+        les, llr = bce.log10_lr_grid(pts, native, cfg.isochrone_mass, qc, pcm["colour0"], pcm["mg0"], sc_, sm_)
+        del pts
+        tgt = ps.load_proposal_set_fragment(args.fragment).target_mds17
+        m1r = np.asarray(parent.isochrone["m1_mean"], float)[rows_u]
+        lam = bce.q_intensity_grid(np.where(np.isfinite(m1r), m1r, 1.0), qe, tgt)
+        norm, F = bce.row_factor(lam, llr)
+        qd = np.asarray(zc["m2_msun"], float)[ns.rel] / m1c
+        ns.cmd_factor = bce.draw_factor(qd, inv_u, qc, llr, norm)
+        ns.W = {k: v * ns.cmd_factor for k, v in ns.W.items()}
+        ns.cmd_summary = dict(rows=int(rows_u.size), rows_undefined=int((~np.isfinite(les)).sum()),
+                              factor_q=np.percentile(ns.cmd_factor, [5, 25, 50, 75, 95]).round(3).tolist(),
+                              F_median=float(np.median(F)))
     m_br = getattr(args, "m_break", None) or fc.get("m1_break_msun")
     ns.m_break = float(m_br) if m_br else None
     ns.hinge = np.maximum(0.0, np.log(ns.m1_law / ns.m_break)) if ns.m_break else np.zeros(m1c.size)
@@ -289,6 +320,8 @@ def fit(args, fc, ns):
         prior = (S0, sig_cal * S0)
         names = POP + ("ln_f_evo",) + (("alpha_br",) if ns.m_break else ()) + ("N_s",)
         rep.append(f"M1 law mass: {ns.m1_law_mass} (|Δ ln w| median {np.median(np.abs(ns.m1_law_lr)):.4f}); slope break M_br = {ns.m_break}")
+        if getattr(ns, "cmd_summary", None):
+            rep.append(f"CMD companion conditioning §12.22: {ns.cmd_summary}")
         if ns.mass_scale_map is not None:
             rep.append("MdS17 mass scale pm13_colour, M1_PM13(M1_MIST): " + " ".join(f"{a:.2f}->{b:.2f}" for a, b in zip(*ns.mass_scale_map))
                        + f"; Δ ln w median {np.median(ns.mass_scale_lr):+.3f}")
@@ -530,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
