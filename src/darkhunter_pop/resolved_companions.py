@@ -32,8 +32,6 @@ COLUMNS: tuple[str, ...] = ("theta", "R", "Gmag1", "Gmag2", "IPDfmp1", "IPDgofha
 
 def load_elbadry2021(path: str | Path, sha256: str) -> dict[str, FloatArray]:
     """Column-load the snapshot CSV after verifying its SHA256. θ is returned in arcsec."""
-    import pandas as pd
-
     p = Path(path)
     h = hashlib.sha256()
     with p.open("rb") as fh:
@@ -41,8 +39,11 @@ def load_elbadry2021(path: str | Path, sha256: str) -> dict[str, FloatArray]:
             h.update(chunk)
     if h.hexdigest() != sha256:
         raise ValueError(f"{p}: SHA256 {h.hexdigest()} != configured {sha256}")
-    d = pd.read_csv(p, usecols=list(COLUMNS))
-    out = {c: d[c].to_numpy(float) for c in COLUMNS}
+    with p.open() as fh:
+        head = fh.readline().strip().split(",")
+    idx = [head.index(c) for c in COLUMNS]
+    a = np.loadtxt(p, delimiter=",", skiprows=1, usecols=idx, ndmin=2)
+    out = {c: a[:, k].astype(float) for k, c in enumerate(COLUMNS)}
     out["theta"] = out["theta"] * 3600.0
     return out
 
