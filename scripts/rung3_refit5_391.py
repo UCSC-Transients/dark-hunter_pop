@@ -650,7 +650,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--accel-snapshot", type=Path, required=True)
     ap.add_argument("--fragment", type=Path, default=Path("config/population/proposal_set_restart_gen26.yaml"))
     ap.add_argument("--base-config", type=Path, default=Path("config/population/rung3_refit3_base.yaml"))
-    ap.add_argument("--fit-config", type=Path, default=Path("config/population/rung3_refit5_interim.yaml"))
+    ap.add_argument("--fit-config", type=Path, default=Path("config/population/rung3_compliant108_v6a.yaml"))  
     ap.add_argument("--new-gen", type=int, default=30)
     ap.add_argument("--theta-summary", type=Path, default=None, help="feasibility: θ from this summary.json")
     ap.add_argument("--artifacts", nargs="+", default=None, help="artifact file names in cache order (default: gens 23-30)")

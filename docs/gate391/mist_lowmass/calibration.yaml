@@ -1,0 +1,31 @@
+lowmass_correction:
+  enabled: false
+  mass_nodes_msun:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  dlog_teff:
+  - 0.0
+  - 0.0
+  - -0.05899
+  - -0.03878
+  - -0.03382
+  - -0.03036
+  - -0.01637
+  - -0.0033
+  dlog_mass:
+  - 0.0
+  - -0.03498
+  - 0.02527
+  - -0.00812
+  - -0.00031
+  - 0.0035
+  - -0.01766
+  - 0.0
+  join_msun: 0.9
+  calibration_ref: "scripts/calibrate_mist_lowmass_391.py; spec \xA712.24"
