@@ -1,0 +1,33 @@
+#391 rung 3 refit 5, model 'new' — §12.14-COMPLIANT 108-bin grid (G 2 x d 3 x log P 3 x e 3 x CMD class 2; Ryan 2026-10-11 top-up target)
+
+orbit bins 108 (2 x 3 x 3 x 3 x 2) [[5.0, 13.0, 19.5], [0.0, 0.5, 1.0, 6.0], [0.0, 2.0, 2.6, 2.9193], [0.0, 0.3, 0.6, 1.0]] x class; accelerations 12
+real: 131168 C1 orbits (0.112 evolved), 337949 accelerations (0.116 evolved); empty bins: orbit 44 (123 real), acceleration 0
+M1 law mass: initial (|Δ ln w| median 0.0001); slope break M_br = None
+CMD companion conditioning §12.22: {'rows': 10213, 'rows_undefined': 0, 'factor_q': [0.069, 0.795, 1.02, 1.203, 3.02], 'F_median': 0.4971681440452638}
+spurious template §12.16: pi covariates ['log10_a0_snr']; Σ pi_hat over real C1 orbits = 22106 (0.169 of them), σ_cal 0.086 (relative); extrapolation: clamp
+N_s prior N(22106, 1900)
+MC variance: parent_row
+profile: alpha_lo fixed at 0.68
+[noW] 4/4 starts within delta(-lnL) < 5 (offsets [0.0, 0.02, 0.12, 0.58]); -lnL 785.6; at bound: ['alpha_lo']
+    ln_A           -0.180 +- 0.103
+    alpha_lo       +0.680 +- 0.329
+    alpha_hi       +0.663 +- 0.115
+    gamma_P        +0.268 +- 0.105
+    ln_L_P         +0.497 +- 0.102
+    dgamma_q       +0.981 +- 0.361
+    ln_F_twin      -0.760 +- 0.409
+    a1             +8.665 +- nan
+    a2             +1.033 +- 0.130
+    a3             +1.304 +- 0.109
+    b1            +29.171 +- nan
+    b2             +1.549 +- 0.228
+    b3             +2.620 +- 0.245
+    ln_f_evo       -0.160 +- 0.081
+    N_s        +24587.468 +- 1895.364
+    N_s 24587 vs prior 22106 +- 1900 (pull +1.3); (mock + spurious)/real 1.092; accelerations 1.002
+    evolved share of C1 orbits: real 0.112, mock 0.102 (with spurious 0.103)
+    d bins <0.3 / 0.3-0.7 / 0.7-1.5 / >1.5: (mock+spur)/real 1.39 / 0.97 / 1.02 / 1.52; mock-only 1.23 / 0.79 / 0.81 / 1.29; orbit:accel real 0.475 / 0.375 / 0.357 / 0.425 fit 0.552 / 0.392 / 0.371 / 0.524
+    G bins 5-9:1.54 9-10:1.23 10-12:1.03 12-14:1.13 14-15:1.02 15-16:0.95 16-19.5:1.67
+    ESS orbits 498; big bins below ESS_b 30: 3/23 (min 3.4, median 73)
+
+    e < 0.1: real 14230, fit 14801
