@@ -139,6 +139,37 @@ def extend(args, fc, ns):
         ns.cmd_summary = dict(rows=int(rows_u.size), rows_undefined=int((~np.isfinite(les)).sum()),
                               factor_q=np.percentile(ns.cmd_factor, [5, 25, 50, 75, 95]).round(3).tolist(),
                               F_median=float(np.median(F)))
+    # §12.23 (#494): MP-Q27 IPD-pass weight for companions near/below Gaia's resolution (El-Badry+2021 calibrated)
+    ns.ipd_factor = np.ones(m1c.size)
+    rcc = fc.get("resolved_companions") or {}
+    if getattr(args, "below_envelope", None):
+        rcc = dict(rcc, enabled=True, below_envelope=args.below_envelope)
+    if rcc.get("enabled"):
+        from darkhunter_pop import resolved_companions as rcm
+
+        tr = {k: np.concatenate([np.asarray(ps.read_proposal_artifact(args.artifact_dir / a)[0][k]) for a in arts])[ns.rel]
+              for k in ("parallax_mas", "log10_flux_ratio", "is_dark")}
+        cut = prop.halbwachs_cuts
+        fmp = float(cut.ipd_frac_multi_peak_max)
+        gof = float(cut.ipd_gof_harmonic_amplitude_max)
+        cat = rcm.load_elbadry2021(args.parent_dir.parents[2] / rcc["snapshot"], rcc["sha256"])
+        tab = rcm.build_tables(cat, rcc["theta_edges_arcsec"], rcc["dg_edges"], r_chance_max=float(rcc["r_chance_max"]),
+                               g2_max=float(rcc["g2_max"]), ref_theta_arcsec=tuple(rcc["ref_theta_arcsec"]), ipd_fmp_max=fmp,
+                               ipd_gof_max=gof, min_pairs=int(rcc["min_pairs"]))
+        del cat
+        m2c = np.asarray(zc["m2_msun"], float)[ns.rel]
+        pc_d = np.asarray(zc["period_days"], float)[ns.rel]
+        a_au = np.cbrt((m1c + m2c) * (pc_d / 365.25) ** 2)
+        theta = float(rcc["projection_factor"]) * a_au * np.asarray(tr["parallax_mas"], float) / 1000.0
+        dg = np.where(np.asarray(tr["is_dark"], bool), np.inf, -2.5 * np.asarray(tr["log10_flux_ratio"], float))
+        ns.ipd_factor = rcm.p_pass_ipd(theta, dg, tab, below_envelope=rcc.get("below_envelope", "none"),
+                                       hold_min_arcsec=float(rcc.get("hold_min_arcsec", 0.1)))
+        ns.W = {k: v * ns.ipd_factor for k, v in ns.W.items()}
+        dtr = 1.0 / np.asarray(tr["parallax_mas"], float)
+        ns.ipd_summary = {f"d{lo}-{hi} {nm}": round(float(np.mean(ns.ipd_factor[sel & (dtr >= lo) & (dtr < hi)])), 4)
+                          for lo, hi in ((0, 0.1), (0.1, 0.2), (0.2, 0.5), (0.5, 6)) for nm, sel in (("orbit", ns.in_o), ("accel", ns.in_a))
+                          if np.any(sel & (dtr >= lo) & (dtr < hi))}
+        ns.ipd_summary["below_envelope"] = rcc.get("below_envelope", "none")
     m_br = getattr(args, "m_break", None) or fc.get("m1_break_msun")
     ns.m_break = float(m_br) if m_br else None
     ns.hinge = np.maximum(0.0, np.log(ns.m1_law / ns.m_break)) if ns.m_break else np.zeros(m1c.size)
@@ -320,6 +351,8 @@ def fit(args, fc, ns):
         prior = (S0, sig_cal * S0)
         names = POP + ("ln_f_evo",) + (("alpha_br",) if ns.m_break else ()) + ("N_s",)
         rep.append(f"M1 law mass: {ns.m1_law_mass} (|Δ ln w| median {np.median(np.abs(ns.m1_law_lr)):.4f}); slope break M_br = {ns.m_break}")
+        if getattr(ns, "ipd_summary", None):
+            rep.append(f"MP-Q27 IPD-pass weight §12.23 (unweighted mean per truth-distance bin, detected draws): {ns.ipd_summary}")
         if getattr(ns, "cmd_summary", None):
             rep.append(f"CMD companion conditioning §12.22: {ns.cmd_summary}")
         if ns.mass_scale_map is not None:
@@ -563,6 +596,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--below-envelope", choices=("none", "hold"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
     ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
