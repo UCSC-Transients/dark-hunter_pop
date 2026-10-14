@@ -1,0 +1,215 @@
+# Rung-3 108-bin grid: v4 with the MP-Q27 below-envelope regime calibrated on ORB6 x DR3 (spec §12.23 amendment, #494).
+rung3:
+  m1_law_mass: initial
+  mc_variance: parent_row
+  resolved_companions:
+    enabled: true
+    snapshot: external_catalogs/elbadry2021_widebinaries_sub10as_20261014T035624Z/catalog_sub10as.csv
+    sha256: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565
+    r_chance_max: 0.1
+    g2_max: 19.5
+    theta_edges_arcsec: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0, 10.0]
+    dg_edges: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.5, 8.0, 12.0]
+    ref_theta_arcsec: [4.0, 10.0]
+    min_pairs: 30
+    projection_factor: 0.85  # mean projected / true separation, random orientation and phase, <e> ~ 0.4
+    below_envelope: orb6     # §12.23 amendment: ORB6 x DR3 calibrated (none | hold kept as brackets)
+    orb6:
+      snapshot_dir: external_catalogs/orb6_usno_20261014T042048Z
+      sha256:
+        orb6_parsed.ecsv: b2512365690e305ea84d1f3bb057904ab34a064f7fa07d13e5a79ffd3671dc2c
+        orb6_gaiadr3_xmatch5as.ecsv: c3b7ff16ecd0eda923870aab8c6bc50bbfe72bfd1b20c30aea0126e1d628fa3f
+      epoch_yr: 2016.0
+      grade_weights: {1: 1.0, 2: 1.0, 3: 1.0, 4: 0.5}   # grades 5 (indeterminate), 7-9 excluded
+      match_min_arcsec: 2.0
+      sep_tol_frac: 0.3
+      sep_tol_min_arcsec: 0.3
+      theta_edges_arcsec: [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0, 1.5, 2.5]
+      dg_edges: [0.0, 1.0, 2.0, 3.0, 5.0, 12.0]
+      min_weight: 8
+      ref_theta_max_arcsec: 0.1    # pairs at < 0.1" pass like isolated ORB6 stars (0.8-0.9); sets the per-dG baseline
+      fill_dg_max: 5.0
+    hold_min_arcsec: 0.1
+  cmd_binary_conditioning:
+    enabled: true
+    q_edges: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0]
+  c1_period_max_days: 830.4
+  likelihood: say_effective
+  parameters:
+    ln_A:
+    - 0.0
+    - -3.0
+    - 3.0
+    alpha_lo:
+    - 0.5
+    - -3.0
+    - 5.0
+    alpha_hi:
+    - 0.0
+    - -5.0
+    - 5.0
+    gamma_P:
+    - 0.0
+    - -5.0
+    - 5.0
+    ln_L_P:
+    - 0.0
+    - -3.0
+    - 3.0
+    dgamma_q:
+    - 0.0
+    - -3.0
+    - 3.0
+    ln_F_twin:
+    - 0.0
+    - -4.0
+    - 3.0
+    a1:
+    - 1.4
+    - 0.1
+    - 20.0
+    a2:
+    - 1.4
+    - 0.1
+    - 20.0
+    a3:
+    - 1.4
+    - 0.1
+    - 20.0
+    b1:
+    - 1.0
+    - 1.0
+    - 30.0
+    b2:
+    - 1.0
+    - 1.0
+    - 30.0
+    b3:
+    - 1.0
+    - 1.0
+    - 30.0
+    N_s:
+    - 0.0
+    - 0.0
+    - 0.0
+  m1_pivot_msun: 0.8
+  log_p_tilt_pivot: 2.7
+  long_p_centre: 3.0
+  long_p_width: 0.1
+  twin_q_min: 0.95
+  eta_floor: -0.9
+  q_normalization: mds17_q03_to_1
+  q_norm_grid_points: 200
+  spurious_extrapolation: clamp
+  spurious_template: additive_pr455_shape_binning_independent_prior
+  ecc_log_p_ranges:
+  - 2.0
+  - 2.6
+  spurious:
+    prior_bin_distance_kpc:
+    - 0.7
+    - 1.5
+    prior_bin_g_mag:
+    - 12.0
+    - 16.0
+    prior_mean: 0.21
+    prior_sigma: 0.04
+    shrink_n0: 20
+    min_systems_per_marginal_bin: 10
+  ess_collapse_threshold: 100
+  min_ess_per_bin: 30
+  outer:
+    g_mag:
+    - 5.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 1.0
+  candidates:
+    g_mag:
+    - - 5.0
+      - 12.0
+      - 14.0
+      - 16.0
+      - 19.5
+    - - 5.0
+      - 13.0
+      - 19.5
+    - - 5.0
+      - 19.5
+    distance_kpc:
+    - - 0.0
+      - 0.3
+      - 0.7
+      - 1.5
+      - 6.0
+    - - 0.0
+      - 0.5
+      - 1.0
+      - 6.0
+    - - 0.0
+      - 0.7
+      - 6.0
+    log10_period_days:
+    - - 0.0
+      - 2.3
+      - 2.6
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.5
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.6
+      - 2.9193
+    eccentricity:
+    - - 0.0
+      - 0.3
+      - 0.6
+      - 1.0
+    - - 0.0
+      - 0.4
+      - 1.0
+    - - 0.0
+      - 1.0
+  empty_bin_floor: 1.0
+  orbit_bins:
+    g_mag:
+    - 5.0
+    - 13.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 0.5
+    - 1.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.0
+    - 2.6
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 0.3
+    - 0.6
+    - 1.0
+  acceleration_bins:
+    g_mag:
+    - 5.0
+    - 13.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 0.5
+    - 1.0
+    - 6.0
+  cmd_class_axis: true
+  label: "\xA712.14-COMPLIANT 108-bin grid (G 2 x d 3 x log P 3 x e 3 x CMD class\
+    \ 2; Ryan 2026-10-11 top-up target)"

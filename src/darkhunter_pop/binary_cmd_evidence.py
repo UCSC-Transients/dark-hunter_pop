@@ -158,3 +158,60 @@ def q_intensity_grid(m1: ArrayLike, q_edges: ArrayLike, target: Any, *, n_logp: 
                                         m1_interpolation=target.provisional_m1_interpolation) for s in sub], axis=0)
             out[:, j] += f * pq * (qe[j + 1] - qe[j]) * dx
     return out
+
+
+# ---------------------------------------------------------------------------
+# θ-dependent normalization (spec §12.22 amendment, Ryan 2026-10-13)
+# ---------------------------------------------------------------------------
+
+
+def precompute_theta_grids(m1: ArrayLike, q_edges: ArrayLike, target: Any, *, n_logp: int = 30,
+                           n_qnorm: int = 40, q_norm_min: float = 0.3) -> dict[str, Any]:
+    """Baseline MdS17 pieces per row for :func:`theta_row_norm`.
+
+    ``lam0[r, p, k]``: f_logP;q>0.3 · s_low · ∫_cell_k p_q dq · ΔlogP on the full MdS17 log P
+    domain; ``pqn[r, p, j]``: p_q(qn_j) Δq on the MP-Q42b normalization grid over
+    [``q_norm_min``, 1]; centres ``lpc``, ``qc``, ``qn``.
+    """
+    from darkhunter_pop import moe_distefano as mds
+
+    table = mds.load_mds17_table(target.table_path)
+    m = np.asarray(m1, float)
+    ms = np.clip(m, table.m1_range[0], table.m1_range[1])
+    lp = np.linspace(table.log_p_range[0], table.log_p_range[1], n_logp + 1)
+    lpc, dlp = 0.5 * (lp[1:] + lp[:-1]), np.diff(lp)
+    qe = np.asarray(q_edges, float)
+    qne = np.linspace(q_norm_min, 1.0, n_qnorm + 1)
+    qn, dqn = 0.5 * (qne[1:] + qne[:-1]), np.diff(qne)
+    slow = mds.low_mass_frequency_scale(m, m1_anchor_msun=target.provisional_low_mass_anchor_msun,
+                                        m1_zero_msun=target.provisional_low_mass_zero_msun)
+    interp = target.provisional_m1_interpolation
+    lam0 = np.zeros((m.size, lpc.size, qe.size - 1))
+    pqn = np.zeros((m.size, lpc.size, qn.size))
+    for p, (x, dx) in enumerate(zip(lpc, dlp)):
+        xx = np.full(m.size, x)
+        f = mds.f_logp_q03(ms, xx, table) * slow * dx
+        for k in range(qe.size - 1):
+            sub = qe[k] + (np.arange(4) + 0.5) / 4 * (qe[k + 1] - qe[k])
+            pq = np.mean([mds.q_density(np.full(m.size, s), ms, xx, table, m1_interpolation=interp) for s in sub], axis=0)
+            lam0[:, p, k] = f * pq * (qe[k + 1] - qe[k])
+        for j, (qq, dq) in enumerate(zip(qn, dqn)):
+            pqn[:, p, j] = mds.q_density(np.full(m.size, qq), ms, xx, table, m1_interpolation=interp) * dq
+    return {"lam0": lam0, "pqn": pqn, "lpc": lpc, "qc": 0.5 * (qe[1:] + qe[:-1]), "qn": qn}
+
+
+def theta_row_norm(grids: dict[str, Any], log10_lr: ArrayLike, log_s_row: ArrayLike, log_m_p: ArrayLike,
+                   dgamma_q: float, ln_f_twin: float, twin_q_min: float) -> FloatArray:
+    """Per row (1 + F(θ)) / (1 + Σ_q Λ(q; θ) LR(q)) with
+    Λ(q; θ) = e^{log_s_row} Σ_P Λ⁰(P, q) e^{log_m_p(P)} g(q) / N(P), g = q^{Δγ_q} e^{ln F_tw [q ≥ q_tw]},
+    N(P) = Σ_j p_q(qn_j) g(qn_j) Δq (MP-Q42b). Rows with an undefined LR get 1."""
+    g = lambda q: np.exp(dgamma_q * np.log(q) + ln_f_twin * (q >= twin_q_min))  # noqa: E731
+    gq, gn = g(grids["qc"]), g(grids["qn"])
+    N = grids["pqn"] @ gn  # (R, P)
+    lam = np.einsum("rpk,rp->rk", grids["lam0"], np.exp(np.asarray(log_m_p, float))[None, :] / N) * gq[None, :]
+    lam *= np.exp(np.asarray(log_s_row, float))[:, None]
+    llr = np.asarray(log10_lr, float)
+    L = np.where(np.isneginf(llr), 0.0, 10.0 ** np.where(np.isfinite(llr), llr, 0.0))
+    bad = ~np.all(np.isfinite(llr) | np.isneginf(llr), axis=1)
+    out = (1.0 + lam.sum(axis=1)) / (1.0 + (lam * L).sum(axis=1))
+    return np.where(bad, 1.0, out)

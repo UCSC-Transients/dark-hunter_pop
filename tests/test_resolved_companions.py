@@ -46,3 +46,39 @@ def test_load_checks_sha(tmp_path: Path) -> None:
     assert d["theta"][0] == pytest.approx(3.6)
     with pytest.raises(ValueError):
         rc.load_elbadry2021(p, "0" * 64)
+
+
+def _orb6_line(p: str, pu: str, a: str, au: str, i: str, t: str, tu: str, e: str, om: str, grade: str) -> str:
+    buf = [" "] * 240
+    for k, val in (("v1", "6.0"), ("v2", "7.0"), ("p", p), ("p_unit", pu), ("a", a), ("a_unit", au), ("i", i),
+                   ("node", "10"), ("t", t), ("t_unit", tu), ("e", e), ("omega", om), ("grade", grade)):
+        a0, b0 = rc.ORB6_SLICES[k]
+        buf[a0:a0 + len(val)] = list(val)
+    return "".join(buf)
+
+
+@pytest.mark.unit
+def test_parse_orb6_and_separation() -> None:
+    lines = [_orb6_line("10.0", "y", "0.5", "a", "90.0", "2016.0", "y", "0.0", "0.0", "2"),
+             _orb6_line("3652.5", "d", "500", "m", "0.0", "51544.5", "m", "0.0", "0.0", "4")]
+    o = rc.parse_orb6(lines)
+    np.testing.assert_allclose(o["p_yr"], [10.0, 10.0])
+    np.testing.assert_allclose(o["a_as"], [0.5, 0.5])
+    np.testing.assert_allclose(o["t_yr"], [2016.0, 2000.0], atol=1e-6)
+    np.testing.assert_allclose(o["grade"], [2, 4])
+    kep = lambda M, e: M  # circular orbits: E = M  # noqa: E731
+    np.testing.assert_allclose(rc.orb6_separation(o, 2016.0, kep), [0.5, 0.5], atol=1e-9)  # edge-on at node; face-on
+    np.testing.assert_allclose(rc.orb6_separation(o, 2018.5, kep)[0], 0.0, atol=1e-9)  # edge-on, quarter period
+
+
+@pytest.mark.unit
+def test_orb6_pass_table_normalization_and_fill() -> None:
+    th = np.repeat([0.03, 0.2], 50)
+    dg = np.zeros(100)
+    ok = np.r_[np.ones(40), np.zeros(10), np.ones(5), np.zeros(45)]
+    t = rc.orb6_pass_table(th, dg, ok, np.ones(100), [0.02, 0.05, 0.1, 0.3], [0, 1, 2, 6, 12], min_weight=8,
+                           ref_theta_max=0.05, fill_dg_max=5.0)
+    np.testing.assert_allclose(t.p_pass[0, 0], 1.0)
+    np.testing.assert_allclose(t.p_pass[2, 0], 0.1 / 0.8)
+    np.testing.assert_allclose(t.p_pass[2, 1], t.p_pass[2, 0])  # filled from lower ΔG
+    np.testing.assert_allclose(t.p_pass[:, 3], 1.0)  # ΔG >= fill_dg_max

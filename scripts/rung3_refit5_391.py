@@ -135,7 +135,14 @@ def extend(args, fc, ns):
         norm, F = bce.row_factor(lam, llr)
         qd = np.asarray(zc["m2_msun"], float)[ns.rel] / m1c
         ns.cmd_factor = bce.draw_factor(qd, inv_u, qc, llr, norm)
-        ns.W = {k: v * ns.cmd_factor for k, v in ns.W.items()}
+        if bcc.get("normalization", "theta") == "baseline":  # superseded fixed-MdS17 normalization (diagnostic only)
+            ns.W = {k: v * ns.cmd_factor for k, v in ns.W.items()}
+        else:  # §12.22 amendment: θ-dependent normalization inside the likelihood
+            ns.cond = dict(grids=bce.precompute_theta_grids(np.where(np.isfinite(m1r), m1r, 1.0), qe, tgt),
+                           llr=llr, inv=inv_u, lr_draw=bce.draw_factor(qd, inv_u, qc, llr, np.ones(rows_u.size)),
+                           lm1=np.log(np.where(np.isfinite(m1r), m1r, 1.0) / float(fc["m1_pivot_msun"])),
+                           lo=np.where(np.isfinite(m1r), m1r, 1.0) < float(fc["m1_pivot_msun"]),
+                           evo=(pcls.classified & pcls.evolved)[rows_u].astype(float))
         ns.cmd_summary = dict(rows=int(rows_u.size), rows_undefined=int((~np.isfinite(les)).sum()),
                               factor_q=np.percentile(ns.cmd_factor, [5, 25, 50, 75, 95]).round(3).tolist(),
                               F_median=float(np.median(F)))
@@ -162,8 +169,34 @@ def extend(args, fc, ns):
         a_au = np.cbrt((m1c + m2c) * (pc_d / 365.25) ** 2)
         theta = float(rcc["projection_factor"]) * a_au * np.asarray(tr["parallax_mas"], float) / 1000.0
         dg = np.where(np.asarray(tr["is_dark"], bool), np.inf, -2.5 * np.asarray(tr["log10_flux_ratio"], float))
+        o6tab = None
+        if rcc.get("below_envelope") == "orb6":  # §12.23 amendment: ORB6-calibrated partially resolved regime
+            from astropy.table import Table as _T
+
+            from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
+
+            o6 = rcc["orb6"]
+            root6 = args.parent_dir.parents[2] / o6["snapshot_dir"]
+            for fn, sha in o6["sha256"].items():
+                if rcm.hashlib.sha256((root6 / fn).read_bytes()).hexdigest() != sha:
+                    raise ValueError(f"{root6 / fn}: SHA256 mismatch")
+            pt, xm = _T.read(root6 / "orb6_parsed.ecsv"), _T.read(root6 / "orb6_gaiadr3_xmatch5as.ecsv")
+            orb = rcm.parse_orb6([str(v) for v in pt["orb6_line"]])
+            gmk = import_gaiamock_mod()
+            cfun = gmk.read_in_C_functions()
+            rho = rcm.orb6_separation(orb, float(o6["epoch_yr"]), lambda M, e: gmk.solve_kepler_eqn_on_array(M, e, cfun))
+            pr = rcm.orb6_pairs(pt["orb6_row"], pt["ra"], pt["dec"], rho, orb["v2"] - orb["v1"],
+                                {c: np.ma.filled(np.ma.asarray(xm[c], float), np.nan) if c != "orb6_row" else np.asarray(xm[c])
+                                 for c in ("orb6_row", "RAJ2000", "DEJ2000", "RAdeg", "DEdeg", "Gmag", "IPDfmp", "IPDgofha")},
+                                ipd_fmp_max=fmp, ipd_gof_max=gof, match_min_arcsec=float(o6["match_min_arcsec"]),
+                                sep_tol_frac=float(o6["sep_tol_frac"]), sep_tol_min_arcsec=float(o6["sep_tol_min_arcsec"]))
+            gw = {int(k): float(v) for k, v in o6["grade_weights"].items()}
+            wgt = np.array([gw.get(int(gv), 0.0) if np.isfinite(gv) else 0.0 for gv in orb["grade"]])
+            o6tab = rcm.orb6_pass_table(pr["theta"], pr["dg"], pr["passed"], wgt, o6["theta_edges_arcsec"], o6["dg_edges"],
+                                        min_weight=float(o6["min_weight"]), ref_theta_max=float(o6["ref_theta_max_arcsec"]),
+                                        fill_dg_max=float(o6["fill_dg_max"]))
         ns.ipd_factor = rcm.p_pass_ipd(theta, dg, tab, below_envelope=rcc.get("below_envelope", "none"),
-                                       hold_min_arcsec=float(rcc.get("hold_min_arcsec", 0.1)))
+                                       hold_min_arcsec=float(rcc.get("hold_min_arcsec", 0.1)), orb6=o6tab)
         ns.W = {k: v * ns.ipd_factor for k, v in ns.W.items()}
         dtr = 1.0 / np.asarray(tr["parallax_mas"], float)
         ns.ipd_summary = {f"d{lo}-{hi} {nm}": round(float(np.mean(ns.ipd_factor[sel & (dtr >= lo) & (dtr < hi)])), 4)
@@ -390,11 +423,25 @@ def fit(args, fc, ns):
             return np.bincount(bins[s_], weights=w[s_] ** 2, minlength=n)
         return clustered_bin_variance(w, grp, n)
 
+    def cond_factor(th):
+        """§12.22 amendment: per-draw LR(q) × (1+F_r(θ))/(1+Σ Λ_r(q;θ) LR_r(q)) with the current modifiers."""
+        from darkhunter_pop import binary_cmd_evidence as bce
+
+        c = ns.cond
+        lnA, alo, ahi, gP, lnL, dq, lnT = th[:7]
+        log_s = lnA + np.where(c["lo"], alo, ahi) * c["lm1"] + (th[i_fe] * c["evo"] if i_fe is not None else 0.0)
+        lpc = c["grids"]["lpc"]
+        log_mp = gP * (lpc - fc["log_p_tilt_pivot"]) + lnL / (1.0 + np.exp(-(lpc - fc["long_p_centre"]) / fc["long_p_width"]))
+        norm = bce.theta_row_norm(c["grids"], c["llr"], log_s, log_mp, dq, lnT, float(fc["twin_q_min"]))
+        return c["lr_draw"] * norm[c["inv"]]
+
     def expected(th, wkey):
         lm = ns.log_mod(full(th)) + (evolved_log_modifier(evo, th[i_fe]) if i_fe is not None else 0.0)
         if i_br is not None:
             lm = lm + th[i_br] * ns.hinge
         w = ns.W[wkey] * np.exp(lm)
+        if getattr(ns, "cond", None) is not None:
+            w = w * cond_factor(th)
         so, sa = ob >= 0, ab >= 0
         keep_o, keep_a = ~empty_o, ~empty_a
         return (w, np.bincount(ob[so], weights=w[so], minlength=n_ob) * keep_o, bin_var(w, ob, grp_o, n_ob) * keep_o,
@@ -411,6 +458,12 @@ def fit(args, fc, ns):
     x0 = np.array([par[n][0] for n in POP] + ([0.0] if i_fe is not None else []) + ([br[0]] if i_br is not None else []) + [prior[0]], float)
     bounds = ([(par[n][1], par[n][2]) for n in POP] + ([(-3.0, 3.0)] if i_fe is not None else [])
               + ([(br[1], br[2])] if i_br is not None else []) + [(0.0, max(5 * prior[0], 1.0))])
+    for item in (getattr(args, "fix", None) or []):  # profile: hold a parameter fixed (tiny box)
+        nm_, val_ = item.split("=")
+        j_ = names.index(nm_)
+        bounds[j_] = (float(val_) - 1e-9, float(val_) + 1e-9)
+        x0[j_] = float(val_)
+        rep.append(f"profile: {nm_} fixed at {float(val_)}")
     rng = np.random.default_rng(args.seed)
     results = {}
     init = json.loads(args.init_from.read_text())["results"] if args.init_from else None
@@ -596,7 +649,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
-    ap.add_argument("--below-envelope", choices=("none", "hold"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
+    ap.add_argument("--fix", nargs="*", default=None, help="NAME=VALUE parameters held fixed (profiles)")
+    ap.add_argument("--below-envelope", choices=("none", "hold", "orb6"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
     ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
