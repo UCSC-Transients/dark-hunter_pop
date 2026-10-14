@@ -1969,6 +1969,35 @@ Both change the parent CMD, and therefore the isochrone M1 drawn at generation t
   - A reweight by the deblend likelihood is possible without new draws. Its normalization against the single-star hypothesis (the row's isochrone evidence) is a model choice for Ryan.
 - **Resolved companions (MP-Q27, open).** See the #391 report of 2026-10-13: orbit solutions (P ≤ 830 d) are never resolved beyond 0.1″, and accelerations at d < 0.1 kpc are 29% at 0.1–0.4″.
 
+### 12.22 Conditioning the companion on the observed CMD (Ryan, 2026-10-13, option (b); #491)
+
+**Why.** Under MP-Q6 a parent row's photometry is the system. The drawn companion enters only through the deblended M1 (MP-Q36), so whether a row has a bright companion was never conditioned on its CMD.
+- For example, a blue composite giant gets MdS17 companions independent of its colour.
+- Result: real bright evolved orbits are 24% blue ((BP−RP)₀ < 1.0), against 6.5% in the mock (§12.21).
+
+**Evidence (same machinery as the isochrone fit).**
+- E_S(x) is the single-star prior-predictive density at the row's dereddened (C₀, M_G0). This is the isochrone fit's evidence: same prior points (IMF × age × [Fe/H] × CHeB weights), same CMD-map kernel, same σ_C and σ_M (including the colour and magnitude floors, i.e. the fit's σ_int).
+- E_B(x | q) is the same, with every prior point replaced by its composite with a coeval MIST main-sequence companion of mass q·M. The companion photometry is taken at the point's nearest native ([Fe/H], age); a companion below the MS mass range adds no light.
+- LR(q) = E_B / E_S, evaluated at the centres of q cells with edges `rung3.cmd_binary_conditioning.q_edges`.
+- The MP-Q13 flux-ratio scatter is not propagated (the composite uses the MIST relation).
+
+**Weight.** Λ_r(q) is the row's MdS17 companion intensity per q cell: ∫ dlogP f_logP;q>0.3(M1) s_low(M1) ∫_cell p_q dq over the full MdS17 log P domain, at the row's isochrone M1. F_r = Σ Λ_r. Each draw's weight is multiplied by
+
+LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
+
+- This is the single-companion posterior, normalized so that an uninformative CMD (LR ≡ 1) reproduces the current weights exactly.
+- Rows whose single-star evidence is undefined (off grid) keep a factor of 1.
+- The prior Λ is the MdS17 baseline; the fitted rung-3 modifiers are not fed back into the normalization (a first-order approximation).
+- It is reweight-only: no draw is invalidated.
+
+**Validation before use.**
+- DEBCat (known q, deblended). log10 LR at the dynamical q must rise with q, and P(q ≥ 0.5 | x) must exceed its prior.
+- Measured: median log10 LR(q_dyn) is +0.03 / +0.21 / +0.48 / +0.60 for q < 0.5 / 0.5–0.8 / 0.8–0.95 / ≥ 0.95. LR > 1 for 90–94% of systems. P(q ≥ 0.5) goes from 0.16 (prior) to 0.29–0.34.
+- A field-dwarf control and the parent rows used in the fit are reported alongside.
+- **Stop rule.** If LR is dominated by isochrone systematics, stop and report. Signs of that: rows off the single-star grid but on the composite grid in large numbers, or factors spanning more than about 2 dex for typical rows.
+
+**Refit.** noW and cmdW on the 108-bin grid (§12.20 parent-row variance, M1,ZAMS on). Report the blue-evolved fraction in the bright evolved cells and the G shape before and after.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
