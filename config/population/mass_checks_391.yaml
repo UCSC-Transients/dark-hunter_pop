@@ -9,3 +9,7 @@ tmass_parent:
   ks_quality: [A, B]
   max_match_arcsec: 1.0
   m_ks_range: [4.5, 10.5]
+hwang2024:
+  table: external_catalogs/hwang2024_hrmass_20261014T212537Z/20230810_wb_table_with_mass.fits
+  sha256: d822b7faea7544a2a10ca3c590f86be0b5f8d4b19eca8cf3bfdd4cebc4f86574
+  extinction: none_applied   # paper: |b| > 10 deg, no extinction correction; treated as dereddened (systematic noted)
