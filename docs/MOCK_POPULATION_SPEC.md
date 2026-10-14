@@ -2028,6 +2028,11 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
   - The Mann et al. (2019) M_Ks check needs 2MASS Ks, which is requested.
   - No generation-time change is made.
 - **Refits.** noW and cmdW for (a) and for (b), each with MP-Q27 = ORB6 and an α_lo profile.
+- **Decided (Ryan, 2026-10-14): variant (a) is the working model.**
+  - The conditioning applies only for M1 ≥ 0.8 M⊙, on top of M1,ZAMS, parent-row variance, θ-dependent normalization and MP-Q27 = ORB6.
+  - Config: `config/population/rung3_compliant108_v6a.yaml`, the default `--fit-config` of `scripts/rung3_refit5_391.py`.
+  - Result: noW −lnL 747.6, α_lo +0.76 ± 0.28.
+  - It is revisited once the MIST low-mass correction (§12.24) is in.
 
 ### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
 
@@ -2126,6 +2131,23 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 - In NSS (Orbital + SB1), orbits more than 0.4 mag below the ridge make up 2.7% of BP−RP 1.5–3 orbits, against 14.8% of the parent. They are more circular (e < 0.05: 12% vs 5%) and longer in period (median P 541 vs 494 d).
 - That pattern is consistent with post-interaction (WD + MS) systems. It is a candidate compact-object subsample to follow up.
 - The 33 low-mass RUWE > 2 dwarfs with LR ≪ 1 under the ridge locus are mostly not in this region: 6% are, median ΔM −0.04.
+
+**Amendment (Ryan, 2026-10-14): build the correction before any re-simulation.**
+- **Code.** `darkhunter_pop/mist_correction.py`, applied to the native MIST grid.
+- **Teff term.** For main-sequence points (phase 0) with M < `join_msun`: log Teff → log Teff + Δ(M), at fixed L. Hence log R → log R − 2Δ, log g → log g + 4Δ, and the G/BP/RP bands are recomputed from MIST's own UBVRIplus BC tables at the new (Teff, log g, [Fe/H]). Any other filter follows the same way.
+- **Mass term.** M_star and M_init → M · 10^δ(M) at fixed L, with log g shifted accordingly.
+- **Form.** Δ and δ are piecewise linear in M on nodes below `join_msun` (0.8–0.9 M⊙) and vanish above it, so masses ≥ 0.8 M⊙ are unchanged by construction.
+- **Calibration** (statistical, never per star). Both steps iterate (2–3 passes).
+  - Δ: drive the prior-weighted median colour of the corrected MIST MS points at each M_G onto the measured single-star ridge (`giants.fit_ms_ridge`).
+  - δ: drive the median isochrone M1 / Mann (2019) mass of the 342 RUWE < 1.4 parent dwarfs to 0 in each mass bin.
+  - DEBCat low-mass systems, and the Serenelli et al. (2021) benchmarks if their tables are snapshotted, are validation, not calibration.
+- **Validation (all required):**
+  1. ridge colour residual |Δc| ≲ 0.02 mag;
+  2. Mann ratio within ±0.01 dex per bin;
+  3. Hwang et al. (2024) within ±0.02 dex above 0.5 M⊙, after dereddening Hwang the same way as our data (Combined19 × 0.884), or restricting to low E(B−V);
+  4. posterior ⟨[Fe/H]⟩ of field dwarfs close to the solar-neighbourhood MDF (prior mean −0.06), not +0.26;
+  5. DEBCat ratio at ≥ 0.8 M⊙ unchanged (0.98).
+- **Use.** Configured as `isochrone_mass.lowmass_correction`, off by default. Turning it on changes the isochrone config key, and with it the generation-time M1, so it is part of the §12.25 batch.
 
 ### 12.25 Re-simulation queue (changes that invalidate stored draws; none applied)
 
