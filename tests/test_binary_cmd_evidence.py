@@ -68,3 +68,22 @@ def test_theta_row_norm_identity_and_scaling() -> None:
     assert np.all(a < 1.0) and np.all(b < a)
     llr[1, 2] = np.nan
     assert bce.theta_row_norm(grids, llr, np.zeros(R), np.zeros(P), 0.0, 0.0, 0.95)[1] == 1.0
+
+
+@pytest.mark.unit
+def test_ridge_colour_shift_and_blend() -> None:
+    """§12.22 second amendment (b): MS points move onto the measured ridge below join_lo, MIST above join_hi."""
+    n = 600
+    mg = np.linspace(4.0, 12.0, n)
+    mass = np.linspace(1.2, 0.2, n)
+    col = 0.25 * mg
+    vals = {"star_mass": mass, "phase": np.zeros(n), "mg": mg, "bp": mg + 0.5 * col, "rp": mg - 0.5 * col}
+    pts = im.PriorPoints(weight=np.ones(n) / n, colour=col, mg=mg, feh=np.zeros(n), log_age=np.full(n, 9.0), values=vals)
+    smg, sdc = bce.ridge_colour_shift(pts, ridge_colour=0.25 * mg + 0.2, ridge_mag=mg, join_hi_msun=2.0,
+                                      mg_edges=np.arange(4.0, 12.5, 0.5))
+    np.testing.assert_allclose(sdc[2:-2], 0.2, atol=0.01)
+    c = bce.ridge_corrected_points(pts, smg, sdc, join_lo_msun=0.7, join_hi_msun=0.9)
+    d = c.colour - col
+    assert np.allclose(d[mass <= 0.7][5:-5], 0.2, atol=0.01) and np.allclose(d[mass >= 0.9], 0.0)
+    np.testing.assert_allclose(c.values["bp"] - c.values["rp"], c.colour)
+    np.testing.assert_allclose(bce.mass_blend([0.5, 0.8, 1.0], 0.7, 0.9), [1.0, 0.5, 0.0])

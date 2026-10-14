@@ -47,7 +47,8 @@ def _nearest(grid_axis: ArrayLike, x: ArrayLike) -> NDArray[np.int64]:
     return np.where(np.abs(v - g[j - 1]) <= np.abs(g[j] - v), j - 1, j).astype(np.int64)
 
 
-def composite_points(pts: im.PriorPoints, grid: im.NativeGrid, q: float) -> im.PriorPoints:
+def composite_points(pts: im.PriorPoints, grid: im.NativeGrid, q: float, *,
+                     companion_shift: tuple[FloatArray, FloatArray, float, float] | None = None) -> im.PriorPoints:
     """Prior points with a coeval MS companion of mass ``q`` × the point's current mass added.
 
     The companion's (M_G, BP, RP) come from :func:`isochrone_mass.main_sequence_colour_relation`
@@ -74,9 +75,13 @@ def composite_points(pts: im.PriorPoints, grid: im.NativeGrid, q: float) -> im.P
         lit = m2 >= mass[0]
         m2c = np.clip(m2, mass[0], mass[-1])
         g2 = np.interp(m2c, mass, rel["mg"])
+        dc2 = 0.0
+        if companion_shift is not None:  # §12.22 (b): the companion on the same empirical MS locus
+            smg, sdc, jlo, jhi = companion_shift
+            dc2 = mass_blend(m2c, jlo, jhi) * np.interp(g2, smg, sdc)
         mg2[s] = np.where(lit, g2, np.inf)
-        bp2[s] = np.where(lit, g2 + np.interp(m2c, mass, rel["bp_g"]), np.inf)
-        rp2[s] = np.where(lit, g2 - np.interp(m2c, mass, rel["g_rp"]), np.inf)
+        bp2[s] = np.where(lit, g2 + np.interp(m2c, mass, rel["bp_g"]) + 0.5 * dc2, np.inf)
+        rp2[s] = np.where(lit, g2 - np.interp(m2c, mass, rel["g_rp"]) - 0.5 * dc2, np.inf)
     fl = lambda x: 10.0 ** (-0.4 * x)  # noqa: E731
     mg_c = -2.5 * np.log10(fl(mg) + fl(mg2))
     col_c = -2.5 * np.log10(fl(bp) + fl(bp2)) + 2.5 * np.log10(fl(rp) + fl(rp2))
@@ -92,7 +97,8 @@ def log10_evidence(cmap: im.CmdMap, colour0: ArrayLike, mg0: ArrayLike, sigma_co
 
 def log10_lr_grid(
     pts: im.PriorPoints, grid: im.NativeGrid, cfg: im.IsochroneMassConfig, q_grid: Sequence[float],
-    colour0: ArrayLike, mg0: ArrayLike, sigma_colour: ArrayLike, sigma_mag: ArrayLike,
+    colour0: ArrayLike, mg0: ArrayLike, sigma_colour: ArrayLike, sigma_mag: ArrayLike, *,
+    companion_shift: tuple[FloatArray, FloatArray, float, float] | None = None,
 ) -> tuple[FloatArray, FloatArray]:
     """(log10 E_S per row, log10 LR per row × q). LR is 0 (−inf) where the composite map has no
     support (below the evidence floor) but the single map does; NaN where E_S is undefined."""
@@ -100,7 +106,7 @@ def log10_lr_grid(
     les = log10_evidence(base, colour0, mg0, sigma_colour, sigma_mag, cfg.likelihood)
     out = np.full((les.size, len(q_grid)), np.nan)
     for j, q in enumerate(q_grid):
-        cm = im.build_cmd_map(composite_points(pts, grid, float(q)), cfg.cmd_map)
+        cm = im.build_cmd_map(composite_points(pts, grid, float(q), companion_shift=companion_shift), cfg.cmd_map)
         leb = log10_evidence(cm, colour0, mg0, sigma_colour, sigma_mag, cfg.likelihood)
         out[:, j] = np.where(np.isfinite(leb), leb - les, -np.inf)
     out[~np.isfinite(les)] = np.nan
@@ -215,3 +221,48 @@ def theta_row_norm(grids: dict[str, Any], log10_lr: ArrayLike, log_s_row: ArrayL
     bad = ~np.all(np.isfinite(llr) | np.isneginf(llr), axis=1)
     out = (1.0 + lam.sum(axis=1)) / (1.0 + (lam * L).sum(axis=1))
     return np.where(bad, 1.0, out)
+
+
+# ---------------------------------------------------------------------------
+# Empirical single-star MS locus at low mass (spec §12.22 second amendment, (b))
+# ---------------------------------------------------------------------------
+
+
+def ridge_colour_shift(pts: im.PriorPoints, ridge_colour: ArrayLike, ridge_mag: ArrayLike, *, join_hi_msun: float,
+                       mg_edges: ArrayLike) -> tuple[FloatArray, FloatArray]:
+    """Δc(M_G) = c_ridge(M_G) − c_MIST(M_G) on ``mg_edges`` centres: c_MIST is the prior-weighted
+    median colour of MIST MS points (phase < 0.5, M < ``join_hi_msun``) per M_G bin, c_ridge the
+    measured ridge colour at that M_G (ridge inverted in M_G; NaN outside its range → Δc = 0)."""
+    mg = np.asarray(pts.mg, float)
+    ms = (np.asarray(pts.values["phase"], float) < 0.5) & (np.asarray(pts.values["star_mass"], float) < join_hi_msun)
+    e = np.asarray(mg_edges, float)
+    cen = 0.5 * (e[1:] + e[:-1])
+    cm = np.full(cen.size, np.nan)
+    for k, (a, b) in enumerate(zip(e[:-1], e[1:])):
+        s = ms & (mg >= a) & (mg < b)
+        if s.sum() >= 10:
+            c, w = pts.colour[s], pts.weight[s]
+            o = np.argsort(c)
+            cm[k] = float(np.interp(0.5, np.cumsum(w[o]) / w[o].sum(), c[o]))
+    rc, rm = np.asarray(ridge_colour, float), np.asarray(ridge_mag, float)
+    o = np.argsort(rm)
+    cr = np.interp(cen, rm[o], rc[o], left=np.nan, right=np.nan)
+    d = np.where(np.isfinite(cr) & np.isfinite(cm), cr - cm, 0.0)
+    return cen, d
+
+
+def mass_blend(m: ArrayLike, join_lo_msun: float, join_hi_msun: float) -> FloatArray:
+    """1 at M ≤ join_lo, linear to 0 at join_hi, 0 above."""
+    return np.clip((join_hi_msun - np.asarray(m, float)) / (join_hi_msun - join_lo_msun), 0.0, 1.0)
+
+
+def ridge_corrected_points(pts: im.PriorPoints, shift_mg: FloatArray, shift_dc: FloatArray, *, join_lo_msun: float,
+                           join_hi_msun: float) -> im.PriorPoints:
+    """MS points moved in colour by t(M) Δc(M_G) (G kept: BP += Δ/2, RP −= Δ/2)."""
+    m = np.asarray(pts.values["star_mass"], float)
+    ms = np.asarray(pts.values["phase"], float) < 0.5
+    dc = np.where(ms, mass_blend(m, join_lo_msun, join_hi_msun) * np.interp(pts.mg, shift_mg, shift_dc), 0.0)
+    vals = dict(pts.values)
+    vals["bp"] = np.asarray(vals["bp"], float) + 0.5 * dc
+    vals["rp"] = np.asarray(vals["rp"], float) - 0.5 * dc
+    return replace(pts, colour=np.asarray(pts.colour, float) + dc, values=vals)

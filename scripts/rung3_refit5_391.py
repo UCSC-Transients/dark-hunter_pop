@@ -127,8 +127,18 @@ def extend(args, fc, ns):
         pts = im_.prior_points(native, cfg.isochrone_mass)
         qe = np.asarray(bcc["q_edges"], float)
         qc = 0.5 * (qe[1:] + qe[:-1])
-        les, llr = bce.log10_lr_grid(pts, native, cfg.isochrone_mass, qc, pcm["colour0"], pcm["mg0"], sc_, sm_)
+        cshift = None
+        if bcc.get("ms_locus", "mist") == "ridge":  # §12.22 second amendment (b): empirical single-star MS below ~0.8 Msun
+            jlo, jhi = float(bcc["join_lo_msun"]), float(bcc["join_hi_msun"])
+            smg, sdc = bce.ridge_colour_shift(pts, ridge.colour, ridge.mag, join_hi_msun=jhi, mg_edges=np.asarray(bcc["ridge_mg_edges"], float))
+            pts = bce.ridge_corrected_points(pts, smg, sdc, join_lo_msun=jlo, join_hi_msun=jhi)
+            cshift = (smg, sdc, jlo, jhi)
+            ns.ridge_shift = (smg, sdc)
+        les, llr = bce.log10_lr_grid(pts, native, cfg.isochrone_mass, qc, pcm["colour0"], pcm["mg0"], sc_, sm_, companion_shift=cshift)
         del pts
+        m1r_ = np.asarray(parent.isochrone["m1_mean"], float)[rows_u]
+        if bcc.get("m1_min_msun") is not None:  # §12.22 second amendment (a): no conditioning below the mass floor
+            llr = np.where((m1r_ < float(bcc["m1_min_msun"]))[:, None], 0.0, llr)
         tgt = ps.load_proposal_set_fragment(args.fragment).target_mds17
         m1r = np.asarray(parent.isochrone["m1_mean"], float)[rows_u]
         lam = bce.q_intensity_grid(np.where(np.isfinite(m1r), m1r, 1.0), qe, tgt)
@@ -388,6 +398,8 @@ def fit(args, fc, ns):
             rep.append(f"MP-Q27 IPD-pass weight §12.23 (unweighted mean per truth-distance bin, detected draws): {ns.ipd_summary}")
         if getattr(ns, "cmd_summary", None):
             rep.append(f"CMD companion conditioning §12.22: {ns.cmd_summary}")
+            if getattr(ns, "ridge_shift", None) is not None:
+                rep.append("  ms_locus ridge: colour shift Δc(M_G) " + " ".join(f"{a:.1f}:{b:+.3f}" for a, b in zip(*ns.ridge_shift) if abs(b) > 0))
         if ns.mass_scale_map is not None:
             rep.append("MdS17 mass scale pm13_colour, M1_PM13(M1_MIST): " + " ".join(f"{a:.2f}->{b:.2f}" for a, b in zip(*ns.mass_scale_map))
                        + f"; Δ ln w median {np.median(ns.mass_scale_lr):+.3f}")

@@ -1,0 +1,11 @@
+# #391 validation-only snapshots (spec §12.22 second amendment: isochrone M1 below 0.8 Msun vs Mann et al. 2019). Paths relative to the data root.
+mann2019:
+  table: external_catalogs/mann2019_mks_mass_20261014T171551Z/mann2019_table6.yaml
+  sha256: b56d055258d7d97f0430bc44959f29c524ea1dcd33754964fa98728c6f5ff362
+  fit: n5_no_feh
+tmass_parent:
+  table: external_catalogs/tmass_parent_red_plx5_20261014T171257Z/parent_red_plx5_2mass_gaia.csv
+  sha256: 35fe85d5f4fae12f22656e3c2a9e9bf6c2a5af638bd7e83589fc9d8df2d2f309
+  ks_quality: [A, B]
+  max_match_arcsec: 1.0
+  m_ks_range: [4.5, 10.5]
