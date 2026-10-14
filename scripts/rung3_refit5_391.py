@@ -169,8 +169,34 @@ def extend(args, fc, ns):
         a_au = np.cbrt((m1c + m2c) * (pc_d / 365.25) ** 2)
         theta = float(rcc["projection_factor"]) * a_au * np.asarray(tr["parallax_mas"], float) / 1000.0
         dg = np.where(np.asarray(tr["is_dark"], bool), np.inf, -2.5 * np.asarray(tr["log10_flux_ratio"], float))
+        o6tab = None
+        if rcc.get("below_envelope") == "orb6":  # §12.23 amendment: ORB6-calibrated partially resolved regime
+            from astropy.table import Table as _T
+
+            from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
+
+            o6 = rcc["orb6"]
+            root6 = args.parent_dir.parents[2] / o6["snapshot_dir"]
+            for fn, sha in o6["sha256"].items():
+                if rcm.hashlib.sha256((root6 / fn).read_bytes()).hexdigest() != sha:
+                    raise ValueError(f"{root6 / fn}: SHA256 mismatch")
+            pt, xm = _T.read(root6 / "orb6_parsed.ecsv"), _T.read(root6 / "orb6_gaiadr3_xmatch5as.ecsv")
+            orb = rcm.parse_orb6([str(v) for v in pt["orb6_line"]])
+            gmk = import_gaiamock_mod()
+            cfun = gmk.read_in_C_functions()
+            rho = rcm.orb6_separation(orb, float(o6["epoch_yr"]), lambda M, e: gmk.solve_kepler_eqn_on_array(M, e, cfun))
+            pr = rcm.orb6_pairs(pt["orb6_row"], pt["ra"], pt["dec"], rho, orb["v2"] - orb["v1"],
+                                {c: np.ma.filled(np.ma.asarray(xm[c], float), np.nan) if c != "orb6_row" else np.asarray(xm[c])
+                                 for c in ("orb6_row", "RAJ2000", "DEJ2000", "RAdeg", "DEdeg", "Gmag", "IPDfmp", "IPDgofha")},
+                                ipd_fmp_max=fmp, ipd_gof_max=gof, match_min_arcsec=float(o6["match_min_arcsec"]),
+                                sep_tol_frac=float(o6["sep_tol_frac"]), sep_tol_min_arcsec=float(o6["sep_tol_min_arcsec"]))
+            gw = {int(k): float(v) for k, v in o6["grade_weights"].items()}
+            wgt = np.array([gw.get(int(gv), 0.0) if np.isfinite(gv) else 0.0 for gv in orb["grade"]])
+            o6tab = rcm.orb6_pass_table(pr["theta"], pr["dg"], pr["passed"], wgt, o6["theta_edges_arcsec"], o6["dg_edges"],
+                                        min_weight=float(o6["min_weight"]), ref_theta_max=float(o6["ref_theta_max_arcsec"]),
+                                        fill_dg_max=float(o6["fill_dg_max"]))
         ns.ipd_factor = rcm.p_pass_ipd(theta, dg, tab, below_envelope=rcc.get("below_envelope", "none"),
-                                       hold_min_arcsec=float(rcc.get("hold_min_arcsec", 0.1)))
+                                       hold_min_arcsec=float(rcc.get("hold_min_arcsec", 0.1)), orb6=o6tab)
         ns.W = {k: v * ns.ipd_factor for k, v in ns.W.items()}
         dtr = 1.0 / np.asarray(tr["parallax_mas"], float)
         ns.ipd_summary = {f"d{lo}-{hi} {nm}": round(float(np.mean(ns.ipd_factor[sel & (dtr >= lo) & (dtr < hi)])), 4)
@@ -624,7 +650,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
     ap.add_argument("--fix", nargs="*", default=None, help="NAME=VALUE parameters held fixed (profiles)")
-    ap.add_argument("--below-envelope", choices=("none", "hold"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
+    ap.add_argument("--below-envelope", choices=("none", "hold", "orb6"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
     ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
