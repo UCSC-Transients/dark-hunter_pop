@@ -1998,6 +1998,21 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 
 **Refit.** noW and cmdW on the 108-bin grid (§12.20 parent-row variance, M1,ZAMS on). Report the blue-evolved fraction in the bright evolved cells and the G shape before and after.
 
+**Amendment (Ryan, 2026-10-13): the normalization depends on θ.**
+- **Why.** With the fixed MdS17-baseline normalization, the noW fit moved α_lo from +0.68 to +2.98 with no gain in −lnL. The row's P(binary | CMD) must use the population being fitted.
+- **The rule.** Inside the likelihood, F_r(θ) and Σ_q Λ_r(q; θ) LR_r(q) are evaluated with the current fitted rung-3 modifiers:
+
+  Λ_r(q; θ) = exp(ln A + α · ln(M1_r / M_piv) + ln f_evo · evo_r) · Σ_P Λ⁰_r(P, q) · m_P(P; γ_P, ln L_P) · g(q; Δγ_q, ln F_tw) / N_r(P; θ).
+
+  - Λ⁰_r(P, q) is the MdS17 baseline intensity in the (log P, q) cell over the full MdS17 log P domain.
+  - α is α_lo or α_hi, split at M_piv.
+  - The MP-Q42b normalization N_r(P) = ∫_{0.3}^{1} p_q(q′ | M1_r, P) g(q′) dq′ uses the same q grid as the draw-level modifier.
+  - The eccentricity modifiers integrate to 1 and drop out.
+- **Per-draw factor:** LR_r(q_i) · (1 + F_r(θ)) / (1 + Σ_q Λ_r(q; θ) LR_r(q)).
+- **Cost.** The baseline grids (rows × log P × q) are precomputed once, so each likelihood evaluation costs O(rows × n_P × n_q).
+- **If that is too slow:** a per-row lookup on a θ grid. It must be reported as an approximation; there is no silent fallback to the fixed baseline.
+- **Diagnostic.** A profile in α_lo, with and without conditioning.
+
 ### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
 
 **Before §12.23.**
