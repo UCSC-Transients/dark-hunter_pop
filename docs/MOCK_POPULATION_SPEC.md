@@ -1998,6 +1998,35 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 
 **Refit.** noW and cmdW on the 108-bin grid (§12.20 parent-row variance, M1,ZAMS on). Report the blue-evolved fraction in the bright evolved cells and the G shape before and after.
 
+### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
+
+**Before §12.23.**
+- The proposal draws log P from 0.2 to 8.
+- `provisional_blending: all_unresolved` holds.
+- The Halbwachs IPD cuts use the parent row's real `ipd_frac_multi_peak` / `ipd_gof_harmonic_amplitude`, which do not respond to the drawn companion.
+- Measured, as a·ϖ: orbit draws (P ≤ 830 d) have θ < 0.1″ except 0.2% at d < 0.1 kpc. Acceleration draws at d < 0.1 kpc are 29% at 0.1–0.4″ and 5% at 0.4–2″. At larger d everything is below 0.1″.
+
+**Calibration snapshot.** El-Badry, Rix & Heintz (2021), VizieR J/MNRAS/506/2269/catalog, all pairs with θ < 10″.
+- Located by the config key `rung3.resolved_companions.snapshot` (relative to the data root), with `sha256` verified on load. Column-loaded only.
+- Pairs are kept with R_chance_align < `r_chance_max` and G₂ < `g2_max`.
+- Statistics only; never per star.
+
+**IPD-pass weight (the reweight).**
+- P_fail(θ, ΔG) is the fraction of pair primaries that fail the Halbwachs cuts (the proposal's `ipd_frac_multi_peak_max` and `ipd_gof_harmonic_amplitude_max`), per (θ, ΔG) cell with at least `min_pairs` pairs.
+- It is normalized to the isolated-star baseline at `ref_theta_arcsec`: P_pass = (1 − P_fail) / (1 − P_fail,ref), clipped to [0, 1].
+- Each luminous draw's weight is multiplied by P_pass(θ, ΔG). Here θ = κ · a · ϖ, where a is the relative semi-major axis, ϖ the truth parallax, and κ = `projection_factor`, the mean projected-to-true separation ratio. Gaia's own Kepler code is not reimplemented. ΔG = −2.5 log₁₀ f.
+- Dark companions get a weight of 1.
+
+**Below the envelope (an explicit choice for Ryan).** The catalogue contains only resolved pairs; at ΔG ≲ 3 the innermost populated cell is about 0.4–0.5″. So it cannot say whether an unresolved 0.05–0.4″ companion trips the IPD flags. Options:
+- `below_envelope: none` (default): P_pass = 1 below the envelope;
+- `hold`: the innermost calibrated P_pass, held down to `hold_min_arcsec`.
+
+Both are reported. The ORB6 calibration of this regime is not yet approved.
+
+**Resolution envelope (diagnostic only).** C(θ, ΔG) = observed pairs per dlog θ ÷ a power law fitted over `ref_theta_arcsec`.
+- A resolved companion is a separate source, so the primary's photocentre loses the companion light (f → 0).
+- That changes the generation-time cascade, so it is not a reweight. The affected draws are reported with their CPU cost; they are only accelerations at d < 0.1 kpc.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
@@ -2010,6 +2039,7 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 - Cantat-Gaudin, T. et al. 2023, A&A 669, A55 (empirical Gaia DR3 selection function; `gaiaunlimited`).
 - Casagrande, L. et al. 2011, A&A 530, A138 (Geneva–Copenhagen re-analysis; solar-neighbourhood MDF, Table 1).
 - Drimmel, R. et al. 2003, A&A 409, 205 (3-D dust model, part of Combined19).
+- El-Badry, K., Rix, H.-W. & Heintz, T. M. 2021, MNRAS 506, 2269 (Gaia EDR3 wide binaries; MP-Q27 calibration).
 - Edenhofer, G. et al. 2024, A&A 685, A82 (3-D dust map with posterior samples).
 - Castro-Ginard, A. et al. 2024, A&A 688, A1 (RUWE detectability of unresolved binaries).
 - Chiavassa, A. et al. 2011, A&A 528, A120 (convection-driven photocentre jitter).
