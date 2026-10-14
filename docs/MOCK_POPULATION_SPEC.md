@@ -1998,6 +1998,21 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 
 **Refit.** noW and cmdW on the 108-bin grid (§12.20 parent-row variance, M1,ZAMS on). Report the blue-evolved fraction in the bright evolved cells and the G shape before and after.
 
+**Amendment (Ryan, 2026-10-13): the normalization depends on θ.**
+- **Why.** With the fixed MdS17-baseline normalization, the noW fit moved α_lo from +0.68 to +2.98 with no gain in −lnL. The row's P(binary | CMD) must use the population being fitted.
+- **The rule.** Inside the likelihood, F_r(θ) and Σ_q Λ_r(q; θ) LR_r(q) are evaluated with the current fitted rung-3 modifiers:
+
+  Λ_r(q; θ) = exp(ln A + α · ln(M1_r / M_piv) + ln f_evo · evo_r) · Σ_P Λ⁰_r(P, q) · m_P(P; γ_P, ln L_P) · g(q; Δγ_q, ln F_tw) / N_r(P; θ).
+
+  - Λ⁰_r(P, q) is the MdS17 baseline intensity in the (log P, q) cell over the full MdS17 log P domain.
+  - α is α_lo or α_hi, split at M_piv.
+  - The MP-Q42b normalization N_r(P) = ∫_{0.3}^{1} p_q(q′ | M1_r, P) g(q′) dq′ uses the same q grid as the draw-level modifier.
+  - The eccentricity modifiers integrate to 1 and drop out.
+- **Per-draw factor:** LR_r(q_i) · (1 + F_r(θ)) / (1 + Σ_q Λ_r(q; θ) LR_r(q)).
+- **Cost.** The baseline grids (rows × log P × q) are precomputed once, so each likelihood evaluation costs O(rows × n_P × n_q).
+- **If that is too slow:** a per-row lookup on a θ grid. It must be reported as an approximation; there is no silent fallback to the fixed baseline.
+- **Diagnostic.** A profile in α_lo, with and without conditioning.
+
 ### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
 
 **Before §12.23.**
@@ -2022,6 +2037,26 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 - `hold`: the innermost calibrated P_pass, held down to `hold_min_arcsec`.
 
 Both are reported. The ORB6 calibration of this regime is not yet approved.
+
+**Amendment (2026-10-14): the regime below the envelope is calibrated on ORB6 × DR3, replacing the `none` / `hold` placeholders, which stay as brackets.**
+- **Data.** The Sixth Orbit Catalog (USNO), snapshot `data/external_catalogs/orb6_usno_20261014T042048Z/` (SHA256-verified, located by `rung3.resolved_companions.orb6.snapshot_dir`), CDS-XMatched to Gaia DR3 within 5″.
+- **Separation.** ρ at epoch 2016.0 comes from each orbit's Campbell elements, using gaiamock's Kepler solver.
+- **DR3 counterpart.** The brightest source whose J2000-propagated position is within max(2″, ρ + 1″) of the ORB6 position.
+- **Resolved companion.** A second DR3 source with |sep₂₀₁₆ − ρ| < max(0.3″, 0.3ρ).
+- **ΔG.** Taken from the DR3 pair when resolved, otherwise V₂ − V₁.
+- **Pass.** The primary (or merged) source passes the Halbwachs IPD cuts.
+- **Grade weights.** 1 for grades 1–3, 0.5 for grade 4. Grades 5 and 7–9 are excluded.
+- **Normalization.** P_pass is normalized per ΔG column by the pass rate at ρ < 0.1″. Those pairs pass like isolated ORB6 stars (0.8–0.9), which removes ORB6's bright-star baseline.
+- **Filling empty cells.** Columns with ΔG < 5 take the nearest populated lower-ΔG column. ΔG ≥ 5 is set to 1.
+- **Use.** The ORB6 table is used below the El-Badry envelope.
+- **Measured (ΔG < 2).**
+  - P_pass ≈ 1 at < 0.1″.
+  - 0.5–0.8 at 0.1–0.15″.
+  - 0.04–0.3 at 0.15–0.2″.
+  - ≈ 0 at 0.2–1.0″.
+- **Overlap with El-Badry.** At 0.5–1″ ORB6 gives ≈ 0 and El-Badry 0.00–0.08. At 1–2.5″ ORB6 is lower (0.0–0.5 against 0.3–0.9). This is a bright-star (ORB6) vs faint-pair (El-Badry) difference.
+- **Known biases.** ORB6 favours bright, nearby, well-observed pairs. Its grades correlate with separation and period. Its ΔG is in V, not G, when the pair is unresolved. The ΔG ≥ 3 columns are sparse.
+- **Effect** (MdS17-weighted ⟨P_pass⟩): accelerations at d < 0.1 kpc 0.847 (bracketed by `none` 0.976 and `hold` 0.751). Every other distance and outcome is ≥ 0.9998.
 
 **Resolution envelope (diagnostic only).** C(θ, ΔG) = observed pairs per dlog θ ÷ a power law fitted over `ref_theta_arcsec`.
 - A resolved companion is a separate source, so the primary's photocentre loses the companion light (f → 0).
