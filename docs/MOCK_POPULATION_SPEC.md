@@ -2013,6 +2013,22 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 - **If that is too slow:** a per-row lookup on a θ grid. It must be reported as an approximation; there is no silent fallback to the fixed baseline.
 - **Diagnostic.** A profile in α_lo, with and without conditioning.
 
+**Second amendment (Ryan, 2026-10-14): fixing the low-mass conditioning.**
+- **Finding.** With the θ-dependent version, α_lo goes to +4.9 (no conditioning: +0.68) and −lnL is worse by 3. Below M1 ≈ 0.7 M⊙ the mean draw factor is ×3–4. Real K/M dwarfs sit off MIST's low-mass main sequence in colour at fixed M_G, so the composite map fits them better than the single-star map. This is an isochrone systematic, so the stop rule applied.
+- **(a) Restricted variant (quick check).** `cmd_binary_conditioning.m1_min_msun: 0.8`. Rows whose isochrone M1 is below this get LR ≡ 1, i.e. factor 1.
+- **(b) Empirical single-star MS (proper fix).** `cmd_binary_conditioning.ms_locus: ridge`. Main-sequence prior points (MIST phase < 0.5) and the companion photometry are moved in colour onto the measured single-star MS ridge, at fixed M_G and keeping G.
+  - The ridge is `giants.fit_ms_ridge`, the one the evolved classifier already uses. It is the smoothed mode of M_G0 vs (BP−RP)₀ on the parent's usable rows, with RUWE below the ridge cut and a parallax S/N floor; binaries are excluded through the faint-side mode, and its faint-side width is measured. It is statistical; nothing is done per star.
+  - Δc(M_G) = c_ridge(M_G) − c_MIST(M_G). Here c_MIST is the prior-weighted median colour of MIST MS points (M < `join_hi`) in each M_G bin.
+  - The shift enters with weight t(M) = 1 for M ≤ `join_lo_msun` (0.7), falling linearly to 0 at `join_hi_msun` (0.9). Above 0.9 M⊙ the evidence is pure MIST, which DEBCat validates (ratio 0.98).
+  - Masses and M_G are unchanged, and so is the generation-time isochrone M1.
+- **Check of the isochrone M1 below 0.8 M⊙** (it uses the same MIST track).
+  - Against the Pecaut & Mamajek M_G-based dwarf masses, which for M dwarfs are the post-2019 Mann-type calibration: PM13/MIST is 0.96–1.04 (−0.02 to +0.02 dex) in every bin from 0.1 to 0.8 M⊙, binned either way.
+  - Colour-based PM13 is +0.02 to +0.04 dex at 0.3–0.8 M⊙ and +0.1 dex below 0.3 M⊙. That is the same colour offset that drives the LR.
+  - DEBCat has only 4 systems below 0.7 M⊙.
+  - The Mann et al. (2019) M_Ks check needs 2MASS Ks, which is requested.
+  - No generation-time change is made.
+- **Refits.** noW and cmdW for (a) and for (b), each with MP-Q27 = ORB6 and an α_lo profile.
+
 ### 12.23 MP-Q27: resolved and partially resolved companions (Ryan, 2026-10-13; #494)
 
 **Before §12.23.**
@@ -2038,6 +2054,8 @@ LR(q_draw) · (1 + F_r) / (1 + Σ_q Λ_r(q) LR(q)).
 
 Both are reported. The ORB6 calibration of this regime is not yet approved.
 
+**Decided (Ryan, 2026-10-14): `below_envelope: orb6` is the default.** It improves noW −lnL by 8.6 over `none` and restores the near-distance orbit:acceleration ratio (0.476, against a real 0.475). `none` and `hold` stay as brackets.
+
 **Amendment (2026-10-14): the regime below the envelope is calibrated on ORB6 × DR3, replacing the `none` / `hold` placeholders, which stay as brackets.**
 - **Data.** The Sixth Orbit Catalog (USNO), snapshot `data/external_catalogs/orb6_usno_20261014T042048Z/` (SHA256-verified, located by `rung3.resolved_companions.orb6.snapshot_dir`), CDS-XMatched to Gaia DR3 within 5″.
 - **Separation.** ρ at epoch 2016.0 comes from each orbit's Campbell elements, using gaiamock's Kepler solver.
@@ -2062,6 +2080,63 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 - A resolved companion is a separate source, so the primary's photocentre loses the companion light (f → 0).
 - That changes the generation-time cascade, so it is not a reweight. The affected draws are reported with their CPU cost; they are only accelerations at d < 0.1 kpc.
 
+### 12.24 MIST low-mass correction (Ryan, 2026-10-14): diagnosis and proposed model-level correction. Not applied; it is queued for re-simulation.
+
+**Benchmarks.** All snapshots are SHA256-verified through `config/population/mass_checks_391.yaml`.
+- Mann et al. (2019) n = 5 M_Ks–mass relation on 342 parent dwarfs with RUWE < 1.4. Ks is 2MASS (quality A/B), extinction is neglected (d < 200 pc), and M_Ks spans 4.5–10.5.
+- The Hwang et al. (2024) wide-binary dynamical-mass map at each component's CMD position. No extinction correction is applied; their sample has |b| > 10°.
+- MIST/Hwang is computed only for stars within −0.25 < ΔM < +0.4 of our measured single-star ridge. This keeps the map's unresolved total masses out.
+
+**Findings** (ratios are isochrone M1 / benchmark).
+
+| benchmark | regime | ratio |
+|---|---|---|
+| Mann | 0.1–0.3 M⊙ | +0.053 dex |
+| Mann | 0.3–0.5 M⊙ | +0.043 dex |
+| Mann | 0.5–0.8 M⊙ | +0.030 dex |
+| Hwang | BP−RP 0.6–1.0 (≳ 0.85 M⊙) | +0.00 dex |
+| Hwang | BP−RP 1.0–2.0 | +0.03 to +0.05 dex |
+| Hwang | BP−RP 2.0–2.4 | −0.01 dex |
+| Hwang | BP−RP 2.4–2.8 | −0.08 dex |
+| Hwang | clump | 1.14 vs 1.37 M⊙ (−0.075 dex; paper: 1.31 ± 0.15) |
+
+- Binning by the benchmark instead gives the same result, so this is not regression dilution.
+- The two benchmarks agree above about 0.5 M⊙. At BP−RP > 2.4 they disagree in sign. Hwang's map there is near the region where it reports excess masses (Region A), and Hwang et al. find PARSEC fits better there.
+
+**Cause: the colour of MIST's low-mass main sequence.**
+- The MIST MS is bluer than the measured single-star ridge at fixed M_G: Δc ≈ +0.02 at M_G 5, +0.13 at 7.4, +0.27 at 8.9 and +0.50 mag at 10.5.
+- With a free [Fe/H] prior, the fit compensates with metal-rich isochrones: posterior ⟨[Fe/H]⟩ = +0.26 on the Mann sample, against a prior mean of −0.06. That raises the mass at fixed M_G. This is the [Fe/H]-dependence excess Mann et al. (2019, Fig. 19) report for MIST.
+- Metallicity test: the offset barely moves with the prior mean (−0.5 → +0.039 dex, −0.06 → +0.039, +0.3 → +0.041).
+  - Fixing [Fe/H] = 0 (σ 0.05) reduces it to +0.028 dex overall, and to +0.009 dex at 0.5–0.8 M⊙, but not at 0.1–0.3 (+0.045).
+  - Fixed −0.5 leaves almost no stars on the map, so it gives no constraint.
+- Moving MIST MS points onto the ridge colour (blend 0.7–0.9 M⊙):
+  - Mann: +0.039 → −0.029 dex overall (+0.010 / −0.046 / −0.015 by bin); posterior ⟨[Fe/H]⟩ → −0.10.
+  - Hwang at BP−RP 1.0–2.0: within ±0.02 dex.
+  - Hwang at BP−RP > 2: −0.07 to −0.18 dex.
+
+**Proposed correction (Ryan: a correction to MIST, not to the Gaia-band map, so it carries to other filters).**
+1. A Teff correction of the low-mass MS, Δlog Teff(M, [Fe/H]), applied in the model. The Gaia and other bands are then recomputed from MIST's own BC tables. It is calibrated so the corrected G/BP/RP locus reproduces the measured single-star ridge (the Δc above).
+2. A mass offset at fixed luminosity, M → M · 10^δ(M) for M < 0.8 M⊙, with δ ≈ +0.01 to +0.05 dex. It is calibrated jointly on Mann (M_Ks) and DEBCat / Serenelli et al. (2021) low-mass benchmarks so that the M_Ks–mass relation is reproduced after (1).
+3. Hwang above 0.5 M⊙ and the clump serve as validation, not calibration. Below 0.5 M⊙ the Hwang map is contaminated by unresolved and Region A systems.
+
+**Decision.** Steps (1) and (2) change the generation-time isochrone M1 and the deblended truth M1. **Not applied.** They are added to the re-simulation queue (§12.25).
+- On the data side, the §12.22(b) ridge locus is the Gaia-band special case of (1). It may be used now, but it fitted worse: see #471.
+
+**Region A** (Hwang's faint MS at BP−RP 1.5–3 with excess dynamical mass; possibly M dwarf + WD).
+- In NSS (Orbital + SB1), orbits more than 0.4 mag below the ridge make up 2.7% of BP−RP 1.5–3 orbits, against 14.8% of the parent. They are more circular (e < 0.05: 12% vs 5%) and longer in period (median P 541 vs 494 d).
+- That pattern is consistent with post-interaction (WD + MS) systems. It is a candidate compact-object subsample to follow up.
+- The 33 low-mass RUWE > 2 dwarfs with LR ≪ 1 under the ridge locus are mostly not in this region: 6% are, median ΔM −0.04.
+
+### 12.25 Re-simulation queue (changes that invalidate stored draws; none applied)
+
+| item | origin | effect | status |
+|---|---|---|---|
+| MIST low-mass correction (§12.24 (1) + (2)) | Mann, Hwang, ridge | generation-time M1 below about 0.8 M⊙ shifts by −0.03 to −0.05 dex; a0 by about −1% to −1.5% | queued |
+| Resolved-companion photocentre (§12.23: f → 0 for resolved companions) | MP-Q27 | accelerations at d < 0.1 kpc only; about 1 draw | queued |
+| Generation-time M1 for bright giants (2CL compression, −0.13 dex) | APOKASC-3 | evolved M1 ≥ 1.8 M⊙ | noted |
+
+Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decides to re-simulate.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
@@ -2075,6 +2150,10 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 - Casagrande, L. et al. 2011, A&A 530, A138 (Geneva–Copenhagen re-analysis; solar-neighbourhood MDF, Table 1).
 - Drimmel, R. et al. 2003, A&A 409, 205 (3-D dust model, part of Combined19).
 - El-Badry, K., Rix, H.-W. & Heintz, T. M. 2021, MNRAS 506, 2269 (Gaia EDR3 wide binaries; MP-Q27 calibration).
+- Hwang, H.-C., Ting, Y.-S., Cheng, S. & Speagle, J. S. 2024, MNRAS 528, 4272 (dynamical masses across the HRD).
+- Mann, A. W. et al. 2019, ApJ 871, 63 (M_Ks–mass relation).
+- Serenelli, A. et al. 2021, A&ARv 29, 4 (stellar mass benchmarks).
+- Somers, G. et al. 2020, ApJ 891, 29 (SPOTS models).
 - Edenhofer, G. et al. 2024, A&A 685, A82 (3-D dust map with posterior samples).
 - Castro-Ginard, A. et al. 2024, A&A 688, A1 (RUWE detectability of unresolved binaries).
 - Chiavassa, A. et al. 2011, A&A 528, A120 (convection-driven photocentre jitter).
