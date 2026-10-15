@@ -661,6 +661,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-key", default=None, help="which weighting's θ in --init-from to start from (default: same, else noW)")
     ap.add_argument("--seed", type=int, default=391)
     ap.add_argument("--m-break", type=float, default=None, help="§12.19(b) M_br override (profile diagnostic only)")
+    ap.add_argument("--lowmass-correction-off", action="store_true", help="§12.25: fit generations made on uncorrected MIST (gens 23-32)")
     ap.add_argument("--fix", nargs="*", default=None, help="NAME=VALUE parameters held fixed (profiles)")
     ap.add_argument("--below-envelope", choices=("none", "hold", "orb6"), default=None, help="§12.23: enable MP-Q27 with this below-envelope choice")
     ap.add_argument("--cmd-conditioning", choices=("on", "off"), default=None, help="§12.22 override of rung3.cmd_binary_conditioning.enabled")

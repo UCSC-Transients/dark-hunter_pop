@@ -42,6 +42,9 @@ def setup(args, fc):
 
     ns = SimpleNamespace()
     cfg = load_config()
+    if getattr(args, "lowmass_correction_off", False):  # §12.25: generations made before the MIST correction (gens 23-32)
+        lc = cfg.isochrone_mass.lowmass_correction.model_copy(update={"enabled": False})
+        cfg = cfg.model_copy(update={"isochrone_mass": cfg.isochrone_mass.model_copy(update={"lowmass_correction": lc})})
     gm = import_gaiamock_mod()
     frag = ps.load_proposal_set_fragment(args.fragment)
     prop, tgt = frag.proposal, frag.target_mds17
