@@ -1,0 +1,19 @@
+#391 spec §12.24 MIST low-mass correction: calibration and validation
+
+Teff iteration 1: node Δc before update +0.000 +0.000 +0.498 +0.375 +0.258 +0.169 +0.077 +0.022
+Teff iteration 2: node Δc before update +0.000 +0.000 +0.009 -0.064 -0.040 -0.014 -0.006 -0.008
+Teff iteration 3: node Δc before update +0.000 +0.000 +0.011 -0.021 -0.003 +0.001 +0.001 -0.002
+mass iteration 1: node median log(M_iso/M_Mann) before update +0.000 +0.019 -0.014 +0.003 +0.001 +0.000 +0.010 +0.000
+mass iteration 2: node median log(M_iso/M_Mann) before update +0.000 +0.010 -0.008 +0.003 -0.000 -0.003 +0.005 +0.000
+mass iteration 3: node median log(M_iso/M_Mann) before update +0.000 +0.006 -0.003 +0.002 -0.001 -0.001 +0.003 +0.000
+
+calibrated nodes (M): 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8, join 0.9
+  dlog_teff: +0.0000 +0.0000 -0.0590 -0.0388 -0.0338 -0.0304 -0.0164 -0.0033
+  dlog_mass: +0.0000 -0.0350 +0.0253 -0.0081 -0.0003 +0.0035 -0.0177 +0.0000
+
+Validation 1, ridge colour residual c_ridge - c_model at M_G 5..11 (before -> after): 5.1:+0.023->+0.015 5.4:+0.025->+0.014 5.6:+0.023->+0.007 5.9:+0.021->-0.004 6.1:+0.044->+0.006 6.4:+0.062->+0.006 6.6:+0.074->-0.000 6.9:+0.085->-0.010 7.1:+0.093->-0.020 7.4:+0.129->-0.003 7.6:+0.166->+0.022 7.9:+0.174->+0.010 8.1:+0.196->+0.009 8.4:+0.237->+0.024 8.6:+0.255->+0.014 8.9:+0.269->+0.001 9.1:+0.324->+0.025 9.4:+0.341->-0.000 9.6:+0.397->+0.002 9.9:+0.429->-0.023 10.1:+0.475->-0.022 10.4:+0.502->+0.018 10.6:+0.490->+0.155
+Validation 2, Mann median log(M_iso/M_Mann) by Mann mass (before -> after): [0.1,0.3) +0.053 -> +0.000; [0.3,0.5) +0.043 -> +0.000; [0.5,0.8) +0.030 -> -0.000
+Validation 4, field dwarfs M<0.8 (n 4000), MIST: posterior <[Fe/H]> median -0.023 (prior mean -0.06); median M1 0.689
+Validation 4, field dwarfs M<0.8 (n 4000), corrected: posterior <[Fe/H]> median -0.072 (prior mean -0.06); median M1 0.693
+Validation 5, DEBCat blended M1/M1_dyn, MIST: M1_dyn [0.0,0.8) n 7 median 1.489; M1_dyn [0.8,1.3) n 98 median 1.013; M1_dyn [1.3,3.0) n 127 median 1.059
+Validation 5, DEBCat blended M1/M1_dyn, corrected: M1_dyn [0.0,0.8) n 16 median 1.247; M1_dyn [0.8,1.3) n 98 median 1.012; M1_dyn [1.3,3.0) n 127 median 1.059

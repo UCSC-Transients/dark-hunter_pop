@@ -326,7 +326,7 @@ def load_native_grid(cfg: IsochroneMassConfig, data_root: str | Path, *, rebuild
         if got != meta["npz_sha256"]:
             raise ValueError(f"{npz}: checksum mismatch ({got} != {meta['npz_sha256']})")
         z = np.load(npz)
-        return NativeGrid(feh=z["feh"], log_age=z["log_age"], eep=z["eep"], values=z["values"])
+        return _maybe_correct(NativeGrid(feh=z["feh"], log_age=z["log_age"], eep=z["eep"], values=z["values"]), cfg)
     grid = build_native_grid(cfg)
     d.mkdir(parents=True, exist_ok=True)
     np.savez(npz, feh=grid.feh, log_age=grid.log_age, eep=grid.eep, values=grid.values)
@@ -350,7 +350,17 @@ def load_native_grid(cfg: IsochroneMassConfig, data_root: str | Path, *, rebuild
         "quantities": list(NATIVE_QUANTITIES),
     }
     meta_path.write_text(yaml.safe_dump(meta, sort_keys=False))
-    return grid
+    return _maybe_correct(grid, cfg)
+
+
+def _maybe_correct(grid: NativeGrid, cfg: IsochroneMassConfig) -> NativeGrid:
+    """Spec §12.24: apply the low-mass correction when enabled (the cache stays uncorrected)."""
+    lc = getattr(cfg, "lowmass_correction", None)
+    if lc is None or not lc.enabled:
+        return grid
+    from darkhunter_pop import mist_correction
+
+    return mist_correction.correct_grid(grid, lc, mist_correction.load_bc_tables(cfg))
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +764,8 @@ def config_key(cfg: IsochroneMassConfig) -> str:
     """Short hash of the whole section except ``mist_root`` (host path), for result caches."""
     d = cfg.model_dump(mode="json")
     d.pop("mist_root", None)
+    if not d.get("lowmass_correction", {}).get("enabled", False):  # §12.24: an off correction leaves keys unchanged
+        d.pop("lowmass_correction", None)
     blob = json.dumps({"cfg": d, "mbol_sun": constants.MIST_MBOL_SUN, "schema": RESULT_SCHEMA_VERSION}, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:10]
 

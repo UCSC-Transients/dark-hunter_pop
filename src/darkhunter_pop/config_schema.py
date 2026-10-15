@@ -1591,6 +1591,31 @@ class FehLikelihoodConfig(_IsoStrict):
     provisional_sigma_dex: float = Field(0.2, gt=0)
 
 
+class LowmassCorrectionConfig(_IsoStrict):
+    """Spec §12.24: model-level MIST low-mass MS correction (Teff at fixed L + mass offset).
+
+    Piecewise linear in the uncorrected current mass on ``mass_nodes_msun``; zero at and above
+    ``join_msun``. Off by default; enabling it changes the isochrone config key and therefore the
+    generation-time M1 (§12.25 re-simulation batch).
+    """
+
+    enabled: bool = False
+    mass_nodes_msun: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+    dlog_teff: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    dlog_mass: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    join_msun: float = Field(0.9, gt=0)
+    calibration_ref: str = ""
+
+    @model_validator(mode="after")
+    def _shapes(self) -> "LowmassCorrectionConfig":
+        n = len(self.mass_nodes_msun)
+        if len(self.dlog_teff) != n or len(self.dlog_mass) != n:
+            raise ValueError("lowmass_correction: node arrays differ in length")
+        if not all(m < self.join_msun for m in self.mass_nodes_msun):
+            raise ValueError("lowmass_correction: nodes must lie below join_msun")
+        return self
+
+
 class IsochroneMassConfig(_IsoStrict):
     """``isochrone_mass`` section (spec §11). ``mist_root`` is host-specific (host profiles)."""
 
@@ -1611,6 +1636,8 @@ class IsochroneMassConfig(_IsoStrict):
     provisional_point_estimate: Literal["mean", "log_mean"] = "mean"
     #: Candidates per isochrone batch in ``mass_derivation_bulk`` (memory only).
     batch_rows: int = Field(20000, ge=1)
+    #: Spec §12.24 MIST low-mass correction (off by default).
+    lowmass_correction: LowmassCorrectionConfig = LowmassCorrectionConfig()
 
 
 class MassCalibrationConfig(BaseModel):
