@@ -2149,6 +2149,12 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
   5. DEBCat ratio at ≥ 0.8 M⊙ unchanged (0.98).
 - **Use.** Configured as `isochrone_mass.lowmass_correction`, off by default. Turning it on changes the isochrone config key, and with it the generation-time M1, so it is part of the §12.25 batch.
 
+**Decisions (Ryan, 2026-10-15).**
+- **MIST low-mass correction: Teff shift only, no mass offset ("for now"), calibrated on Mann.** Δlog Teff = 0, 0, −0.059, −0.039, −0.034, −0.030, −0.016, −0.003 at 0.1–0.8 M⊙, zero at ≥ 0.9 M⊙.
+- **Documented systematic.** At 0.5–0.8 M⊙, Mann (2019) and dereddened Hwang et al. (2024) singles disagree by about 0.03 dex. The corrected MIST matches Mann and sits 0.015–0.03 dex below Hwang. The likely cause is inner unresolved companions in Hwang's total masses.
+- **Clump: settled; APOKASC trusted.** On dereddened singles MIST/Hwang is −0.034 dex. That is the MdS17 unresolved-companion mass (+0.055 to +0.077 dex) in Hwang's total mass. The resulting single-star offset of about +0.02 dex agrees with APOKASC RC (+0.026 dex).
+- **The earlier Hwang discrepancy was ours, not theirs.** We put Hwang's observed (not dereddened) photometry into our dereddened fit. It was not an error in Hwang et al.
+
 ### 12.25 Re-simulation queue (changes that invalidate stored draws; none applied)
 
 | item | origin | effect | status |
@@ -2158,6 +2164,21 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 | Generation-time M1 for bright giants (2CL compression, −0.13 dex) | APOKASC-3 | evolved M1 ≥ 1.8 M⊙ | noted |
 
 Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decides to re-simulate.
+
+**Re-simulation plan (Ryan, 2026-10-15, option (a)): a fresh re-centred proposal set, not a replay of gens 23–32, ramped up.**
+- **Generation-time contents:**
+  - MIST Teff-only correction ON (`isochrone_mass.lowmass_correction`);
+  - resolved-companion photocentre: a draw whose companion would be resolved gets f → 0 in the cascade. Bernoulli on the El-Badry completeness C(θ, ΔG), seeded per draw, with truth fields recorded;
+  - 2CL giant M1 correction: form pending (see below).
+- **Reweights carried:** variant (a) CMD conditioning, MP-Q27 = ORB6, M1,ZAMS, parent-row variance.
+- **Proposal:** centred on the current noW best fit (v6a), with targeted components for the 108-bin grid's weak cells.
+- **Batches, each followed by assembly, sanity checks, a quick refit and a report before the next:**
+  - Batch 1: about 10 CPU-h (watcher budget), reporting wall time.
+  - Batch 2: 50 CPU-h.
+  - Batch 3: 100 CPU-h.
+  - Targeting is adjusted between batches.
+- **Sanity checks:** the expected M1 shift below 0.8 M⊙; acceptance rates against gens 23–32; no runaway weights (Kish ESS, maximum weight share).
+- **Gates:** nice, BLAS pinned, nohup, PID-only stops, a budget watcher, the resume command in the log, and more than 10 GiB free disk before launch.
 
 ## References
 
