@@ -13,3 +13,7 @@ hwang2024:
   table: external_catalogs/hwang2024_hrmass_20261014T212537Z/20230810_wb_table_with_mass.fits
   sha256: d822b7faea7544a2a10ca3c590f86be0b5f8d4b19eca8cf3bfdd4cebc4f86574
   extinction: none_applied   # paper: |b| > 10 deg, no extinction correction; treated as dereddened (systematic noted)
+hwang2024_gaiadr3:
+  table: external_catalogs/hwang2024_gaiadr3_cols_20261014T234645Z/hwang2024_components_gaiadr3.ecsv
+  sha256: abb34d83ac35077501a8df7da61ad3a7f5982b8c1e90a80efaeb299114f75d16
+  ruwe_max: 1.2
