@@ -2187,6 +2187,18 @@ Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decide
 - **Sanity checks:** the expected M1 shift below 0.8 M⊙; acceptance rates against gens 23–32; no runaway weights (Kish ESS, maximum weight share).
 - **Gates:** nice, BLAS pinned, nohup, PID-only stops, a budget watcher, the resume command in the log, and more than 10 GiB free disk before launch.
 
+### 12.26 Interim coarse grid for the fresh re-simulation (Ryan, 2026-10-15)
+
+**Grid.** Batch-by-batch checks of the fresh set (gens 33+) use a coarse grid: 2 × 2 × 2 × 2 orbit bins × CMD class (32), plus G × d × class acceleration bins (8).
+- G 5–13 / 13–19.5.
+- d 0–1 / 1–6 kpc.
+- log P 0–2.6 / 2.6–2.92.
+- e 0–0.3 / 0.3–1.
+
+Edges come from the model structure (the G pivot of the bright excess; the MdS17 / tidal log P split; the Beta-e break) and from mock ESS, never from real counts. Config: `config/population/rung3_coarse32_v6a.yaml` (the v6a model). The §12.14 108-bin grid stays the final-fit grid.
+
+**Why.** Gens 33+34 (39 CPU-h) leave every large 108-grid bin at ESS_b < 30. Their 108-grid fit is MC-dominated (`docs/gate391/resim_batch2`). The coarse grid checks the model and the targeting while the fresh set grows.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
