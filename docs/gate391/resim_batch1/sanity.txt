@@ -1,0 +1,14 @@
+1. parent dwarfs, corrected/uncorrected isochrone M1 (median log10): [0.1,0.3) -0.034 [0.3,0.5) -0.003 [0.5,0.7) +0.015 [0.7,0.8) +0.007 [0.8,0.9) +0.003 [0.9,1.2) +0.000 [1.2,3) +0.000
+2. acceptance (orbit / acceleration) per G bin, gen33 vs gen32 (raw, proposals differ):
+3. noW all draws: n>0 33460, Kish ESS 620 (0.019), max weight share 0.0244, top-10 share 0.070
+3. noW detected: n>0 443, Kish ESS 125 (0.283), max weight share 0.0217, top-10 share 0.168
+3. noW orbits: n>0 179, Kish ESS 50 (0.282), max weight share 0.0407, top-10 share 0.329
+3. cmdW all draws: n>0 33380, Kish ESS 438 (0.013), max weight share 0.0214, top-10 share 0.110
+3. cmdW detected: n>0 441, Kish ESS 87 (0.198), max weight share 0.0460, top-10 share 0.224
+3. cmdW orbits: n>0 177, Kish ESS 33 (0.188), max weight share 0.0984, top-10 share 0.426
+G 5-13: gen33 n 1647 orbit 0.0625 accel 0.0692 | gen32 n 17328 orbit 0.0846 accel 0.0940
+G 13-16: gen33 n 9160 orbit 0.0130 accel 0.0198 | gen32 n 176147 orbit 0.0285 accel 0.0499
+G 16-19.5: gen33 n 29193 orbit 0.0002 accel 0.0005 | gen32 n 472337 orbit 0.0006 accel 0.0013
+resolved draws 189 accepted 0 accel 0
+gen33 d>1 kpc share 0.856  evolved-row share 0.219
+gen32 d>1 kpc share 0.465  evolved-row share 0.091

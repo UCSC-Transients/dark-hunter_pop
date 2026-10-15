@@ -106,7 +106,7 @@ def setup(args, fc):
     gens = [int(g) for g in z["gens"]]
     before = [g for g in gens if g != args.new_gen]
     ns.W = {"noW": mixture_weights(z, gens, False)[rel] / s_low, "cmdW": mixture_weights(z, gens, True)[rel] / s_low,
-            "before_noW": mixture_weights(z, before, False)[rel] / s_low,
+            "before_noW": (mixture_weights(z, before, False)[rel] / s_low) if before else np.zeros(rel.size),  # single-generation set (§12.25)
             "g28": mixture_weights(z, [args.new_gen], False)[rel] / s_low}
     ns.log_mod, ns.casc, ns.gen = log_mod, casc[rel], np.asarray(z["generation"])[rel]
     cpu, gen_all = np.asarray(z["cpu_seconds"], float), np.asarray(z["generation"])
