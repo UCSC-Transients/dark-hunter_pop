@@ -2161,15 +2161,22 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 |---|---|---|---|
 | MIST low-mass correction (§12.24 (1) + (2)) | Mann, Hwang, ridge | generation-time M1 below about 0.8 M⊙ shifts by −0.03 to −0.05 dex; a0 by about −1% to −1.5% | queued |
 | Resolved-companion photocentre (§12.23: f → 0 for resolved companions) | MP-Q27 | accelerations at d < 0.1 kpc only; about 1 draw | queued |
-| Generation-time M1 for bright giants (2CL compression, −0.13 dex) | APOKASC-3 | evolved M1 ≥ 1.8 M⊙ | noted |
+| Generation-time M1 for bright giants (2CL) | APOKASC-3 | binning-dependent (+0.02 to +0.07 / −0.07 dex) | not corrected; systematic (option ii) |
 
 Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decides to re-simulate.
+
+**2CL giant M1: a documented systematic, not a correction (Ryan, 2026-10-15, option (ii)).**
+- APOKASC-3 RC isochrone M1 / seismic mass depends on how it is binned:
+  - binned by isochrone M1 (the mock's quantity): +0.017 / +0.026 / +0.036 / +0.067 dex at 1.0–1.2 / 1.2–1.5 / 1.5–2 / 2–3 M⊙;
+  - binned by the geometric mean (neutral): about −0.07 dex at 1.5–3 M⊙;
+  - binned by seismic mass (M ≥ 1.8, the "2CL" figure): −0.13 dex. This one is regression-diluted.
+- No correction is applied, and it is removed from the batch contents. It is carried as a ±0.07 dex systematic on evolved M1 above 1.5 M⊙.
 
 **Re-simulation plan (Ryan, 2026-10-15, option (a)): a fresh re-centred proposal set, not a replay of gens 23–32, ramped up.**
 - **Generation-time contents:**
   - MIST Teff-only correction ON (`isochrone_mass.lowmass_correction`);
   - resolved-companion photocentre: a draw whose companion would be resolved gets f → 0 in the cascade. Bernoulli on the El-Badry completeness C(θ, ΔG), seeded per draw, with truth fields recorded;
-  - 2CL giant M1 correction: form pending (see below).
+  - 2CL giant M1: **not corrected** (Ryan, 2026-10-15, option (ii)); documented systematic, see below.
 - **Reweights carried:** variant (a) CMD conditioning, MP-Q27 = ORB6, M1,ZAMS, parent-row variance.
 - **Proposal:** centred on the current noW best fit (v6a), with targeted components for the 108-bin grid's weak cells.
 - **Batches, each followed by assembly, sanity checks, a quick refit and a report before the next:**
