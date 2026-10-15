@@ -2149,15 +2149,43 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
   5. DEBCat ratio at ≥ 0.8 M⊙ unchanged (0.98).
 - **Use.** Configured as `isochrone_mass.lowmass_correction`, off by default. Turning it on changes the isochrone config key, and with it the generation-time M1, so it is part of the §12.25 batch.
 
+**Decisions (Ryan, 2026-10-15).**
+- **MIST low-mass correction: Teff shift only, no mass offset ("for now"), calibrated on Mann.** Δlog Teff = 0, 0, −0.059, −0.039, −0.034, −0.030, −0.016, −0.003 at 0.1–0.8 M⊙, zero at ≥ 0.9 M⊙.
+- **Documented systematic.** At 0.5–0.8 M⊙, Mann (2019) and dereddened Hwang et al. (2024) singles disagree by about 0.03 dex. The corrected MIST matches Mann and sits 0.015–0.03 dex below Hwang. The likely cause is inner unresolved companions in Hwang's total masses.
+- **Clump: settled; APOKASC trusted.** On dereddened singles MIST/Hwang is −0.034 dex. That is the MdS17 unresolved-companion mass (+0.055 to +0.077 dex) in Hwang's total mass. The resulting single-star offset of about +0.02 dex agrees with APOKASC RC (+0.026 dex).
+- **The earlier Hwang discrepancy was ours, not theirs.** We put Hwang's observed (not dereddened) photometry into our dereddened fit. It was not an error in Hwang et al.
+
 ### 12.25 Re-simulation queue (changes that invalidate stored draws; none applied)
 
 | item | origin | effect | status |
 |---|---|---|---|
 | MIST low-mass correction (§12.24 (1) + (2)) | Mann, Hwang, ridge | generation-time M1 below about 0.8 M⊙ shifts by −0.03 to −0.05 dex; a0 by about −1% to −1.5% | queued |
 | Resolved-companion photocentre (§12.23: f → 0 for resolved companions) | MP-Q27 | accelerations at d < 0.1 kpc only; about 1 draw | queued |
-| Generation-time M1 for bright giants (2CL compression, −0.13 dex) | APOKASC-3 | evolved M1 ≥ 1.8 M⊙ | noted |
+| Generation-time M1 for bright giants (2CL) | APOKASC-3 | binning-dependent (+0.02 to +0.07 / −0.07 dex) | not corrected; systematic (option ii) |
 
 Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decides to re-simulate.
+
+**2CL giant M1: a documented systematic, not a correction (Ryan, 2026-10-15, option (ii)).**
+- APOKASC-3 RC isochrone M1 / seismic mass depends on how it is binned:
+  - binned by isochrone M1 (the mock's quantity): +0.017 / +0.026 / +0.036 / +0.067 dex at 1.0–1.2 / 1.2–1.5 / 1.5–2 / 2–3 M⊙;
+  - binned by the geometric mean (neutral): about −0.07 dex at 1.5–3 M⊙;
+  - binned by seismic mass (M ≥ 1.8, the "2CL" figure): −0.13 dex. This one is regression-diluted.
+- No correction is applied, and it is removed from the batch contents. It is carried as a ±0.07 dex systematic on evolved M1 above 1.5 M⊙.
+
+**Re-simulation plan (Ryan, 2026-10-15, option (a)): a fresh re-centred proposal set, not a replay of gens 23–32, ramped up.**
+- **Generation-time contents:**
+  - MIST Teff-only correction ON (`isochrone_mass.lowmass_correction`);
+  - resolved-companion photocentre: a draw whose companion would be resolved gets f → 0 in the cascade. Bernoulli on the El-Badry completeness C(θ, ΔG), seeded per draw, with truth fields recorded;
+  - 2CL giant M1: **not corrected** (Ryan, 2026-10-15, option (ii)); documented systematic, see below.
+- **Reweights carried:** variant (a) CMD conditioning, MP-Q27 = ORB6, M1,ZAMS, parent-row variance.
+- **Proposal:** centred on the current noW best fit (v6a), with targeted components for the 108-bin grid's weak cells.
+- **Batches, each followed by assembly, sanity checks, a quick refit and a report before the next:**
+  - Batch 1: about 10 CPU-h (watcher budget), reporting wall time.
+  - Batch 2: 50 CPU-h.
+  - Batch 3: 100 CPU-h.
+  - Targeting is adjusted between batches.
+- **Sanity checks:** the expected M1 shift below 0.8 M⊙; acceptance rates against gens 23–32; no runaway weights (Kish ESS, maximum weight share).
+- **Gates:** nice, BLAS pinned, nohup, PID-only stops, a budget watcher, the resume command in the log, and more than 10 GiB free disk before launch.
 
 ## References
 
