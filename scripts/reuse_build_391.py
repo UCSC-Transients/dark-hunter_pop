@@ -104,11 +104,13 @@ def main(argv=None) -> int:
     tg = ps.MdS17TargetConfig.model_validate(json.loads(blocks[0][2][0][2]["provenance_json"])["target_mds17_json"])
     cm = mc.load_cmd_malmquist_config(args.cmd_malmquist)
     T, O, LL, LW, INR, OLDD, GCS = [], [], [], [], [], [], []
+    all_gcs = [ps.ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for _, _, parts in blocks for p in parts]
+    need_dark = rr.needs_dark_deblend(all_gcs)  # any generation's q needs m1_deblend_dark at EVERY draw (cross-evaluation)
     for own, arts, parts in blocks:
         cfg, parent, _ = M[own]
         t = {k: np.concatenate([np.asarray(p[0][k]) for p in parts]) for k in parts[0][0] if k in common}
         gcs = [ps.ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
-        if any(g.flux.evolved_rows_centre == "evolved_relation_deblended" for g in gcs):
+        if need_dark:
             ps.ensure_m1_deblend_dark(t, parent, cfg, gcs)
         evo = ps.evolved_mg0_for_draws(t, parent)
         rel = ps.mist_relation_for_draws(t, parent, cfg)
