@@ -2165,6 +2165,8 @@ Both are reported. The ORB6 calibration of this regime is not yet approved.
 
 Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decides to re-simulate.
 
+- **Full re-simulation required before any final or DR4 result.** The §12.27 interim reuse of old draws in R does not replace it (Ryan, 2026-10-15).
+
 **2CL giant M1: a documented systematic, not a correction (Ryan, 2026-10-15, option (ii)).**
 - APOKASC-3 RC isochrone M1 / seismic mass depends on how it is binned:
   - binned by isochrone M1 (the mock's quantity): +0.017 / +0.026 / +0.036 / +0.067 dex at 1.0–1.2 / 1.2–1.5 / 1.5–2 / 2–3 M⊙;
@@ -2186,6 +2188,42 @@ Re-simulating gens 23–32 costs about 480 CPU-h. It is batched when Ryan decide
   - Targeting is adjusted between batches.
 - **Sanity checks:** the expected M1 shift below 0.8 M⊙; acceptance rates against gens 23–32; no runaway weights (Kish ESS, maximum weight share).
 - **Gates:** nice, BLAS pinned, nohup, PID-only stops, a budget watcher, the resume command in the log, and more than 10 GiB free disk before launch.
+
+### 12.26 Interim coarse grid for the fresh re-simulation (Ryan, 2026-10-15)
+
+**Grid.** Batch-by-batch checks of the fresh set (gens 33+) use a coarse grid: 2 × 2 × 2 × 2 orbit bins × CMD class (32), plus G × d × class acceleration bins (8).
+- G 5–13 / 13–19.5.
+- d 0–1 / 1–6 kpc.
+- log P 0–2.6 / 2.6–2.92.
+- e 0–0.3 / 0.3–1.
+
+Edges come from the model structure (the G pivot of the bright excess; the MdS17 / tidal log P split; the Beta-e break) and from mock ESS, never from real counts. Config: `config/population/rung3_coarse32_v6a.yaml` (the v6a model). The §12.14 108-bin grid stays the final-fit grid.
+
+**Why.** Gens 33+34 (39 CPU-h) leave every large 108-grid bin at ESS_b < 30. Their 108-grid fit is MC-dominated (`docs/gate391/resim_batch2`). The coarse grid checks the model and the targeting while the fresh set grows.
+
+### 12.27 Interim reuse of old draws in an unchanged region (Ryan, 2026-10-15: approved "for now")
+
+**Status: interim.** A full re-simulation is required before any final result or any DR4 result. It is queued in §12.25.
+
+**Region R.** A draw x (old gens 23–32 or new gens 33+) is in R when its generation-time inputs agree between the old model (uncorrected MIST, no resolved photocentre) and the current model (§12.24 Teff correction, §12.25 resolved photocentre). Each draw is recomputed with its own stored random content and seeds:
+- |Δ ln M1| < 0.01, on the deblended M1;
+- |Δ log10 f| < 0.02, on the row-level coeval MIST relation;
+- the companion is not resolved under the current model.
+
+R is stored per draw as a versioned column: a sidecar keyed by the artifact, the two isochrone config keys and the tolerances. It is computed for new draws as well as old ones.
+
+**Weights (restricted-support deterministic mixture).**
+- Old generation j contributes only through q_j(x) · 1_R(x).
+- Every draw x gets w(x) = scale · λ(x) / [Σ_{old j} n_j q_j(x) 1_R(x) + Σ_{new k} n_k q_k(x)].
+- Old draws outside R are dropped.
+- Because 1_R is the same deterministic function in every term, the estimator is unbiased for the current target on R, and new-only outside R.
+- Approximation: each draw's target and proposal densities are evaluated with its own stored truth. Within R the two models differ by less than the tolerances.
+
+**Validation, required before reuse enters a reported fit.**
+1. In coarse cells (§12.26) covered by both, new-only and combined weighted counts and fitted parameters agree within 1σ (MC).
+2. Halving the tolerances moves the fitted parameters by less than 0.5σ.
+
+**Measured** (`docs/gate391/reuse_check/`). 14.3% of old draws and 13.9% of old accepted orbits are in R. On the coarse grid this gives about 1.5–3× the ESS of new-only in the weak bright cells.
 
 ## References
 
