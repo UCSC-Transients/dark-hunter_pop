@@ -968,3 +968,23 @@ def test_pm13_table_and_mass_scale_mapping(tmp_path: Path) -> None:
     np.testing.assert_allclose(cen, [1.05, 1.15, 1.25])
     np.testing.assert_allclose(mp, [1.2, 1.2, 1.3])  # running maximum
     np.testing.assert_allclose(mds.apply_mass_scale([1.1, 2.5, 0.525], cen, mp), [1.2, 2.5 * 1.3 / 1.25, 0.525 * 1.2 / 1.05])
+
+
+@pytest.mark.unit
+def test_resolved_flags_and_fingerprint(fragment: ps.ProposalSetFragment) -> None:
+    """§12.25: Bernoulli on the completeness envelope; deterministic; absent setting keeps the fingerprint."""
+    from darkhunter_pop.resolved_companions import ResolutionTables
+
+    tab = ResolutionTables(theta_edges=np.array([0.5, 1.0, 2.0]), dg_edges=np.array([0.0, 5.0]),
+                           p_pass=np.ones((2, 1)), completeness=np.array([[0.0], [1.0]]), n_pairs=np.ones((2, 1), np.int64))
+    th = np.array([0.1, 0.7, 1.5, 5.0, 1.5])
+    dg = np.array([1.0, 1.0, 1.0, 1.0, np.inf])
+    a = ps.resolved_flags(th, dg, tab, 1, 123)
+    np.testing.assert_array_equal(a, [False, False, True, True, False])
+    np.testing.assert_array_equal(a, ps.resolved_flags(th, dg, tab, 1, 123))
+    fp = ps.fragment_fingerprint(fragment)
+    assert fragment.proposal.resolved_companions is None
+    assert ps.fragment_fingerprint(fragment.model_copy(update={"proposal": fragment.proposal.model_copy()})) == fp
+    t = {"flux_ratio": np.array([0.1, 0.0])}
+    out = ps.apply_resolved_companions(t, fragment.proposal, ".")
+    np.testing.assert_array_equal(out["flux_ratio_cascade"], [0.1, 0.0])

@@ -42,6 +42,9 @@ def setup(args, fc):
 
     ns = SimpleNamespace()
     cfg = load_config()
+    if getattr(args, "lowmass_correction_off", False):  # §12.25: generations made before the MIST correction (gens 23-32)
+        lc = cfg.isochrone_mass.lowmass_correction.model_copy(update={"enabled": False})
+        cfg = cfg.model_copy(update={"isochrone_mass": cfg.isochrone_mass.model_copy(update={"lowmass_correction": lc})})
     gm = import_gaiamock_mod()
     frag = ps.load_proposal_set_fragment(args.fragment)
     prop, tgt = frag.proposal, frag.target_mds17
@@ -106,7 +109,7 @@ def setup(args, fc):
     gens = [int(g) for g in z["gens"]]
     before = [g for g in gens if g != args.new_gen]
     ns.W = {"noW": mixture_weights(z, gens, False)[rel] / s_low, "cmdW": mixture_weights(z, gens, True)[rel] / s_low,
-            "before_noW": mixture_weights(z, before, False)[rel] / s_low,
+            "before_noW": (mixture_weights(z, before, False)[rel] / s_low) if before else np.zeros(rel.size),  # single-generation set (§12.25)
             "g28": mixture_weights(z, [args.new_gen], False)[rel] / s_low}
     ns.log_mod, ns.casc, ns.gen = log_mod, casc[rel], np.asarray(z["generation"])[rel]
     cpu, gen_all = np.asarray(z["cpu_seconds"], float), np.asarray(z["generation"])

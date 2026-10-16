@@ -1,0 +1,17 @@
+coarse cell (CMD classes merged): ESS new-only (gens 33+34) | ESS old in R | ESS old all | R share of old weight
+  G5-13 d0-1 lP0-2.6 e0-0.3              new      29 | old R      60 | old all     278 | R share 0.11
+  G5-13 d0-1 lP0-2.6 e0.3-1              new      35 | old R       9 | old all     156 | R share 0.11
+  G5-13 d0-1 lP2.6-2.92 e0-0.3           new      38 | old R      57 | old all     708 | R share 0.13
+  G5-13 d0-1 lP2.6-2.92 e0.3-1           new      52 | old R      62 | old all     663 | R share 0.14
+  G5-13 d1-6 lP0-2.6 e0-0.3              new       0 | old R       0 | old all       0 | R share 0.00
+  G5-13 d1-6 lP0-2.6 e0.3-1              new       0 | old R       0 | old all       0 | R share 0.00
+  G5-13 d1-6 lP2.6-2.92 e0-0.3           new       2 | old R       7 | old all      27 | R share 0.24
+  G5-13 d1-6 lP2.6-2.92 e0.3-1           new       6 | old R      17 | old all      13 | R share 0.22
+  G13-19.5 d0-1 lP0-2.6 e0-0.3           new      28 | old R      18 | old all      50 | R share 0.04
+  G13-19.5 d0-1 lP0-2.6 e0.3-1           new      28 | old R      11 | old all     343 | R share 0.03
+  G13-19.5 d0-1 lP2.6-2.92 e0-0.3        new      40 | old R      34 | old all     730 | R share 0.05
+  G13-19.5 d0-1 lP2.6-2.92 e0.3-1        new      58 | old R      52 | old all     977 | R share 0.05
+  G13-19.5 d1-6 lP0-2.6 e0-0.3           new       1 | old R       0 | old all       3 | R share 0.00
+  G13-19.5 d1-6 lP0-2.6 e0.3-1           new       0 | old R       1 | old all       1 | R share 1.00
+  G13-19.5 d1-6 lP2.6-2.92 e0-0.3        new      24 | old R      22 | old all     102 | R share 0.23
+  G13-19.5 d1-6 lP2.6-2.92 e0.3-1        new      28 | old R      19 | old all     120 | R share 0.28

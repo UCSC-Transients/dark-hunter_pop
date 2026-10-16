@@ -171,6 +171,7 @@ def orb6_separation(orb: dict[str, NDArray[np.float64]], epoch_yr: float, solve_
     gaiamock's Kepler solver (never reimplemented). NaN where elements are missing."""
     out = np.full(orb["p_yr"].size, np.nan)
     ok = np.all([np.isfinite(orb[k]) for k in ("p_yr", "a_as", "i", "omega", "t_yr", "e")], axis=0) & (orb["e"] < 1)
+    ok &= (orb["p_yr"] > 0) & (orb["a_as"] > 0)  # e.g. ORB6 rows with P = 0: excluded (NaN, never enters the tables)
     for j in np.flatnonzero(ok):
         M = np.array([2 * np.pi * ((epoch_yr - orb["t_yr"][j]) / orb["p_yr"][j] % 1.0)])
         E = float(np.asarray(solve_kepler(M, float(orb["e"][j])))[0])

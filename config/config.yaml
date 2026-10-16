@@ -34,6 +34,15 @@ isochrone_mass:
     # (age/1 Gyr)^0.5 on the constant-SFR weight; held-out half: RGB M_hat/M_seis 1.039 -> 0.972,
     # RC 1.151 -> 1.065. The CHeB weight (rho 0.4-1.6) moves the medians < 0.01 and stays 1.
     provisional_age_power: 0.5
+  # Spec §12.24/§12.25 (Ryan 2026-10-15): MIST Teff-only low-mass correction, calibrated on Mann (docs/gate391/mist_lowmass);
+  # materialized from config/fragments/isochrone_lowmass_correction.yaml. Enabling it changed the generation-time M1 (fresh set gens 33+).
+  lowmass_correction:
+    enabled: true
+    mass_nodes_msun: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    dlog_teff: [0.0, 0.0, -0.05899, -0.03878, -0.03382, -0.03036, -0.01637, -0.0033]
+    dlog_mass: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    join_msun: 0.9
+    calibration_ref: "scripts/calibrate_mist_lowmass_391.py; spec 12.24 (Teff-only, Ryan 2026-10-15)"
 mass_derivation:
   dark_companion_flux_ratio: 0.0
   uberms_m1_prior_max_msun: 3.0

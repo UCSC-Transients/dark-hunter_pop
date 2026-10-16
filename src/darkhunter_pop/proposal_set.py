@@ -382,6 +382,23 @@ class HalbwachsCutsConfig(_Strict):
     cstar_nsigma: float  # step (c): |C*| < nsigma * sigma_C*
 
 
+class ResolvedCompanionGenConfig(_Strict):
+    """Spec §12.25 (generation time): a drawn companion that Gaia would resolve contributes no
+    light to the primary's photocentre (cascade f → 0). Resolved with probability C(θ, ΔG), the
+    El-Badry et al. (2021) completeness envelope (§12.23), θ = κ a ϖ; seeded per generation."""
+
+    enabled: bool = True
+    snapshot: str  # relative to the data root (parent_dir.parents[2])
+    sha256: str
+    r_chance_max: float = Field(..., gt=0)
+    g2_max: float
+    theta_edges_arcsec: tuple[float, ...]
+    dg_edges: tuple[float, ...]
+    ref_theta_arcsec: tuple[float, float]
+    min_pairs: int = Field(..., ge=1)
+    projection_factor: float = Field(..., gt=0)
+
+
 class ProposalConfig(_Strict):
     generation: int = Field(..., ge=0)
     n_draws: int = Field(..., ge=1)
@@ -389,6 +406,8 @@ class ProposalConfig(_Strict):
     data_release: Literal["dr3"]
     ruwe_min: float
     skip_acceleration: bool
+    #: Spec §12.25: generation-time resolved-companion photocentre (None = off, the gens 23-32 behaviour).
+    resolved_companions: ResolvedCompanionGenConfig | None = None
     parent: ParentProposalConfig
     m2: M2ProposalConfig
     flux: FluxProposalConfig
@@ -469,7 +488,10 @@ def load_proposal_set_fragment(path: str | Path) -> ProposalSetFragment:
 
 def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
     """Short SHA256 of the proposal section (keys the artifact; target is reweight-only)."""
-    blob = json.dumps(fragment.proposal.model_dump(mode="json"), sort_keys=True)
+    d = fragment.proposal.model_dump(mode="json")
+    if d.get("resolved_companions") is None:  # §12.25: an absent setting keeps older fingerprints
+        d.pop("resolved_companions", None)
+    blob = json.dumps(d, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
@@ -1386,7 +1408,7 @@ def simulate_one(
         omega=float(draw["Omega_rad"]),
         w=float(draw["omega_rad"]),
         phot_g_mean_mag=float(draw["phot_g_mean_mag"]),
-        f=float(draw["flux_ratio"]),
+        f=float(draw.get("flux_ratio_cascade", draw["flux_ratio"])),  # §12.25: 0 when the companion is resolved
         data_release=cfg.data_release,
         c_funcs=c_funcs,
     )
@@ -2220,3 +2242,49 @@ def mist_relation_for_draws(
         out[pos] = ms.log10_flux_ratio(m1[pos], m2[pos])
     return out
 
+
+
+#: Spawn slot of the resolved-companion Bernoulli stream (spec §12.25).
+RESOLVED_COMPANION_RNG_SLOT: int = 11
+
+
+def apply_resolved_companions(truth: dict[str, NDArray[Any]], cfg: ProposalConfig, data_root: str | Path) -> dict[str, NDArray[Any]]:
+    """Spec §12.25: flag draws whose luminous companion Gaia would resolve (Bernoulli on the
+    El-Badry completeness C(θ, ΔG), θ = κ a ϖ, ΔG = −2.5 log f) and set ``flux_ratio_cascade`` to 0
+    for them (the photocentre is the primary alone); others keep ``flux_ratio``. Adds
+    ``resolved_companion``, ``theta_arcsec``, ``flux_ratio_cascade``. Deterministic per generation."""
+    from darkhunter_pop import resolved_companions as rcm
+
+    rc = cfg.resolved_companions
+    out = {k: np.asarray(v).copy() for k, v in truth.items()}
+    f = np.asarray(truth["flux_ratio"], float)
+    if rc is None or not rc.enabled:
+        out["flux_ratio_cascade"] = f.copy()
+        return out
+    cat = rcm.load_elbadry2021(Path(data_root) / rc.snapshot, rc.sha256)
+    tab = rcm.build_tables(cat, rc.theta_edges_arcsec, rc.dg_edges, r_chance_max=rc.r_chance_max, g2_max=rc.g2_max,
+                           ref_theta_arcsec=tuple(rc.ref_theta_arcsec), ipd_fmp_max=cfg.halbwachs_cuts.ipd_frac_multi_peak_max,
+                           ipd_gof_max=cfg.halbwachs_cuts.ipd_gof_harmonic_amplitude_max, min_pairs=rc.min_pairs)
+    m = np.asarray(truth["m1_msun"], float) + np.asarray(truth["m2_msun"], float)
+    a_au = np.cbrt(m * (np.asarray(truth["period_days"], float) / 365.25) ** 2)
+    theta = rc.projection_factor * a_au * np.asarray(truth["parallax_mas"], float) / 1000.0
+    dark = np.asarray(truth["is_dark"], bool) | ~(f > 0)
+    with np.errstate(divide="ignore"):
+        dg = np.where(dark, np.inf, -2.5 * np.log10(np.where(f > 0, f, 1.0)))
+    out["theta_arcsec"] = theta
+    out["resolved_companion"] = resolved_flags(theta, dg, tab, cfg.base_seed, PROPOSAL_RNG_STREAM_BASE + cfg.generation)
+    out["flux_ratio_cascade"] = np.where(out["resolved_companion"], 0.0, f)
+    return out
+
+
+def resolved_flags(theta: ArrayLike, dg: ArrayLike, tab: Any, base_seed: int, stream: int) -> NDArray[np.bool_]:
+    """Bernoulli(C(θ, ΔG)) per draw; C = 0 below the table, 1 beyond its last edge, 0 for dark."""
+    th, d = np.asarray(theta, float), np.asarray(dg, float)
+    te, de = tab.theta_edges, tab.dg_edges
+    i = np.searchsorted(te, th, side="right") - 1
+    j = np.clip(np.searchsorted(de, d, side="right") - 1, 0, de.size - 2)
+    c = np.where((i >= 0) & (i < te.size - 1), np.nan_to_num(tab.completeness[np.clip(i, 0, te.size - 2), j]), 0.0)
+    c = np.where(th >= te[-1], 1.0, c)
+    c = np.where(np.isfinite(d), c, 0.0)
+    u = np.random.default_rng(np.random.SeedSequence(int(base_seed), spawn_key=(int(stream), RESOLVED_COMPANION_RNG_SLOT))).random(th.size)
+    return u < c
