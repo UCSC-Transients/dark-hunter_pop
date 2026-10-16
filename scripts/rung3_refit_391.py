@@ -65,6 +65,14 @@ def mixture_weights(z, gens_used, use_w: bool):
     j = [gens.index(g) for g in gens_used]
     lt = np.asarray(z["ll"], float)[sel] + (np.asarray(z["lw"], float)[sel] if use_w else 0.0)
     w = np.zeros(sel.size)
+    if "in_R" in getattr(z, "files", ()):  # spec §12.27: old generations restricted to R (interim reuse)
+        from darkhunter_pop.reuse_region import restricted_mixture_weights
+
+        rg = set(int(x) for x in np.asarray(z["restricted_gens"]))
+        w[sel] = restricted_mixture_weights(lt, [np.asarray(z["lqs"])[k][sel] for k in j], [int(z["n_per_gen"][k]) for k in j],
+                                            [gens[k] in rg for k in j], np.asarray(z["in_R"], bool)[sel],
+                                            np.asarray(z["draw_is_old"], bool)[sel], scale_to_full=float(z["scale"]))
+        return w
     w[sel] = ps.importance_weights(lt, [np.asarray(z["lqs"])[k][sel] for k in j], [int(z["n_per_gen"][k]) for k in j],
                                    scale_to_full=float(z["scale"]))
     return w
