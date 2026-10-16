@@ -2203,6 +2203,15 @@ Edges come from the model structure (the G pivot of the bright excess; the MdS17
 
 ### 12.27 Interim reuse of old draws in an unchanged region (Ryan, 2026-10-15: approved "for now")
 
+**SHELVED (Ryan, 2026-10-16): "Let's shelve the old simulations for now and just move forward with new ones."** Old gens 23–32 are no longer used in fits. The combined fits (`docs/gate391/resim_batch3/comb_*`) are **invalid**. The code (`darkhunter_pop/reuse_region.py`, `scripts/reuse_build_391.py`) and its tests are kept. It is off by default: `mixture_weights` uses it only when a cache carries `in_R`, and no default cache or config does. No artifacts were deleted.
+
+Diagnosis:
+- **R is not one deterministic set across generations.** A draw's |Δ ln M1| uses its deblended M1, which comes from a random posterior draw seeded by the draw's own generation. So each generation effectively has its own R_j, and 1_{R_j}(x) cannot be evaluated at other generations' draws. The restricted-mixture denominator is then wrong.
+- **Misaligned seeding for gens 29/31/32.** The region step recomputed the posterior draws of these prefix-assembled generations on the stored prefix rather than on the full planned generation, so the random-number sequence was misaligned. That pushed most of their draws out of R: 4–8% in R, against 15–40% elsewhere.
+- **Evidence.** Single-generation estimates of ∫_R λ are 5.6–6.8e6 for gens 29/31/32, against 1.5–2.5e7 for the others, while the totals ∫λ agree across generations. The combined in-R estimate was biased low by −39% (orbits) and −51% (accelerations).
+- **A future fix, if revived:** a deterministic, row-level R (posterior-mean M1 and relation shifts, plus a deterministic resolved criterion), validated by per-generation agreement of ∫_R λ.
+
+
 **Status: interim.** A full re-simulation is required before any final result or any DR4 result. It is queued in §12.25.
 
 **Region R.** A draw x (old gens 23–32 or new gens 33+) is in R when its generation-time inputs agree between the old model (uncorrected MIST, no resolved photocentre) and the current model (§12.24 Teff correction, §12.25 resolved photocentre). Each draw is recomputed with its own stored random content and seeds:
