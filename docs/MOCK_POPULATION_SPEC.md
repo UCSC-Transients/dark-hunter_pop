@@ -2234,6 +2234,32 @@ R is stored per draw as a versioned column: a sidecar keyed by the artifact, the
 
 **Measured** (`docs/gate391/reuse_check/`). 14.3% of old draws and 13.9% of old accepted orbits are in R. On the coarse grid this gives about 1.5–3× the ESS of new-only in the weak bright cells.
 
+### 12.28 Evolved-row proposal fix and the decided-settings guard (Ryan, 2026-10-17)
+
+**Why.** In gens 33–36 the evolved-detected draws are badly covered: Kish ESS 18 of 4,355 draws (dwarfs 1,367 of 15,594), the top 5 draws hold 27% of the weight, and 30% of the evolved weight sits on draws whose flux proposal density is at the defensive floor. One evolved draw carries 67% of the distant (d > 1.5 kpc) acceleration weight (`docs/gate391/resim_batch4/`). Two causes:
+- gens 33–36 were launched with `evolved_rows_centre: evolved_relation`, not the `evolved_relation_deblended` Ryan decided on 2026-10-09 (option (i)). Nothing caught the drift;
+- the M2 proposal is tied to the row M̂1, not to the evolved-branch primary.
+
+**Proposal change (efficiency only; the target is unchanged).**
+- `flux.evolved_rows_centre: evolved_relation_deblended` (restored). Evolved rows use `evolved_sigma_dex: 0.4` and `evolved_relation_weight: 0.6`. The defensive uniform share of 0.4 bounds the evolved flux ratio p/q at (1/(0.1√(2π))) / (0.4/7.5) ≈ 75, against ≈ 300 with 0.9 / 0.2.
+- New `m2.evolved_tie: row_m1 | deblended_dark` (default `row_m1`, bit for bit with older generations). With `deblended_dark`, on CMD-evolved rows with a posterior draw, every M2 component is drawn against M1_dark: the posterior-draw primary deblended with a dark companion (`deblended_m1_dark`). The drawn mass is M2_eff = q · M1_dark. The q–log P shape component uses the M1_dark node, and the log-uniform M2 component is in M2_eff units. The stored proposal-space M2 stays q · M̂1_row, so deblending (§11.9) still keeps q, and the truth M2 = q · M1_true ≈ M2_eff.
+- `m2.evolved_q_min` / `evolved_q_max` widen the tied q range on those rows: 0.05–1.0, against 0.08–1.0 for dwarfs. Deblending gives q > 1 zero target weight, so the upper edge stays at 1.
+- M1_dark is now independent of q. With f = 0 the companion adds no light, so it depends only on the row and the posterior draw. It is computed before M2 is drawn, from its own RNG slot, so the main stream is unchanged. Before this change, draws with q > 1 got NaN. Only gen 27 used it, and gen 27 is shelved (§12.27).
+- `log_q_total_for` evaluates the same tie, so the deterministic-mixture cross-terms stay exact. Any generation with either deblended option makes the cache builders fill `m1_deblend_dark_msun` at every draw.
+
+**Pilot (generation 37).** About 5 CPU-h, evolved rows only (`parent.evolved_weight: 1.0`). Otherwise as gen 36. It runs alone, with the CPU-h watcher and mem_guard2. Checks, reported before any larger batch:
+- evolved-detected Kish ESS per CPU-h against gens 33–36; pass at ≥ 10×;
+- the weight-tail share (top 5 and top 1% of the evolved-detected weight);
+- the share of evolved weight on draws at the defensive flux floor; want ≈ 0.
+
+**Decided-settings guard.** `config/population/decided_settings.yaml` is the single list of Ryan's decided settings that a launch must carry. Each entry has a dotted key, an expected value (or "present"), a scope and a decision reference. The scopes are:
+- `launch_fragment`: the proposal fragment;
+- `pipeline_config`: the merged `config/config.yaml`;
+- `launch_args`: the parent snapshot;
+- `fit_config`: the rung-3 fit configs.
+
+`darkhunter_pop.decided_settings` diffs a fragment and config against it. `scripts/run_proposal_pilot.py` runs the check before drawing and refuses on any deviation, unless `--allow-deviations` is passed for an explicit re-run of an old generation. `scripts/check_decided_settings.py` reports the deviations of any fragment. Tests require every launch fragment from generation 37 on, and the default fit configs, to pass. Adding or changing an entry needs a decision reference.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
