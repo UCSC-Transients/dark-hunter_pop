@@ -1,0 +1,12 @@
+gen 33: n 40000, CPU 4.0 h, orbits 229 (57.0 per CPU-h), accel 309; deblended/row M1 median 1.000; resolved 189 (detected among them: orbit 0, accel 0); share G<16 0.27
+   acceptance (orbit/accel) by G: 5-13: 0.0625/0.0692 (n 1647); 13-16: 0.0130/0.0198 (n 9160); 16-19.5: 0.0002/0.0005 (n 29193)
+gen 34: n 300000, CPU 35.4 h, orbits 1886 (53.3 per CPU-h), accel 2534; deblended/row M1 median 1.000; resolved 1460 (detected among them: orbit 0, accel 0); share G<16 0.56
+   acceptance (orbit/accel) by G: 5-13: 0.0439/0.0487 (n 17848); 13-16: 0.0070/0.0105 (n 150988); 16-19.5: 0.0003/0.0006 (n 131164)
+gen 35: n 250000, CPU 80.3 h, orbits 6411 (79.9 per CPU-h), accel 8281; deblended/row M1 median 0.998; resolved 1914 (detected among them: orbit 0, accel 0); share G<16 0.60
+   acceptance (orbit/accel) by G: 5-13: 0.0549/0.0687 (n 108252); 13-16: 0.0109/0.0193 (n 40775); 16-19.5: 0.0002/0.0005 (n 100973)
+gen 36: n 250000, CPU 34.4 h, orbits 1052 (30.5 per CPU-h), accel 1676; deblended/row M1 median 0.996; resolved 971 (detected among them: orbit 0, accel 1); share G<16 0.66
+   acceptance (orbit/accel) by G: 5-13: 0.0271/0.0369 (n 18354); 13-16: 0.0036/0.0065 (n 146930); 16-19.5: 0.0003/0.0005 (n 84716)
+noW detected: n 16497, Kish ESS 730 (0.044), max share 0.0282, top-10 0.058
+noW orbits: n 5707, Kish ESS 847 (0.148), max share 0.0056, top-10 0.048
+cmdW detected: n 16373, Kish ESS 512 (0.031), max share 0.0326, top-10 0.085
+cmdW orbits: n 5670, Kish ESS 434 (0.077), max share 0.0225, top-10 0.098
