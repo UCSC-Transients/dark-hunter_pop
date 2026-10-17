@@ -1,0 +1,83 @@
+{
+  "pilot": {
+    "generation": 37,
+    "n_draws": 32000,
+    "n_planned": 32000,
+    "cpu_h": 4.122180831666663,
+    "cpu_h_evolved": 4.122180831666663,
+    "max_abs_logq_recompute_minus_generation": 7.105427357601002e-15,
+    "n_evolved": 32000,
+    "n_evolved_detected": 356,
+    "noW": {
+      "n": 356,
+      "kish_ess": 43.998553284103785,
+      "sum_w": 40021.90941992786,
+      "ess_per_cpu_h_all": 10.673610664070376,
+      "ess_per_cpu_h_evolved": 10.673610664070376,
+      "top1_share": 0.05016297158350953,
+      "top5_share": 0.20821276582095471,
+      "top1pct_share": 0.17386799058701283,
+      "flux_floor_weight_share": 4.6881605922547865e-52,
+      "flux_floor_draw_share": 0.25842696629213485
+    },
+    "cmdW": {
+      "n": 356,
+      "kish_ess": 43.998553284103785,
+      "sum_w": 40021.90941992786,
+      "ess_per_cpu_h_all": 10.673610664070376,
+      "ess_per_cpu_h_evolved": 10.673610664070376,
+      "top1_share": 0.05016297158350953,
+      "top5_share": 0.20821276582095471,
+      "top1pct_share": 0.17386799058701283,
+      "flux_floor_weight_share": 4.6881605922547865e-52,
+      "flux_floor_draw_share": 0.25842696629213485
+    }
+  },
+  "reference": {
+    "generations": [
+      33,
+      34,
+      35,
+      36
+    ],
+    "n_draws": 840000,
+    "cpu_h": 154.1644327088886,
+    "cpu_h_evolved": 56.83654447749993,
+    "n_evolved": 297803,
+    "n_evolved_detected": 5223,
+    "noW": {
+      "n": 5223,
+      "kish_ess": 23.931783479975635,
+      "sum_w": 39040.110357185215,
+      "ess_per_cpu_h_all": 0.15523543958525401,
+      "ess_per_cpu_h_evolved": 0.42106330882676357,
+      "top1_share": 0.2010616613276868,
+      "top5_share": 0.23764240776726,
+      "top1pct_share": 0.39062804349677016,
+      "flux_floor_weight_share": 0.20106306031522622,
+      "flux_floor_draw_share": 0.0714148956538388
+    },
+    "cmdW": {
+      "n": 5223,
+      "kish_ess": 23.931783479975635,
+      "sum_w": 39040.110357185215,
+      "ess_per_cpu_h_all": 0.15523543958525401,
+      "ess_per_cpu_h_evolved": 0.42106330882676357,
+      "top1_share": 0.2010616613276868,
+      "top5_share": 0.23764240776726,
+      "top1pct_share": 0.39062804349677016,
+      "flux_floor_weight_share": 0.20106306031522622,
+      "flux_floor_draw_share": 0.0714148956538388
+    }
+  },
+  "ratio_noW": {
+    "ess_per_cpu_h_all": 68.75756394665612,
+    "ess_per_cpu_h_evolved": 25.349182510846077,
+    "sum_w_pilot_over_ref": 1.0251484704771576
+  },
+  "ratio_cmdW": {
+    "ess_per_cpu_h_all": 68.75756394665612,
+    "ess_per_cpu_h_evolved": 25.349182510846077,
+    "sum_w_pilot_over_ref": 1.0251484704771576
+  }
+}
