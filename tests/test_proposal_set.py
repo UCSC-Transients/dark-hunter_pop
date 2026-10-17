@@ -988,3 +988,119 @@ def test_resolved_flags_and_fingerprint(fragment: ps.ProposalSetFragment) -> Non
     t = {"flux_ratio": np.array([0.1, 0.0])}
     out = ps.apply_resolved_companions(t, fragment.proposal, ".")
     np.testing.assert_array_equal(out["flux_ratio_cascade"], [0.1, 0.0])
+
+
+# ---------------------------------------------------------------------------
+# #391 spec §12.28: evolved M2 tied to the dark-deblended M1; evolved flux width/weight
+# ---------------------------------------------------------------------------
+
+EVO37 = "config/population/proposal_set_evolved37.yaml"
+
+
+def _evo_parent(n: int = 400, seed: int = 5) -> ps.ParentSnapshot:
+    par = _parent(n, seed)
+    rng = np.random.default_rng(seed + 1)
+    giant = np.zeros(n, dtype=bool)
+    giant[1::2] = True
+    object.__setattr__(par, "is_giant", giant)
+    object.__setattr__(par, "cmd", {"mg0": rng.uniform(-0.5, 2.5, n)})
+    return par
+
+
+def _fake_dark(monkeypatch: pytest.MonkeyPatch, par: ps.ParentSnapshot) -> None:
+    """M1_dark = 1.6 × row M̂1 on evolved rows (NaN on every 4th evolved row: no posterior)."""
+    md_row = np.where(par.is_giant, 1.6 * par.m1_msun, np.nan)
+    md_row[3::4] = np.nan
+
+    def fake(rows, m1_row, m2_prop, parent, config, cfg):  # noqa: ANN001, ARG001
+        return md_row[np.asarray(rows, np.int64)]
+
+    monkeypatch.setattr(ps, "m1_deblend_dark_for_generation", fake)
+
+
+def _evo37_cfg() -> ps.ProposalConfig:
+    p = ps.load_proposal_set_fragment(EVO37).proposal
+    return p.model_copy(update={
+        "n_draws": 4000,
+        "parent": p.parent.model_copy(update={"evolved_weight": 0.5}),
+        "flux": p.flux.model_copy(update={"relation": "janssens2022"}),
+    })
+
+
+@pytest.mark.unit
+def test_evolved37_fragment_settings() -> None:
+    p = ps.load_proposal_set_fragment(EVO37).proposal
+    assert p.generation == 37 and p.parent.evolved_weight == 1.0
+    assert p.flux.evolved_rows_centre == "evolved_relation_deblended"
+    assert p.flux.evolved_sigma_dex == pytest.approx(0.4) and p.flux.evolved_relation_weight == pytest.approx(0.6)
+    assert p.m2.evolved_tie == "deblended_dark" and p.m2.evolved_q_min < p.m2.q_min
+    assert ps.uses_dark_deblend(p)
+
+
+@pytest.mark.unit
+def test_evolved_tie_draws_m2_against_dark_m1(monkeypatch: pytest.MonkeyPatch) -> None:
+    par = _evo_parent()
+    _fake_dark(monkeypatch, par)
+    cfg = _evo37_cfg()
+    t = ps.sample_proposal(par, cfg, config=object())
+    md = t["m1_deblend_dark_msun"]
+    tied = par.is_giant[t["parent_row"]] & np.isfinite(md)
+    assert tied.sum() > 500 and (~tied).sum() > 500
+    q = t["m2_msun"] / t["m1_msun"]  # proposal-space q (= truth q after deblending)
+    m2_eff = q * np.where(tied, md, t["m1_msun"])
+    # tied evolved draws reach below the dwarf q_min (wider range), dwarfs never do via the tied part
+    assert np.any(q[tied] < cfg.m2.q_min)
+    assert np.mean(q[tied] < cfg.m2.evolved_q_min) < 0.05  # only the log-uniform-M2 component
+    lo_dwarf = (~tied) & (q < cfg.m2.q_min) & (m2_eff > cfg.m2.m2_min_msun) & (m2_eff < cfg.m2.m2_max_msun)
+    assert lo_dwarf.mean() < 0.05  # only the log-uniform-M2 component
+    # absolute-M2 component is in M2_eff units: M2_eff never exceeds m2_max
+    assert np.all(m2_eff <= cfg.m2.m2_max_msun * (1 + 1e-9))
+    # log q at generation == log_q_total_for at the same draws (density consistency)
+    lq_gen = sum(t[k] for k in ("log_q_parent", "log_q_m2_p", "log_q_flux", "log_q_ecc"))
+    np.testing.assert_allclose(ps.log_q_total_for(t, par, cfg, object()), lq_gen, rtol=0, atol=1e-10)
+
+
+@pytest.mark.unit
+def test_evolved_tie_off_without_evolved_rows_is_bit_identical(monkeypatch: pytest.MonkeyPatch) -> None:
+    par = _parent(400, 5)
+    _fake_dark(monkeypatch, par)
+    base = _evo37_cfg().model_copy(update={"parent": _evo37_cfg().parent.model_copy(update={"evolved_weight": 0.0})})
+    off = base.model_copy(update={"m2": base.m2.model_copy(update={"evolved_tie": "row_m1"}),
+                                  "flux": base.flux.model_copy(update={"evolved_rows_centre": "dwarf_relation"})})
+    a = ps.sample_proposal(par, base, config=object())
+    b = ps.sample_proposal(par, off, config=object())
+    for k in ("parent_row", "m2_msun", "log10_flux_ratio", "period_days", "eccentricity", "log_q_m2_p"):
+        np.testing.assert_array_equal(a[k], b[k])
+
+
+@pytest.mark.physics
+def test_evolved_tied_joint_density_normalizes() -> None:
+    cfg = ps.load_proposal_set_fragment(EVO37).proposal
+    lm2 = np.linspace(-2.5, 2.0, 1801)
+    lp = np.linspace(-1.0, 9.0, 2001)
+    LM2, LP = np.meshgrid(lm2, lp, indexing="ij")
+    for m1 in (1.0, 2.5):
+        lm1 = np.full_like(LM2, np.log10(m1))
+        for tied in (False, True):
+            d = np.exp(ps.log_q_m2_p_joint(LM2, LP, lm1, cfg, np.full(LM2.shape, tied)))
+            assert np.trapz(np.trapz(d, lp, axis=1), lm2) == pytest.approx(1.0, abs=5e-3)
+        # the tied evolved density reaches q = evolved_q_min; the dwarf one does not
+        lq = math.log10(0.06)
+        dt = ps.log_q_m2_p_joint(np.array([np.log10(m1) + lq]), np.array([2.5]), np.array([np.log10(m1)]), cfg, np.array([True]))
+        dd = ps.log_q_m2_p_joint(np.array([np.log10(m1) + lq]), np.array([2.5]), np.array([np.log10(m1)]), cfg, np.array([False]))
+        assert dt[0] > dd[0] + 1.0
+
+
+@pytest.mark.physics
+def test_evolved37_flux_weight_bound() -> None:
+    # Evolved rows: target N(c, 0.1) per dex vs 0.6 N(c', 0.4) + 0.4 U[-7, 0.5]: p/q is bounded by the
+    # defensive floor for any centre offset (4x tighter bound than the 0.9 / 0.2 dwarf setting).
+    fc = ps.load_proposal_set_fragment(EVO37).proposal.flux
+    lf = np.linspace(fc.log_f_min, fc.log_f_max, 200001)
+    for offset in (0.0, 0.5, 2.0):
+        q = np.exp(ps.log_q_flux(lf, np.zeros_like(lf, bool), np.ones_like(lf), np.full_like(lf, 0.5), fc,
+                                 centre=np.full_like(lf, -2.0 + offset), sigma=np.full_like(lf, 0.4),
+                                 relation_weight=np.full_like(lf, 0.6))) / (1.0 - fc.dark_fraction)
+        p = np.exp(-0.5 * ((lf + 2.0) / 0.1) ** 2) / (0.1 * np.sqrt(2 * np.pi))
+        bound = (1.0 / (0.1 * np.sqrt(2 * np.pi))) / (0.4 / (fc.log_f_max - fc.log_f_min))
+        assert np.max(p / q) <= bound * (1 + 1e-9)

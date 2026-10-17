@@ -132,9 +132,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--progress-every", type=int, default=50)
     ap.add_argument("--nice", type=int, default=10, help="os.nice increment for workers (#408)")
     ap.add_argument("--min-free-gib", type=float, default=3.0, help="stop (resumable) below this")
+    ap.add_argument(
+        "--allow-deviations", action="store_true",
+        help="launch despite deviations from config/population/decided_settings.yaml (explicit old-generation re-runs only)",
+    )
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
+    # Spec §12.28: refuse a launch that drifts from Ryan's decided settings.
+    from darkhunter_pop.decided_settings import check_launch
+
+    dev = check_launch(args.fragment, config=cfg, parent_dir=args.parent_dir)
+    for d in dev:
+        print(f"DECIDED-SETTINGS DEVIATION {d}", flush=True)
+    if dev and not args.allow_deviations:
+        print(f"REFUSED: {len(dev)} deviation(s) from the decided settings (spec §12.28); fix the fragment/config "
+              "or pass --allow-deviations for an explicit old-generation re-run", flush=True)
+        return 4
+    print(f"decided settings: {'OK' if not dev else f'{len(dev)} deviation(s) allowed'}", flush=True)
     frag = load_proposal_set_fragment(args.fragment)
     if args.n_draws is not None:
         frag = frag.model_copy(update={"proposal": frag.proposal.model_copy(update={"n_draws": args.n_draws})})

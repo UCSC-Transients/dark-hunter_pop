@@ -43,7 +43,7 @@ def build_cache(args: argparse.Namespace, cfg) -> None:
     tg = ps.MdS17TargetConfig.model_validate(json.loads(parts[0][2]["provenance_json"])["target_mds17_json"])
     gcs = [ps.ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
     parent = ps.load_parent_snapshot(args.parent_dir, cfg, gcs[0])
-    if any(g.flux.evolved_rows_centre == "evolved_relation_deblended" for g in gcs):
+    if any(ps.uses_dark_deblend(g) for g in gcs):
         ps.ensure_m1_deblend_dark(t, parent, cfg, gcs)
     evo = ps.evolved_mg0_for_draws(t, parent)
     rel = ps.mist_relation_for_draws(t, parent, cfg)
