@@ -1,0 +1,57 @@
+# #391 spec §12.28 (Ryan 2026-10-17): the single list of Ryan's decided settings a launch must carry.
+# Checked by darkhunter_pop.decided_settings: the launcher (scripts/run_proposal_pilot.py) refuses a launch on any
+# deviation; scripts/check_decided_settings.py reports them; tests require every launch fragment from generation
+# `min_guarded_generation` on, and the default fit configs, to pass. Adding or changing an entry needs a decision ref.
+# Scopes: launch_fragment (proposal fragment YAML), pipeline_config (merged config/config.yaml),
+#         launch_args (parent snapshot directory name), fit_config (rung-3 fit config YAML).
+# Not under config/fragments/.
+schema_version: 1
+min_guarded_generation: 37
+settings:
+  # --- launch fragment: generation-time decisions --------------------------------------------------------------
+  - {scope: launch_fragment, key: proposal.flux.evolved_rows_centre, equals: evolved_relation_deblended,
+     ref: "Ryan 2026-10-09 option (i); restored 2026-10-17 (spec §12.28)"}
+  - {scope: launch_fragment, key: proposal.parallax_floor_mas, equals: 0.2, ref: "MP-Q1 (spec §0.1)"}
+  - {scope: launch_fragment, key: proposal.truth_distance, equals: bailer_jones2021_geometric, ref: "MP-Q4 (spec §0.1)"}
+  - {scope: launch_fragment, key: proposal.halbwachs_ipd_cstar_cuts, equals: applied_star_values, ref: "MP-Q3 (spec §0.1)"}
+  - {scope: launch_fragment, key: proposal.m1, equals: isochrone_posterior_draw_deblended,
+     ref: "MP-Q5/Q28c/Q35/Q36 (spec §0.4, §11.9)"}
+  - {scope: launch_fragment, key: proposal.light_split, equals: observed_g_is_system_total, ref: "MP-Q6 (spec §0.1)"}
+  - {scope: launch_fragment, key: proposal.resolved_companions, present: true,
+     ref: "MP-Q27 resolved-companion photocentre at generation (spec §12.23, §12.25)"}
+  - {scope: launch_fragment, key: proposal.resolved_companions.sha256,
+     equals: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565, ref: "spec §12.25 snapshot"}
+  - {scope: launch_fragment, key: proposal.epoch_model, equals: dr3_config, ref: "#400 E1 (Ryan 2026-10-03)"}
+  - {scope: launch_fragment, key: proposal.eccentricity.shape, equals: mds17_bounded, ref: "#409/#410"}
+  - {scope: launch_fragment, key: proposal.ruwe_min, equals: 1.4, ref: "Halbwachs et al. 2023 §1.2 cascade input"}
+  - {scope: launch_fragment, key: proposal.skip_acceleration, equals: false, ref: "acceleration-first cascade (#399)"}
+  - {scope: launch_fragment, key: proposal.acceleration_publication.significance_min, equals: 20.0,
+     ref: "El-Badry et al. 2024 §5.2.1"}
+  - {scope: launch_fragment, key: proposal.acceleration_publication.f2_max_seven_parameter, equals: 22.0,
+     ref: "El-Badry et al. 2024 §5.2.1"}
+  - {scope: launch_fragment, key: target_mds17.mass_luminosity, equals: mist_coeval, ref: "MP-Q40 (Ryan 2026-10-04)"}
+  - {scope: launch_fragment, key: target_mds17.flux_sigma_dex, equals: 0.1, ref: "MP-Q13"}
+  # --- pipeline config: generation-time model settings ---------------------------------------------------------
+  - {scope: pipeline_config, key: mass_calibration.method, equals: MIST_isochrone, ref: "#418 (Ryan 2026-10-04)"}
+  - {scope: pipeline_config, key: isochrone_mass.lowmass_correction.enabled, equals: true,
+     ref: "MIST Teff-only low-mass correction (Ryan 2026-10-15, spec §12.24/§12.25)"}
+  - {scope: pipeline_config, key: isochrone_mass.lowmass_correction.dlog_mass, equals: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+     ref: "Teff-only (spec §12.24)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.enabled, equals: true, ref: "#400 E1 (Ryan 2026-10-03)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.visibility_period_loss.enabled, equals: true,
+     ref: "#432 V0 (Ryan 2026-10-06)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.clustered_loss.enabled, equals: false,
+     ref: "#432: superseded by visibility_period_loss"}
+  - {scope: pipeline_config, key: dr3.epoch_model.bright_excess_noise.enabled, equals: true, ref: "N2d (Ryan 2026-10-03)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.ruwe_u0.enabled, equals: true, ref: "N2d RUWE = UWE / u0 (Ryan 2026-10-03)"}
+  # --- launch args ---------------------------------------------------------------------------------------------
+  - {scope: launch_args, key: parent_snapshot, equals: 20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj,
+     ref: "Bailer-Jones parent, parallax floor 0.2 mas (MP-Q1/Q4)"}
+  # --- rung-3 fit configs --------------------------------------------------------------------------------------
+  - {scope: fit_config, key: rung3.m1_law_mass, equals: initial, ref: "spec §12.19(a) MdS17 at M1,ZAMS"}
+  - {scope: fit_config, key: rung3.c1_period_max_days, equals: 830.4, ref: "C1: P <= 0.8 x 1038 d"}
+  - {scope: fit_config, key: rung3.mc_variance, equals: parent_row, ref: "spec §12.20"}
+  - {scope: fit_config, key: rung3.resolved_companions.enabled, equals: true, ref: "MP-Q27 (spec §12.23)"}
+  - {scope: fit_config, key: rung3.resolved_companions.below_envelope, equals: orb6, ref: "spec §12.23 amendment"}
+  - {scope: fit_config, key: rung3.cmd_binary_conditioning.enabled, equals: true, ref: "spec §12.22 option (b)"}
+  - {scope: fit_config, key: rung3.cmd_binary_conditioning.m1_min_msun, equals: 0.8, ref: "variant (a) adopted"}

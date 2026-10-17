@@ -52,6 +52,7 @@ from darkhunter_pop.forward_model import (
 from darkhunter_pop.janssens_mass import segments_from_table
 
 FloatArray = NDArray[np.float64]
+BoolArray = NDArray[np.bool_]
 
 #: Rows in ``gaiadr3.gaia_source`` (= range of ``random_index``), for subsample scaling.
 GAIA_SOURCE_TOTAL_ROWS: int = 1_811_709_771
@@ -186,6 +187,16 @@ class M2ProposalConfig(_Strict):
     q_max: float = Field(..., gt=0.0)
     m2_min_msun: float = Field(..., gt=0.0)
     m2_max_msun: float = Field(..., gt=0.0)
+    #: Spec §12.28 (Ryan 2026-10-17): on CMD-evolved rows with a posterior draw, ``deblended_dark``
+    #: ties every M2 component to M1_dark (:func:`deblended_m1_dark`, the posterior-draw primary
+    #: deblended with a dark companion) instead of the row M̂1: the drawn mass is
+    #: M2_eff = q × M1_dark ≈ the truth M2 after deblending, and the shape component uses the
+    #: M1_dark node. The stored proposal-space M2 stays q × M̂1_row (``m2_msun`` before
+    #: deblending). ``evolved_q_min`` / ``evolved_q_max`` (None = ``q_min`` / ``q_max``) widen the
+    #: tied range on those rows. ``row_m1`` reproduces older generations bit for bit.
+    evolved_tie: Literal["row_m1", "deblended_dark"] = "row_m1"
+    evolved_q_min: float | None = Field(None, gt=0.0)
+    evolved_q_max: float | None = Field(None, gt=0.0)
 
 
 class M2PeriodShapeConfig(_Strict):
@@ -1037,14 +1048,52 @@ def m2_period_shape_table(cfg: M2PeriodShapeConfig) -> M2PeriodShapeTable:
     return out
 
 
+def evolved_m2_tie(
+    rows: ArrayLike, m1_row: ArrayLike, parent: Any, cfg: ProposalConfig, m1_deblend_dark: ArrayLike | None
+) -> tuple[FloatArray, BoolArray]:
+    """Spec §12.28: per draw the M2 tie mass and the mask of draws tied to M1_dark.
+
+    The tie mass is M1_dark on CMD-evolved rows with a finite ``m1_deblend_dark`` when
+    ``cfg.m2.evolved_tie == "deblended_dark"``, else the row M̂1 (then the mask is all False)."""
+    m1r = np.asarray(m1_row, float)
+    mask = np.zeros(m1r.size, dtype=bool)
+    if cfg.m2.evolved_tie == "deblended_dark" and getattr(parent, "cmd", None) is not None:
+        if m1_deblend_dark is None:
+            raise ValueError("m2.evolved_tie deblended_dark needs m1_deblend_dark (ensure_m1_deblend_dark)")
+        md = np.asarray(m1_deblend_dark, float)
+        mask = np.asarray(parent.is_giant, bool)[np.asarray(rows, np.int64)] & np.isfinite(md) & (md > 0)
+        return np.where(mask, md, m1r), mask
+    return m1r, mask
+
+
+def evolved_m2_config(cfg: M2ProposalConfig) -> M2ProposalConfig:
+    """The M2 proposal on M1_dark-tied rows: ``q_min`` / ``q_max`` replaced by the evolved range."""
+    return cfg.model_copy(update={
+        "q_min": cfg.evolved_q_min if cfg.evolved_q_min is not None else cfg.q_min,
+        "q_max": cfg.evolved_q_max if cfg.evolved_q_max is not None else cfg.q_max,
+    })
+
+
+def uses_dark_deblend(cfg: ProposalConfig) -> bool:
+    """True if the generation's log q needs ``m1_deblend_dark_msun`` (flux centre or M2 tie)."""
+    return cfg.flux.evolved_rows_centre == "evolved_relation_deblended" or cfg.m2.evolved_tie == "deblended_dark"
+
+
 def log_q_m2_p_joint(
-    log_m2: ArrayLike, log_p: ArrayLike, log_m1: ArrayLike, cfg: ProposalConfig
+    log_m2: ArrayLike, log_p: ArrayLike, log_m1: ArrayLike, cfg: ProposalConfig,
+    tied_evolved: ArrayLike | None = None,
 ) -> FloatArray:
-    """log q(log M2, log P | M1): the shape component mixed with the independent defensive part."""
+    """log q(log M2, log P | M1): the shape component mixed with the independent defensive part.
+
+    ``tied_evolved`` (spec §12.28; per draw): rows whose ``log_m1`` / ``log_m2`` are the M1_dark
+    tie mass and M2_eff; their M2 proposal uses :func:`evolved_m2_config`."""
     lm2 = np.asarray(log_m2, float)
     lp = np.asarray(log_p, float)
     lm1 = np.asarray(log_m1, float)
-    indep = log_q_log_m2(lm2, lm1, cfg.m2) + log_q_log_p(lp, cfg.period)
+    lq_m2 = log_q_log_m2(lm2, lm1, cfg.m2)
+    if tied_evolved is not None and np.any(tied_evolved):
+        lq_m2 = np.where(tied_evolved, log_q_log_m2(lm2, lm1, evolved_m2_config(cfg.m2)), lq_m2)
+    indep = lq_m2 + log_q_log_p(lp, cfg.period)
     sh = cfg.m2_p_shape
     if sh is None:
         return indep
@@ -1146,12 +1195,25 @@ def sample_proposal(
     m1 = parent.m1_msun[row]
     log_m1 = np.log10(m1)
 
-    # M2: mixture in log M2
+    # M1_dark (q-independent: a dark companion adds no light; own RNG slot, so the main stream
+    # is unchanged): the flux centre and/or the evolved-row M2 tie (spec §12.28).
+    m1_dark = None
+    if uses_dark_deblend(cfg):
+        if config is None:
+            raise ValueError("evolved_relation_deblended / evolved_tie deblended_dark need the PipelineConfig (config=...)")
+        m1_dark = m1_deblend_dark_for_generation(row, m1, None, parent, config, cfg)
+    tie_m1, tied_evo = evolved_m2_tie(row, m1, parent, cfg, m1_dark)
+    log_tie = np.log10(tie_m1)
+
+    # M2: mixture in log M2 (drawn as M2_eff relative to the tie mass; §12.28)
     m2c = cfg.m2
+    m2e = evolved_m2_config(m2c)
+    lq_lo = np.where(tied_evo, math.log10(m2e.q_min), math.log10(m2c.q_min))
+    lq_hi = np.where(tied_evo, math.log10(m2e.q_max), math.log10(m2c.q_max))
     tied = rng.uniform(size=n) < m2c.q_tied_weight
     log_m2 = np.where(
         tied,
-        log_m1 + rng.uniform(math.log10(m2c.q_min), math.log10(m2c.q_max), size=n),
+        log_tie + rng.uniform(lq_lo, lq_hi, size=n),
         rng.uniform(math.log10(m2c.m2_min_msun), math.log10(m2c.m2_max_msun), size=n),
     )
     shape_pick = np.zeros(n, dtype=bool)
@@ -1159,19 +1221,17 @@ def sample_proposal(
     if cfg.m2_p_shape is not None:
         rng_s = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, M2_P_SHAPE_RNG_SLOT)))
         shape_pick = rng_s.uniform(size=n) < cfg.m2_p_shape.weight
-        lq_s, lp_s = m2_period_shape_table(cfg.m2_p_shape).sample(m1, rng_s)
-        log_m2 = np.where(shape_pick, log_m1 + lq_s, log_m2)
+        lq_s, lp_s = m2_period_shape_table(cfg.m2_p_shape).sample(tie_m1, rng_s)
+        log_m2 = np.where(shape_pick, log_tie + lq_s, log_m2)
         shape_lp = lp_s
+    log_m2_eff = log_m2
+    # Proposal-space M2 = q × M̂1_row (deblending keeps q = m2 / M̂1_row).
+    log_m2 = log_m2_eff - (log_tie - log_m1)
     m2 = 10.0**log_m2
 
     # Flux ratio
     fc = cfg.flux
     dark = rng.uniform(size=n) < fc.dark_fraction
-    m1_dark = None
-    if fc.evolved_rows_centre == "evolved_relation_deblended":
-        if config is None:
-            raise ValueError("evolved_relation_deblended needs the PipelineConfig (config=...)")
-        m1_dark = m1_deblend_dark_for_generation(row, m1, m2, parent, config, cfg)
     rel = proposal_relation_centre(m1, m2, row, parent, fc, config, m1_dark)
     sig_f, wr_f = flux_width_and_weight(row, parent, fc)
     use_rel = (rng.uniform(size=n) < wr_f) & np.isfinite(rel)
@@ -1206,9 +1266,10 @@ def sample_proposal(
     tp = rng.uniform(0.0, 1.0, size=n) * period
 
     if cfg.m2_p_shape is None:
-        mp_terms = {"log_q_log_m2": log_q_log_m2(log_m2, log_m1, m2c), "log_q_log_p": log_q_log_p(log_p, pc)}
+        lq_m2 = np.where(tied_evo, log_q_log_m2(log_m2_eff, log_tie, m2e), log_q_log_m2(log_m2_eff, log_tie, m2c))
+        mp_terms = {"log_q_log_m2": lq_m2, "log_q_log_p": log_q_log_p(log_p, pc)}
     else:
-        mp_terms = {"log_q_m2_p": log_q_m2_p_joint(log_m2, log_p, log_m1, cfg)}
+        mp_terms = {"log_q_m2_p": log_q_m2_p_joint(log_m2_eff, log_p, log_tie, cfg, tied_evo)}
     log_q = {
         "log_q_parent": np.log(qs[row]),
         **mp_terms,
@@ -1253,14 +1314,19 @@ def sample_proposal(
 
 
 def m1_deblend_dark_for_generation(
-    rows: ArrayLike, m1_row: ArrayLike, m2_proposal: ArrayLike, parent: ParentSnapshot,
+    rows: ArrayLike, m1_row: ArrayLike | None, m2_proposal: ArrayLike | None, parent: ParentSnapshot,
     config: PipelineConfig, cfg: ProposalConfig,
 ) -> FloatArray:
     """:func:`deblended_m1_dark` on the CMD-evolved draws of one generation (its rows in draw
-    order); NaN on other rows. Uses that generation's own posterior draws."""
+    order); NaN on other rows. Uses that generation's own posterior draws.
+
+    Independent of q (spec §12.28): with a dark companion (f = 0) the companion adds no light,
+    so M1_dark is a function of the row and the posterior draw only, and the M2 proposal can be
+    tied to it. ``m1_row`` / ``m2_proposal`` are accepted for call compatibility and ignored
+    (before §12.28 draws with q > 1 got NaN; only the shelved gen 27 used it)."""
     r = np.asarray(rows, np.int64)
     draw, c0, g0, sc, sm = posterior_draws(r, parent, config, cfg)
-    q = np.asarray(m2_proposal, float) / np.asarray(m1_row, float)
+    q = np.zeros(r.size)
     evo = np.asarray(parent.is_giant, bool)[r]
     return deblended_m1_dark(q, draw, c0, g0, sc, sm, evo, config)
 
@@ -1300,11 +1366,15 @@ def log_q_total_for(
     # relative to the row's M̂1, so the density is evaluated there, not at the truth M1.
     m1 = np.asarray(truth.get("m1_row_msun", truth["m1_msun"]), float)
     m2 = np.asarray(truth.get("m2_proposal_msun", truth["m2_msun"]), float)
+    md = truth.get("m1_deblend_dark_msun")
+    tie_m1, tied_evo = evolved_m2_tie(row, m1, parent, cfg, md)
+    log_m2_eff = np.log10(m2) + np.log10(tie_m1) - np.log10(m1)
     with np.errstate(divide="ignore"):
         lqs = np.log(qs[row])
     return (
         lqs
-        + log_q_m2_p_joint(np.log10(m2), np.log10(np.asarray(truth["period_days"], float)), np.log10(m1), cfg)
+        + log_q_m2_p_joint(log_m2_eff, np.log10(np.asarray(truth["period_days"], float)), np.log10(tie_m1), cfg,
+                           tied_evo)
         + log_q_flux(truth["log10_flux_ratio"], truth["is_dark"], m1, m2, cfg.flux,
                      centre=proposal_relation_centre(m1, m2, row, parent, cfg.flux, config,
                                                      truth.get("m1_deblend_dark_msun")),

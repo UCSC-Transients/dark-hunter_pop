@@ -39,3 +39,14 @@ def test_restricted_mixture_unbiased() -> None:
     assert est == pytest.approx(truth, rel=0.03)
     # the R-side alone also integrates correctly (old + new both contribute there)
     assert np.sum(w[inr] * g[inr]) == pytest.approx(truth / 2, rel=0.03)
+
+
+@pytest.mark.unit
+def test_needs_dark_deblend_any_generation() -> None:
+    """The combined cache must deblend every block when ANY generation needs it (the old-only gen 28-style
+    proposal is evaluated at new draws too) -- the 2026-10-16 combined-cache failure."""
+    from types import SimpleNamespace as N
+
+    g = lambda c: N(flux=N(evolved_rows_centre=c))  # noqa: E731
+    assert rr.needs_dark_deblend([g("evolved_relation"), g("evolved_relation_deblended")])
+    assert not rr.needs_dark_deblend([g("evolved_relation"), g("dwarf_relation")])

@@ -75,3 +75,11 @@ def restricted_mixture_weights(log_target: ArrayLike, log_q_components: Sequence
     if keep.any():
         w[keep] = ps.importance_weights(lt[keep], [c[keep] for c in comps], list(n_per_generation), scale_to_full=scale_to_full)
     return w
+
+
+def needs_dark_deblend(gen_cfgs: Sequence[Any]) -> bool:
+    """True if any generation's proposal uses ``evolved_rows_centre: evolved_relation_deblended``. Then every
+    block of a combined cache needs ``m1_deblend_dark_msun`` at all of its draws, because each generation's
+    log q is evaluated at every draw (deterministic-mixture cross-evaluation)."""
+    return any(getattr(g.flux, "evolved_rows_centre", None) == "evolved_relation_deblended"
+               or getattr(getattr(g, "m2", None), "evolved_tie", "row_m1") == "deblended_dark" for g in gen_cfgs)
