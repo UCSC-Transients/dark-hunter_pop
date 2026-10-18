@@ -2267,6 +2267,32 @@ R is stored per draw as a versioned column: a sidecar keyed by the artifact, the
 
 `darkhunter_pop.decided_settings` diffs a fragment and config against it. `scripts/run_proposal_pilot.py` runs the check before drawing and refuses on any deviation, unless `--allow-deviations` is passed for an explicit re-run of an old generation. `scripts/check_decided_settings.py` reports the deviations of any fragment. Tests require every launch fragment from generation 37 on, and the default fit configs, to pass. Adding or changing an entry needs a decision reference.
 
+### 12.29 CMD conditioning extended below 0.8 M⊙ (Ryan, 2026-10-18)
+
+- **What changes.** The §12.22 companion conditioning now also applies to parent rows with M̂1 < 0.8 M⊙.
+  - Fit config `rung3_coarse32_v7.yaml`: `cmd_binary_conditioning.m1_min_msun: null`. Otherwise it is v6a.
+  - The decided-settings entry changes from 0.8 to null.
+- **Why.**
+  - Variant (a) held the conditioning back at low mass because of the MIST low-mass colour error. The §12.24 Teff-only correction is now on at generation time and in the conditioning grid.
+  - Real NSS hosts carry a 5–40× heavier twin band than mock-detected systems at d < 0.5 kpc (`docs/gate391/cmd_twin`).
+- **Scope.** Reweighting only: no draws, no change to generation-time settings.
+- **Report:** twin/single for mock-detected vs real hosts, the G shape, and α_lo.
+
+### 12.30 Stratified parent: denser bright stratum (Ryan, 2026-10-18)
+
+- **Supplement snapshot.** gaia_source rows with 10⁶ ≤ `random_index` < 2×10⁷, G < 11 and ϖ > 0.2 mas. It has the same columns and Bailer-Jones join as the §1.3 parent, plus `vbroad`.
+- **Merged parent.** The original rows, in their original order, followed by the supplement rows.
+- **Strata.**
+  - Every row with G < 11 (original or supplement) is in the bright stratum, with inclusion probability 2×10⁷ / N_gaia_source.
+  - All other rows keep 10⁶ / N.
+  - The per-row expansion weight relative to `scale_to_full` (N / 10⁶) is `row_weight` = 1/20 in the bright stratum and 1 elsewhere. It multiplies λ wherever weights are formed (cache build).
+  - This is exact: the merged rows are a stratified random sample with known inclusion probabilities.
+- **Old generations stay valid.** `parent.include_supplement` defaults to false, so generations ≤ 38 keep their q(s), normalized over the original rows only, bit for bit, and have q = 0 on supplement rows.
+  - The ridge and the evolved classification are measured on the original usable rows only, so existing classifications do not move.
+  - Per-row quantities (CMD, isochrone posterior, filters) are computed for the supplement the same way.
+- **Coverage.** A new generation with `include_supplement: true` has a defensive component over all usable merged rows, so every bright row with λ > 0 is covered.
+- **Batch.** Generation 39, about 50 CPU-h, targeted at G < 11.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
