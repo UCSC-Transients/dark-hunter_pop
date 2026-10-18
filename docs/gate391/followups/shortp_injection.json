@@ -1,0 +1,104 @@
+{
+ "n_records": 906,
+ "groups": {
+  "target d>1 kpc, log P<2.6": {
+   "n_realizations": 309,
+   "n_systems": 103,
+   "accepted": 62,
+   "recovery": [
+    0.20064724919093851,
+    0.17884641669514706,
+    0.22437938975646582
+   ],
+   "rejections": {
+    "orbital, fails cut_parallax_over_error": 144,
+    "OUTCOME_FIVE_PARAMETER": 43,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err_sqrt_p": 24,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 13,
+    "orbital, fails cut_a0_over_err_sqrt_p": 8,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err_sqrt_p+cut_sigma_e": 6,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p": 4,
+    "orbital, fails cut_parallax_over_error+cut_sigma_e": 3,
+    "orbital, fails cut_a0_over_err_sqrt_p+cut_sigma_e": 1,
+    "orbital, fails cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 1
+   },
+   "recovered_significance_p10_50_90": [
+    6.097406667351809,
+    14.54120297202989,
+    23.962983933156096
+   ],
+   "recovered_ruwe_p10_50_90": [
+    1.3725771414282242,
+    1.561019156137572,
+    1.8935546971725827
+   ],
+   "truth_a0_mas_median": 0.2957668931800066
+  },
+  "control d 0.8-1.0, log P 2.3-2.6": {
+   "n_realizations": 309,
+   "n_systems": 103,
+   "accepted": 160,
+   "recovery": [
+    0.517799352750809,
+    0.4893617853881165,
+    0.5461220855796254
+   ],
+   "rejections": {
+    "orbital, fails cut_parallax_over_error": 88,
+    "OUTCOME_FIVE_PARAMETER": 18,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err_sqrt_p": 16,
+    "orbital, fails cut_a0_over_err_sqrt_p": 11,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p": 4,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 4,
+    "orbital, fails cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 4,
+    "orbital, fails cut_parallax_over_error+cut_sigma_e": 2,
+    "OUTCOME_NINE_PARAMETER": 1,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err_sqrt_p+cut_sigma_e": 1
+   },
+   "recovered_significance_p10_50_90": [
+    8.884150037713495,
+    18.464830416097108,
+    27.089954332918982
+   ],
+   "recovered_ruwe_p10_50_90": [
+    1.4659640528469982,
+    1.7480060778523494,
+    2.1308830784883313
+   ],
+   "truth_a0_mas_median": 0.35360891363130353
+  },
+  "control d 1.0-1.2, log P 2.6-2.75": {
+   "n_realizations": 288,
+   "n_systems": 96,
+   "accepted": 195,
+   "recovery": [
+    0.6770833333333334,
+    0.6489584015678387,
+    0.7039827749027496
+   ],
+   "rejections": {
+    "orbital, fails cut_parallax_over_error": 49,
+    "OUTCOME_NINE_PARAMETER": 13,
+    "OUTCOME_FIVE_PARAMETER": 11,
+    "orbital, fails cut_a0_over_err+cut_a0_over_err_sqrt_p": 8,
+    "OUTCOME_SEVEN_PARAMETER": 4,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 3,
+    "orbital, fails cut_a0_over_err_sqrt_p": 2,
+    "orbital, fails cut_a0_over_err+cut_a0_over_err_sqrt_p+cut_sigma_e": 1,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err+cut_a0_over_err_sqrt_p": 1,
+    "orbital, fails cut_parallax_over_error+cut_a0_over_err_sqrt_p": 1
+   },
+   "recovered_significance_p10_50_90": [
+    8.52977808179754,
+    17.500502463829534,
+    28.206443906469453
+   ],
+   "recovered_ruwe_p10_50_90": [
+    1.4677053364650021,
+    1.7712742311138667,
+    2.164516132870966
+   ],
+   "truth_a0_mas_median": 0.4271079251293078
+  }
+ }
+}
