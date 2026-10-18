@@ -2201,6 +2201,13 @@ Edges come from the model structure (the G pivot of the bright excess; the MdS17
 
 **Why.** Gens 33+34 (39 CPU-h) leave every large 108-grid bin at ESS_b < 30. Their 108-grid fit is MC-dominated (`docs/gate391/resim_batch2`). The coarse grid checks the model and the targeting while the fresh set grows.
 
+**Distant short-P cells are kept deliberately as a physical-limit test (Ryan, 2026-10-18).**
+- These are the 8 orbit cells at d 1–6 kpc with log P < 2.6: both G bins, both e bins and both classes. 103 real C1 orbits fall in them.
+- After 1.1M draws (gens 33–38), 6 mock C1 orbits fall in them. Gen 38 put 37% of its draws at d > 1 kpc with short P. The smallest log P of any mock orbit at d > 1 kpc is 2.42, so the limit is detectability, not sampling (`docs/gate391/resim_batch5`).
+- The cells are **not merged**, and they are **not assigned to the spurious template by fiat**.
+- Under §12.12 they carry the empty-bin floor, like any bin the mock cannot reach. Whether the full model (population plus the §12.16 spurious template) can account for the real orbits there is a test of the full system. `docs/gate391/bright_excess/` records what those orbits look like: significance, ϖ/σ_ϖ, π̂ and solution type.
+- No further top-ups target them.
+
 ### 12.27 Interim reuse of old draws in an unchanged region (Ryan, 2026-10-15: approved "for now")
 
 **SHELVED (Ryan, 2026-10-16): "Let's shelve the old simulations for now and just move forward with new ones."** Old gens 23–32 are no longer used in fits. The combined fits (`docs/gate391/resim_batch3/comb_*`) are **invalid**. The code (`darkhunter_pop/reuse_region.py`, `scripts/reuse_build_391.py`) and its tests are kept. It is off by default: `mixture_weights` uses it only when a cache carries `in_R`, and no default cache or config does. No artifacts were deleted.
