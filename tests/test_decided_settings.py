@@ -11,7 +11,7 @@ from darkhunter_pop import decided_settings as ds
 from darkhunter_pop.config_loader import load_config
 
 POP = Path("config/population")
-FIT_CONFIGS = [POP / "rung3_compliant108_v6a.yaml", POP / "rung3_coarse32_v6a.yaml"]
+FIT_CONFIGS = [POP / "rung3_coarse32_v7.yaml"]
 BJ_PARENT = Path("data/dr3/gaia_snapshots/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj")
 
 
@@ -90,3 +90,10 @@ def test_check_flags_value_missing_and_absent(tmp_path: Path) -> None:
     assert [d.key for d in ds.check_launch(f, parent_dir=tmp_path / "other", settings=st)] == ["parent_snapshot"]
     with pytest.raises(ValueError):
         ds.DecidedSetting.model_validate({"scope": "fit_config", "key": "k", "ref": "r"})
+
+
+@pytest.mark.unit
+def test_v6a_fit_configs_deviate_only_in_the_low_mass_conditioning_floor() -> None:
+    # §12.29: v6a keeps the superseded 0.8 Msun floor; any other deviation is a new finding.
+    for name in ("rung3_compliant108_v6a.yaml", "rung3_coarse32_v6a.yaml"):
+        assert [d.key for d in ds.check_fit_config(POP / name)] == ["rung3.cmd_binary_conditioning.m1_min_msun"]
