@@ -53,7 +53,7 @@ Contact sheet: `followups.png`. Numbers: `shortp_injection.json`, `real_m1.json`
 - The parent rate is the same with the BJ distances and with the real-side 1/ϖ convention, so the distance convention is not the cause.
 - **The failures are not symmetric.** The parent loses 24–42% of its rows at G < 10. Real NSS rows lose 6–16%, and the fit keeps them anyway (it only requires an atmosphere).
 - The bias runs against the excess: the mock has no stand-in for those parent rows. If the failed rows host orbits at the real rate, at most about 7% of the real G < 10 orbits (477 have no M̂1) have no mock counterpart. That is small next to a 1.4–2.6× excess.
-- The parent failures are mostly the most luminous rows, which the MIST posterior cannot place. The real orbit hosts at the same G are less extreme.
+- Why the parent fails more often at the bright end is not yet diagnosed. It is presumably rows the MIST posterior cannot place, but this is unchecked.
 
 ## Ranked causes and proposed fixes (none implemented; each needs Ryan)
 
