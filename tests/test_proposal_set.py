@@ -6,6 +6,7 @@ global RNG (as gaiamock_mod does), so seeding and plumbing are tested without th
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from pathlib import Path
 from typing import Any
@@ -1104,3 +1105,54 @@ def test_evolved37_flux_weight_bound() -> None:
         p = np.exp(-0.5 * ((lf + 2.0) / 0.1) ** 2) / (0.1 * np.sqrt(2 * np.pi))
         bound = (1.0 / (0.1 * np.sqrt(2 * np.pi))) / (0.4 / (fc.log_f_max - fc.log_f_min))
         assert np.max(p / q) <= bound * (1 + 1e-9)
+
+
+# ---------------------------------------------------------------------------
+# #391 spec §12.30: stratified parent (bright supplement)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_supplement_adql_range_and_extra_columns() -> None:
+    q = ps.build_gaia_source_parent_adql(k=20_000_000, k_min=1_000_000, parallax_floor_mas=0.2, g_max=11.0,
+                                         include_bailer_jones=True, extra_columns=("vbroad",))
+    assert "gs.random_index >= 1000000 AND gs.random_index < 20000000" in q and "gs.vbroad" in q
+    assert "random_index < 1000000\n" in ps.build_gaia_source_parent_adql(k=1_000_000, parallax_floor_mas=0.2, g_max=19.0)
+    with pytest.raises(ValueError):
+        ps.build_gaia_source_parent_adql(k=10, k_min=10, parallax_floor_mas=0.2, g_max=11.0)
+
+
+@pytest.mark.unit
+def test_stratum_row_weight_is_exact_inclusion_ratio() -> None:
+    w = ps.stratum_row_weight(np.array([5.0, 10.99, 11.0, 18.0]), 11.0, 1_000_000, 20_000_000)
+    np.testing.assert_allclose(w, [0.05, 0.05, 1.0, 1.0])
+
+
+@pytest.mark.unit
+def test_old_generations_ignore_supplement_rows_bit_for_bit() -> None:
+    par = _parent(60, 7)
+    supp = np.zeros(60, bool)
+    supp[40:] = True
+    stratified = dataclasses.replace(par, supplement=supp, row_weight=np.ones(60))
+    orig = dataclasses.replace(par, usable=par.usable & ~supp)
+    cfg = ps.ParentProposalConfig(uniform_fraction=0.3, parallax_power=0.75, parallax_cap_mas=10.0)
+    q_old = ps.parent_proposal_probabilities(par.columns["parallax"], stratified.usable_for(cfg), cfg)
+    q_ref = ps.parent_proposal_probabilities(par.columns["parallax"], orig.usable, cfg)
+    np.testing.assert_array_equal(q_old, q_ref)
+    assert np.all(q_old[40:] == 0)
+    q_new = ps.parent_proposal_probabilities(par.columns["parallax"], stratified.usable_for(cfg.model_copy(update={"include_supplement": True})), cfg)
+    assert np.all(q_new[40:][par.usable[40:]] > 0)
+
+
+@pytest.mark.unit
+def test_fingerprint_unchanged_by_new_default_fields(fragment: ps.ProposalSetFragment) -> None:
+    d = fragment.proposal.model_dump(mode="json")
+    for k in ("resolved_companions", "parent_supplement"):
+        d.pop(k, None)
+    d["parent"].pop("include_supplement", None)
+    for k in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
+        d["m2"].pop(k, None)
+    import hashlib
+    import json as _json
+
+    assert ps.fragment_fingerprint(fragment) == hashlib.sha256(_json.dumps(d, sort_keys=True).encode()).hexdigest()[:12]

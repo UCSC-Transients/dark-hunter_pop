@@ -110,7 +110,8 @@ _AP_COLUMNS = frozenset(c for c in GAIA_SOURCE_PARENT_COLUMNS if "msc" in c or "
 
 
 def build_gaia_source_parent_adql(
-    *, k: int, parallax_floor_mas: float, g_max: float, include_bailer_jones: bool = False
+    *, k: int, parallax_floor_mas: float, g_max: float, include_bailer_jones: bool = False,
+    k_min: int = 0, extra_columns: Sequence[str] = (),
 ) -> str:
     """ADQL for the uniform ``random_index < k`` parent subsample (spec §1.3).
 
@@ -122,7 +123,10 @@ def build_gaia_source_parent_adql(
     """
     if k <= 0 or k > GAIA_SOURCE_TOTAL_ROWS:
         raise ValueError(f"k must be in (0, {GAIA_SOURCE_TOTAL_ROWS}], got {k}")
+    if not 0 <= k_min < k:
+        raise ValueError(f"need 0 <= k_min < k, got k_min={k_min}, k={k}")
     names = [(f"ap.{c}" if c in _AP_COLUMNS else f"gs.{c}") for c in GAIA_SOURCE_PARENT_COLUMNS]
+    names += [f"gs.{c}" for c in extra_columns]  # spec §12.30: e.g. vbroad for the bright supplement
     if include_bailer_jones:
         names += [f"bj.{c}" for c in BAILER_JONES_COLUMNS]
     cols = ",\n  ".join(names)
@@ -137,8 +141,9 @@ def build_gaia_source_parent_adql(
         "LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON gs.source_id = ap.source_id\n"
         + bj_join
         + 
-        f"WHERE gs.random_index < {int(k)}\n"
-        f"  AND gs.phot_g_mean_mag < {float(g_max)!r}\n"
+        (f"WHERE gs.random_index >= {int(k_min)} AND gs.random_index < {int(k)}\n" if k_min
+         else f"WHERE gs.random_index < {int(k)}\n")
+        + f"  AND gs.phot_g_mean_mag < {float(g_max)!r}\n"
         f"  AND gs.parallax > {float(parallax_floor_mas)!r}"
     )
 
@@ -171,6 +176,9 @@ class ParentProposalConfig(_Strict):
     target_parallax_range_mas: tuple[float, float] | None = None
     target_m1_pivot_msun: float = Field(0.8, gt=0.0)
     target_m1_power: float = 0.0
+    #: Spec §12.30: draw from the bright-stratum supplement rows too. False (older generations): q(s) is
+    #: normalized over the original snapshot rows only and is zero on supplement rows, bit for bit as before.
+    include_supplement: bool = False
 
     @model_validator(mode="after")
     def _target_fields(self) -> ParentProposalConfig:
@@ -410,6 +418,19 @@ class ResolvedCompanionGenConfig(_Strict):
     projection_factor: float = Field(..., gt=0)
 
 
+class ParentSupplementConfig(_Strict):
+    """Spec §12.30: a denser bright-stratum gaia_source snapshot appended to the parent.
+
+    ``snapshot`` is a directory name beside the parent snapshot (``random_index`` in
+    [K_parent, K_sup), G < ``bright_g_max``, same parallax floor). Every merged row with
+    G < ``bright_g_max`` is in the bright stratum (inclusion K_sup / N); its ``row_weight``
+    relative to ``scale_to_full`` is K_parent / K_sup, otherwise 1.
+    """
+
+    snapshot: str
+    bright_g_max: float
+
+
 class ProposalConfig(_Strict):
     generation: int = Field(..., ge=0)
     n_draws: int = Field(..., ge=1)
@@ -419,6 +440,8 @@ class ProposalConfig(_Strict):
     skip_acceleration: bool
     #: Spec §12.25: generation-time resolved-companion photocentre (None = off, the gens 23-32 behaviour).
     resolved_companions: ResolvedCompanionGenConfig | None = None
+    #: Spec §12.30: stratified parent; None = the single §1.3 snapshot.
+    parent_supplement: ParentSupplementConfig | None = None
     parent: ParentProposalConfig
     m2: M2ProposalConfig
     flux: FluxProposalConfig
@@ -502,6 +525,14 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
     d = fragment.proposal.model_dump(mode="json")
     if d.get("resolved_companions") is None:  # §12.25: an absent setting keeps older fingerprints
         d.pop("resolved_companions", None)
+    if d.get("parent_supplement") is None:  # §12.30
+        d.pop("parent_supplement", None)
+    if not d["parent"].get("include_supplement", False):
+        d["parent"].pop("include_supplement", None)
+    m2 = d["m2"]  # §12.28 defaults keep older fingerprints
+    if m2.get("evolved_tie", "row_m1") == "row_m1" and m2.get("evolved_q_min") is None and m2.get("evolved_q_max") is None:
+        for k_ in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
+            m2.pop(k_, None)
     blob = json.dumps(d, sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
@@ -538,6 +569,21 @@ class ParentSnapshot:
     #: (:meth:`darkhunter_pop.isochrone_mass.IsochronePosterior.as_dict`). None in TAG10 mode.
     cmd: Mapping[str, NDArray[Any]] | None = None
     isochrone: Mapping[str, NDArray[Any]] | None = None
+    #: Spec §12.30: True on bright-stratum supplement rows (appended after the original rows).
+    supplement: NDArray[np.bool_] | None = None
+    #: Spec §12.30: per-row expansion weight relative to ``scale_to_full`` (multiplies λ); None = all 1.
+    row_weight: FloatArray | None = None
+
+    def usable_for(self, cfg: ParentProposalConfig) -> NDArray[np.bool_]:
+        """Rows a generation may draw: the supplement only when ``cfg.include_supplement``."""
+        if self.supplement is None or cfg.include_supplement:
+            return self.usable
+        return self.usable & ~self.supplement
+
+    def log_row_weight(self, rows: ArrayLike) -> FloatArray:
+        """log ``row_weight`` at ``rows`` (0 without a supplement)."""
+        r = np.asarray(rows, np.int64)
+        return np.zeros(r.size) if self.row_weight is None else np.log(self.row_weight[r])
 
     @property
     def n_rows(self) -> int:
@@ -730,11 +776,16 @@ def load_parent_snapshot(
 
         gcfg = giants.load_giants_config(giants_config_path)
         cmd, iso = parent_cmd_isochrone(cols, config, gcfg, d if m1_cache else None)
+        if proposal.parent_supplement is not None:  # spec §12.30: append the bright-stratum rows
+            cols, cmd, iso, supp, row_w, meta = _append_parent_supplement(
+                d, meta, cols, cmd, iso, proposal.parent_supplement, config, gcfg, m1_cache)
         pt = config.isochrone_mass.provisional_point_estimate
         m1 = np.asarray(iso["m1_mean"] if pt == "mean" else 10.0 ** np.asarray(iso["log_m1_mean"]), float)
         src = np.where(np.asarray(iso["ok"], bool), "MIST", "none")
         logg = np.asarray(iso["log_g_mean"], float)
     else:
+        if proposal.parent_supplement is not None:
+            raise ValueError("parent_supplement (spec §12.30) needs an isochrone-mode parent")
         mc_dump = config.mass_calibration.model_dump(mode="json")
         mc_dump["method"] = "TAG10"  # TAG10 by name (#425): the cache does not move with the bulk switch
         mc_blob = json.dumps(mc_dump, sort_keys=True)
@@ -775,7 +826,9 @@ def load_parent_snapshot(
         with np.errstate(divide="ignore", invalid="ignore"):
             snr = np.asarray(cols["parallax"], float) / np.asarray(cols["parallax_error"], float)
         ruwe = np.asarray(cols["ruwe"], float) if gcfg.ridge.ruwe_max is not None else None
-        ridge = giants.fit_ms_ridge(np.where(usable, cmd["mg0"], np.nan), cmd["colour0"], snr, gcfg.ridge, ruwe=ruwe)  # type: ignore[index]
+        # §12.30: the ridge is measured on the original rows only, so classifications of older draws do not move
+        ridge_rows = usable if proposal.parent_supplement is None else usable & ~supp
+        ridge = giants.fit_ms_ridge(np.where(ridge_rows, cmd["mg0"], np.nan), cmd["colour0"], snr, gcfg.ridge, ruwe=ruwe)  # type: ignore[index]
         giant = giants.classify_evolved(cmd["mg0"], cmd["colour0"], cmd["sigma_mu"], ridge, gcfg.provisional_n_sigma).evolved  # type: ignore[index]
         meta = {**meta, "ms_ridge": {"colour": ridge.colour.tolist(), "mag": ridge.mag.tolist(),
                                      "sigma": ridge.sigma.tolist(), "n_rows": ridge.n_rows.tolist()}}
@@ -797,7 +850,53 @@ def load_parent_snapshot(
         path=d,
         cmd=cmd,
         isochrone=iso,
+        supplement=supp if proposal.parent_supplement is not None else None,
+        row_weight=row_w if proposal.parent_supplement is not None else None,
     )
+
+
+def stratum_row_weight(g_mag: ArrayLike, bright_g_max: float, k_parent: int, k_supplement: int) -> FloatArray:
+    """Spec §12.30: per-row expansion weight relative to ``N / k_parent``: ``k_parent / k_supplement`` in
+    the bright stratum (G < ``bright_g_max``, sampled at ``random_index < k_supplement``), else 1."""
+    g = np.asarray(g_mag, float)
+    return np.where(g < bright_g_max, float(k_parent) / float(k_supplement), 1.0)
+
+
+def _append_parent_supplement(
+    d: Path, meta: Mapping[str, Any], cols: dict[str, NDArray[Any]], cmd: dict[str, FloatArray],
+    iso: dict[str, NDArray[Any]], sup: ParentSupplementConfig, config: PipelineConfig, gcfg: Any, m1_cache: bool,
+) -> tuple[dict[str, NDArray[Any]], dict[str, FloatArray], dict[str, NDArray[Any]], NDArray[np.bool_], FloatArray, dict[str, Any]]:
+    """Original rows (order kept) + supplement rows; checks the strata are disjoint and complete."""
+    import h5py
+
+    sd = d.parent / sup.snapshot
+    smeta = yaml.safe_load((sd / "meta.yaml").read_text())
+    if _sha256(sd / "parent.h5") != smeta["parent_h5_sha256"]:
+        raise ValueError(f"{sd}: supplement checksum mismatch")
+    k0, k_lo, k_hi = int(meta["random_index_max_exclusive"]), int(smeta.get("random_index_min_inclusive", 0)), int(smeta["random_index_max_exclusive"])
+    if k_lo != k0 or not k_hi > k0:
+        raise ValueError(f"supplement random_index range [{k_lo}, {k_hi}) must start at the parent's K = {k0}")
+    if float(smeta["g_max"]) != float(sup.bright_g_max) or float(smeta["parallax_floor_mas"]) != float(meta["parallax_floor_mas"]):
+        raise ValueError("supplement g_max / parallax floor must match bright_g_max / the parent's floor")
+    with h5py.File(sd / "parent.h5", "r") as handle:
+        scols = {name: handle[name][()] for name in handle.keys()}
+    scmd, siso = parent_cmd_isochrone(scols, config, gcfg, sd if m1_cache else None)
+    n0, n1 = next(iter(cols.values())).size, next(iter(scols.values())).size
+    names = sorted(set(cols) | set(scols))
+
+    def cat(a: Mapping[str, NDArray[Any]], b: Mapping[str, NDArray[Any]], k: str) -> NDArray[Any]:
+        x = a[k] if k in a else np.full(n0, np.nan)
+        y = b[k] if k in b else np.full(n1, np.nan)
+        return np.concatenate([np.asarray(x), np.asarray(y)])
+
+    mcols = {k: cat(cols, scols, k) for k in names}
+    mcmd = {k: cat(cmd, scmd, k) for k in cmd}
+    miso = {k: cat(iso, siso, k) for k in iso}
+    supp = np.r_[np.zeros(n0, bool), np.ones(n1, bool)]
+    row_w = stratum_row_weight(mcols["phot_g_mean_mag"], sup.bright_g_max, k0, k_hi)
+    meta2 = {**meta, "supplement": {"snapshot": sup.snapshot, "n_rows": int(n1), "random_index_range": [k_lo, k_hi],
+                                    "bright_g_max": float(sup.bright_g_max), "parent_h5_sha256": smeta["parent_h5_sha256"]}}
+    return mcols, mcmd, miso, supp, row_w, meta2
 
 
 # ---------------------------------------------------------------------------
@@ -1189,7 +1288,7 @@ def sample_proposal(
     rng = np.random.default_rng(np.random.SeedSequence(entropy=cfg.base_seed, spawn_key=(stream, 0)))
     n = cfg.n_draws
     cols = parent.columns
-    qs = parent_proposal_probabilities(cols["parallax"], parent.usable, cfg.parent, parent.is_giant,
+    qs = parent_proposal_probabilities(cols["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
                                        cols["phot_g_mean_mag"], parent.m1_msun)
     row = rng.choice(parent.n_rows, size=n, replace=True, p=qs)
     m1 = parent.m1_msun[row]
@@ -1359,7 +1458,7 @@ def log_q_total_for(
     Needed for the deterministic-mixture denominator (spec §3.7), where every draw is
     evaluated under every generation's ``q_j``.
     """
-    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable, cfg.parent, parent.is_giant,
+    qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
                                        parent.columns["phot_g_mean_mag"], parent.m1_msun)
     row = np.asarray(truth["parent_row"], dtype=np.int64)
     # Deblended draws (spec §11.9) keep the proposal-space masses separately: q was proposed
