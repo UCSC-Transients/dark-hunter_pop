@@ -1,0 +1,20 @@
+gen 37: n 32000, CPU 4.1 h, orbits 153 (37.1 per CPU-h), accel 203; evolved share 1.000; deblended/row M1 median 0.981; resolved 64 (orbit 0, accel 0); share G<13 0.13
+   acceptance (orbit/accel) by G: 5-13: 0.0280/0.0334 (n 4136); 13-16: 0.0022/0.0039 (n 16530); 16-19.5: 0.0000/0.0000 (n 11334)
+gen 38: n 250000, CPU 49.0 h, orbits 2527 (51.6 per CPU-h), accel 4006; evolved share 0.547; deblended/row M1 median 0.995; resolved 1445 (orbit 0, accel 0); share G<13 0.40
+   acceptance (orbit/accel) by G: 5-13: 0.0216/0.0340 (n 100545); 13-16: 0.0060/0.0094 (n 57572); 16-19.5: 0.0002/0.0004 (n 91883)
+gens 33-36 noW detected: n 16497, sum w 277899, Kish ESS 730.0, max share 0.0282, top-10 0.058
+gens 33-36 noW orbits: n 5707, sum w 84607, Kish ESS 846.9, max share 0.0056, top-10 0.048
+gens 33-36 noW orbits d>1.5: n 132, sum w 1327, Kish ESS 18.2, max share 0.1076, top-10 0.679
+gens 33-36 noW accel d>1.5: n 391, sum w 11763, Kish ESS 2.2, max share 0.6673, top-10 0.774
+gens 33-36 cmdW detected: n 16373, sum w 240814, Kish ESS 512.4, max share 0.0326, top-10 0.085
+gens 33-36 cmdW orbits: n 5670, sum w 74686, Kish ESS 434.5, max share 0.0225, top-10 0.098
+gens 33-36 cmdW orbits d>1.5: n 132, sum w 1277, Kish ESS 18.1, max share 0.1117, top-10 0.675
+gens 33-36 cmdW accel d>1.5: n 390, sum w 11476, Kish ESS 2.1, max share 0.6840, top-10 0.783
+gens 33-38 noW detected: n 21461, sum w 269794, Kish ESS 2091.6, max share 0.0112, top-10 0.029
+gens 33-38 noW orbits: n 7216, sum w 85120, Kish ESS 1033.3, max share 0.0052, top-10 0.041
+gens 33-38 noW orbits d>1.5: n 199, sum w 2358, Kish ESS 23.8, max share 0.1076, top-10 0.542
+gens 33-38 noW accel d>1.5: n 537, sum w 4355, Kish ESS 39.3, max share 0.1225, top-10 0.338
+gens 33-38 cmdW detected: n 21306, sum w 232762, Kish ESS 1361.8, max share 0.0132, top-10 0.049
+gens 33-38 cmdW orbits: n 7172, sum w 74136, Kish ESS 558.5, max share 0.0184, top-10 0.085
+gens 33-38 cmdW orbits d>1.5: n 199, sum w 2281, Kish ESS 23.3, max share 0.1111, top-10 0.551
+gens 33-38 cmdW accel d>1.5: n 536, sum w 4052, Kish ESS 37.7, max share 0.1316, top-10 0.323
