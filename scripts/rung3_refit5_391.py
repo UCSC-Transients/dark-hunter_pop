@@ -262,6 +262,8 @@ def extend(args, fc, ns):
     except Exception:  # pragma: no cover
         pass
     sid = np.asarray(rt["source_id"], np.int64)[r_in]
+    ns.r_sid, ns.r_soltype = sid, np.asarray(rt["nss_solution_type"]).astype(str)[r_in]
+    ns.r_extra = {c: col(rt, c)[r_in] for c in ("parallax", "parallax_error", "goodness_of_fit", "ruwe", "A", "B", "F", "G", "A_error", "B_error", "F_error", "G_error", "period", "eccentricity") if c in rt.colnames}
     import yaml
 
     scfg = yaml.safe_load(Path("config/spuriousness_model.yaml").read_text())
@@ -281,6 +283,7 @@ def extend(args, fc, ns):
     ac, ad = cls_of(ag, col(at, "bp_mag") - col(at, "rp_mag"), col(at, "ra"), col(at, "dec"), col(at, "parallax"), col(at, "parallax_error"))
     ra_in = bin_index([ag, ad], [out["g_mag"], out["distance_kpc"]]) >= 0
     ns.ra_cls = ac[ra_in]
+    ns.ra_sid = np.asarray(at["source_id"], np.int64)[ra_in]
     return ns
 
 
@@ -479,6 +482,27 @@ def fit(args, fc, ns):
     rng = np.random.default_rng(args.seed)
     results = {}
     init = json.loads(args.init_from.read_text())["results"] if args.init_from else None
+    if getattr(args, "dump_from", None) is not None:  # diagnostics: evaluate a stored best fit, dump per-draw / per-real arrays
+        dres = json.loads(args.dump_from.read_text())["results"]
+        cov = {k: np.asarray(v, float) for k, v in ns.r_cov.items()}
+        so_, sa_ = ob >= 0, ab >= 0
+        for wkey in args.wkeys:
+            th = np.asarray(dres[wkey]["theta"], float)
+            w, mu_o, v_o, mu_a, v_a = expected(th, wkey)
+            s = th[i_ns] * T + floor_o
+            spo = np.zeros(rob.size)
+            spo[rob >= 0] = (s / np.maximum(k_o, 1))[rob[rob >= 0]]
+            args.out_dir.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(args.out_dir / f"dump_{wkey}.npz", w=w, ob=ob, ab=ab, in_o=ns.in_o, in_a=ns.in_a,
+                                m_g=ns.o_cols[0], m_d_o=ns.o_cols[1], m_lp=ns.o_cols[2], m_e=ns.o_cols[3], m_g_a=ns.a_cols[0], m_d_a=ns.a_cols[1],
+                                m_cls=evo, prow=ns.prow, m1_law=ns.m1_law, casc=ns.casc, gen=ns.gen,
+                                r_g=ns.ro_cols[0], r_d=ns.ro_cols[1], r_lp=ns.ro_cols[2], r_e=ns.ro_cols[3], r_cls=ns.r_cls, rob=rob,
+                                r_sid=ns.r_sid, r_soltype=ns.r_soltype, r_pi=pi_i if args.model == "new" else np.zeros(rob.size),
+                                r_spur_per_orbit=spo, ra_g=ns.ra_cols[0], ra_d=ns.ra_cols[1], ra_cls=ns.ra_cls, ra_sid=ns.ra_sid,
+                                mu_o=mu_o, mu_a=mu_a, k_o=k_o, k_a=k_a, empty_o=empty_o, shp=np.array(shp), theta=th,
+                                **{f"r_cov_{k}": v for k, v in cov.items()}, **{f"r_x_{k}": v for k, v in ns.r_extra.items()})
+            print(f"dumped {wkey} -> {args.out_dir / f'dump_{wkey}.npz'}", flush=True)
+        return
     for wkey in args.wkeys:
         sols, best = [], None
         x0w = x0.copy()
@@ -668,6 +692,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
+    ap.add_argument("--dump-from", type=Path, default=None,
+                    help="fit mode: no optimisation; evaluate θ from this summary.json and write dump_<wkey>.npz to --out-dir")
     args = ap.parse_args(argv)
     import yaml
 
