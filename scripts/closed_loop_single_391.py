@@ -97,6 +97,20 @@ def main(argv=None) -> int:
     ok = gs & np.isfinite(dm_sys) & ~s3["sys_evolved"]
     out["P_cmd_single_given_companion_by_M1"] = {"edges": mb, "value": [
         float(np.sum(w[ok & (m1s >= x) & (m1s < y) & (dm_sys >= -0.4)]) / max(np.sum(w[ok & (m1s >= x) & (m1s < y)]), 1e-300)) for x, y in zip(mb[:-1], mb[1:])]}
+    # unresolved-binary contamination where no ΔM cut applies (evolved rows, colours outside the cut range)
+    sc_ = prop.single_catalog
+    lo_c, hi_c = sc_.dm_colour_range
+    nocut_rows = np.asarray(par.is_giant, bool) | (c_rows < lo_c) | (c_rows > hi_c)
+    nocut_sys = nocut_rows[r] & gs
+    f_ = np.where(s3["is_dark"], 0.0, 10.0 ** np.nan_to_num(s3["log10_flux_ratio"], nan=-9.0))
+    bright = 2.5 * np.log10(1.0 + f_) >= -sc_.dm_min
+    n_bin = float(np.sum(w[nocut_sys & bright]))
+    n_all = float(np.sum(w[nocut_sys])) + par.scale_to_full * float(np.sum((rw * p_single)[use & nocut_rows]))
+    out["nocut_domain"] = {"frac_usable_rows": float(np.mean(nocut_rows[par.usable])),
+                           "contamination_frac_brightened_ge_0p4": n_bin / max(n_all, 1e-300)}
+    cut_sys = ~nocut_rows[r] & gs
+    out["cut_domain_model_frac_brightened_ge_0p4"] = float(np.sum(w[cut_sys & bright])) / max(
+        float(np.sum(w[cut_sys])) + par.scale_to_full * float(np.sum((rw * p_single)[use & ~nocut_rows])), 1e-300)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(out, indent=1, default=float))
     print(json.dumps(out, default=float))
