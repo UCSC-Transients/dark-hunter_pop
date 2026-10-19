@@ -2293,6 +2293,33 @@ R is stored per draw as a versioned column: a sidecar keyed by the artifact, the
 - **Coverage.** A new generation with `include_supplement: true` has a defensive component over all usable merged rows, so every bright row with λ > 0 is covered.
 - **Batch.** Generation 39, about 50 CPU-h, targeted at G < 11.
 
+### 12.31 Forward model for observed vbroad (Ryan, 2026-10-18; DRAFT, calibration pending)
+
+**How DR3 measures vbroad (Frémat et al. 2023, A&A 674, A8).**
+- §2.1: vbroad is fitted **per transit**. The CCF of each transit spectrum against the template is maximized over both RV and vbroad (0–600 km/s), so each epoch is measured at its own RV and **orbital motion does not smear the value**. The published value is the median over ≥ 6 valid transits; the error is their standard deviation.
+- §2.1: sources the pipeline flags as SB2 candidates (about 40,000) or as having emission (about 28,000) get **no vbroad**.
+- §2.2: G_RVS ≤ 12, N_t ≥ 6, 5 < vbroad < 500 km/s, and template Teff 3,500–14,500 K.
+- §2.3 and §4: above 7,500 K the sensitivity flattens, because the Paschen and Ca II lines blend. Precision degrades for G_RVS > 10. Compared with the literature, the high-velocity tail of hot stars is more extended: medians are 8–28% higher from F0 to A0. Table 3 gives the validity domains in G_RVS and Teff.
+
+**Prescription per mock system.**
+- It uses only stored truth plus a seeded draw, so it is reweight-level and generation-independent.
+- (i) Intrinsic v sin i:
+  - primary: drawn from a published v sin i distribution as a function of Teff (or colour) and MS age;
+  - evolved primaries: a low-vbroad prior (most giants have v sin i < 10 km/s);
+  - companion: the same relation at its MIST mass.
+- (ii) **No SB1 smearing term**, because transits are fitted individually.
+- (iii) Unresolved SB2 blending. Per transit, the profile is the flux-weighted sum of the two rotationally broadened components at ±K. The RVS flux ratio comes from MIST. A blend whose separation exceeds about the instrumental plus rotational width is treated as SB2-flagged, so it gets no vbroad.
+- (iv) DR3 measurement response: the Frémat Table 3 and §4 bias and scatter as a function of (Teff, G_RVS, v sin i), applied statistically.
+- (v) Selection: the same §2.2 filters.
+
+**Calibration and validation.** Statistical, never per star:
+- DR3 single-star vbroad distributions by colour and M_G (parent rows);
+- DR3 SB1 and SB2 solutions.
+
+Only after that is the §12.28-era colour/vbroad deficit test (`docs/gate391/vbroad/`) redone with the modelled mock vbroad.
+
+**Note.** Among A stars, slow rotation correlates with binarity (Am stars). The mock assigns companions independently of rotation, so a real-to-mock deficit at high vbroad may be astrophysical rather than a detection effect. The model must separate the two.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
