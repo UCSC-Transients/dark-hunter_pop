@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         "--bailer-jones", action="store_true",
         help="LEFT JOIN external.gaiaedr3_distance geometric distances (spec §0.1 MP-Q4)",
     )
+    parser.add_argument("--chunk", type=int, default=0, help="query random_index in chunks of this size (archive row cap)")
+    parser.add_argument("--row-cap", type=int, default=50000, help="a chunk returning this many rows is treated as truncated")
     parser.add_argument("--dry-run", action="store_true", help="print the ADQL only")
     args = parser.parse_args(argv)
 
@@ -73,8 +75,25 @@ def main(argv: list[str] | None = None) -> int:
 
     Gaia.ROW_LIMIT = -1
     query_date = dt.datetime.now(dt.timezone.utc)
-    job = Gaia.launch_job_async(adql)
-    table = job.get_results()
+    if args.chunk:
+        from astropy.table import vstack
+
+        parts = []
+        for lo in range(args.k_min, args.k, args.chunk):
+            hi = min(lo + args.chunk, args.k)
+            q = build_gaia_source_parent_adql(k=hi, parallax_floor_mas=args.parallax_floor, g_max=args.g_max,
+                                              include_bailer_jones=args.bailer_jones, k_min=lo, extra_columns=tuple(args.extra_columns))
+            t = Gaia.launch_job_async(q).get_results()
+            if len(t) >= args.row_cap:
+                raise SystemExit(f"chunk [{lo}, {hi}) returned {len(t)} rows (row cap); use a smaller --chunk")
+            print(f"chunk [{lo}, {hi}): {len(t)} rows", flush=True)
+            parts.append(t)
+        table = vstack(parts)
+    else:
+        job = Gaia.launch_job_async(adql)
+        table = job.get_results()
+        if len(table) >= args.row_cap:
+            raise SystemExit(f"{len(table)} rows hit the archive row cap; rerun with --chunk")
     stamp = query_date.strftime("%Y%m%dT%H%M%SZ")
     floor_tag = f"{args.parallax_floor:g}".replace(".", "p") + ("_bj" if args.bailer_jones else "")
     out_dir = (
@@ -101,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         "spec": "docs/MOCK_POPULATION_SPEC.md §1.3",
         "query_date": query_date.isoformat(),
         "adql": adql,
+        "chunk": int(args.chunk),
         "random_index_max_exclusive": int(args.k),
         "random_index_min_inclusive": int(args.k_min),
         "parallax_floor_mas": float(args.parallax_floor),
