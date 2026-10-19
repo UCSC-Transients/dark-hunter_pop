@@ -1156,3 +1156,41 @@ def test_fingerprint_unchanged_by_new_default_fields(fragment: ps.ProposalSetFra
     import json as _json
 
     assert ps.fragment_fingerprint(fragment) == hashlib.sha256(_json.dumps(d, sort_keys=True).encode()).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# #391 spec §12.33: primary from a looks-single row; system photometry from the components
+# ---------------------------------------------------------------------------
+
+
+def _toy_iso() -> dict:
+    m = np.linspace(0.3, 2.0, 60)
+    mg = 10.0 - 4.0 * (m - 0.3)  # brighter with mass
+    c = 2.5 - 1.2 * (m - 0.3)
+    return {"star_mass": m, "mg": mg, "bp": mg + 0.4 * c, "rp": mg - 0.6 * c, "phase": np.zeros(m.size),
+            "log_teff": 3.5 + 0.2 * (m - 0.3)}
+
+
+@pytest.mark.unit
+def test_system_photometry_single_and_twin_closed_loop() -> None:
+    from darkhunter_pop import isochrone_mass as im
+
+    iso = _toy_iso()
+    m_true = np.array([0.8, 1.2])
+    mg = 10.0 - 4.0 * (m_true - 0.3)
+    c = 2.5 - 1.2 * (m_true - 0.3)
+    sig = np.full(2, 0.02)
+    single = im.primary_and_system_photometry(iso, c, mg, sig, sig, np.full(2, 0.5), np.full(2, -np.inf), np.zeros(2, bool))
+    np.testing.assert_allclose(single["m1"], m_true, atol=0.01)
+    np.testing.assert_allclose(single["mg_sys"], mg, atol=0.02)  # singles reproduce the row CMD
+    np.testing.assert_allclose(single["c_sys"], c, atol=0.02)
+    twin = im.primary_and_system_photometry(iso, c, mg, sig, sig, np.ones(2), np.zeros(2), np.zeros(2, bool))
+    np.testing.assert_allclose(twin["mg_sys"] - mg, -2.5 * np.log10(2.0), atol=0.02)  # ~0.75 mag above the ridge
+    np.testing.assert_allclose(twin["c_sys"], c, atol=0.02)
+
+
+@pytest.mark.unit
+def test_single_catalog_fragment_and_skip_out_of_cut() -> None:
+    p = ps.load_proposal_set_fragment("config/population/proposal_set_single40.yaml").proposal
+    assert p.m1 == "single_catalog_system" and p.single_catalog.system_g_max == 19.0
+    assert p.light_split == "system_from_components" and p.parent.include_supplement

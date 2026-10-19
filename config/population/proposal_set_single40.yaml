@@ -1,0 +1,122 @@
+# #391 spec §12.33 pilot (Ryan 2026-10-19): generation 40, ~10 CPU-h. Primaries from the looks-single catalog
+# (G < 20 parent 20261019T160642Z + G < 11 supplement 20261019T161515Z, both with non_single_star), system observables
+# from primary + companion, system G < 19; §12.32 recalibrated N2d noise (config). draw_index from 4,264,812
+# (gen 39 reserved 4,014,812-4,264,811). Not under config/fragments/.
+
+proposal:
+  generation: 40
+  n_draws: 40000                   # pilot: 10 CPU-h watcher
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent_supplement:                 # spec §12.30
+    snapshot: 20261019T161515Z_gaia_source_supplement_K1000000-20000000_G11_plx0p2_bj
+    bright_g_max: 11.0
+  parent:                            # q(s) = u uniform + (1-u) ∝ min(plx, cap)^beta
+    uniform_fraction: 0.3
+    parallax_power: 0.75
+    parallax_cap_mas: 10.0
+    evolved_weight: 0.2              # pilot
+    include_supplement: true         # spec §12.30
+    target_weight: 0.3               # pilot: bright-end test
+    target_g_range: [5.0, 11.0]      # batch 6: the bright stratum
+    target_parallax_range_mas: [0.2, 1000.0]
+    target_m1_pivot_msun: 0.8
+    target_m1_power: 0.36            # alpha_hi, gens 33-36 noW
+  m2:                                # log M2 mixture: log q ~ U (tied to M1) + log-uniform M2
+    q_tied_weight: 0.9
+    q_min: 0.08
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+    evolved_tie: deblended_dark      # §12.28: M2 drawn against the dark-deblended evolved-branch M1
+    evolved_q_min: 0.05              # §12.28: wider tied q range on evolved rows
+    evolved_q_max: 1.0               # deblending gives q > 1 zero target weight
+  flux:                              # P(f = 0) = dark_fraction; luminous part in log10 f
+    dark_fraction: 0.1
+    relation: mist_coeval_row
+    relation_weight: 0.9
+    relation_sigma_dex: 0.20
+    log_f_min: -7.0                  # MP-Q28d: evolved-row targets reach ~1e-6 (spec §10.4, §11.9)
+    log_f_max: 0.5
+    evolved_rows_centre: evolved_relation_deblended   # MP-Q28d + option (i) (Ryan 2026-10-09; restored §12.28)
+    evolved_sigma_dex: 0.4           # §12.28
+    evolved_relation_weight: 0.6     # §12.28
+  period:                            # log P mixture: core + MdS17-wide defensive component
+    core_weight: 0.6                 # batch 5: empty short-P cells
+    core_log_p_min: 1.5               # batch 3: short-P weak cells
+    core_log_p_max: 2.6               # batch 4: the empty coarse bins are all log P < 2.6
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:                      # #409/#410: covers MdS17 e < e_max(P); bounded weights
+    shape: mds17_bounded
+    circular_period_days: 2.0        # MdS17 §2: P <= 2 d circular (matches the target)
+    floor_eta: -0.9                  # must be <= target provisional_eta_floor (checked)
+    floor_weight: 0.25
+    support_weight: 0.60
+    defensive_e_max: 0.999           # covers e > e_max for alternative models (MP-Q12)
+    e_max_period_scale_days: 2.0     # MdS17 Eq. 3
+    e_max_exponent: -0.6666666666666666
+  m2_p_shape:                        # MdS17-shaped joint (log q, log P) component
+    weight: 0.6                      # batch 5: more defensive/core period share
+    table_path: config/population/moe_distefano2017.yaml
+    m1_interpolation: linear_m1
+    q_min: 0.1
+    q_max: 1.0
+    log_p_min: 1.0
+    log_p_max: 4.0
+    n_log_q: 40
+    n_log_p: 45
+    log_m1_step: 0.05
+    dgamma_q: -0.31                  # gens 33-36 noW coarse fit (docs/gate391/resim_batch4/new_noW)
+    ln_f_twin: 0.31                  # kept: new-only fit at its bound
+    twin_q_min: 0.95
+    gamma_p: -0.44
+    log_p_pivot: 2.7
+    ln_long_p: 1.09
+    long_p_centre: 3.0
+    long_p_width: 0.1
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  # Generation-time decisions (spec §0.1).
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1)"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0                    # step (b), <=
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
+  m1: single_catalog_system                         # spec §12.33
+  giant_flag_logg_max: 3.6                          # TAG10 mode only (isochrone mode uses the §10.2 CMD flag)
+  light_split: system_from_components              # spec §12.33 (supersedes MP-Q6)
+  single_catalog:                                   # spec §12.33 looks-single definition
+    ruwe_max: 1.25
+    dm_min: -0.4
+    dm_colour_range: [0.85, 2.0]    # MS below the subgiants only
+    system_g_max: 19.0
+  resolved_companions:                              # spec §12.25: resolved companion -> f = 0 in the cascade
+    snapshot: external_catalogs/elbadry2021_widebinaries_sub10as_20261014T035624Z/catalog_sub10as.csv
+    sha256: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565
+    r_chance_max: 0.1
+    g2_max: 19.5
+    theta_edges_arcsec: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0, 10.0]
+    dg_edges: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.5, 8.0, 12.0]
+    ref_theta_arcsec: [4.0, 10.0]
+    min_pairs: 30
+    projection_factor: 0.85
+  epoch_model: dr3_config                           # #400 E1 decided: on (dr3.epoch_model)
+
+target_mds17:                        # rung 2: MdS17 at published parameters, luminous only
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1           # MP-Q10
+  provisional_eta_floor: -0.9                       # MP-Q11
+  provisional_low_mass_policy: log_linear_to_zero   # MP-Q7 (El-Badry et al. 2024 §3)
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity       # MP-Q9
+  mass_luminosity: mist_coeval                      # MP-Q40 decided 2026-10-04 (replaces MP-Q13 Janssens for MS companions)
+  flux_sigma_dex: 0.1                               # MP-Q13, decided
+  provisional_compact_mixture: none                 # MP-Q17

@@ -6,7 +6,7 @@
 #         launch_args (parent snapshot directory name), fit_config (rung-3 fit config YAML).
 # Not under config/fragments/.
 schema_version: 1
-min_guarded_generation: 37
+min_guarded_generation: 40
 settings:
   # --- launch fragment: generation-time decisions --------------------------------------------------------------
   - {scope: launch_fragment, key: proposal.flux.evolved_rows_centre, equals: evolved_relation_deblended,
@@ -14,9 +14,15 @@ settings:
   - {scope: launch_fragment, key: proposal.parallax_floor_mas, equals: 0.2, ref: "MP-Q1 (spec §0.1)"}
   - {scope: launch_fragment, key: proposal.truth_distance, equals: bailer_jones2021_geometric, ref: "MP-Q4 (spec §0.1)"}
   - {scope: launch_fragment, key: proposal.halbwachs_ipd_cstar_cuts, equals: applied_star_values, ref: "MP-Q3 (spec §0.1)"}
-  - {scope: launch_fragment, key: proposal.m1, equals: isochrone_posterior_draw_deblended,
-     ref: "MP-Q5/Q28c/Q35/Q36 (spec §0.4, §11.9)"}
-  - {scope: launch_fragment, key: proposal.light_split, equals: observed_g_is_system_total, ref: "MP-Q6 (spec §0.1)"}
+  - {scope: launch_fragment, key: proposal.m1, equals: single_catalog_system,
+     ref: "spec §12.33 (Ryan 2026-10-19; supersedes MP-Q35/Q36 deblending)"}
+  - {scope: launch_fragment, key: proposal.light_split, equals: system_from_components, ref: "spec §12.33 (supersedes MP-Q6)"}
+  - {scope: launch_fragment, key: proposal.single_catalog.ruwe_max, equals: 1.25, ref: "spec §12.33 looks-single (proposed)"}
+  - {scope: launch_fragment, key: proposal.single_catalog.dm_min, equals: -0.4, ref: "spec §12.33 looks-single (proposed)"}
+  - {scope: launch_fragment, key: proposal.single_catalog.dm_colour_range, equals: [0.85, 2.0], ref: "spec §12.33; MS below the subgiants (Ryan's constraint)"}
+  - {scope: launch_fragment, key: proposal.single_catalog.system_g_max, equals: 19.0, ref: "spec §12.33 system G limit"}
+  - {scope: launch_fragment, key: proposal.parent_supplement.snapshot, equals: 20261019T161515Z_gaia_source_supplement_K1000000-20000000_G11_plx0p2_bj,
+     ref: "spec §12.30/§12.33 bright stratum with non_single_star"}
   - {scope: launch_fragment, key: proposal.resolved_companions, present: true,
      ref: "MP-Q27 resolved-companion photocentre at generation (spec §12.23, §12.25)"}
   - {scope: launch_fragment, key: proposal.resolved_companions.sha256,
@@ -45,14 +51,14 @@ settings:
   - {scope: pipeline_config, key: dr3.epoch_model.bright_excess_noise.enabled, equals: true, ref: "N2d (Ryan 2026-10-03)"}
   - {scope: pipeline_config, key: dr3.epoch_model.ruwe_u0.enabled, equals: true, ref: "N2d RUWE = UWE / u0 (Ryan 2026-10-03)"}
   # --- launch args ---------------------------------------------------------------------------------------------
-  - {scope: launch_args, key: parent_snapshot, equals: 20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj,
-     ref: "Bailer-Jones parent, parallax floor 0.2 mas (MP-Q1/Q4)"}
+  - {scope: launch_args, key: parent_snapshot, equals: 20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj,
+     ref: "spec §12.33 looks-single catalog, G < 20, BJ, parallax floor 0.2 mas (MP-Q1/Q4)"}
   # --- rung-3 fit configs --------------------------------------------------------------------------------------
   - {scope: fit_config, key: rung3.m1_law_mass, equals: initial, ref: "spec §12.19(a) MdS17 at M1,ZAMS"}
   - {scope: fit_config, key: rung3.c1_period_max_days, equals: 830.4, ref: "C1: P <= 0.8 x 1038 d"}
   - {scope: fit_config, key: rung3.mc_variance, equals: parent_row, ref: "spec §12.20"}
   - {scope: fit_config, key: rung3.resolved_companions.enabled, equals: true, ref: "MP-Q27 (spec §12.23)"}
   - {scope: fit_config, key: rung3.resolved_companions.below_envelope, equals: orb6, ref: "spec §12.23 amendment"}
-  - {scope: fit_config, key: rung3.cmd_binary_conditioning.enabled, equals: true, ref: "spec §12.22 option (b)"}
+  - {scope: fit_config, key: rung3.cmd_binary_conditioning.enabled, equals: false, ref: "spec §12.33 (system observables; was §12.22 on)"}
   - {scope: fit_config, key: rung3.cmd_binary_conditioning.m1_min_msun, equals: null,
      ref: "§12.29: conditioning extended below 0.8 Msun (Ryan 2026-10-18; was 0.8, variant (a))"}

@@ -65,7 +65,11 @@ def extend(args, fc, ns):
     prow = np.concatenate([np.asarray(ps.read_proposal_artifact(args.artifact_dir / a)[0]["parent_row"], np.int64) for a in arts])
     if prow.size != np.load(args.cache, allow_pickle=True)["generation"].size:
         raise SystemExit("artifact list does not match the weight cache")
-    ns.m_cls = (pcls.classified & pcls.evolved)[prow[ns.rel]].astype(float)
+    zc0 = np.load(args.cache, allow_pickle=True)
+    if "sys_evolved" in zc0.files:  # spec §12.33: the system's own CMD class
+        ns.m_cls = np.asarray(zc0["sys_evolved"], bool)[ns.rel].astype(float)
+    else:
+        ns.m_cls = (pcls.classified & pcls.evolved)[prow[ns.rel]].astype(float)
     ns.prow = prow[ns.rel]
     # §12.19(a) (#483): MdS17 laws at M1,ZAMS by reweighting; §12.19(b) (#484): the slope-break hinge on that mass
     zc = np.load(args.cache, allow_pickle=True)
