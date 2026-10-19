@@ -46,14 +46,18 @@ def build_cache(args, cfg, parent) -> None:
     rel = ps.mist_relation_for_draws(t, parent, cfg)
     ll = ps.mds17_luminous_log_intensity(t, tg, evolved_mg0_system=evo, relation_log10_f=rel)
     ll = ll + parent.log_row_weight(t["parent_row"])  # spec §12.30: stratified parent expansion weight (0 if none)
-    lw, _ = ps.malmquist_cmd_log_weight(t, parent, tg, mc.load_cmd_malmquist_config(args.cmd_malmquist), cfg)
+    if "sys_evolved" in t:  # spec §12.33: system cuts replace the CMD Malmquist weight
+        lw = np.zeros(ll.size)
+    else:
+        lw, _ = ps.malmquist_cmd_log_weight(t, parent, tg, mc.load_cmd_malmquist_config(args.cmd_malmquist), cfg)
     lqs = np.vstack([ps.log_q_total_for(t, parent, g, cfg) for g in gcs])
     np.savez(args.cache, ll=ll, lw=lw, lqs=lqs, n_per_gen=np.array([g.n_draws for g in gcs]),
              gens=np.array([g.generation for g in gcs]), scale=parent.scale_to_full,
              generation=t["generation"], draw_index=t["draw_index"], m1_msun=t["m1_msun"], m2_msun=t["m2_msun"],
              period_days=t["period_days"], eccentricity=t["eccentricity"], phot_g_mean_mag=t["phot_g_mean_mag"],
              accepted=o["accepted_orbital"], published_acceleration=o["published_acceleration"],
-             cascade=o["cascade"], cpu_seconds=o["cpu_seconds"])
+             cascade=o["cascade"], cpu_seconds=o["cpu_seconds"],
+             **({"sys_evolved": t["sys_evolved"]} if "sys_evolved" in t else {}))
     print(f"cached {ll.size} draws over generations {[g.generation for g in gcs]} -> {args.cache}", flush=True)
 
 

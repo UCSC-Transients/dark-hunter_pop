@@ -168,6 +168,12 @@ def main(argv: list[str] | None = None) -> int:
         truth = apply_posterior_deblending(truth, parent, cfg, prop)
         print(f"deblended truth M1: median M1/M̂1_row = {np.nanmedian(truth['m1_msun'] / truth['m1_row_msun']):.3f}, "
               f"median chi2 = {np.nanmedian(truth['deblend_chi2']):.2f}", flush=True)
+    if prop.m1 == "single_catalog_system":  # spec §12.33: primary from the looks-single row, system photometry
+        from darkhunter_pop.proposal_set import apply_system_photometry
+
+        truth = apply_system_photometry(truth, parent, cfg, prop)
+        print(f"system photometry: {int(np.sum(truth['system_in_cut']))} of {truth['draw_index'].size} draws pass the system cuts; "
+              f"median G_sys - G_row = {np.nanmedian(truth['phot_g_mean_mag'] - truth['row_phot_g_mean_mag']):+.3f}", flush=True)
     if prop.resolved_companions is not None:  # spec §12.25: resolved-companion photocentre (f -> 0 in the cascade)
         from darkhunter_pop.proposal_set import apply_resolved_companions
 

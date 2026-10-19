@@ -907,7 +907,7 @@ class PosteriorSampler:
 
 def isochrone_at(grid: NativeGrid, feh: float, log_age: float) -> dict[str, FloatArray]:
     """The MIST isochrone at ([Fe/H], log age), bilinear at fixed EEP (MIST's interpolation
-    scheme); finite rows only, in EEP order. Keys: ``star_mass``, ``mg``, ``bp``, ``rp``, ``phase``."""
+    scheme); finite rows only, in EEP order. Keys: ``star_mass``, ``mg``, ``bp``, ``rp``, ``phase``, ``log_teff``."""
     f = int(np.clip(np.searchsorted(grid.feh, feh) - 1, 0, grid.feh.size - 2))
     a = int(np.clip(np.searchsorted(grid.log_age, log_age) - 1, 0, grid.log_age.size - 2))
     tf = float(np.clip((feh - grid.feh[f]) / (grid.feh[f + 1] - grid.feh[f]), 0.0, 1.0))
@@ -915,7 +915,7 @@ def isochrone_at(grid: NativeGrid, feh: float, log_age: float) -> dict[str, Floa
     v = grid.values.astype(np.float64)
     cube = ((1 - tf) * (1 - ta) * v[f, a] + tf * (1 - ta) * v[f + 1, a]
             + (1 - tf) * ta * v[f, a + 1] + tf * ta * v[f + 1, a + 1])
-    k = {name: NATIVE_QUANTITIES.index(name) for name in ("star_mass", "mg", "bp", "rp", "phase")}
+    k = {name: NATIVE_QUANTITIES.index(name) for name in ("star_mass", "mg", "bp", "rp", "phase", "log_teff")}
     ok = np.all(np.isfinite(cube[:, list(k.values())]), axis=1)
     return {name: cube[ok, idx] for name, idx in k.items()}
 
@@ -1118,3 +1118,47 @@ def _posterior_from_raw(raw: FloatArray, colour0: ArrayLike, mg0: ArrayLike, lma
         ok=ok, reason=reason,
     )
 
+
+
+def primary_and_system_photometry(
+    iso: Mapping[str, FloatArray],
+    colour_row: ArrayLike,
+    mg_row: ArrayLike,
+    sigma_colour: ArrayLike,
+    sigma_mag: ArrayLike,
+    q: ArrayLike,
+    log10_f: ArrayLike,
+    evolved: ArrayLike,
+    *,
+    densify: int = 4,
+) -> dict[str, FloatArray]:
+    """Spec §12.33: the single-star primary on ``iso`` (the posterior draw's branch point nearest the looks-single
+    row's dereddened CMD) and the system made of that primary plus a coeval MS companion at M2 = q M1 with G-flux
+    ratio f (none for ``log10_f = -inf``). Returns absolute (dereddened) ``m1``, ``mg1``, ``c1``, ``log_teff1``,
+    ``mg_sys``, ``c_sys``. Interpolation only."""
+    x = np.arange(iso["star_mass"].size, dtype=float)
+    xf = np.linspace(0.0, x[-1], int(x[-1]) * densify + 1)
+    col = {kk: np.interp(xf, x, np.asarray(vv, float)) for kk, vv in iso.items()}
+    ms = col["phase"] < 0.5
+    order = np.argsort(col["star_mass"][ms])
+    mm = col["star_mass"][ms][order]
+    bpg = (col["bp"] - col["mg"])[ms][order]
+    grp = (col["mg"] - col["rp"])[ms][order]
+    cs, gs = np.asarray(colour_row, float)[:, None], np.asarray(mg_row, float)[:, None]
+    sc, sg = np.asarray(sigma_colour, float)[:, None], np.asarray(sigma_mag, float)[:, None]
+    chi2 = ((col["mg"][None, :] - gs) / sg) ** 2 + ((col["bp"] - col["rp"])[None, :] - cs) ** 2 / sc**2
+    branch = (col["phase"] >= 1.5)[None, :]
+    chi2 = np.where(branch == np.asarray(evolved, bool)[:, None], chi2, np.inf)
+    j = np.argmin(chi2, axis=1)
+    m1, g1 = col["star_mass"][j], col["mg"][j]
+    bp1, rp1 = col["bp"][j], col["rp"][j]
+    lf = np.asarray(log10_f, float)
+    f = np.where(np.isfinite(lf), 10.0 ** np.where(np.isfinite(lf), lf, 0.0), 0.0)
+    m2 = np.clip(np.asarray(q, float) * m1, mm[0], mm[-1])
+    g2 = g1 - 2.5 * np.log10(np.where(f > 0, f, 1.0))
+    fl = lambda mag: 10.0 ** (-0.4 * mag)  # noqa: E731
+    bp2 = np.where(f > 0, fl(g2 + np.interp(m2, mm, bpg)), 0.0)
+    rp2 = np.where(f > 0, fl(g2 - np.interp(m2, mm, grp)), 0.0)
+    mg_sys = g1 - 2.5 * np.log10(1.0 + f)
+    c_sys = -2.5 * np.log10(fl(bp1) + bp2) + 2.5 * np.log10(fl(rp1) + rp2)
+    return {"m1": m1, "mg1": g1, "c1": bp1 - rp1, "log_teff1": col["log_teff"][j], "mg_sys": mg_sys, "c_sys": c_sys}

@@ -2320,6 +2320,22 @@ Only after that is the §12.28-era colour/vbroad deficit test (`docs/gate391/vbr
 
 **Note.** Among A stars, slow rotation correlates with binarity (Am stars). The mock assigns companions independently of rotation, so a real-to-mock deficit at high vbroad may be astrophysical rather than a detection effect. The model must separate the two.
 
+### 12.32 Bright-star noise (N2d) recalibrated on accepted-orbit F2 (Ryan, 2026-10-19)
+
+**Problem.** For accepted orbits at G < 13 the mock's goodness of fit F2 exceeds DR3's in every knot bin: 4.9–10.6 against 1.9–6.6 (#390 set, v2 + N2-u0). This inflates the error scale c = √(χ²_red/(1 − 2/9ν)³), and with it σ_ϖ, and so moves systems across the ϖ/σ_ϖ and a0/σ cuts.
+
+**Correction (statistical).** In each knot's G bin, new r² = old r² − (median c²_mock − median c²_DR3), computed over accepted orbits.
+
+| knot G | 8.49 | 9.60 | 10.58 | 11.28 | 11.78 | 12.28 | 12.77 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| old r² | 0.538 | 0.678 | 0.794 | 0.963 | 0.768 | 0.535 | 0.377 |
+| new r² | 0.007 | 0.349 | 0.426 | 0.479 | 0.415 | 0.385 | 0.331 |
+
+**Follow-on steps.**
+- The `u0_mock(G)` table is re-derived with the new noise, at G < 13; above that the noise is zero and the table is unchanged.
+- Validation: re-injecting the #390 set at G < 13 with the current epoch model gives accepted-orbit F2 per bin within the binomial/MAD error of DR3, and σ_ϖ ratios near 1.
+- This is a generation-time change, bundled into the next generation together with §12.33.
+- Generations ≤ 39 keep the old noise: their cascade outcomes are stored, and they are documented as made under the old noise model.
 ### 12.33 Primaries from a "looks-single" catalog; system observables from the components (Ryan, 2026-10-19)
 
 **Supersedes** MP-Q6 (observed G is the system total), MP-Q36 (deblending against the row's light), the §12.22 CMD conditioning and the 2-D CMD Malmquist weight (§11) for new generations. Generations 23–39 become obsolete.
@@ -2364,6 +2380,11 @@ The truth M1 is that draw. There is no deblending. The row's photometry is never
 - Single primaries reproduce the catalog CMD.
 - Twins land about 0.75 mag above the ridge.
 - Mock singles plus binaries reproduce the parent's full CMD, including twin-band occupancy.
+
+**Amendment (Ryan, 2026-10-19).**
+- The ΔM ≥ −0.4 cut is extended to the full colour range of the measured MS ridge: (BP−RP)₀ 0.35–2.75, covering hot A/F and red M dwarfs. Evolved rows stay exempt: the RGB/clump width is dominated by age and [Fe/H], and their companions are faint. RUWE < 1.25 and `non_single_star = 0` are kept.
+- The unresolved-binary contamination left where no ΔM cut applies (evolved rows, colours outside the ridge) is measured with the closed-loop model population and reported.
+- The MdS17 twin over-production of the default target is left to the fitted twin fraction (ln F_twin).
 
 **Carried over.** The epoch model, cascade, spurious template, resolved companions, MIST correction, §12.32 noise, the §12.31 vbroad model, and the decided-settings guard (updated).
 
