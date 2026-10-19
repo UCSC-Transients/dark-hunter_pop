@@ -68,17 +68,20 @@ def main(argv: list[str] | None = None) -> int:
     truth = {k: np.asarray(v)[:n_prefix] for k, v in truth_full.items()}
     # The same deterministic post-processing as scripts/run_proposal_pilot.py (the cascade ran on these truths):
     # MP-Q35/36 posterior deblending (#391 fix: assemblies before 2026-10-15 skipped it) and §12.25 resolved companions.
+    full = {k: np.asarray(v) for k, v in truth_full.items()}
     if prop.m1 == "isochrone_posterior_draw_deblended":
         from darkhunter_pop.proposal_set import apply_posterior_deblending
 
-        full = apply_posterior_deblending({k: np.asarray(v) for k, v in truth_full.items()}, parent, cfg, prop)  # full set, as the driver
-        truth = {k: np.asarray(v)[:n_prefix] for k, v in full.items()}
-    if prop.resolved_companions is not None:
+        full = apply_posterior_deblending(full, parent, cfg, prop)  # full set, as the driver
+    elif prop.m1 == "single_catalog_system":  # spec §12.33, as the driver
+        from darkhunter_pop.proposal_set import apply_system_photometry
+
+        full = apply_system_photometry(full, parent, cfg, prop)
+    if prop.resolved_companions is not None:  # on the post-processed truth, exactly as the driver
         from darkhunter_pop.proposal_set import apply_resolved_companions
 
-        truth_r = apply_resolved_companions({k: np.asarray(v) for k, v in truth_full.items()}, prop, args.parent_dir.parents[2])
-        for k in ("resolved_companion", "theta_arcsec", "flux_ratio_cascade"):
-            truth[k] = np.asarray(truth_r[k])[:n_prefix]
+        full = apply_resolved_companions(full, prop, args.parent_dir.parents[2])
+    truth = {k: np.asarray(v)[:n_prefix] for k, v in full.items()}
     outcomes = [done[off + i] for i in range(n_prefix)]
     planned = prop.n_draws
     frag_cut = frag.model_copy(update={"proposal": prop.model_copy(update={"n_draws": n_prefix})})
