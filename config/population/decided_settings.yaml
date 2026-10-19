@@ -54,4 +54,5 @@ settings:
   - {scope: fit_config, key: rung3.resolved_companions.enabled, equals: true, ref: "MP-Q27 (spec §12.23)"}
   - {scope: fit_config, key: rung3.resolved_companions.below_envelope, equals: orb6, ref: "spec §12.23 amendment"}
   - {scope: fit_config, key: rung3.cmd_binary_conditioning.enabled, equals: true, ref: "spec §12.22 option (b)"}
-  - {scope: fit_config, key: rung3.cmd_binary_conditioning.m1_min_msun, equals: 0.8, ref: "variant (a) adopted"}
+  - {scope: fit_config, key: rung3.cmd_binary_conditioning.m1_min_msun, equals: null,
+     ref: "§12.29: conditioning extended below 0.8 Msun (Ryan 2026-10-18; was 0.8, variant (a))"}

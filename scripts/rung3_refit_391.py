@@ -45,6 +45,7 @@ def build_cache(args, cfg, parent) -> None:
     evo = ps.evolved_mg0_for_draws(t, parent)
     rel = ps.mist_relation_for_draws(t, parent, cfg)
     ll = ps.mds17_luminous_log_intensity(t, tg, evolved_mg0_system=evo, relation_log10_f=rel)
+    ll = ll + parent.log_row_weight(t["parent_row"])  # spec §12.30: stratified parent expansion weight (0 if none)
     lw, _ = ps.malmquist_cmd_log_weight(t, parent, tg, mc.load_cmd_malmquist_config(args.cmd_malmquist), cfg)
     lqs = np.vstack([ps.log_q_total_for(t, parent, g, cfg) for g in gcs])
     np.savez(args.cache, ll=ll, lw=lw, lqs=lqs, n_per_gen=np.array([g.n_draws for g in gcs]),
