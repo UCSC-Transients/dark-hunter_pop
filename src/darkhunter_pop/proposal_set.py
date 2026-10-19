@@ -418,6 +418,17 @@ class ResolvedCompanionGenConfig(_Strict):
     projection_factor: float = Field(..., gt=0)
 
 
+class SingleCatalogConfig(_Strict):
+    """Spec §12.33 "looks single": ``non_single_star == 0``, RUWE < ``ruwe_max``, MS rows with ΔM ≥ ``dm_min``
+    (evolved / unclassified rows exempt); the system G limit ``system_g_max`` replaces the row's G cut."""
+
+    ruwe_max: float = Field(..., gt=0.0)
+    dm_min: float
+    #: the ΔM cut applies only on the MS below the subgiants (Ryan's twin-test constraint), (BP−RP)_0 in this range
+    dm_colour_range: tuple[float, float]
+    system_g_max: float
+
+
 class ParentSupplementConfig(_Strict):
     """Spec §12.30: a denser bright-stratum gaia_source snapshot appended to the parent.
 
@@ -466,10 +477,13 @@ class ProposalConfig(_Strict):
     # the parent as ``isochrone_mist_drop_unresolved``; then, per draw, one posterior draw of
     # (age, [Fe/H], M̂1) and the coeval deblended truth M1 (:func:`apply_posterior_deblending`).
     m1: Literal[
-        "tag10_point_drop_unresolved", "isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended"
-    ]  # MP-Q5
+        "tag10_point_drop_unresolved", "isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended",
+        "single_catalog_system",
+    ]  # MP-Q5; ``single_catalog_system`` = spec §12.33 (primary from a looks-single row, system photometry)
     giant_flag_logg_max: float  # MP-Q5 flag only (Andrews 2022 ATF dwarf/giant log g); TAG10 mode only
-    light_split: Literal["observed_g_is_system_total"]  # MP-Q6
+    light_split: Literal["observed_g_is_system_total", "system_from_components"]  # MP-Q6; §12.33 supersedes
+    #: Spec §12.33: looks-single primary catalog and system-level cuts (required with ``single_catalog_system``).
+    single_catalog: SingleCatalogConfig | None = None
     # #400 E1 (decided 2026-10-03): ``dr3_config`` wraps every cascade call in the epoch
     # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
     # gaiamock's GOST list. Generation-time: it changes the epochs (spec §3.5).
@@ -768,7 +782,7 @@ def load_parent_snapshot(
         raise ValueError(f"parent snapshot checksum mismatch: {got} != {meta['parent_h5_sha256']}")
     with h5py.File(h5, "r") as handle:
         cols = {name: handle[name][()] for name in handle.keys()}
-    iso_mode = proposal.m1 in ("isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended")
+    iso_mode = proposal.m1 in ("isochrone_mist_drop_unresolved", "isochrone_posterior_draw_deblended", "single_catalog_system")
     cmd: dict[str, FloatArray] | None = None
     iso: dict[str, NDArray[Any]] | None = None
     if iso_mode:
@@ -829,7 +843,20 @@ def load_parent_snapshot(
         # §12.30: the ridge is measured on the original rows only, so classifications of older draws do not move
         ridge_rows = usable if proposal.parent_supplement is None else usable & ~supp
         ridge = giants.fit_ms_ridge(np.where(ridge_rows, cmd["mg0"], np.nan), cmd["colour0"], snr, gcfg.ridge, ruwe=ruwe)  # type: ignore[index]
-        giant = giants.classify_evolved(cmd["mg0"], cmd["colour0"], cmd["sigma_mu"], ridge, gcfg.provisional_n_sigma).evolved  # type: ignore[index]
+        cls_ = giants.classify_evolved(cmd["mg0"], cmd["colour0"], cmd["sigma_mu"], ridge, gcfg.provisional_n_sigma)  # type: ignore[index]
+        giant = cls_.evolved
+        if proposal.single_catalog is not None:  # spec §12.33: looks-single flags (ridge from the pre-cut usable rows)
+            sc_ = proposal.single_catalog
+            r_, _, inr_ = ridge.at(cmd["colour0"])  # type: ignore[index]
+            dm_ = np.where(inr_, np.asarray(cmd["mg0"], float) - r_, np.nan)  # type: ignore[index]
+            ms_ = np.asarray(cls_.classified, bool) & ~np.asarray(giant, bool)
+            nss_ = np.asarray(cols["non_single_star"], float) if "non_single_star" in cols else np.full(plx.size, np.nan)
+            flags["single_nss"] = np.isfinite(nss_) & (nss_ == 0)
+            flags["single_ruwe"] = np.asarray(cols["ruwe"], float) < sc_.ruwe_max
+            c0_ = np.asarray(cmd["colour0"], float)  # type: ignore[index]
+            in_c = (c0_ >= sc_.dm_colour_range[0]) & (c0_ <= sc_.dm_colour_range[1])
+            flags["single_cmd"] = ~(ms_ & in_c) | ~np.isfinite(dm_) | (dm_ >= sc_.dm_min)
+            usable = np.logical_and.reduce(list(flags.values()))
         meta = {**meta, "ms_ridge": {"colour": ridge.colour.tolist(), "mag": ridge.mag.tolist(),
                                      "sigma": ridge.sigma.tolist(), "n_rows": ridge.n_rows.tolist()}}
     else:
@@ -1582,6 +1609,10 @@ def simulate_one(
         c_funcs=c_funcs,
     )
     t0 = time.process_time()
+    if not bool(draw.get("system_in_cut", True)):  # spec §12.33: the system fails the parent cuts; no cascade
+        return {"draw_index": int(draw["draw_index"]), "solution_type": "not_in_parent", "accepted_orbital": False,
+                "published_acceleration": False, "cascade": [0.0] * CASCADE_VECTOR_LENGTH, "f_m_msun": float("nan"),
+                "cos_inclination_fit": float("nan"), "numpy_seed": -1, "c_rand_seed": -1, "cpu_seconds": 0.0}
     with seeded_global_rng(seeds, c_funcs):
         if epoch is None:
             cascade = gaiamock.run_full_astrometric_cascade(
@@ -2375,6 +2406,76 @@ def apply_posterior_deblending(
     out["m2_proposal_msun"] = m2_prop
     out["m1_msun"] = m1_true
     out["m2_msun"] = q * m1_true
+    return out
+
+
+def apply_system_photometry(
+    truth: Mapping[str, NDArray[Any]],
+    parent: ParentSnapshot,
+    config: PipelineConfig,
+    cfg: ProposalConfig,
+    *,
+    sampler: Any = None,
+    native: Any = None,
+) -> dict[str, NDArray[Any]]:
+    """Spec §12.33: per draw, the primary is the looks-single row's single-star point on one posterior draw's
+    isochrone and branch (truth M1; no deblending), and the system is that primary plus the drawn companion
+    (MIST MS at M2 = q M1 with G-flux ratio f; none if dark). The row supplies distance modulus and extinction.
+
+    Adds ``row_phot_g_mean_mag``, ``primary_mg0``, ``primary_colour0``, ``primary_log_teff``, ``sys_mg0``,
+    ``sys_colour0``, ``sys_bp_rp``, ``sys_evolved`` (§10.2 ridge on the system CMD), ``system_in_cut``
+    (system G < ``single_catalog.system_g_max`` and a posterior draw exists), and the proposal-space masses
+    ``m1_row_msun`` / ``m2_proposal_msun``. ``phot_g_mean_mag`` becomes the system G (it drives the gaiamock noise).
+    """
+    from darkhunter_pop import giants
+    from darkhunter_pop import isochrone_mass as im
+
+    if cfg.single_catalog is None or parent.cmd is None:
+        raise ValueError("single_catalog_system needs proposal.single_catalog and an isochrone-mode parent")
+    if native is None:
+        native = _native_grid(config)
+    r = np.asarray(truth["parent_row"], np.int64)
+    draw, c0, g0, sc, sm = posterior_draws(r, parent, config, cfg, sampler=sampler, native=native)
+    out = {k: np.asarray(v).copy() for k, v in truth.items()}
+    n = r.size
+    m1_row = np.asarray(truth["m1_msun"], float)
+    q = np.asarray(truth["m2_msun"], float) / m1_row
+    lf = np.where(np.asarray(truth["is_dark"], bool), -np.inf, np.asarray(truth["log10_flux_ratio"], float))
+    res = {k: np.full(n, np.nan) for k in ("m1", "mg1", "c1", "log_teff1", "mg_sys", "c_sys")}
+    ok = np.isfinite(draw["m1"]) & np.isfinite(c0) & np.isfinite(g0)
+    key = np.round(draw["feh"], 4) * 1e4 + np.round(draw["log_age"], 4)
+    for k in np.unique(key[ok]):
+        sel = np.flatnonzero(ok & (key == k))
+        iso = im.isochrone_at(native, float(draw["feh"][sel[0]]), float(draw["log_age"][sel[0]]))
+        if iso["star_mass"].size < 2:
+            continue
+        for a in range(0, sel.size, 2000):
+            ss = sel[a:a + 2000]
+            pr = im.primary_and_system_photometry(iso, c0[ss], g0[ss], sc[ss], sm[ss], q[ss], lf[ss], draw["phase"][ss] >= 1.5)
+            for kk in res:
+                res[kk][ss] = pr[kk]
+    a_g = np.asarray(parent.cmd["a_g"], float)[r]
+    ebr = np.asarray(parent.cmd["e_bp_rp"], float)[r]
+    g_row = np.asarray(parent.columns["phot_g_mean_mag"], float)[r]
+    mu = g_row - g0 - a_g  # the row's distance modulus (BJ), as in parent_cmd_isochrone
+    g_sys = res["mg_sys"] + mu + a_g
+    rd = parent.meta["ms_ridge"]
+    ridge = giants.MSRidge(colour=np.asarray(rd["colour"], float), mag=np.asarray(rd["mag"], float),
+                           sigma=np.asarray(rd["sigma"], float), n_rows=np.asarray(rd["n_rows"]))
+    sig_mu = np.asarray(parent.cmd["sigma_mu"], float)[r]
+    n_sig = giants.load_giants_config("config/population/giants.yaml").provisional_n_sigma
+    sys_cls = giants.classify_evolved(res["mg_sys"], res["c_sys"], sig_mu, ridge, n_sig)
+    out.update(
+        row_phot_g_mean_mag=g_row, phot_g_mean_mag=np.where(np.isfinite(g_sys), g_sys, g_row),
+        primary_mg0=res["mg1"], primary_colour0=res["c1"], primary_log_teff=res["log_teff1"],
+        sys_mg0=res["mg_sys"], sys_colour0=res["c_sys"], sys_bp_rp=res["c_sys"] + ebr,
+        sys_evolved=np.asarray(sys_cls.evolved, bool),
+        system_in_cut=np.isfinite(g_sys) & (g_sys < cfg.single_catalog.system_g_max),
+        m1_hat_msun=draw["m1"], iso_phase=np.asarray(draw["phase"], float), iso_feh=draw["feh"], iso_log_age=draw["log_age"],
+        m1_row_msun=m1_row, m2_proposal_msun=np.asarray(truth["m2_msun"], float),
+        m1_msun=np.where(np.isfinite(res["m1"]), res["m1"], m1_row),
+    )
+    out["m2_msun"] = q * out["m1_msun"]
     return out
 
 
