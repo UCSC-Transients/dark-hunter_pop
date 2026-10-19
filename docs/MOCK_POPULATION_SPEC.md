@@ -2267,6 +2267,59 @@ R is stored per draw as a versioned column: a sidecar keyed by the artifact, the
 
 `darkhunter_pop.decided_settings` diffs a fragment and config against it. `scripts/run_proposal_pilot.py` runs the check before drawing and refuses on any deviation, unless `--allow-deviations` is passed for an explicit re-run of an old generation. `scripts/check_decided_settings.py` reports the deviations of any fragment. Tests require every launch fragment from generation 37 on, and the default fit configs, to pass. Adding or changing an entry needs a decision reference.
 
+### 12.29 CMD conditioning extended below 0.8 M⊙ (Ryan, 2026-10-18)
+
+- **What changes.** The §12.22 companion conditioning now also applies to parent rows with M̂1 < 0.8 M⊙.
+  - Fit config `rung3_coarse32_v7.yaml`: `cmd_binary_conditioning.m1_min_msun: null`. Otherwise it is v6a.
+  - The decided-settings entry changes from 0.8 to null.
+- **Why.**
+  - Variant (a) held the conditioning back at low mass because of the MIST low-mass colour error. The §12.24 Teff-only correction is now on at generation time and in the conditioning grid.
+  - Real NSS hosts carry a 5–40× heavier twin band than mock-detected systems at d < 0.5 kpc (`docs/gate391/cmd_twin`).
+- **Scope.** Reweighting only: no draws, no change to generation-time settings.
+- **Report:** twin/single for mock-detected vs real hosts, the G shape, and α_lo.
+
+### 12.30 Stratified parent: denser bright stratum (Ryan, 2026-10-18)
+
+- **Supplement snapshot.** gaia_source rows with 10⁶ ≤ `random_index` < 2×10⁷, G < 11 and ϖ > 0.2 mas. It has the same columns and Bailer-Jones join as the §1.3 parent, plus `vbroad`.
+- **Merged parent.** The original rows, in their original order, followed by the supplement rows.
+- **Strata.**
+  - Every row with G < 11 (original or supplement) is in the bright stratum, with inclusion probability 2×10⁷ / N_gaia_source.
+  - All other rows keep 10⁶ / N.
+  - The per-row expansion weight relative to `scale_to_full` (N / 10⁶) is `row_weight` = 1/20 in the bright stratum and 1 elsewhere. It multiplies λ wherever weights are formed (cache build).
+  - This is exact: the merged rows are a stratified random sample with known inclusion probabilities.
+- **Old generations stay valid.** `parent.include_supplement` defaults to false, so generations ≤ 38 keep their q(s), normalized over the original rows only, bit for bit, and have q = 0 on supplement rows.
+  - The ridge and the evolved classification are measured on the original usable rows only, so existing classifications do not move.
+  - Per-row quantities (CMD, isochrone posterior, filters) are computed for the supplement the same way.
+- **Coverage.** A new generation with `include_supplement: true` has a defensive component over all usable merged rows, so every bright row with λ > 0 is covered.
+- **Batch.** Generation 39, about 50 CPU-h, targeted at G < 11.
+
+### 12.31 Forward model for observed vbroad (Ryan, 2026-10-18; DRAFT, calibration pending)
+
+**How DR3 measures vbroad (Frémat et al. 2023, A&A 674, A8).**
+- §2.1: vbroad is fitted **per transit**. The CCF of each transit spectrum against the template is maximized over both RV and vbroad (0–600 km/s), so each epoch is measured at its own RV and **orbital motion does not smear the value**. The published value is the median over ≥ 6 valid transits; the error is their standard deviation.
+- §2.1: sources the pipeline flags as SB2 candidates (about 40,000) or as having emission (about 28,000) get **no vbroad**.
+- §2.2: G_RVS ≤ 12, N_t ≥ 6, 5 < vbroad < 500 km/s, and template Teff 3,500–14,500 K.
+- §2.3 and §4: above 7,500 K the sensitivity flattens, because the Paschen and Ca II lines blend. Precision degrades for G_RVS > 10. Compared with the literature, the high-velocity tail of hot stars is more extended: medians are 8–28% higher from F0 to A0. Table 3 gives the validity domains in G_RVS and Teff.
+
+**Prescription per mock system.**
+- It uses only stored truth plus a seeded draw, so it is reweight-level and generation-independent.
+- (i) Intrinsic v sin i:
+  - primary: drawn from a published v sin i distribution as a function of Teff (or colour) and MS age;
+  - evolved primaries: a low-vbroad prior (most giants have v sin i < 10 km/s);
+  - companion: the same relation at its MIST mass.
+- (ii) **No SB1 smearing term**, because transits are fitted individually.
+- (iii) Unresolved SB2 blending. Per transit, the profile is the flux-weighted sum of the two rotationally broadened components at ±K. The RVS flux ratio comes from MIST. A blend whose separation exceeds about the instrumental plus rotational width is treated as SB2-flagged, so it gets no vbroad.
+- (iv) DR3 measurement response: the Frémat Table 3 and §4 bias and scatter as a function of (Teff, G_RVS, v sin i), applied statistically.
+- (v) Selection: the same §2.2 filters.
+
+**Calibration and validation.** Statistical, never per star:
+- DR3 single-star vbroad distributions by colour and M_G (parent rows);
+- DR3 SB1 and SB2 solutions.
+
+Only after that is the §12.28-era colour/vbroad deficit test (`docs/gate391/vbroad/`) redone with the modelled mock vbroad.
+
+**Note.** Among A stars, slow rotation correlates with binarity (Am stars). The mock assigns companions independently of rotation, so a real-to-mock deficit at high vbroad may be astrophysical rather than a detection effect. The model must separate the two.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
