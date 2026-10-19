@@ -2320,6 +2320,53 @@ Only after that is the §12.28-era colour/vbroad deficit test (`docs/gate391/vbr
 
 **Note.** Among A stars, slow rotation correlates with binarity (Am stars). The mock assigns companions independently of rotation, so a real-to-mock deficit at high vbroad may be astrophysical rather than a detection effect. The model must separate the two.
 
+### 12.33 Primaries from a "looks-single" catalog; system observables from the components (Ryan, 2026-10-19)
+
+**Supersedes** MP-Q6 (observed G is the system total), MP-Q36 (deblending against the row's light), the §12.22 CMD conditioning and the 2-D CMD Malmquist weight (§11) for new generations. Generations 23–39 become obsolete.
+
+**Single catalog.**
+- A `random_index` subsample of gaia_source with the §1.3 conventions: ϖ > 0.2 mas, BJ distances, the same columns plus `non_single_star` and `vbroad`.
+- It extends to **G < 20**, so that primaries a twin's 0.75 mag below the system limit are present.
+- It keeps the §12.30 G < 11 bright stratum (exact row weights).
+- **"Looks single"** (proposed; applied identically in the model diagnostic):
+  - `non_single_star = 0`;
+  - RUWE < 1.25 (proposed threshold);
+  - the Halbwachs IPD/C* cuts pass;
+  - MS-classified rows have ΔM = M_G0 − ridge(C0) ≥ −0.4 mag, which excludes the photometric-binary band. Evolved and unclassified rows are exempt.
+
+**Primary (physical parameters only).** From the row:
+- position;
+- BJ distance;
+- extinction (Combined19 × 0.884; A_G and E(BP−RP));
+- one isochrone posterior draw (age, [Fe/H], M1, branch), MIST with the §12.24 Teff-only correction.
+
+The truth M1 is that draw. There is no deblending. The row's photometry is never used as the system's.
+
+**System observables.**
+- Primary absolute G, BP, RP: MIST at M1 on the draw's isochrone and branch.
+- Companion: G2 = G1 − 2.5 log10 f (f is the drawn G-band flux ratio; none for dark companions); its BP−RP comes from the MIST main sequence at M2.
+- Sum the fluxes, then apply the row's distance modulus and extinction to get the system G, BP−RP, M_G0, (BP−RP)₀, evolved class (§10.2 ridge), clump box, primary Teff and the vbroad inputs.
+- The system G drives the gaiamock per-CCD noise and the cascade.
+
+**Cuts on the system.**
+- System G < 19 replaces the row's G cut. Row-level cuts stay on the row: ϖ floor, BJ, isochrone success, IPD/C*.
+- Draws failing the system cut are recorded and get no cascade.
+- **Malmquist:** none remains. Every primary that a companion could lift above G = 19 (G1 < 19.75) is in the catalog. Only Gaia's own completeness at G 19–20 is left, and it is documented as a systematic.
+
+**Weights.**
+- Unchanged MdS17 intensity per primary row; the bright-stratum row weights apply.
+- No 1/P(looks single) weight (Ryan: "We are reweighting, so this is fine").
+- Diagnostic only: P(looks single | M1) under the model, using the same criteria on the simulated system (cascade RUWE, published-solution flag, system ΔM).
+
+**Fit.** The mock's G, class and CMD come from the system observables. The CMD-Malmquist and CMD-conditioning weights are off. The real side is unchanged.
+
+**Validation (closed loops).**
+- Single primaries reproduce the catalog CMD.
+- Twins land about 0.75 mag above the ridge.
+- Mock singles plus binaries reproduce the parent's full CMD, including twin-band occupancy.
+
+**Carried over.** The epoch model, cascade, spurious template, resolved companions, MIST correction, §12.32 noise, the §12.31 vbroad model, and the decided-settings guard (updated).
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
