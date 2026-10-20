@@ -2390,6 +2390,11 @@ The truth M1 is that draw. There is no deblending. The row's photometry is never
 - Justification: the gens 23–39 fits gave γ_P −0.4 to −0.9 (σ ≈ 0.4), ln L_P 1.1–1.4, dγ_q −0.3 to −0.7, and ln F_twin at its lower bound. The bounds allow about 3σ around those values plus the MdS17 default (0).
 - The unguarded gen-41 fit ran to γ_P +2.5. That up-weighted about 12 long-period truths (P > 10⁴ d), which the cascade had accepted as short (80–350 d) orbits after the acceleration solution failed its ϖ/σ_ϖ > 2.1 s^1.05 test. That is DR3's acceleration-first logic, so it is legitimate, but rare (≈ 5 × 10⁻⁴ of long-P draws).
 
+**Second amendment (Ryan, 2026-10-20).** The ΔM ≥ −0.4 single cut is applied only below the turnoff: (BP−RP)₀ ≥ 1.05, ridge M_G0 ≳ 5.8.
+- Basis: the parent CMD (MS-classified rows, ϖ/σ > 10, G < 19). The subgiant band −1.5 < ΔM < −0.95 holds 12% of rows at C0 < 0.95, 6% at 0.95–1.05, 4% at 1.05–1.15 and ≤ 1.5% redward.
+- Above the turnoff only RUWE < 1.25 and `non_single_star = 0` apply.
+- Effect: the cut removes 15% of rows (it removed 32% over the full ridge). The uncut domain is 73% of usable rows. Its unresolved-binary contamination is 7.4% of model systems brightened ≥ 0.4 mag, against 10.8% in the cut domain before the cut.
+
 **Carried over.** The epoch model, cascade, spurious template, resolved companions, MIST correction, §12.32 noise, the §12.31 vbroad model, and the decided-settings guard (updated).
 
 ## References
