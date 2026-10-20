@@ -1194,3 +1194,18 @@ def test_single_catalog_fragment_and_skip_out_of_cut() -> None:
     p = ps.load_proposal_set_fragment("config/population/proposal_set_single40.yaml").proposal
     assert p.m1 == "single_catalog_system" and p.single_catalog.system_g_max == 19.0
     assert p.light_split == "system_from_components" and p.parent.include_supplement
+
+
+@pytest.mark.unit
+def test_primary_model_versions_separate_samples() -> None:
+    pop = Path("config/population")
+    v = {g: ps.primary_model_version(ps.load_proposal_set_fragment(pop / f).proposal)
+         for g, f in ((36, "proposal_set_resim36.yaml"), (40, "proposal_set_single40.yaml"),
+                      (41, "proposal_set_single41.yaml"), (42, "proposal_set_single42.yaml"))}
+    assert v[36] == "row_system_v1" and v[42].startswith("looks_single_v2") and len(set(v.values())) == 4
+    cfgs = [ps.load_proposal_set_fragment(pop / "proposal_set_single42.yaml").proposal]
+    assert ps.check_single_primary_model(cfgs * 2) == v[42]
+    mixed = cfgs + [ps.load_proposal_set_fragment(pop / "proposal_set_single41.yaml").proposal]
+    with pytest.raises(ValueError, match="refusing to combine"):
+        ps.check_single_primary_model(mixed)
+    assert ps.check_single_primary_model(mixed, allow_mixed=True).startswith("MIXED(")

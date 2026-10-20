@@ -534,6 +534,30 @@ def load_proposal_set_fragment(path: str | Path) -> ProposalSetFragment:
     return ProposalSetFragment.model_validate(yaml.safe_load(p.read_text()))
 
 
+def primary_model_version(cfg: ProposalConfig) -> str:
+    """Spec §12.33 sample separation: ``row_system_v1`` (deblended row photometry, gens <= 39) or
+    ``looks_single_v2:...`` with the single-cut parameters (gen 40, 41 and 42 are distinct versions)."""
+    if cfg.m1 != "single_catalog_system":
+        return "row_system_v1"
+    sc = cfg.single_catalog
+    if sc is None:
+        raise ValueError("single_catalog_system needs proposal.single_catalog")
+    lo, hi = sc.dm_colour_range
+    return f"looks_single_v2:ruwe{sc.ruwe_max:g}:dm{sc.dm_min:g}:c{lo:g}-{hi:g}:g{sc.system_g_max:g}"
+
+
+def check_single_primary_model(gen_cfgs: Sequence[ProposalConfig], *, allow_mixed: bool = False) -> str:
+    """Return the one primary-model version of ``gen_cfgs``; raise if they differ unless ``allow_mixed``
+    (then return ``"MIXED(...)"`` so outputs can be labelled diagnostic)."""
+    versions = sorted({primary_model_version(g) for g in gen_cfgs})
+    if len(versions) == 1:
+        return versions[0]
+    if not allow_mixed:
+        raise ValueError(f"refusing to combine generations with different primary models (spec §12.33): {versions}; "
+                         "pass --allow-mixed for a labelled diagnostic")
+    return "MIXED(" + " + ".join(versions) + ")"
+
+
 def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
     """Short SHA256 of the proposal section (keys the artifact; target is reweight-only)."""
     d = fragment.proposal.model_dump(mode="json")
@@ -1892,6 +1916,7 @@ def write_proposal_artifact(
             o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=np.uint32))
         h.attrs["proposal_config_json"] = json.dumps(fragment.proposal.model_dump(mode="json"), sort_keys=True)
         h.attrs["fragment_fingerprint"] = fragment_fingerprint(fragment)
+        h.attrs["primary_model"] = primary_model_version(fragment.proposal)  # spec §12.33: never mix primary models
         h.attrs["parent_snapshot_dir"] = str(parent.path)
         h.attrs["parent_h5_sha256"] = str(parent.meta["parent_h5_sha256"])
         h.attrs["scale_to_full"] = float(parent.scale_to_full)
