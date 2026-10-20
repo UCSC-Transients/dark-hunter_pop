@@ -95,7 +95,7 @@ proposal:
   single_catalog:                                   # spec §12.33 looks-single definition
     ruwe_max: 1.25
     dm_min: -0.4
-    dm_colour_range: [0.85, 2.0]    # MS below the subgiants only
+    dm_colour_range: [0.85, 2.0]    # gen 40 pilot (before the §12.33 amendment)
     system_g_max: 19.0
   resolved_companions:                              # spec §12.25: resolved companion -> f = 0 in the cascade
     snapshot: external_catalogs/elbadry2021_widebinaries_sub10as_20261014T035624Z/catalog_sub10as.csv

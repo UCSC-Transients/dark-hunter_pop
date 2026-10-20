@@ -14,7 +14,7 @@ import numpy as np
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--artifact", type=Path, required=True)
+    ap.add_argument("--artifact", type=Path, nargs="+", required=True)
     ap.add_argument("--dump", type=Path, required=True)
     ap.add_argument("--cache", type=Path, required=True)
     ap.add_argument("--parent-dir", type=Path, required=True)
@@ -27,7 +27,9 @@ def main(argv=None) -> int:
 
     cfg = load_config(Path("config/config.yaml"))
     par = ps.load_parent_snapshot(a.parent_dir, cfg, ps.load_proposal_set_fragment(a.fragment).proposal)
-    t, o, _ = ps.read_proposal_artifact(a.artifact)
+    parts = [ps.read_proposal_artifact(x) for x in a.artifact]
+    t = {k: np.concatenate([np.asarray(p_[0][k]) for p_ in parts]) for k in ("draw_index", "sys_mg0", "sys_colour0", "system_in_cut")}
+    o = {k: np.concatenate([np.asarray(p_[1][k]) for p_ in parts]) for k in ("cpu_seconds", "accepted_orbital")}
     z = np.load(a.dump, allow_pickle=True)
     zc = np.load(a.cache, allow_pickle=True)
     rd = par.meta["ms_ridge"]

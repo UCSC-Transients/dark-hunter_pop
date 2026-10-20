@@ -6,7 +6,7 @@
 #         launch_args (parent snapshot directory name), fit_config (rung-3 fit config YAML).
 # Not under config/fragments/.
 schema_version: 1
-min_guarded_generation: 40
+min_guarded_generation: 41
 settings:
   # --- launch fragment: generation-time decisions --------------------------------------------------------------
   - {scope: launch_fragment, key: proposal.flux.evolved_rows_centre, equals: evolved_relation_deblended,
@@ -19,7 +19,7 @@ settings:
   - {scope: launch_fragment, key: proposal.light_split, equals: system_from_components, ref: "spec §12.33 (supersedes MP-Q6)"}
   - {scope: launch_fragment, key: proposal.single_catalog.ruwe_max, equals: 1.25, ref: "spec §12.33 looks-single (proposed)"}
   - {scope: launch_fragment, key: proposal.single_catalog.dm_min, equals: -0.4, ref: "spec §12.33 looks-single (proposed)"}
-  - {scope: launch_fragment, key: proposal.single_catalog.dm_colour_range, equals: [0.85, 2.0], ref: "spec §12.33; MS below the subgiants (Ryan's constraint)"}
+  - {scope: launch_fragment, key: proposal.single_catalog.dm_colour_range, equals: [0.35, 2.75], ref: "spec §12.33 amendment (Ryan 2026-10-19): full MS-ridge colour range"}
   - {scope: launch_fragment, key: proposal.single_catalog.system_g_max, equals: 19.0, ref: "spec §12.33 system G limit"}
   - {scope: launch_fragment, key: proposal.parent_supplement.snapshot, equals: 20261019T161515Z_gaia_source_supplement_K1000000-20000000_G11_plx0p2_bj,
      ref: "spec §12.30/§12.33 bright stratum with non_single_star"}
