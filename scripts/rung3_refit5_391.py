@@ -368,7 +368,8 @@ def fit(args, fc, ns):
     # empty in practice, but k·ln μ would still pull θ through it. Its mock term is dropped (θ-independent).
     empty_o, empty_a = base_o < 0.5, base_a < 0.5
     floor_o, floor_a = np.where(empty_o, phi, 0.0), np.where(empty_a, phi, 0.0)
-    rep = [f"#391 rung 3 refit 5, model '{args.model}' — {fc.get('label', 'INTERIM')}", "",
+    rep = [f"#391 rung 3 refit 5, model '{args.model}' — {fc.get('label', 'INTERIM')}",
+           f"primary model: {getattr(args, 'primary_model', 'unrecorded')}" + ("  ** DIAGNOSTIC: MIXED PRIMARY MODELS **" if str(getattr(args, "primary_model", "")).startswith("MIXED") else ""), "",
            f"orbit bins {n_ob} ({' x '.join(map(str, shp))}) {[e.tolist() for e in oe]} x class; accelerations {n_ab}",
            f"real: {int(N_o)} C1 orbits ({ns.r_cls.mean():.3f} evolved), {int(k_a.sum())} accelerations ({ns.ra_cls.mean():.3f} evolved); "
            f"empty bins: orbit {int(empty_o.sum())} ({int(k_o[empty_o].sum())} real), acceleration {int(empty_a.sum())}"]
@@ -696,6 +697,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mc-variance", choices=("draw", "parent_row"), default=None, help="§12.20 override of rung3.mc_variance")
     ap.add_argument("--mass-scale", choices=("mist", "pm13_colour"), default=None, help="§12.19(c) override of mds17_mass_scale.method")
     ap.add_argument("--out-dir", type=Path, default=Path("docs/gate391/rung3_modelfix2/interim_new"))
+    ap.add_argument("--allow-mixed", action="store_true", help="DIAGNOSTIC: allow artifacts with different primary models (spec §12.33)")
     ap.add_argument("--dump-from", type=Path, default=None,
                     help="fit mode: no optimisation; evaluate θ from this summary.json and write dump_<wkey>.npz to --out-dir")
     args = ap.parse_args(argv)
@@ -704,6 +706,20 @@ def main(argv: list[str] | None = None) -> int:
     fc = yaml.safe_load((args.base_config if args.mode == "choose" else args.fit_config).read_text())["rung3"]
     if args.extrapolation is None:
         args.extrapolation = fc.get("spurious_extrapolation", "clamp")
+    from darkhunter_pop import proposal_set as _ps
+
+    arts_ = args.artifacts or []
+    if arts_:  # spec §12.33: never mix primary models
+        import h5py as _h5
+
+        gcs_ = []
+        for a_ in arts_:
+            with _h5.File(args.artifact_dir / a_, "r") as h_:
+                gcs_.append(_ps.ProposalConfig.model_validate_json(h_.attrs["proposal_config_json"]))
+        args.primary_model = _ps.check_single_primary_model(gcs_, allow_mixed=args.allow_mixed)
+        zc_ = np.load(args.cache, allow_pickle=True) if args.cache.exists() else None
+        if zc_ is not None and "primary_model" in zc_.files and str(zc_["primary_model"]) != args.primary_model:
+            raise SystemExit(f"cache primary model {zc_['primary_model']} != artifacts {args.primary_model}")
     ns = extend(args, fc, r4.setup(args, fc))
     {"choose": choose, "fit": fit, "feasibility": feasibility}[args.mode](args, fc, ns)
     return 0

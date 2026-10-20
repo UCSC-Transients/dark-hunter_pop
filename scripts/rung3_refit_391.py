@@ -40,6 +40,7 @@ def build_cache(args, cfg, parent) -> None:
     o = {k: np.concatenate([np.asarray(p[1][k]) for p in parts]) for k in okeys}
     tg = ps.MdS17TargetConfig.model_validate(json.loads(parts[0][2]["provenance_json"])["target_mds17_json"])
     gcs = [ps.ProposalConfig.model_validate_json(p[2]["proposal_config_json"]) for p in parts]
+    pm = ps.check_single_primary_model(gcs, allow_mixed=bool(getattr(args, "allow_mixed", False)))  # spec §12.33
     if any(ps.uses_dark_deblend(g) for g in gcs):
         ps.ensure_m1_deblend_dark(t, parent, cfg, gcs)
     evo = ps.evolved_mg0_for_draws(t, parent)
@@ -56,7 +57,7 @@ def build_cache(args, cfg, parent) -> None:
              generation=t["generation"], draw_index=t["draw_index"], m1_msun=t["m1_msun"], m2_msun=t["m2_msun"],
              period_days=t["period_days"], eccentricity=t["eccentricity"], phot_g_mean_mag=t["phot_g_mean_mag"],
              accepted=o["accepted_orbital"], published_acceleration=o["published_acceleration"],
-             cascade=o["cascade"], cpu_seconds=o["cpu_seconds"],
+             cascade=o["cascade"], cpu_seconds=o["cpu_seconds"], primary_model=np.array(pm),
              **({"sys_evolved": t["sys_evolved"]} if "sys_evolved" in t else {}))
     print(f"cached {ll.size} draws over generations {[g.generation for g in gcs]} -> {args.cache}", flush=True)
 
