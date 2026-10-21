@@ -1,0 +1,30 @@
+{
+ "snapshot": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/data/external_catalogs/20261021T212157Z_dr3_nss_bright_parent",
+ "n_bright_rows": 14500,
+ "n_stars_represented": 2989864.6350813005,
+ "per_star_rate_by_solution_type": {
+  "AstroSpectroSB1": 0.005574743985941948,
+  "EclipsingBinary": 0.00018178512997636795,
+  "Orbital": 0.005877719202569227,
+  "OrbitalTargetedSearch": 9.089256498818395e-05,
+  "SB1": 0.030842877052657088,
+  "SB2": 0.001151305823183663,
+  "SB2C": 0.00039386778161546387,
+  "none": 0.9558868084590681
+ },
+ "non_single_star_flag_share": {
+  "0": 0.9274374356177663,
+  "1": 0.025934678543295158,
+  "2": 0.03581167060534448,
+  "3": 0.010573835060292065,
+  "4": 0.00018178512997636795,
+  "6": 6.0595043325455973e-05
+ },
+ "mock_C1_orbits_per_star": 0.009385245435192004,
+ "real_C1_orbits_per_star": 0.00963421542969511,
+ "real_C1_by_type": {
+  "AstroSpectroSB1": 17324,
+  "Orbital": 11481
+ },
+ "missing_per_star": -0.00024896999450310414
+}
