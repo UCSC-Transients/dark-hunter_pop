@@ -1150,6 +1150,7 @@ def test_fingerprint_unchanged_by_new_default_fields(fragment: ps.ProposalSetFra
     for k in ("resolved_companions", "parent_supplement"):
         d.pop(k, None)
     d["parent"].pop("include_supplement", None)
+    d["parent"].pop("extra_targets", None)
     for k in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
         d["m2"].pop(k, None)
     import hashlib
@@ -1209,3 +1210,23 @@ def test_primary_model_versions_separate_samples() -> None:
     with pytest.raises(ValueError, match="refusing to combine"):
         ps.check_single_primary_model(mixed)
     assert ps.check_single_primary_model(mixed, allow_mixed=True).startswith("MIXED(")
+
+
+@pytest.mark.unit
+def test_extra_targets_normalized_and_identity_when_empty() -> None:
+    par = _parent(80, 3)
+    ev = np.zeros(80, bool)
+    ev[::5] = True
+    base = ps.ParentProposalConfig(uniform_fraction=0.3, parallax_power=0.75, parallax_cap_mas=10.0, evolved_weight=0.2)
+    g, m1 = par.columns["phot_g_mean_mag"], par.m1_msun
+    q0 = ps.parent_proposal_probabilities(par.columns["parallax"], par.usable, base, ev, g, m1)
+    ext = base.model_copy(update={"extra_targets": (ps.ExtraTargetConfig(weight=0.2, g_range=(8.0, 11.0), parallax_range_mas=(0.0, 100.0)),
+                                                    ps.ExtraTargetConfig(weight=0.1, g_range=(5.0, 20.0), parallax_range_mas=(0.0, 100.0), evolved_only=True))})
+    q1 = ps.parent_proposal_probabilities(par.columns["parallax"], par.usable, ext, ev, g, m1)
+    assert q1.sum() == pytest.approx(1.0) and np.all(q1[~par.usable] == 0)
+    assert np.all(q1 >= 0.7 * q0 - 1e-15)  # the defensive share keeps weights bounded
+    np.testing.assert_array_equal(ps.parent_proposal_probabilities(par.columns["parallax"], par.usable, base.model_copy(update={"extra_targets": ()}), ev, g, m1), q0)
+    with pytest.raises(ValueError):
+        ps.ParentProposalConfig(uniform_fraction=0.3, parallax_power=0.75, parallax_cap_mas=10.0, target_weight=0.5,
+                                target_g_range=(5, 9), target_parallax_range_mas=(0, 1),
+                                extra_targets=(ps.ExtraTargetConfig(weight=0.5, g_range=(5.0, 9.0), parallax_range_mas=(0.0, 1.0)),))

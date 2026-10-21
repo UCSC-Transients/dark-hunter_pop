@@ -157,6 +157,18 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ExtraTargetConfig(_Strict):
+    """One extra targeted parent component (#391 gen 43): weight ``weight`` uniform over usable rows in the G and
+    observed-parallax box (evolved rows only if ``evolved_only``), tilted by max(M1 / pivot, 1)^``m1_power``."""
+
+    weight: float = Field(..., gt=0.0, lt=1.0)
+    g_range: tuple[float, float]
+    parallax_range_mas: tuple[float, float]
+    m1_pivot_msun: float = Field(0.8, gt=0.0)
+    m1_power: float = 0.0
+    evolved_only: bool = False
+
+
 class ParentProposalConfig(_Strict):
     """``q(s) = (1-ε)[u uniform + (1-u) ∝ min(ϖ, ϖ_cap)^β] + ε U(evolved usable rows)``.
 
@@ -179,6 +191,14 @@ class ParentProposalConfig(_Strict):
     #: Spec §12.30: draw from the bright-stratum supplement rows too. False (older generations): q(s) is
     #: normalized over the original snapshot rows only and is zero on supplement rows, bit for bit as before.
     include_supplement: bool = False
+    #: #391 gen 43: further targeted components; the rest of q(s) is scaled by 1 − Σ weights. Empty = older behaviour.
+    extra_targets: tuple[ExtraTargetConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def _extra_weights(self) -> ParentProposalConfig:
+        if sum(t.weight for t in self.extra_targets) + self.target_weight >= 1.0:
+            raise ValueError("extra_targets + target_weight must leave a defensive share > 0")
+        return self
 
     @model_validator(mode="after")
     def _target_fields(self) -> ParentProposalConfig:
@@ -567,6 +587,8 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d.pop("parent_supplement", None)
     if not d["parent"].get("include_supplement", False):
         d["parent"].pop("include_supplement", None)
+    if not d["parent"].get("extra_targets"):
+        d["parent"].pop("extra_targets", None)
     m2 = d["m2"]  # §12.28 defaults keep older fingerprints
     if m2.get("evolved_tie", "row_m1") == "row_m1" and m2.get("evolved_q_min") is None and m2.get("evolved_q_max") is None:
         for k_ in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
@@ -990,6 +1012,24 @@ def parent_proposal_probabilities(
     is uniform over usable evolved rows. With ``evolved_weight == 0`` the result is the
     pre-2026-10-08 expression, bit for bit.
     """
+    if cfg.extra_targets:
+        if g_mag is None or m1_msun is None:
+            raise ValueError("extra_targets need the per-row G and M1")
+        base = parent_proposal_probabilities(parallax_mas, usable, cfg.model_copy(update={"extra_targets": ()}), evolved, g_mag, m1_msun)
+        g_, plx_, m1_ = np.asarray(g_mag, float), np.asarray(parallax_mas, float), np.asarray(m1_msun, float)
+        out_ = (1.0 - sum(t.weight for t in cfg.extra_targets)) * base
+        for t in cfg.extra_targets:
+            box = (np.asarray(usable, bool) & (g_ >= t.g_range[0]) & (g_ < t.g_range[1]) & (plx_ >= t.parallax_range_mas[0])
+                   & (plx_ < t.parallax_range_mas[1]) & np.isfinite(m1_) & (m1_ > 0))
+            if t.evolved_only:
+                if evolved is None:
+                    raise ValueError("evolved_only extra target needs the evolved flag")
+                box &= np.asarray(evolved, bool)
+            if not box.any():
+                raise ValueError(f"extra target {t} selects no usable rows")
+            tw = np.where(box, np.maximum(np.where(box, m1_, 1.0) / t.m1_pivot_msun, 1.0) ** t.m1_power, 0.0)
+            out_ = out_ + t.weight * tw / tw.sum()
+        return out_
     if cfg.target_weight > 0.0:
         if g_mag is None or m1_msun is None:
             raise ValueError("target_weight > 0 needs the per-row G and M1")
