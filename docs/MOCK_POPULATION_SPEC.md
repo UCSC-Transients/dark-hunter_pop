@@ -2397,6 +2397,24 @@ The truth M1 is that draw. There is no deblending. The row's photometry is never
 
 **Carried over.** The epoch model, cascade, spurious template, resolved companions, MIST correction, §12.32 noise, the §12.31 vbroad model, and the decided-settings guard (updated).
 
+### 12.34 Bright spectroscopic routing (Ryan, 2026-10-21)
+
+**Evidence.** At G < 9 the bright parent's DR3 NSS rates per star are: Orbital 0.40%, AstroSpectroSB1 0.50%, SB1 3.26% (1.8% with P in 30–830 d), SB2 0.55%, SB2C 0.20% (`data/external_catalogs/20261021T154502Z_dr3_nss_bright_parent`). The mock predicts C1 orbits at 1.87% per star, against 1.11% real. The missing 0.76% fits inside the SB1-only rate.
+
+**Model (reweight-level, from stored truth).** For each mock system:
+- G_RVS from the system G and colour;
+- the observed RV semi-amplitude of the light-weighted line centre, K_obs = (K1 − f K2)/(1 + f);
+- the RVS epoch noise σ_RV(G_RVS, Teff), with a hot-star factor;
+- spectroscopic detection when G_RVS ≤ 12 and K_obs/σ_RV · √(N_t/2) > S_min.
+
+A system both detected spectroscopically and accepted astrometrically is published astrometrically (Orbital/AstroSpectroSB1) with probability p_route; otherwise it is SB1-only, which is outside our sample. Astrometric-only detections are unchanged.
+- In the fit this is a per-draw factor 1 − 1_spec (1 − p_route) on the astrometric weight.
+- Same primary-model version, so it reweights gens 42–44. It changes their effective selection, not their draws.
+
+**Calibration.** p_route and S_min are fitted statistically to the bright parent's G < 9 ratio of astrometric (Orbital + AstroSpectroSB1) to SB1 (P 30–830 d), at fixed population parameters. Validation uses G 9–12 (a widened query).
+
+**Checks.** The SB1 per-star rate against DR3, and the G < 9 orbit ratio after routing.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
