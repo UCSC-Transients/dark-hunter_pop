@@ -2415,6 +2415,21 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Checks.** The SB1 per-star rate against DR3, and the G < 9 orbit ratio after routing.
 
+### 12.35 Working fit grid v10, and job safety (Ryan, 2026-10-22)
+
+**Fit grid.** The working fit grid is `rung3_coarse48_v10.yaml`: the v9 model with a G = 16 edge, for both orbits and accelerations.
+- Why the edge: at G > 16 the mock detections are nearby M dwarfs (M1 < 0.8 M⊙), a distinct sub-population governed by α_lo. The edge comes from the model, not from the counts.
+- On gens 42–44 it fixes the coarse grid's α_lo runaway (+4.4 → +0.3) and the γ_P–ln L_P degeneracy (finite Hessian errors).
+- The G 16–19.5 ratio becomes 1.00 ± 0.14.
+- Recorded in decided_settings.
+
+**Job safety.** Heavy jobs run only through the tracked `scripts/jobs/` wrappers:
+- `run_heavy.sh` returns the job's exit code and kills leftover descendants;
+- `mem_guard.sh` (v3) stops on swap growth since the guard started, or on low free memory, and kills the whole process tree by PID;
+- `start_generation.sh` launches a generation with its CPU-h, wall-clock and memory guards.
+- Chains stop at the first failure (`run_heavy.sh ... || exit 1`).
+- The old untracked wrappers are deprecated: mem_guard2's descendant kill failed under zsh and let 7 fits run concurrently on 2026-10-21.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
