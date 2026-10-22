@@ -11,7 +11,7 @@ from darkhunter_pop import decided_settings as ds
 from darkhunter_pop.config_loader import load_config
 
 POP = Path("config/population")
-FIT_CONFIGS = [POP / "rung3_coarse32_v8.yaml"]
+FIT_CONFIGS = [POP / "rung3_coarse48_v10.yaml"]
 BJ_PARENT = Path("data/dr3/gaia_snapshots/20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj")
 OLD_PARENT = Path("data/dr3/gaia_snapshots/20261002T234408Z_gaia_source_parent_K1000000_plx0p2_bj")
 
