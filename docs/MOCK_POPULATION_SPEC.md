@@ -2442,7 +2442,7 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Evidence.** At G < 9, DR3 SB1-only solutions (3.3% per star, 1.8% with P 30–830 d) exceed the mock's surplus of astrometric orbits (0.76% per star). A K/σ_RV routing model, calibrated on DR3 epoch-RV noise, fits G < 9 but fails at G 9–12 (`docs/gate391/v2_single/rv_routing_calibration.json`).
 
-**Open item (option a).** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
+**Open item (option a), DEFERRED (Ryan, 2026-10-23) until an end-to-end pipeline exists.** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
 
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23)
 
