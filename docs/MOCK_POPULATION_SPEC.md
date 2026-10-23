@@ -2430,6 +2430,16 @@ A system both detected spectroscopically and accepted astrometrically is publish
 - Chains stop at the first failure (`run_heavy.sh ... || exit 1`).
 - The old untracked wrappers are deprecated: mem_guard2's descendant kill failed under zsh and let 7 fits run concurrently on 2026-10-21.
 
+### 12.36 G < 9 excluded from the rung-3 fit (Ryan, 2026-10-22)
+
+**Decision.** The working fit grid becomes `rung3_coarse48_v11.yaml`: v10 with G < 9 removed from the orbit and acceleration likelihood.
+- This is a documented systematic, defined by the model: DR3 routes bright stars (G_RVS ≲ 8–9) through the spectroscopic SB1 chain, which the mock does not model. It is not defined from the counts.
+- The G < 9 ratio is still reported as a diagnostic, from a v10 evaluation at the v11 parameters.
+
+**Evidence.** At G < 9, DR3 SB1-only solutions (3.3% per star, 1.8% with P 30–830 d) exceed the mock's surplus of astrometric orbits (0.76% per star). A K/σ_RV routing model, calibrated on DR3 epoch-RV noise, fits G < 9 but fails at G 9–12 (`docs/gate391/v2_single/rv_routing_calibration.json`).
+
+**Open item (option a).** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
