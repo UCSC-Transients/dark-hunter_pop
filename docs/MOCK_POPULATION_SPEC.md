@@ -2473,7 +2473,7 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 - **Primaries.** The same parent and stratified rows. Primaries are weighted by the fitted rung-3 θ (v12 working fit). The luminous-companion mixture enters only as a contaminant.
 - **Companion components.**
   - **WD**: M2 0.15–1.40 M⊙ (M_Ch truncation in the target). The companion's own light comes from the WD cooling-track/companion-light model (§12.31, Bédard tracks), **not** f = 0, because hot young WDs are not dark in G.
-  - **Dark**: one dark component (f = 0), M2 continuous and log-uniform over 1.0–100 M⊙. The lowest measured NS mass is about 1.17 M⊙, and the ~100 M⊙ upper end allows a rate or a limit for very massive BHs. NS and BH classes are assigned only in the population model (§13.0).
+  - **Dark**: one dark component (f = 0), M2 continuous and log-uniform over 1.0–40 M⊙. The lowest measured NS mass is about 1.17 M⊙. NS and BH classes are assigned only in the population model (§13.0). Above 40 M⊙ (a rate or limit for ~100 M⊙ BHs) is a possible later extension, not part of rung 4: few or none are expected, and a good limit there is expensive.
 - **Orbit proposal.** P and e: the rung-3 proposal mixture (MdS17-shaped plus a defensive log-uniform over log P 0.2–8 and the bounded e proposal), with a core over log P 1.5–3.5, where astrometric sensitivity to dark companions peaks.
 - **Which M2 distribution to inject (plain language).** Recovery is reported as a function of (M2, P, e, G, d, M1). So the M2 distribution used for injection only decides **where the draws land**, which sets the Monte-Carlo efficiency; it does not change the measured selection function. We inject a broad proposal: log-uniform in M2 over each component's full range, with no literature prior. The class mass functions (WD with M_Ch; NS with soft M_TOV and its prior; BH above 3 M⊙) are applied afterwards by reweighting.
 - **Bookkeeping.** Importance weights use the deterministic mixture over all compact-object generations of one version (§3.7).
@@ -2489,9 +2489,7 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
    - Bias and coverage vs truth as a continuous function of M2.
 3. **Contamination.** The expected number of luminous-companion systems and spurious orbits whose inferred M2 / m_f lands in the WD, NS or BH ranges, per cell, from the rung-3 fit and the §12.16 template.
 4. **Rung-5 inputs.** The selection-function table and contamination model, with MC variance, for `inference` (Poisson × SF × dynesty). Literature-sample cut chains (Phase 8) are applied in rung 5, not rung 4.
-5. **Rung-5 / inference requirements recorded here.**
-   - (a) Fit an assumed functional form for the NS mass function over M_Ch < M < M_TOV − x, where x excludes BHs, and extrapolate it below M_Ch.
-   - (b) Feed the WD/NS contamination fraction into the NS mass function: some WDs are observationally identifiable, through the §12.31 companion light and the companion-nature evidence.
+5. **Rung-5 / inference requirement recorded here.** Feed the WD/NS contamination fraction into the NS mass function: some WDs are observationally identifiable, through the §12.31 companion light and the companion-nature evidence.
 
 ### 13.4 Validation gates (pass criteria; accepted by Ryan 2026-10-23)
 
@@ -2512,7 +2510,7 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 ### 13.6 Compute estimate
 
 - Dark companions do not dilute the photocentre, so they are detected efficiently. Expected cost is about 0.6–1.5 CPU s per draw.
-- Target: ESS ≥ 30 in about 150–200 cells (WD + dark × M2 bins over 1–100 M⊙ × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
+- Target: ESS ≥ 30 in about 150–200 cells (WD + dark × M2 bins over 1–40 M⊙ × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
 
 ### 13.7 Decisions and open items
 
@@ -2523,7 +2521,9 @@ Ryan's 2026-10-23 decisions:
 - R4-Q4: Phase-8 cut chains belong to rung 5.
 - R4-Q5: the gates are accepted.
 
-Ranges: the dark component spans 1–100 M⊙.
+Ranges: the dark component spans 1–40 M⊙. Above 40 M⊙ is a possible later extension.
+
+Open for later (Ryan wants to see the data before choosing functional forms): whether to fit an NS mass-function form over M_Ch < M < M_TOV − x and extrapolate it below M_Ch.
 
 Pipeline check, narrowed: #551 ensures the NS/BH separation near M_TOV is statistical (prior on M_TOV, marginalized) with no hard 3 M⊙ cut below it; BH means a dark companion above 3 M⊙.
 
