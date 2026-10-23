@@ -164,7 +164,18 @@ def main(argv: list[str] | None = None) -> int:
         f"{int((parent.is_giant & parent.usable).sum())} usable giants (flag only); "
         f"scale_to_full = {parent.scale_to_full:.1f}; decision_ref: {prop.decision_ref}"
     )
-    truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset, config=cfg)
+    wd_mags = None
+    if prop.compact_object is not None:  # spec §13 (rung 4): compact-object companions (WD with its own light, or dark)
+        from darkhunter_pop import compact_objects as cob
+
+        truth = cob.sample_co_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
+        mg_, mb_, mr_, teff_ = cob.wd_companion_abs_mags(truth, cob.wd_grid_for(prop, cfg.paths.data_root), prop)
+        truth.update(wd_abs_g=mg_, wd_abs_bp=mb_, wd_abs_rp=mr_, wd_teff_k=teff_)
+        wd_mags = (mg_, mb_, mr_)
+        print(f"compact objects ({prop.compact_object.version}): {int(np.sum(truth['co_component'] == cob.COMPONENT_CODES['wd']))} WD, "
+              f"{int(np.sum(truth['co_component'] == cob.COMPONENT_CODES['dark']))} dark draws", flush=True)
+    else:
+        truth = sample_proposal(parent, prop, draw_index_offset=args.draw_index_offset, config=cfg)
     if prop.m1 == "isochrone_posterior_draw_deblended":  # MP-Q35 + MP-Q36 (spec §11.9)
         from darkhunter_pop.proposal_set import apply_posterior_deblending
 
@@ -174,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     if prop.m1 == "single_catalog_system":  # spec §12.33: primary from the looks-single row, system photometry
         from darkhunter_pop.proposal_set import apply_system_photometry
 
-        truth = apply_system_photometry(truth, parent, cfg, prop)
+        truth = apply_system_photometry(truth, parent, cfg, prop, companion_abs_mags=wd_mags)
         print(f"system photometry: {int(np.sum(truth['system_in_cut']))} of {truth['draw_index'].size} draws pass the system cuts; "
               f"median G_sys - G_row = {np.nanmedian(truth['phot_g_mean_mag'] - truth['row_phot_g_mean_mag']):+.3f}", flush=True)
     if prop.resolved_companions is not None:  # spec §12.25: resolved-companion photocentre (f -> 0 in the cascade)
@@ -266,6 +277,19 @@ def main(argv: list[str] | None = None) -> int:
     cpu = np.array([r["cpu_seconds"] for r in done.values()])
     acc = sum(bool(r["accepted_orbital"]) for r in done.values())
     print(f"wrote {path}; accepted orbits {acc}/{n}; CPU s per draw mean {cpu.mean():.2f}, median {np.median(cpu):.2f}; wall {wall / 60:.1f} min")
+    if prop.compact_object is not None:  # spec §13.6: acceptance per component and cost
+        from darkhunter_pop import compact_objects as cob
+
+        idx = {int(d): i for i, d in enumerate(truth["draw_index"])}
+        recs = sorted(done.values(), key=lambda r: idx[int(r["draw_index"])])
+        comp = np.asarray(truth["co_component"])
+        orb = np.array([bool(r["accepted_orbital"]) for r in recs])
+        accel = np.array([bool(r["published_acceleration"]) for r in recs])
+        cpu_s = np.array([r["cpu_seconds"] for r in recs])
+        for name, code in cob.COMPONENT_CODES.items():
+            sel = comp == code
+            print(f"  {name}: {int(sel.sum())} draws; accepted orbit {int(orb[sel].sum())}, published acceleration "
+                  f"{int(accel[sel].sum())}, either {int((orb | accel)[sel].sum())}; CPU s/draw mean {cpu_s[sel].mean():.2f}", flush=True)
     return 0
 
 
