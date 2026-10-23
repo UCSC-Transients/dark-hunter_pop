@@ -35,7 +35,7 @@ def _run_guard(tmp_path: Path, env_over: dict, wait_s: float) -> tuple[str, bool
     job = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     pf, log = tmp_path / "job.pid", tmp_path / "job.log"
     pf.write_text(str(job.pid))
-    env = dict(os.environ, INTERVAL="1", **env_over)
+    env = dict(os.environ, INTERVAL="1", WARMUP_S="0", **env_over)
     g = subprocess.Popen(["zsh", str(JOBS / "mem_guard.sh"), str(pf), "time.sleep", str(log)], env=env)
     time.sleep(wait_s)
     alive = job.poll() is None
