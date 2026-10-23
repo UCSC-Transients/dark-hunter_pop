@@ -55,7 +55,7 @@ settings:
      ref: "spec §12.33 looks-single catalog, G < 20, BJ, parallax floor 0.2 mas (MP-Q1/Q4)"}
   # --- rung-3 fit configs --------------------------------------------------------------------------------------
   - {scope: fit_config, key: rung3.m1_law_mass, equals: initial, ref: "spec §12.19(a) MdS17 at M1,ZAMS"}
-  - {scope: fit_config, key: rung3.orbit_bins.g_mag, equals: [5.0, 13.0, 16.0, 19.5], ref: "v10 working grid, G = 16 edge (Ryan 2026-10-22)"}
+  - {scope: fit_config, key: rung3.orbit_bins.g_mag, equals: [9.0, 13.0, 16.0, 19.5], ref: "v11 working grid: v10 (G = 16 edge) with G < 9 excluded (Ryan 2026-10-22, spec §12.36)"}
   - {scope: fit_config, key: rung3.c1_period_max_days, equals: 830.4, ref: "C1: P <= 0.8 x 1038 d"}
   - {scope: fit_config, key: rung3.mc_variance, equals: parent_row, ref: "spec §12.20"}
   - {scope: fit_config, key: rung3.resolved_companions.enabled, equals: true, ref: "MP-Q27 (spec §12.23)"}

@@ -113,7 +113,10 @@ def _work(draw: dict[str, Any]) -> dict[str, Any]:
     if "blas_checked" not in _WORKER:
         _WORKER["blas_checked"] = True
         rec["blas_threads"] = blas_thread_report()
-        rec["worker_niceness"] = os.nice(0)
+        try:  # diagnostic only; some sandboxes refuse setpriority even for an increment of 0
+            rec["worker_niceness"] = os.nice(0)
+        except OSError:
+            rec["worker_niceness"] = None
     return rec
 
 
