@@ -2446,14 +2446,15 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
-### 13.0 Principle (rung 4, and all rungs): no NS/BH mass boundary, no fixed M_TOV
+### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
 
-- A boundary such as NS < 3 M⊙ < BH bakes in a TOV mass. NS and BH cannot generally be told apart for a single object, except where it is clearly above any plausible M_TOV (e.g. Gaia BH1–3), or statistically, if the populations prove distinct.
-- The dark-compact-object (DCO) mass function is therefore **one** continuous component over NS through BH masses, including the mass gap.
-  - Any gap is a parameterization choice (mass bins, or a power law with min/max and a gap). It may be its own component of the mass function, but it is not a physical class.
-  - **M_TOV is inferred** (e.g. from a sharp drop in dN/dM), never imposed.
-- White dwarfs keep their physics: the M_Ch truncation and the WD cooling and companion light.
-- The pipeline currently imposes an NS soft M_TOV; that is tracked in #551 (see §13.7).
+- The population model keeps **separate WD, NS and BH classes**, each with its own mass function (`docs/ARCHITECTURE.md`):
+  - WD: hard M_Ch limit;
+  - NS: soft M_TOV truncation with a physical prior (M_TOV ≈ 2.2 M⊙), marginalized;
+  - BH: dark companions with M > 3 M⊙ are BHs.
+- Near M_TOV, NS vs BH is a **statistical** separation, not a hard cut.
+- Why separate classes: their number densities at a given mass differ greatly. A single continuous mass function would prevent measuring the NS mass function below M_Ch.
+- **Injection for the selection function is continuous in M2.** Recovery depends on M2 (and the orbit, primary and sky), not on the class label. The class mass functions are applied afterwards by reweighting.
 
 ### 13.1 Goal
 
@@ -2472,28 +2473,31 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 - **Primaries.** The same parent and stratified rows. Primaries are weighted by the fitted rung-3 θ (v12 working fit). The luminous-companion mixture enters only as a contaminant.
 - **Companion components.**
   - **WD**: M2 0.15–1.40 M⊙ (M_Ch truncation in the target). The companion's own light comes from the WD cooling-track/companion-light model (§12.31, Bédard tracks), **not** f = 0, because hot young WDs are not dark in G.
-  - **DCO**: a single dark component (f = 0) with M2 continuous over 1.0–40 M⊙, spanning NS, gap and BH masses. There is no class boundary inside this range.
+  - **Dark**: one dark component (f = 0), M2 continuous and log-uniform over 1.0–100 M⊙. The lowest measured NS mass is about 1.17 M⊙, and the ~100 M⊙ upper end allows a rate or a limit for very massive BHs. NS and BH classes are assigned only in the population model (§13.0).
 - **Orbit proposal.** P and e: the rung-3 proposal mixture (MdS17-shaped plus a defensive log-uniform over log P 0.2–8 and the bounded e proposal), with a core over log P 1.5–3.5, where astrometric sensitivity to dark companions peaks.
-- **Which M2 distribution to inject (plain language).** Recovery is reported as a function of (M2, P, e, G, d, M1). So the M2 distribution used for injection only decides **where the draws land**, which sets the Monte-Carlo efficiency; it does not change the measured selection function. We inject a broad proposal: log-uniform in M2 over each component's full range, with no literature prior. Any rung-5 mass-function model (bins, power law with gap, a sharp drop at an inferred M_TOV) is applied afterwards by reweighting.
+- **Which M2 distribution to inject (plain language).** Recovery is reported as a function of (M2, P, e, G, d, M1). So the M2 distribution used for injection only decides **where the draws land**, which sets the Monte-Carlo efficiency; it does not change the measured selection function. We inject a broad proposal: log-uniform in M2 over each component's full range, with no literature prior. The class mass functions (WD with M_Ch; NS with soft M_TOV and its prior; BH above 3 M⊙) are applied afterwards by reweighting.
 - **Bookkeeping.** Importance weights use the deterministic mixture over all compact-object generations of one version (§3.7).
 - **Recipe and version.** The generation recipe is frozen: primary-model version, decided settings, N2d, epoch model. Compact-object generations carry their own version suffix (`…:co_v1`) and are never mixed with luminous generations in a fit (§12.33 separation).
 - **Held-out partition.** SBC mock catalogs come from a held-out partition of the compact-object draws (§3.8).
 
 ### 13.3 Outputs
 
-1. **Astrometric selection function** P(published orbit or acceleration | M2, P, e, G, d, M1) for the WD and DCO components, with Kish ESS per cell. It feeds `selection_function_astrometric` (#394), replacing the box-prior plumbing check.
+1. **Astrometric selection function** P(published orbit or acceleration | M2, P, e, G, d, M1) for the WD and dark components, with Kish ESS per cell. It feeds `selection_function_astrometric` (#394), replacing the box-prior plumbing check.
 2. **Mass recovery.**
    - The mass function m_f from the recovered (a0, P, ϖ) with the full covariance: `nss_covariance` for real rows, the cascade covariance for mocks. No diagonal fallback.
    - M2 posteriors given the primary M1 posterior.
    - Bias and coverage vs truth as a continuous function of M2.
-3. **Contamination.** The expected number of luminous-companion systems and spurious orbits whose inferred M2 / m_f lands in the WD or DCO ranges, per cell, from the rung-3 fit and the §12.16 template.
+3. **Contamination.** The expected number of luminous-companion systems and spurious orbits whose inferred M2 / m_f lands in the WD, NS or BH ranges, per cell, from the rung-3 fit and the §12.16 template.
 4. **Rung-5 inputs.** The selection-function table and contamination model, with MC variance, for `inference` (Poisson × SF × dynesty). Literature-sample cut chains (Phase 8) are applied in rung 5, not rung 4.
+5. **Rung-5 / inference requirements recorded here.**
+   - (a) Fit an assumed functional form for the NS mass function over M_Ch < M < M_TOV − x, where x excludes BHs, and extrapolate it below M_Ch.
+   - (b) Feed the WD/NS contamination fraction into the NS mass function: some WDs are observationally identifiable, through the §12.31 companion light and the companion-nature evidence.
 
 ### 13.4 Validation gates (pass criteria; accepted by Ryan 2026-10-23)
 
 - **Gate 4a, recovery closure.** Re-injected known compact objects (Gaia BH1/BH2/BH3 analogues and El-Badry 2024 candidates at their published parameters) are recovered at rates consistent with the mock selection function within MC + Poisson errors.
 - **Gate 4b, mass recovery.** M2 bias < 5% and coverage within ±5% of nominal (68/95%), in M2 bins where recovered.
-- **Gate 4c, SBC.** Rank statistics uniform (KS p > 0.01) on ≥ 200 held-out mock catalogs, for the WD and DCO mass functions under the rung-5 parameterization.
+- **Gate 4c, SBC.** Rank statistics uniform (KS p > 0.01) on ≥ 200 held-out mock catalogs, for the WD, NS and BH mass functions (with M_TOV marginalized).
 - **Gate 4d, MC noise.** σ_MC / σ_Poisson < `physics.mc_noise_threshold` (0.1) in every cell used by rung 5, or the cell is merged or flagged.
 - **Gate 4e, contamination closure.** On mocks, the predicted luminous-plus-spurious contamination matches the injected contamination within errors.
 
@@ -2507,19 +2511,21 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 
 ### 13.6 Compute estimate
 
-- Dark (DCO) companions do not dilute the photocentre, so they are detected efficiently. Expected cost is about 0.6–1.5 CPU s per draw.
-- Target: ESS ≥ 30 in about 150–200 cells (WD + DCO × M2 bins × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
+- Dark companions do not dilute the photocentre, so they are detected efficiently. Expected cost is about 0.6–1.5 CPU s per draw.
+- Target: ESS ≥ 30 in about 150–200 cells (WD + dark × M2 bins over 1–100 M⊙ × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
 
 ### 13.7 Decisions and open items
 
-- Ryan's 2026-10-23 decisions:
-  - R4-Q1: broad log-uniform M2 injection, no literature prior; efficiency only.
-  - R4-Q2: answered by §13.0.
-  - R4-Q3: WD companion light is modelled.
-  - R4-Q4: Phase-8 cut chains belong to rung 5.
-  - R4-Q5: the gates are accepted.
-- **Pipeline-wide (issue #551, docs-first before any code):** replace the NS soft M_TOV truncation and prior with a single DCO mass function in which M_TOV is inferred. Affected: `ARCHITECTURE.md` (NS M_TOV section), config `M_TOV_msun` / `m_tov_soft_width_msun` / `m_tov_prior_*`, `population_model.m_tov_msun`, and the CLAUDE.md convention "soft M_TOV to NS only". Build on ARCHITECTURE's existing "raw total compact-object dN/dM, no M_TOV assumption" tier.
-- Open: how the WD component relates to the DCO component beyond keeping M_Ch (Ryan has not ruled).
+Ryan's 2026-10-23 decisions:
+- R4-Q1: broad log-uniform M2 injection with no literature prior; it affects efficiency only.
+- R4-Q2: WD / NS / BH classes are kept in the population model; near M_TOV the separation is statistical (§13.0).
+- R4-Q3: WD companion light is modelled.
+- R4-Q4: Phase-8 cut chains belong to rung 5.
+- R4-Q5: the gates are accepted.
+
+Ranges: the dark component spans 1–100 M⊙.
+
+Pipeline check, narrowed: #551 ensures the NS/BH separation near M_TOV is statistical (prior on M_TOV, marginalized) with no hard 3 M⊙ cut below it; BH means a dark companion above 3 M⊙.
 
 ## References
 
