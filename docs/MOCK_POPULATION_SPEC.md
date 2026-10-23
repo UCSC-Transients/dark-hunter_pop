@@ -2428,6 +2428,10 @@ A system both detected spectroscopically and accepted astrometrically is publish
 - `mem_guard.sh` (v3) stops on swap growth since the guard started, or on low free memory, and kills the whole process tree by PID;
 - `start_generation.sh` launches a generation with its CPU-h, wall-clock and memory guards.
 - Chains stop at the first failure (`run_heavy.sh ... || exit 1`).
+- `mem_guard.sh` v4 (Ryan, 2026-10-23) stops the job tree in two cases, and logs the reason on every stop:
+  - (a) free memory < 10% or critical kernel memory pressure;
+  - (b) swap growth > 4 GB **and** our own job tree is large (RSS > 50% of RAM, or grown > 4 GB).
+  Swap growth from other applications alone no longer stops a run; v3's absolute-growth rule stopped gen 45 at 56% free memory.
 - The old untracked wrappers are deprecated: mem_guard2's descendant kill failed under zsh and let 7 fits run concurrently on 2026-10-21.
 
 ### 12.36 G < 9 excluded from the rung-3 fit (Ryan, 2026-10-22)
