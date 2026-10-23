@@ -2444,6 +2444,75 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Open item (option a).** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
 
+## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23)
+
+### 13.1 Goal
+
+Measure how DR3 selects and measures binaries whose companion is a **dark compact object** (WD / NS / BH, flux ratio f = 0). This is done through the full Step-1 forward model that rung 3 validated on luminous binaries:
+- the looks-single primary catalog (§12.33; primary-model version `looks_single_v2:…`);
+- system observables from the components;
+- the §8 epoch model and the §12.32 N2d noise;
+- the gaiamock cascade with the acceleration-first rule and the publication cuts;
+- the §12.16 spurious template;
+- the §12.23/§12.25 resolved companions (inactive for dark companions, kept for bookkeeping).
+
+Rung 4 is the gate for rung 5 (real inference). It passes only when the compact-object selection function and mass recovery are measured, with stated Monte-Carlo noise, and simulation-based calibration (SBC) on held-out mocks is uniform (§5).
+
+### 13.2 Injection design
+
+- **Primaries.** The same parent and stratified rows. The population of primaries is weighted by the fitted rung-3 θ (v12 working fit). The luminous-companion mixture enters only as a contaminant.
+- **Companion proposal.** M2 log-uniform per class over:
+  - WD 0.15–1.40 M⊙ (M_Ch truncation applied in the target, not the proposal);
+  - NS 1.0–3.0 M⊙ (covering a soft M_TOV);
+  - the mass gap 2.5–5 M⊙;
+  - BH 3–40 M⊙.
+  The class label is part of the draw. f = 0.
+- **Orbit proposal.** P and e: the rung-3 proposal mixture (MdS17-shaped plus a defensive log-uniform over log P 0.2–8 and the bounded e proposal), with a core over log P 1.5–3.5, where astrometric sensitivity to dark companions peaks.
+- **Bookkeeping.** Importance weights use the deterministic mixture over all compact-object generations of one version, exactly as in §3.7. The target is the rung-5 population model at a reference θ_CO (flat in log M2 per class by default), so the selection function can be reweighted to any θ_CO without new draws.
+- **Recipe and guard.** The generation recipe is frozen: primary-model version, decided settings, N2d, epoch model. Compact-object generations carry their own version suffix (`…:co_v1`) and are never mixed with luminous generations in a fit (§12.33 separation).
+- **Held-out partition.** SBC mock catalogs come from a held-out partition of the compact-object draws (§3.8).
+
+### 13.3 Outputs
+
+1. **Astrometric selection function** P(published orbit or acceleration | M2, class, P, e, G, d, M1), with Kish ESS per cell. It feeds `selection_function_astrometric` (#394), replacing the box-prior plumbing check.
+2. **Mass recovery.**
+   - The mass function m_f from the recovered (a0, P, ϖ) with the full NSS covariance. Covariance is reconstructed only through `nss_covariance` for real rows, and taken from the cascade covariance for mocks. No diagonal fallback.
+   - M2 posteriors given the primary M1 posterior.
+   - Bias and coverage vs truth per class.
+3. **Contamination.** The expected number of luminous-companion systems and of spurious orbits that would be inferred as compact (m_f / M2 above the class thresholds). Computed from the rung-3 fit (luminous) and the §12.16 template (spurious), per cell.
+4. **Rung-5 inputs.** The selection-function table and the contamination model, with MC variance, for `inference` (Poisson × SF × dynesty).
+
+### 13.4 Validation gates (pass criteria)
+
+- **Gate 4a, recovery closure.** Re-injected known compact objects (Gaia BH1/BH2/BH3 analogues and El-Badry 2024 NS/WD candidates at their published parameters) are recovered at rates consistent with the mock selection function within MC + Poisson errors.
+- **Gate 4b, mass recovery.** M2 bias < 5% and coverage within ±5% of nominal (68/95%) per class, where recovered.
+- **Gate 4c, SBC.** Rank statistics uniform (KS p > 0.01 per class parameter) on ≥ 200 held-out mock catalogs, for WD / NS / BH dN/dM.
+- **Gate 4d, MC noise.** σ_MC / σ_Poisson < `physics.mc_noise_threshold` (0.1) in every cell used by rung 5, or the cell is merged or flagged.
+- **Gate 4e, contamination closure.** On mocks, luminous-plus-spurious contamination predicted by the model matches the injected contamination within errors.
+
+### 13.5 Systematics carried over from rung 3 (stated in every rung-4 result)
+
+- G < 10 excluded: DR3 spectroscopic routing (§12.36). Option (a), the SB1 input selection, is deferred.
+- The d > 1.5 kpc cells are ESS-limited (orbit:accel diagnostic).
+- Twin occupancy at d < 0.2 kpc is noisy.
+- MIST low-mass and turnoff-region single-cut systematics (§12.24, §12.33 amendments).
+- Gaia completeness at G 19–20 for primaries.
+
+### 13.6 Compute estimate
+
+- Dark companions are detected more efficiently than luminous ones: the photocentre is not diluted.
+- Expected cost is about 0.6–1.5 CPU s per draw (cascade fit attempted more often).
+- Target: ESS ≥ 30 in about 200 cells (3 classes + gap × 6 M2 bins × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches.
+- SBC is reweighting only.
+
+### 13.7 Open questions for Ryan
+
+- (R4-Q1) Reference θ_CO for the target (flat in log M2 per class vs a literature prior) — affects efficiency only.
+- (R4-Q2) Whether the mass gap is a separate class or part of the NS/BH ranges.
+- (R4-Q3) Treatment of WD companions near the luminosity threshold (hot young WDs are not dark in G). Use the §12.31 companion-light model or keep f = 0?
+- (R4-Q4) Whether the El-Badry 2024/2026 literature samples' own cut chains (§ARCHITECTURE Phase 8) are applied in rung 4 or only in rung 5.
+- (R4-Q5) Acceptance thresholds for gates 4a–4e (proposed above).
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
