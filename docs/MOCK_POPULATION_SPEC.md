@@ -2453,7 +2453,7 @@ A system both detected spectroscopically and accepted astrometrically is publish
   - Any gap is a parameterization choice (mass bins, or a power law with min/max and a gap). It may be its own component of the mass function, but it is not a physical class.
   - **M_TOV is inferred** (e.g. from a sharp drop in dN/dM), never imposed.
 - White dwarfs keep their physics: the M_Ch truncation and the WD cooling and companion light.
-- The pipeline currently imposes an NS soft M_TOV; that is tracked in a separate issue (see §13.7).
+- The pipeline currently imposes an NS soft M_TOV; that is tracked in #551 (see §13.7).
 
 ### 13.1 Goal
 
@@ -2518,7 +2518,7 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
   - R4-Q3: WD companion light is modelled.
   - R4-Q4: Phase-8 cut chains belong to rung 5.
   - R4-Q5: the gates are accepted.
-- **Pipeline-wide (separate issue, docs-first before any code):** replace the NS soft M_TOV truncation and prior with a single DCO mass function in which M_TOV is inferred. Affected: `ARCHITECTURE.md` (NS M_TOV section), config `M_TOV_msun` / `m_tov_soft_width_msun` / `m_tov_prior_*`, `population_model.m_tov_msun`, and the CLAUDE.md convention "soft M_TOV to NS only". Build on ARCHITECTURE's existing "raw total compact-object dN/dM, no M_TOV assumption" tier.
+- **Pipeline-wide (issue #551, docs-first before any code):** replace the NS soft M_TOV truncation and prior with a single DCO mass function in which M_TOV is inferred. Affected: `ARCHITECTURE.md` (NS M_TOV section), config `M_TOV_msun` / `m_tov_soft_width_msun` / `m_tov_prior_*`, `population_model.m_tov_msun`, and the CLAUDE.md convention "soft M_TOV to NS only". Build on ARCHITECTURE's existing "raw total compact-object dN/dM, no M_TOV assumption" tier.
 - Open: how the WD component relates to the DCO component beyond keeping M_Ch (Ryan has not ruled).
 
 ## References
