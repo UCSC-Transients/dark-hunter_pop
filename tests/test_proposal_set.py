@@ -1151,6 +1151,7 @@ def test_fingerprint_unchanged_by_new_default_fields(fragment: ps.ProposalSetFra
         d.pop(k, None)
     d["parent"].pop("include_supplement", None)
     d["parent"].pop("extra_targets", None)
+    d["parent"].pop("row_weight_fraction", None)  # #552 (0 = older)
     for k in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
         d["m2"].pop(k, None)
     import hashlib
