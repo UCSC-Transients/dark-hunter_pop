@@ -2518,6 +2518,11 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 - Weight efficiency under the default θ_CO (training partition): ESS 45 of about 650 WD draws and 312 of about 950 dark draws, but only 1.1 (WD) and 18 (dark) among the detected draws. No cell reaches ESS 30 yet.
 - **Revised estimate.** At 1.6 CPU s per draw and about 0.01 detected-draw ESS per draw, the ~150 cells at ESS ≥ 30 need about 3–6 × 10⁵ draws, i.e. **130–270 CPU-h**. That is above the 60–200 CPU-h range above. Most of the gap is weight efficiency, not cost: the parent proposal favours nearby rows, while θ_CO weights all primaries equally, and the WD cooling-age target is narrower than the proposal. A re-centred proposal (top-up, §3.7) should come before any batch.
 
+**Re-centred proposal (Ryan, 2026-10-24; generation 1001, same `co_v1` version).** Proposal settings only: the target, the recipe and the primary-model version are unchanged, so generations 1000 and 1001 combine in one deterministic mixture.
+- (a) **Primary rows.** A share `parent.row_weight_fraction` of q(s) is ∝ the stratum row weight over the usable rows. That is the default θ_CO's own row law: every looks-single primary is equally likely, so p/q is constant on that share. The rest is the gen-1000 mixture, kept as a defensive part for the nearby and evolved tails.
+- (b) **WD cooling age.** A share `wd_cooling_age_matched.weight` is uniform in t on [0, t_sys,row − t_prog(M_WD)]. This is the R4-Q8 law at the row's posterior-mean isochrone age; the draw's own posterior-draw age only enters the target. The rest is the defensive log-uniform 1 Myr–14 Gyr. Where the row has no available time, the whole share goes to the defensive part. The settings repeat the target's IFMR and lifetime numbers in the proposal config, so q stays evaluable without the target.
+- **Prediction before the run.** The smoke draws were reweighted to the new q with ESS'/N = (Σ w d)² / (N Σ w² d q/q′) (and likewise for all draws). Results are recorded with the verification pilot below.
+
 ### 13.7 Decisions and open items
 
 Ryan's 2026-10-23 decisions:
