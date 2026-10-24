@@ -2512,6 +2512,12 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 - Dark companions do not dilute the photocentre, so they are detected efficiently. Expected cost is about 0.6–1.5 CPU s per draw.
 - Target: ESS ≥ 30 in about 150–200 cells (WD + dark × M2 bins over 1–40 M⊙ × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
 
+**Smoke-pilot measurement (#552, generation 1000, 2,000 draws, 2 workers, 2026-10-23).**
+- CPU: 1.58 s per draw on average (WD 0.77, dark 2.13; 1.81 s per draw that reaches the cascade). The covariance adds < 1 ms per orbit.
+- 1,737 of 2,000 draws pass the system cuts. Raw detection rate (orbit or acceleration) among them: WD 3.9 %, dark 1–2.2 M⊙ 6.6 %, 2.2–3 M⊙ 6.9 %, 3–40 M⊙ 8.3 %.
+- Weight efficiency under the default θ_CO (training partition): ESS 45 of about 650 WD draws and 312 of about 950 dark draws, but only 1.1 (WD) and 18 (dark) among the detected draws. No cell reaches ESS 30 yet.
+- **Revised estimate.** At 1.6 CPU s per draw and about 0.01 detected-draw ESS per draw, the ~150 cells at ESS ≥ 30 need about 3–6 × 10⁵ draws, i.e. **130–270 CPU-h**. That is above the 60–200 CPU-h range above. Most of the gap is weight efficiency, not cost: the parent proposal favours nearby rows, while θ_CO weights all primaries equally, and the WD cooling-age target is narrower than the proposal. A re-centred proposal (top-up, §3.7) should come before any batch.
+
 ### 13.7 Decisions and open items
 
 Ryan's 2026-10-23 decisions:
