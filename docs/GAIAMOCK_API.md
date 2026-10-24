@@ -84,6 +84,16 @@ Explicitly **out of** `physics_utils.py`:
 - Astrometric mass-function inversion already in `get_companion_mass_from_mass_function`
 - Dust / Galactic density sampling already in gaiamock helpers (unless we later replace the exponential-disk prior with our own population model draws — that replacement belongs in `population_model` / `forward_model`, not a reimplementation of Kepler)
 
+## Full cascade covariance (#552, rung 4)
+
+`fit_full_astrometric_cascade` returns only the diagonal uncertainties; the 12×12 matrix it inverts inside
+`get_uncertainties_at_best_fit_binary_solution` is discarded. `compact_objects.orbit_covariance_from_epochs`
+rebuilds it from gaiamock's own public functions: `get_astrometric_chi2` (linear parameters and χ² at the
+fitted P, φ_p, e) and `get_astrometric_residuals_12par` (Jacobian by central differences, gaiamock's step),
+then (JᵀJ)⁻¹ times gaiamock's error-inflation factor. Thin glue, no Kepler or fit code; every stored matrix
+carries a check against the cascade's own σ. The alternative is an overlay change that returns the matrix
+(a new release triple).
+
 ## Import checklist for stage authors
 
 ```python

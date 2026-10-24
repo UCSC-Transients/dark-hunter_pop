@@ -1131,11 +1131,16 @@ def primary_and_system_photometry(
     evolved: ArrayLike,
     *,
     densify: int = 4,
+    companion_abs_mags: tuple[ArrayLike, ArrayLike, ArrayLike] | None = None,
 ) -> dict[str, FloatArray]:
     """Spec §12.33: the single-star primary on ``iso`` (the posterior draw's branch point nearest the looks-single
     row's dereddened CMD) and the system made of that primary plus a coeval MS companion at M2 = q M1 with G-flux
     ratio f (none for ``log10_f = -inf``). Returns absolute (dereddened) ``m1``, ``mg1``, ``c1``, ``log_teff1``,
-    ``mg_sys``, ``c_sys``. Interpolation only."""
+    ``mg_sys``, ``c_sys`` and the companion's ``log10_f``. Interpolation only.
+
+    ``companion_abs_mags`` (spec §13.2, rung 4): per-draw absolute (M_G, M_BP, M_RP) of a companion with its
+    own photometry (a WD on its cooling sequence). Where finite, they replace the MS companion: f = 10^(−0.4
+    (M_G,2 − M_G,1)) and the companion's BP and RP fluxes are its own; ``q`` and ``log10_f`` are ignored there."""
     x = np.arange(iso["star_mass"].size, dtype=float)
     xf = np.linspace(0.0, x[-1], int(x[-1]) * densify + 1)
     col = {kk: np.interp(xf, x, np.asarray(vv, float)) for kk, vv in iso.items()}
@@ -1159,6 +1164,15 @@ def primary_and_system_photometry(
     fl = lambda mag: 10.0 ** (-0.4 * mag)  # noqa: E731
     bp2 = np.where(f > 0, fl(g2 + np.interp(m2, mm, bpg)), 0.0)
     rp2 = np.where(f > 0, fl(g2 - np.interp(m2, mm, grp)), 0.0)
+    if companion_abs_mags is not None:
+        cg, cb, cr = (np.broadcast_to(np.asarray(a, float), m1.shape) for a in companion_abs_mags)
+        own = np.isfinite(cg) & np.isfinite(cb) & np.isfinite(cr)
+        f = np.where(own, fl(np.where(own, cg, 0.0) - g1), f)
+        bp2 = np.where(own, fl(np.where(own, cb, 0.0)), bp2)
+        rp2 = np.where(own, fl(np.where(own, cr, 0.0)), rp2)
     mg_sys = g1 - 2.5 * np.log10(1.0 + f)
     c_sys = -2.5 * np.log10(fl(bp1) + bp2) + 2.5 * np.log10(fl(rp1) + rp2)
-    return {"m1": m1, "mg1": g1, "c1": bp1 - rp1, "log_teff1": col["log_teff"][j], "mg_sys": mg_sys, "c_sys": c_sys}
+    with np.errstate(divide="ignore"):
+        lf_out = np.where(f > 0, np.log10(np.where(f > 0, f, 1.0)), -np.inf)
+    return {"m1": m1, "mg1": g1, "c1": bp1 - rp1, "log_teff1": col["log_teff"][j], "mg_sys": mg_sys, "c_sys": c_sys,
+            "log10_f": lf_out}

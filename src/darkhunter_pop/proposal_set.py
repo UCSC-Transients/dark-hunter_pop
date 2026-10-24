@@ -45,6 +45,7 @@ from darkhunter_pop import moe_distefano as mds
 from darkhunter_pop.config_loader import repo_root
 from darkhunter_pop.config_schema import OrbitalSolutionCutsConfig, PipelineConfig
 from darkhunter_pop.forward_model import (
+    SolutionType,
     classify_cascade_result,
     mock_global_rng_seeds,
     seeded_global_rng,
@@ -462,6 +463,72 @@ class ParentSupplementConfig(_Strict):
     bright_g_max: float
 
 
+class CompactComponentProposalConfig(_Strict):
+    """One compact-object component of the rung-4 proposal (spec §13.2): probability ``weight``,
+    then M2 log-uniform on [``m2_min_msun``, ``m2_max_msun``] (absolute, not tied to M1)."""
+
+    weight: float = Field(..., gt=0.0, lt=1.0)
+    m2_min_msun: float = Field(..., gt=0.0)
+    m2_max_msun: float = Field(..., gt=0.0)
+
+    @model_validator(mode="after")
+    def _order(self) -> CompactComponentProposalConfig:
+        if not self.m2_min_msun < self.m2_max_msun:
+            raise ValueError("m2_min_msun must be < m2_max_msun")
+        return self
+
+
+class WDLightConfig(_Strict):
+    """Spec §13.2 (R4-Q3): the WD companion's own light from the Montreal synthetic photometry on the
+    Bédard et al. (2020) cooling sequences, snapshot by ``scripts/build_wd_cooling_snapshot.py``.
+    ``snapshot`` is relative to ``paths.data_root``; ``sha256`` is that of its ``tracks.csv``."""
+
+    snapshot: str
+    sha256: str
+    atmosphere: Literal["DA"]
+    #: Ages below this floor (yr) are evaluated at the floor (the sequences start at age 0).
+    min_age_yr: float = Field(..., gt=0.0)
+
+
+class CompactObjectProposalConfig(_Strict):
+    """Rung-4 compact-object proposal (spec §13.2); replaces the luminous ``m2`` / ``flux`` / ``m2_p_shape``
+    sampling for this generation. The parent, period, eccentricity, epoch model, cascade and §12.33
+    system photometry are the luminous generation's.
+
+    * ``wd``: f from the WD's own light (cooling age drawn log-uniform in Gyr on
+      ``wd_log10_cooling_age_gyr``, a stored and reweightable truth column);
+    * ``dark``: f = 0.
+
+    ``version`` (``co_vN``) is appended to the primary-model version, so the §12.33 guard refuses to
+    combine these draws with luminous generations. ``sbc_holdout_fraction`` of the draws (a hash of
+    ``draw_index`` with ``sbc_holdout_salt``) is held out for SBC (spec §3.8, §13.2).
+    ``store_orbit_covariance``: the full 12×12 covariance of every orbital cascade fit (mass recovery,
+    spec §13.3), from gaiamock's own residual function with central differences of step
+    ``covariance_jacobian_step`` (gaiamock's own step).
+    """
+
+    version: str = Field(..., pattern=r"^co_v[0-9]+$")
+    wd: CompactComponentProposalConfig
+    dark: CompactComponentProposalConfig
+    wd_log10_cooling_age_gyr: tuple[float, float]
+    wd_light: WDLightConfig
+    sbc_holdout_fraction: float = Field(..., gt=0.0, lt=1.0)
+    sbc_holdout_salt: int = Field(..., ge=0)
+    store_orbit_covariance: bool
+    covariance_jacobian_step: float = Field(..., gt=0.0)
+
+    @model_validator(mode="after")
+    def _weights(self) -> CompactObjectProposalConfig:
+        if not math.isclose(self.wd.weight + self.dark.weight, 1.0, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("compact_object wd.weight + dark.weight must be 1")
+        lo, hi = self.wd_log10_cooling_age_gyr
+        if not lo < hi:
+            raise ValueError("wd_log10_cooling_age_gyr must be increasing")
+        if self.wd.m2_max_msun > float(constants.M_CH.value):
+            raise ValueError("the WD component cannot extend above M_Ch (constants.M_CH)")
+        return self
+
+
 class ProposalConfig(_Strict):
     generation: int = Field(..., ge=0)
     n_draws: int = Field(..., ge=1)
@@ -508,6 +575,94 @@ class ProposalConfig(_Strict):
     # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
     # gaiamock's GOST list. Generation-time: it changes the epochs (spec §3.5).
     epoch_model: Literal["off", "dr3_config"] = "off"
+    #: Spec §13 (rung 4): compact-object companions instead of the luminous proposal; None = luminous.
+    #: ``m2`` / ``flux`` are then not sampled (kept so the fragment schema and the decided-settings guard
+    #: stay one); ``m2_p_shape`` must be None (it is a q = M2 / M1 shape).
+    compact_object: CompactObjectProposalConfig | None = None
+
+    @model_validator(mode="after")
+    def _compact_object_mode(self) -> ProposalConfig:
+        if self.compact_object is not None:
+            if self.m2_p_shape is not None:
+                raise ValueError("compact_object generations take no m2_p_shape (it is a q = M2/M1 shape)")
+            if self.m1 != "single_catalog_system" or self.epoch_model == "off":
+                raise ValueError("compact_object generations need m1 single_catalog_system (spec §12.33) and the epoch model")
+        return self
+
+
+class CompactM2TargetConfig(_Strict):
+    """Rung-4 target M2 law of one component: dN/dlog10 M2 = ``rate_per_primary`` × M2^``slope``, normalized
+    on [``m2_min_msun``, ``m2_max_msun``] (zero outside). Class mass functions (WD with M_Ch, NS with the
+    soft M_TOV prior, BH above 3 M☉; spec §13.0) are applied by reweighting with other θ_CO; this is only
+    the default reweighting target."""
+
+    rate_per_primary: float = Field(..., gt=0.0)
+    m2_min_msun: float = Field(..., gt=0.0)
+    m2_max_msun: float = Field(..., gt=0.0)
+    slope: float = 0.0
+
+    @model_validator(mode="after")
+    def _order(self) -> CompactM2TargetConfig:
+        if not self.m2_min_msun < self.m2_max_msun:
+            raise ValueError("m2_min_msun must be < m2_max_msun")
+        return self
+
+
+class WDCoolingAgeTargetConfig(_Strict):
+    """Target density of the WD cooling age (spec §13.2, R4-Q3; provisional, reweight-only).
+
+    ``uniform_to_system_age``: constant WD formation rate, i.e. t_cool uniform on
+    [0, t_sys − t_prog(M_WD)], with t_sys the primary's own posterior-draw isochrone age (coeval system)
+    and t_prog = ``ms_lifetime_gyr_at_1msun`` × (M_i / M☉)^``ms_lifetime_mass_exponent`` at the initial
+    mass M_i from the inverted piecewise-linear IFMR ``ifmr_segments`` (M_f = slope M_i + intercept on
+    [M_i,lo, M_i,hi]); M_WD above the IFMR's final-mass range is clamped to its top. M_WD below it (He-core
+    and low-mass WDs, made by binary interaction rather than single-star evolution) follows ``below_ifmr``:
+    ``no_progenitor_delay`` (t_prog = 0) or ``clamp`` (the lowest IFMR progenitor). Zero where t_sys ≤ t_prog
+    (the WD cannot have formed yet).
+    """
+
+    shape: Literal["uniform_to_system_age"]
+    ifmr_segments: tuple[tuple[float, float, float, float], ...] = Field(..., min_length=1)
+    ifmr_ref: str
+    below_ifmr: Literal["no_progenitor_delay", "clamp"]
+    ms_lifetime_gyr_at_1msun: float = Field(..., gt=0.0)
+    ms_lifetime_mass_exponent: float
+
+
+class CompactOrbitTargetConfig(_Strict):
+    """Rung-4 default orbit target: log P uniform on [``log_p_min``, ``log_p_max``]; e = 0 for
+    P ≤ ``circular_period_days``, else uniform (``uniform_to_emax``) or thermal 2e/E² (``thermal_to_emax``)
+    below E = e_max(P) = 1 − (P / ``e_max_period_scale_days``)^``e_max_exponent`` (MdS17 Eq. 3)."""
+
+    log_p_min: float
+    log_p_max: float
+    eccentricity: Literal["uniform_to_emax", "thermal_to_emax"]
+    circular_period_days: float = Field(..., gt=0.0)
+    e_max_period_scale_days: float = Field(..., gt=0.0)
+    e_max_exponent: float = Field(..., lt=0.0)
+
+
+class CompactObjectTargetConfig(_Strict):
+    """Default rung-4 reweighting target θ_CO (spec §13.2-13.3). The selection-function table is reported per
+    (M2, P, e, G, d, M1) cell, so θ_CO only shapes the within-cell averages; any other θ_CO is a reweight.
+
+    Primaries: the parent rows with their stratum row weights, × max(M1 / ``primary_m1_pivot_msun``, 1)
+    ^``primary_m1_power`` (0 = every looks-single primary equally likely to host a compact companion).
+    """
+
+    version: str = Field(..., pattern=r"^co_v[0-9]+$")
+    primary_m1_power: float = 0.0
+    primary_m1_pivot_msun: float = Field(..., gt=0.0)
+    wd: CompactM2TargetConfig
+    dark: CompactM2TargetConfig
+    wd_cooling_age: WDCoolingAgeTargetConfig
+    orbit: CompactOrbitTargetConfig
+
+    @model_validator(mode="after")
+    def _m_ch(self) -> CompactObjectTargetConfig:
+        if self.wd.m2_max_msun > float(constants.M_CH.value):  # WD class: hard M_Ch (ARCHITECTURE)
+            raise ValueError("the WD target cannot extend above M_Ch (constants.M_CH)")
+        return self
 
 
 class MdS17TargetConfig(_Strict):
@@ -544,6 +699,17 @@ class ProposalSetFragment(_Strict):
 
     proposal: ProposalConfig
     target_mds17: MdS17TargetConfig
+    #: Spec §13: the compact-object reweighting target; required iff ``proposal.compact_object`` is set.
+    target_co: CompactObjectTargetConfig | None = None
+
+    @model_validator(mode="after")
+    def _co_target(self) -> ProposalSetFragment:
+        co = self.proposal.compact_object
+        if (co is None) != (self.target_co is None):
+            raise ValueError("target_co is required with proposal.compact_object, and only then")
+        if co is not None and self.target_co is not None and co.version != self.target_co.version:
+            raise ValueError(f"target_co.version {self.target_co.version} != proposal.compact_object.version {co.version}")
+        return self
 
 
 def load_proposal_set_fragment(path: str | Path) -> ProposalSetFragment:
@@ -563,15 +729,27 @@ def primary_model_version(cfg: ProposalConfig) -> str:
     if sc is None:
         raise ValueError("single_catalog_system needs proposal.single_catalog")
     lo, hi = sc.dm_colour_range
-    return f"looks_single_v2:ruwe{sc.ruwe_max:g}:dm{sc.dm_min:g}:c{lo:g}-{hi:g}:g{sc.system_g_max:g}"
+    base = f"looks_single_v2:ruwe{sc.ruwe_max:g}:dm{sc.dm_min:g}:c{lo:g}-{hi:g}:g{sc.system_g_max:g}"
+    # Spec §13.2: compact-object generations carry their own suffix and are never combined with luminous ones.
+    return base if cfg.compact_object is None else f"{base}:{cfg.compact_object.version}"
+
+
+def is_compact_object_version(version: str) -> bool:
+    """True for a compact-object primary-model version (``...:co_vN``, spec §13.2)."""
+    return version.rsplit(":", 1)[-1].startswith("co_v")
 
 
 def check_single_primary_model(gen_cfgs: Sequence[ProposalConfig], *, allow_mixed: bool = False) -> str:
     """Return the one primary-model version of ``gen_cfgs``; raise if they differ unless ``allow_mixed``
-    (then return ``"MIXED(...)"`` so outputs can be labelled diagnostic)."""
+    (then return ``"MIXED(...)"`` so outputs can be labelled diagnostic).
+
+    Compact-object (``...:co_vN``) and luminous generations are never combined, not even as a labelled
+    diagnostic (spec §13.2): that mix raises regardless of ``allow_mixed``."""
     versions = sorted({primary_model_version(g) for g in gen_cfgs})
     if len(versions) == 1:
         return versions[0]
+    if len({is_compact_object_version(v) for v in versions}) > 1:
+        raise ValueError(f"refusing to combine compact-object and luminous generations (spec §13.2): {versions}")
     if not allow_mixed:
         raise ValueError(f"refusing to combine generations with different primary models (spec §12.33): {versions}; "
                          "pass --allow-mixed for a labelled diagnostic")
@@ -589,6 +767,8 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d["parent"].pop("include_supplement", None)
     if not d["parent"].get("extra_targets"):
         d["parent"].pop("extra_targets", None)
+    if d.get("compact_object") is None:  # spec §13: luminous generations keep their fingerprints
+        d.pop("compact_object", None)
     m2 = d["m2"]  # §12.28 defaults keep older fingerprints
     if m2.get("evolved_tie", "row_m1") == "row_m1" and m2.get("evolved_q_min") is None and m2.get("evolved_q_max") is None:
         for k_ in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
@@ -1673,10 +1853,18 @@ def simulate_one(
         c_funcs=c_funcs,
     )
     t0 = time.process_time()
+    co = cfg.compact_object
+    want_cov = co is not None and co.store_orbit_covariance
+    if want_cov and epoch is None:
+        raise ValueError("compact_object store_orbit_covariance needs the epoch model (the epochs are kept from run_cascade)")
+    epochs = None
     if not bool(draw.get("system_in_cut", True)):  # spec §12.33: the system fails the parent cuts; no cascade
-        return {"draw_index": int(draw["draw_index"]), "solution_type": "not_in_parent", "accepted_orbital": False,
+        rec0 = {"draw_index": int(draw["draw_index"]), "solution_type": "not_in_parent", "accepted_orbital": False,
                 "published_acceleration": False, "cascade": [0.0] * CASCADE_VECTOR_LENGTH, "f_m_msun": float("nan"),
                 "cos_inclination_fit": float("nan"), "numpy_seed": -1, "c_rand_seed": -1, "cpu_seconds": 0.0}
+        if want_cov:
+            rec0.update(_no_orbit_covariance())
+        return rec0
     with seeded_global_rng(seeds, c_funcs):
         if epoch is None:
             cascade = gaiamock.run_full_astrometric_cascade(
@@ -1697,11 +1885,13 @@ def simulate_one(
                 epoch_rng=em.epoch_model_rng(cfg.base_seed, stream, di),
                 noise_rng=em.epoch_model_rng(cfg.base_seed, stream, di, tag=em.PER_CCD_NOISE_RNG_TAG),
                 ruwe_min=cfg.ruwe_min, skip_acceleration=cfg.skip_acceleration, gaps_jd=epoch.gaps_jd,
+                **({"keep_epochs": True} if want_cov else {}),
             )
             if run.n_visibility_periods < GAIAMOCK_MIN_VISIBILITY_PERIODS or run.n_obs < GAIAMOCK_MIN_OBSERVATIONS:
                 cascade = [0.0] * CASCADE_VECTOR_LENGTH
             else:
                 cascade = run.cascade
+                epochs = run.epochs
     cpu = time.process_time() - t0
     vec = [float(v) for v in cascade] + [0.0] * (CASCADE_VECTOR_LENGTH - len(cascade))
     rec = classify_cascade_result(
@@ -1712,7 +1902,7 @@ def simulate_one(
         cuts=cuts,
         gaiamock=None,
     )
-    return {
+    out_rec = {
         "draw_index": int(draw["draw_index"]),
         "solution_type": rec.solution_type.value,
         "accepted_orbital": bool(rec.accepted_orbital),
@@ -1724,6 +1914,30 @@ def simulate_one(
         "c_rand_seed": seeds.c_rand_seed,
         "cpu_seconds": cpu,
     }
+    if want_cov:  # spec §13.3: the full cascade covariance of every orbital fit (no diagonal fallback)
+        out_rec.update(_no_orbit_covariance())
+        orbital = rec.solution_type.value in (SolutionType.TWELVE_PARAMETER_ORBITAL.value, SolutionType.ORBITAL_FAILED_CUTS.value)
+        if orbital and epochs is not None:
+            from darkhunter_pop.compact_objects import orbit_covariance_from_epochs
+
+            t1 = time.process_time()
+            oc = orbit_covariance_from_epochs(gaiamock, c_funcs, epochs, vec, step=co.covariance_jacobian_step)  # type: ignore[union-attr]
+            out_rec.update(orbit_p0=oc.p0.tolist(), orbit_cov=oc.covariance.ravel().tolist(),
+                           orbit_cov_sigma_check=oc.max_sigma_mismatch, orbit_cov_cpu_seconds=time.process_time() - t1)
+    return out_rec
+
+
+#: Spec §13.3: per-draw orbit covariance record keys (12 parameters, gaiamock's order).
+ORBIT_PARAMETER_NAMES: tuple[str, ...] = (
+    "ra_offset", "dec_offset", "parallax", "pmra", "pmdec", "period", "eccentricity", "phi_p",
+    "a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes",
+)
+
+
+def _no_orbit_covariance() -> dict[str, Any]:
+    n = len(ORBIT_PARAMETER_NAMES)
+    return {"orbit_p0": [float("nan")] * n, "orbit_cov": [float("nan")] * (n * n),
+            "orbit_cov_sigma_check": float("nan"), "orbit_cov_cpu_seconds": 0.0}
 
 
 # ---------------------------------------------------------------------------
@@ -1954,6 +2168,13 @@ def write_proposal_artifact(
             o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=np.float64))
         for key in ("numpy_seed", "c_rand_seed"):
             o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=np.uint32))
+        if rows and "orbit_cov" in rows[0]:  # spec §13.3 (compact-object generations)
+            npar = len(ORBIT_PARAMETER_NAMES)
+            o.create_dataset("orbit_p0", data=np.array([r["orbit_p0"] for r in rows], dtype=np.float64))
+            o.create_dataset("orbit_cov", data=np.array([r["orbit_cov"] for r in rows], dtype=np.float64).reshape(-1, npar, npar))
+            for key in ("orbit_cov_sigma_check", "orbit_cov_cpu_seconds"):
+                o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=np.float64))
+            o.attrs["orbit_parameter_names"] = json.dumps(list(ORBIT_PARAMETER_NAMES))
         h.attrs["proposal_config_json"] = json.dumps(fragment.proposal.model_dump(mode="json"), sort_keys=True)
         h.attrs["fragment_fingerprint"] = fragment_fingerprint(fragment)
         h.attrs["primary_model"] = primary_model_version(fragment.proposal)  # spec §12.33: never mix primary models
@@ -2482,6 +2703,7 @@ def apply_system_photometry(
     *,
     sampler: Any = None,
     native: Any = None,
+    companion_abs_mags: tuple[ArrayLike, ArrayLike, ArrayLike] | None = None,
 ) -> dict[str, NDArray[Any]]:
     """Spec §12.33: per draw, the primary is the looks-single row's single-star point on one posterior draw's
     isochrone and branch (truth M1; no deblending), and the system is that primary plus the drawn companion
@@ -2491,6 +2713,11 @@ def apply_system_photometry(
     ``sys_colour0``, ``sys_bp_rp``, ``sys_evolved`` (§10.2 ridge on the system CMD), ``system_in_cut``
     (system G < ``single_catalog.system_g_max`` and a posterior draw exists), and the proposal-space masses
     ``m1_row_msun`` / ``m2_proposal_msun``. ``phot_g_mean_mag`` becomes the system G (it drives the gaiamock noise).
+
+    Compact-object generations (spec §13, ``cfg.compact_object``): M2 was drawn in absolute units, so it is
+    kept (not rescaled with the drawn M1), and ``companion_abs_mags`` (per draw (M_G, M_BP, M_RP); NaN for dark
+    companions) gives a WD companion its own light: ``flux_ratio`` / ``log10_flux_ratio`` are set from it and the
+    primary's M_G on the draw's isochrone. Required for those generations.
     """
     from darkhunter_pop import giants
     from darkhunter_pop import isochrone_mass as im
@@ -2503,10 +2730,14 @@ def apply_system_photometry(
     draw, c0, g0, sc, sm = posterior_draws(r, parent, config, cfg, sampler=sampler, native=native)
     out = {k: np.asarray(v).copy() for k, v in truth.items()}
     n = r.size
+    co = cfg.compact_object is not None
+    if co and companion_abs_mags is None:
+        raise ValueError("compact_object generations need companion_abs_mags (WD light; NaN for dark)")
+    cam = None if companion_abs_mags is None else tuple(np.asarray(a, float) for a in companion_abs_mags)
     m1_row = np.asarray(truth["m1_msun"], float)
     q = np.asarray(truth["m2_msun"], float) / m1_row
     lf = np.where(np.asarray(truth["is_dark"], bool), -np.inf, np.asarray(truth["log10_flux_ratio"], float))
-    res = {k: np.full(n, np.nan) for k in ("m1", "mg1", "c1", "log_teff1", "mg_sys", "c_sys")}
+    res = {k: np.full(n, np.nan) for k in ("m1", "mg1", "c1", "log_teff1", "mg_sys", "c_sys", "log10_f")}
     ok = np.isfinite(draw["m1"]) & np.isfinite(c0) & np.isfinite(g0)
     key = np.round(draw["feh"], 4) * 1e4 + np.round(draw["log_age"], 4)
     for k in np.unique(key[ok]):
@@ -2516,7 +2747,9 @@ def apply_system_photometry(
             continue
         for a in range(0, sel.size, 2000):
             ss = sel[a:a + 2000]
-            pr = im.primary_and_system_photometry(iso, c0[ss], g0[ss], sc[ss], sm[ss], q[ss], lf[ss], draw["phase"][ss] >= 1.5)
+            pr = im.primary_and_system_photometry(
+                iso, c0[ss], g0[ss], sc[ss], sm[ss], q[ss], lf[ss], draw["phase"][ss] >= 1.5,
+                companion_abs_mags=None if cam is None else (cam[0][ss], cam[1][ss], cam[2][ss]))
             for kk in res:
                 res[kk][ss] = pr[kk]
     a_g = np.asarray(parent.cmd["a_g"], float)[r]
@@ -2540,7 +2773,13 @@ def apply_system_photometry(
         m1_row_msun=m1_row, m2_proposal_msun=np.asarray(truth["m2_msun"], float),
         m1_msun=np.where(np.isfinite(res["m1"]), res["m1"], m1_row),
     )
-    out["m2_msun"] = q * out["m1_msun"]
+    if co:  # spec §13.2: absolute M2; the companion's own light sets f (dark stays f = 0)
+        out["m2_msun"] = np.asarray(truth["m2_msun"], float).copy()
+        own = np.isfinite(cam[0]) & np.isfinite(res["log10_f"])  # type: ignore[index]
+        out["log10_flux_ratio"] = np.where(own, res["log10_f"], np.asarray(truth["log10_flux_ratio"], float))
+        out["flux_ratio"] = np.where(own, 10.0 ** np.where(own, res["log10_f"], 0.0), np.asarray(truth["flux_ratio"], float))
+    else:
+        out["m2_msun"] = q * out["m1_msun"]
     return out
 
 

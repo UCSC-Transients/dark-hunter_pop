@@ -2444,6 +2444,114 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Open item (option a), DEFERRED (Ryan, 2026-10-23) until an end-to-end pipeline exists.** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
 
+## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
+
+### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
+
+- The population model keeps **separate WD, NS and BH classes**, each with its own mass function (`docs/ARCHITECTURE.md`):
+  - WD: hard M_Ch limit;
+  - NS: soft M_TOV truncation with a physical prior (M_TOV ≈ 2.2 M⊙), marginalized;
+  - BH: dark companions with M > 3 M⊙ are BHs.
+- Near M_TOV, NS vs BH is a **statistical** separation, not a hard cut.
+- Why separate classes: their number densities at a given mass differ greatly. A single continuous mass function would prevent measuring the NS mass function below M_Ch.
+- **Injection for the selection function is continuous in M2.** Recovery depends on M2 (and the orbit, primary and sky), not on the class label. The class mass functions are applied afterwards by reweighting.
+
+### 13.1 Goal
+
+Measure how DR3 selects and measures binaries whose companion is a compact object. This is done through the full Step-1 forward model that rung 3 validated on luminous binaries:
+- the looks-single primary catalog (§12.33; primary-model version `looks_single_v2:…`);
+- system observables from the components;
+- the §8 epoch model and the §12.32 N2d noise;
+- the gaiamock cascade with the acceleration-first rule and the publication cuts;
+- the §12.16 spurious template;
+- the §12.23/§12.25 resolved companions.
+
+Rung 4 gates rung 5 (real inference). It passes only when the compact-object selection function and the mass recovery are measured with stated Monte-Carlo noise, and simulation-based calibration (SBC) on held-out mocks is uniform (§5).
+
+### 13.2 Injection design
+
+- **Primaries.** The same parent and stratified rows. Primaries are weighted by the fitted rung-3 θ (v12 working fit). The luminous-companion mixture enters only as a contaminant.
+- **Companion components.**
+  - **WD**: M2 0.15–1.40 M⊙ (M_Ch truncation in the target). The companion's own light comes from the WD cooling-track/companion-light model (§12.31, Bédard tracks), **not** f = 0, because hot young WDs are not dark in G.
+  - **Dark**: one dark component (f = 0), M2 continuous and log-uniform over 1.0–40 M⊙. The lowest measured NS mass is about 1.17 M⊙. NS and BH classes are assigned only in the population model (§13.0). Above 40 M⊙ (a rate or limit for ~100 M⊙ BHs) is a possible later extension, not part of rung 4: few or none are expected, and a good limit there is expensive.
+- **Orbit proposal.** P and e: the rung-3 proposal mixture (MdS17-shaped plus a defensive log-uniform over log P 0.2–8 and the bounded e proposal), with a core over log P 1.5–3.5, where astrometric sensitivity to dark companions peaks.
+- **Which M2 distribution to inject (plain language).** Recovery is reported as a function of (M2, P, e, G, d, M1). So the M2 distribution used for injection only decides **where the draws land**, which sets the Monte-Carlo efficiency; it does not change the measured selection function. We inject a broad proposal: log-uniform in M2 over each component's full range, with no literature prior. The class mass functions (WD with M_Ch; NS with soft M_TOV and its prior; BH above 3 M⊙) are applied afterwards by reweighting.
+- **Bookkeeping.** Importance weights use the deterministic mixture over all compact-object generations of one version (§3.7).
+- **Recipe and version.** The generation recipe is frozen: primary-model version, decided settings, N2d, epoch model. Compact-object generations carry their own version suffix (`…:co_v1`) and are never mixed with luminous generations in a fit (§12.33 separation).
+- **Held-out partition.** SBC mock catalogs come from a held-out partition of the compact-object draws (§3.8).
+
+### 13.3 Outputs
+
+1. **Astrometric selection function** P(published orbit or acceleration | M2, P, e, G, d, M1) for the WD and dark components, with Kish ESS per cell. It feeds `selection_function_astrometric` (#394), replacing the box-prior plumbing check.
+2. **Mass recovery.**
+   - The mass function m_f from the recovered (a0, P, ϖ) with the full covariance: `nss_covariance` for real rows, the cascade covariance for mocks. No diagonal fallback.
+   - M2 posteriors given the primary M1 posterior.
+   - Bias and coverage vs truth as a continuous function of M2.
+3. **Contamination.** The expected number of luminous-companion systems and spurious orbits whose inferred M2 / m_f lands in the WD, NS or BH ranges, per cell, from the rung-3 fit and the §12.16 template.
+4. **Rung-5 inputs.** The selection-function table and contamination model, with MC variance, for `inference` (Poisson × SF × dynesty). Literature-sample cut chains (Phase 8) are applied in rung 5, not rung 4.
+5. **Rung-5 / inference requirement recorded here.** Feed the WD/NS contamination fraction into the NS mass function: some WDs are observationally identifiable, through the §12.31 companion light and the companion-nature evidence.
+
+### 13.4 Validation gates (pass criteria; accepted by Ryan 2026-10-23)
+
+- **Gate 4a, recovery closure.** Re-injected known compact objects (Gaia BH1/BH2/BH3 analogues and El-Badry 2024 candidates at their published parameters) are recovered at rates consistent with the mock selection function within MC + Poisson errors.
+- **Gate 4b, mass recovery.** M2 bias < 5% and coverage within ±5% of nominal (68/95%), in M2 bins where recovered.
+- **Gate 4c, SBC.** Rank statistics uniform (KS p > 0.01) on ≥ 200 held-out mock catalogs, for the WD, NS and BH mass functions (with M_TOV marginalized).
+- **Gate 4d, MC noise.** σ_MC / σ_Poisson < `physics.mc_noise_threshold` (0.1) in every cell used by rung 5, or the cell is merged or flagged.
+- **Gate 4e, contamination closure.** On mocks, the predicted luminous-plus-spurious contamination matches the injected contamination within errors.
+
+### 13.5 Systematics carried over from rung 3 (stated in every rung-4 result)
+
+- G < 10 excluded: DR3 spectroscopic routing (§12.36). Option (a), the SB1 input selection, is deferred.
+- d > 1.5 kpc cells are ESS-limited.
+- Twin occupancy at d < 0.2 kpc is noisy.
+- MIST low-mass and turnoff single-cut systematics (§12.24, §12.33).
+- Gaia completeness at G 19–20 for primaries.
+
+### 13.6 Compute estimate
+
+- Dark companions do not dilute the photocentre, so they are detected efficiently. Expected cost is about 0.6–1.5 CPU s per draw.
+- Target: ESS ≥ 30 in about 150–200 cells (WD + dark × M2 bins over 1–40 M⊙ × 4 P bins × 3 G bins), at an expected acceptance of about 5–15%. That is about 2–5 × 10⁵ draws, or **60–200 CPU-h** in 2–4 ten-hour batches. SBC is reweighting only.
+
+**Smoke-pilot measurement (#552, generation 1000, 2,000 draws, 2 workers, 2026-10-23).**
+- CPU: 1.58 s per draw on average (WD 0.77, dark 2.13; 1.81 s per draw that reaches the cascade). The covariance adds < 1 ms per orbit.
+- 1,737 of 2,000 draws pass the system cuts. Raw detection rate (orbit or acceleration) among them: WD 3.9 %, dark 1–2.2 M⊙ 6.6 %, 2.2–3 M⊙ 6.9 %, 3–40 M⊙ 8.3 %.
+- Weight efficiency under the default θ_CO (training partition): ESS 45 of about 650 WD draws and 312 of about 950 dark draws, but only 1.1 (WD) and 18 (dark) among the detected draws. No cell reaches ESS 30 yet.
+- **Revised estimate.** At 1.6 CPU s per draw and about 0.01 detected-draw ESS per draw, the ~150 cells at ESS ≥ 30 need about 3–6 × 10⁵ draws, i.e. **130–270 CPU-h**. That is above the 60–200 CPU-h range above. Most of the gap is weight efficiency, not cost: the parent proposal favours nearby rows, while θ_CO weights all primaries equally, and the WD cooling-age target is narrower than the proposal. A re-centred proposal (top-up, §3.7) should come before any batch.
+
+### 13.7 Decisions and open items
+
+Ryan's 2026-10-23 decisions:
+- R4-Q1: broad log-uniform M2 injection with no literature prior; it affects efficiency only.
+- R4-Q2: WD / NS / BH classes are kept in the population model; near M_TOV the separation is statistical (§13.0).
+- R4-Q3: WD companion light is modelled.
+- R4-Q4: Phase-8 cut chains belong to rung 5.
+- R4-Q5: the gates are accepted.
+
+Ranges: the dark component spans 1–40 M⊙. Above 40 M⊙ is a possible later extension.
+
+Open for later (Ryan wants to see the data before choosing functional forms): whether to fit an NS mass-function form over M_Ch < M < M_TOV − x and extrapolate it below M_Ch.
+
+Pipeline check, narrowed: #551 ensures the NS/BH separation near M_TOV is statistical (prior on M_TOV, marginalized) with no hard 3 M⊙ cut below it; BH means a dark companion above 3 M⊙.
+
+### 13.8 Phase-1 implementation (#552; machinery + smoke pilot)
+
+Code: `src/darkhunter_pop/compact_objects.py`; config `config/population/proposal_set_co_v1_smoke.yaml` (generation 1000) and `config/population/rung4_co_v1.yaml`. Every number is in config.
+
+- **Proposal** (`proposal.compact_object`, version `co_v1`). Per draw: a parent row from the generation's `parent` mixture; the component (WD 0.4, dark 0.6); M2 log-uniform over the component's range (absolute, not tied to M1); for WDs a cooling age log-uniform over 1 Myr–14 Gyr; log P from the `period` mixture (core 1.5–3.5 at 0.5, defensive 0.2–8); e from the bounded `eccentricity` proposal; isotropic orientation. The MdS17-shaped joint (log q, log P) component is **not** used: it is a q = M2/M1 shape and does not apply to absolute-M2 companions (question for Ryan, below).
+- **WD light** (R4-Q3). M_G, M_BP, M_RP from the Montreal synthetic photometry on the Bédard et al. (2020) DA sequences (`Table_Mass_0.2`–`1.3`, already on this host; snapshot by `scripts/build_wd_cooling_snapshot.py` under `data/reference/wd_cooling/`, checksum in config). Linear in log age along each sequence, then linear in mass; masses outside 0.2–1.3 M⊙ use the nearest sequence. The §12.33 system photometry adds the WD's own G, BP and RP fluxes to the primary on its posterior-draw isochrone, and f = 10^(−0.4 (M_G,WD − M_G,1)) is what the cascade gets. Dark companions: f = 0.
+- **Target θ_CO** (`target_co`, reweight-only, provisional). WD and dark: dN/dlog M2 ∝ M2^slope (slope 0) on their ranges, the WD hard-truncated at M_Ch (`constants.M_CH`); log P uniform on 0.2–8; e uniform below the MdS17 e_max(P), circular at P ≤ 2 d; primaries = the parent rows with their stratum weights (an optional M1 tilt, off). WD cooling age: constant formation rate, t_cool uniform on [0, t_sys − t_prog], t_sys = the primary's posterior-draw isochrone age, t_prog = 10 Gyr (M_i/M⊙)^−2.5 at the Cummings et al. (2018) MIST IFMR initial mass; WDs below the IFMR range (< 0.555 M⊙, He-core) get no progenitor delay.
+- **Weights.** Deterministic mixture over the compact-object generations of one version (§3.7). The **SBC partition** is a 64-bit hash of (draw_index, salt) below `sbc_holdout_fraction` (0.2): it thins every generation by the same probability, so the training weights use n_j (1 − h) and the held-out weights n_j h.
+- **Version guard.** The primary-model version gets `:co_v1`; `check_single_primary_model` refuses to combine compact-object and luminous generations even with `--allow-mixed`. Compact-object generations are numbered from 1000 and their draw_index starts at 10⁸, so seeds and indices never collide with luminous ones.
+- **Selection-function table** (`build_selection_table`, `scripts/build_co_selection_table.py`). Per component and cell: Σw, Σw², Σw d, Σw² d, the ratio-estimator variance Σw²(d − p)²/(Σw)², Kish ESS of all and of detected draws, and σ_MC/σ_Poisson. Detection = accepted orbit or published acceleration. Default axes (the §13.6 budget): 10 log M2 bins over 0.15–40 M⊙ × 4 log P bins × 3 G bins (9–13–16–19; G < 9 excluded, §12.36). e, d and M1 are averaged within cells under θ_CO; the builder accepts them as further axes.
+- **Mass recovery.** For every orbital cascade fit the worker stores the full 12×12 covariance: gaiamock's `get_astrometric_chi2` gives the linear parameters at the fitted (P, φ_p, e), J is the central-difference Jacobian of gaiamock's `get_astrometric_residuals_12par` (gaiamock's own step), cov = (JᵀJ)⁻¹ c² with gaiamock's error-inflation factor c. This is the algebra of gaiamock's `get_uncertainties_at_best_fit_binary_solution`, which keeps only the diagonal; the stored `orbit_cov_sigma_check` compares the result with the cascade's own σ (ϖ, A, B, F, G, P, φ_p, e). A singular matrix is stored as NaN and counted, never diagonalized. m_f and M2 then go through `mc_mass_function.propagate_nss_solution` (the real-row path) with the row's isochrone M1 posterior (lognormal), assuming f = 0; the outputs are the posterior median and the PIT of the truth M2, and `recovery_summary` gives the gate-4b bias and 68/95 % coverage per M2 bin.
+- **Contamination** (§13.3 item 3) is not computed in phase 1. The table artifact registers the `run_validity` stand-in `rung4_contamination_not_computed`, so it cannot feed inference.
+
+Questions for Ryan (phase 1, conservative choices taken):
+- R4-Q6: the orbit proposal drops the MdS17-shaped component (q-based); the core + defensive log P mixture covers 0.2–8.
+- R4-Q7: the default primary weighting is "every looks-single primary equally likely" (no M1 tilt), not the rung-3 v12 θ (§13.2): the v12 θ describes luminous companions, and the selection-function cells condition on M1, G and d anyway.
+- R4-Q8: the WD cooling-age target (constant formation rate, coeval with the primary, Cummings MIST IFMR, t_MS ∝ M^−2.5, no delay below the IFMR range) is provisional; any other choice is a reweight.
+- R4-Q9: the table axes are M2 × P × G (the §13.6 budget); add e, d or M1 as axes once the ESS allows.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
