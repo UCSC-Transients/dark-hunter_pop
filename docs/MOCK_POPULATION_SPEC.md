@@ -2516,12 +2516,26 @@ Rung 4 gates rung 5 (real inference). It passes only when the compact-object sel
 - CPU: 1.58 s per draw on average (WD 0.77, dark 2.13; 1.81 s per draw that reaches the cascade). The covariance adds < 1 ms per orbit.
 - 1,737 of 2,000 draws pass the system cuts. Raw detection rate (orbit or acceleration) among them: WD 3.9 %, dark 1–2.2 M⊙ 6.6 %, 2.2–3 M⊙ 6.9 %, 3–40 M⊙ 8.3 %.
 - Weight efficiency under the default θ_CO (training partition): ESS 45 of about 650 WD draws and 312 of about 950 dark draws, but only 1.1 (WD) and 18 (dark) among the detected draws. No cell reaches ESS 30 yet.
-- **Revised estimate.** At 1.6 CPU s per draw and about 0.01 detected-draw ESS per draw, the ~150 cells at ESS ≥ 30 need about 3–6 × 10⁵ draws, i.e. **130–270 CPU-h**. That is above the 60–200 CPU-h range above. Most of the gap is weight efficiency, not cost: the parent proposal favours nearby rows, while θ_CO weights all primaries equally, and the WD cooling-age target is narrower than the proposal. A re-centred proposal (top-up, §3.7) should come before any batch.
+- **Revised estimate (superseded below: global detected-draw ESS is not the §13.6 criterion).** At 1.6 CPU s per draw and about 0.01 detected-draw ESS per draw, the ~150 cells at ESS ≥ 30 need about 3–6 × 10⁵ draws, i.e. **130–270 CPU-h**. That is above the 60–200 CPU-h range above. Most of the gap is weight efficiency, not cost: the parent proposal favours nearby rows, while θ_CO weights all primaries equally, and the WD cooling-age target is narrower than the proposal. A re-centred proposal (top-up, §3.7) should come before any batch.
 
 **Re-centred proposal (Ryan, 2026-10-24; generation 1001, same `co_v1` version).** Proposal settings only: the target, the recipe and the primary-model version are unchanged, so generations 1000 and 1001 combine in one deterministic mixture.
 - (a) **Primary rows.** A share `parent.row_weight_fraction` of q(s) is ∝ the stratum row weight over the usable rows. That is the default θ_CO's own row law: every looks-single primary is equally likely, so p/q is constant on that share. The rest is the gen-1000 mixture, kept as a defensive part for the nearby and evolved tails.
 - (b) **WD cooling age.** A share `wd_cooling_age_matched.weight` is uniform in t on [0, t_sys,row − t_prog(M_WD)]. This is the R4-Q8 law at the row's posterior-mean isochrone age; the draw's own posterior-draw age only enters the target. The rest is the defensive log-uniform 1 Myr–14 Gyr. Where the row has no available time, the whole share goes to the defensive part. The settings repeat the target's IFMR and lifetime numbers in the proposal config, so q stays evaluable without the target.
 - **Prediction before the run.** The smoke draws were reweighted to the new q with ESS'/N = (Σ w d)² / (N Σ w² d q/q′) (and likewise for all draws). Results are recorded with the verification pilot below.
+
+**Re-centring result (#552, gen 1001, 2,000 draws, 2 workers, 2026-10-24).** Measured with `scripts/co_efficiency_report.py` (all draws, default θ_CO). The reweighting prediction from the gen-1000 draws (`scripts/predict_co_recentre.py`) had the same sign for the dark all-draw ESS (+40 %) and for the median cell (+7–16 %). It under-predicted the WD gain: a 2,000-draw prediction is noisy.
+
+| per draw | gen 1000 | gen 1001 (re-centred) |
+|---|---:|---:|
+| CPU s (mean) | 1.58 | 0.86 |
+| ESS of all draws: WD / dark 1–2.2 / 2.2–3 / 3–40 M⊙ | 0.028 / 0.045 / 0.016 / 0.129 | 0.094 / 0.066 / 0.024 / 0.201 |
+| ESS of detected draws: same classes | 0.0006 / 0.0023 / 0.0013 / 0.0077 | 0.0023 / 0.0019 / 0.0009 / 0.0032 |
+| detected draws (WD / dark) | 28 / 79 | 9 / 34 |
+| median cell ESS (WD / dark) | 0.0014 / 0.0020 | 0.0019 / 0.0031 |
+| draws for 90 % of filled cells at ESS ≥ 30 (WD / dark) | 58k / 37k | 60k / 37k |
+
+- The re-centring raises the all-draw ESS (WD ×3.3, dark ×1.4–1.6), the median cell ESS (×1.4–1.6) and halves the CPU per draw: the matched rows are more distant and fainter, so their cascades are cheaper. It halves the raw detections and the detected-draw ESS of 3–40 M⊙. The worst (90th-percentile) filled cells need about the same number of draws, so **per CPU-h the re-centred proposal is about 1.8× cheaper**.
+- **Revised §13.6 estimate.** The per-cell ESS of all draws is what sets the ratio-estimator variance p(1−p)/ESS and the `min_cell_ess` flag. On that criterion, 90 % of the filled cells reach ESS ≥ 30 with about 6 × 10⁴ re-centred draws, about **14 CPU-h**. With 2,000 draws only 41–80 of 120 cells per component are filled; filling the rest and allowing for the noise of 2,000-draw cell estimates gives **about 30–60 CPU-h** (1–2 ten-hour 4-worker batches), below the original 60–200 CPU-h. Mixing gens 1000 + 1001 is valid (one deterministic mixture), but gen 1000 dilutes the efficiency, so production should use the gen-1001 proposal.
 
 ### 13.7 Decisions and open items
 
