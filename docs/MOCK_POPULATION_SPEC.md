@@ -600,6 +600,8 @@ SourceEpochContext(g_mag), epoch_model_rng(base_seed, stream, draw_index)):` in
 
 ## 5. Validation ladder (each rung gates the next)
 
+**Ladder change (Ryan, 2026-10-24; #554).** Rung 3 is no longer closed out on its own before rung 4. After the first rung-4 production batch (§13.9), rung 3 is refit **jointly** on the luminous generations plus the compact-object (`co_v1`) generations, together with the reweight-only fixes from the gen-46 diagnosis (#554 / PR #555, `docs/gate391/v2_single/diag46/README.md`). Rung 4's selection function and gates then use that joint fit. The two sample families are still never mixed in one deterministic-mixture weight set (§13.2): the joint fit sums their separately weighted expectations.
+
 | Rung | What | Acceptance |
 |---|---|---|
 | 1 | **#390** injection test: published DR3 orbits re-injected through gaiamock_mod | #390's criteria: pulls ≈ N(0, 1), recovered σ vs published σ ≈ 1:1, acceptance pattern near threshold interpreted (not tuned). Owned by #390 |
@@ -2565,11 +2567,17 @@ Code: `src/darkhunter_pop/compact_objects.py`; config `config/population/proposa
 - **Mass recovery.** For every orbital cascade fit the worker stores the full 12×12 covariance: gaiamock's `get_astrometric_chi2` gives the linear parameters at the fitted (P, φ_p, e), J is the central-difference Jacobian of gaiamock's `get_astrometric_residuals_12par` (gaiamock's own step), cov = (JᵀJ)⁻¹ c² with gaiamock's error-inflation factor c. This is the algebra of gaiamock's `get_uncertainties_at_best_fit_binary_solution`, which keeps only the diagonal; the stored `orbit_cov_sigma_check` compares the result with the cascade's own σ (ϖ, A, B, F, G, P, φ_p, e). A singular matrix is stored as NaN and counted, never diagonalized. m_f and M2 then go through `mc_mass_function.propagate_nss_solution` (the real-row path) with the row's isochrone M1 posterior (lognormal), assuming f = 0; the outputs are the posterior median and the PIT of the truth M2, and `recovery_summary` gives the gate-4b bias and 68/95 % coverage per M2 bin.
 - **Contamination** (§13.3 item 3) is not computed in phase 1. The table artifact registers the `run_validity` stand-in `rung4_contamination_not_computed`, so it cannot feed inference.
 
-Questions for Ryan (phase 1, conservative choices taken):
-- R4-Q6: the orbit proposal drops the MdS17-shaped component (q-based); the core + defensive log P mixture covers 0.2–8.
-- R4-Q7: the default primary weighting is "every looks-single primary equally likely" (no M1 tilt), not the rung-3 v12 θ (§13.2): the v12 θ describes luminous companions, and the selection-function cells condition on M1, G and d anyway.
-- R4-Q8: the WD cooling-age target (constant formation rate, coeval with the primary, Cummings MIST IFMR, t_MS ∝ M^−2.5, no delay below the IFMR range) is provisional; any other choice is a reweight.
-- R4-Q9: the table axes are M2 × P × G (the §13.6 budget); add e, d or M1 as axes once the ESS allows.
+Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open)**:
+- R4-Q6 (accepted): the orbit proposal drops the MdS17-shaped component (q-based); the core + defensive log P mixture covers 0.2–8.
+- R4-Q7 (accepted): the default primary weighting is "every looks-single primary equally likely" (no M1 tilt), not the rung-3 v12 θ (§13.2): the v12 θ describes luminous companions, and the selection-function cells condition on M1, G and d anyway.
+- R4-Q8 (accepted): the WD cooling-age target (constant formation rate, coeval with the primary, Cummings MIST IFMR, t_MS ∝ M^−2.5, no delay below the IFMR range) is provisional; any other choice is a reweight.
+- R4-Q9 (accepted): the table axes are M2 × P × G (the §13.6 budget); add e, d or M1 as axes once the ESS allows.
+
+### 13.9 First production batch (Ryan, 2026-10-24)
+
+- Approved: one 10-h, 90-CPU-h batch, generation 1002, with the gen-1001 re-centred proposal, the same `co_v1` version and draw_index from 100,010,000 (gens 1000 and 1001 used 100,000,000–100,003,999). It runs under `scripts/jobs/start_generation.sh` (budget, wall-clock and memory guards).
+- Queued after it, sequentially: assemble if partial → `build_co_selection_table.py` on gens 1000 + 1001 + 1002 → `co_efficiency_report.py`.
+- Next step (not started until reported): the joint luminous + compact-object rung-3 refit (§5 ladder change, #554).
 
 ## References
 
