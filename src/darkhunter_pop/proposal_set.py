@@ -194,6 +194,9 @@ class ParentProposalConfig(_Strict):
     include_supplement: bool = False
     #: #391 gen 43: further targeted components; the rest of q(s) is scaled by 1 − Σ weights. Empty = older behaviour.
     extra_targets: tuple[ExtraTargetConfig, ...] = ()
+    #: #552 (rung-4 re-centring, Ryan 2026-10-24): share of q(s) ∝ the stratum row weight over the usable rows (the
+    #: equal-weight-per-primary target's own row law); the rest is the mixture above, scaled by 1 − this. 0 = older.
+    row_weight_fraction: float = Field(0.0, ge=0.0, lt=1.0)
 
     @model_validator(mode="after")
     def _extra_weights(self) -> ParentProposalConfig:
@@ -463,6 +466,34 @@ class ParentSupplementConfig(_Strict):
     bright_g_max: float
 
 
+class WDCoolingAgeTargetConfig(_Strict):
+    """Target density of the WD cooling age (spec §13.2, R4-Q3; provisional, reweight-only).
+
+    ``uniform_to_system_age``: constant WD formation rate, i.e. t_cool uniform on
+    [0, t_sys − t_prog(M_WD)], with t_sys the primary's own posterior-draw isochrone age (coeval system)
+    and t_prog = ``ms_lifetime_gyr_at_1msun`` × (M_i / M☉)^``ms_lifetime_mass_exponent`` at the initial
+    mass M_i from the inverted piecewise-linear IFMR ``ifmr_segments`` (M_f = slope M_i + intercept on
+    [M_i,lo, M_i,hi]); M_WD above the IFMR's final-mass range is clamped to its top. M_WD below it (He-core
+    and low-mass WDs, made by binary interaction rather than single-star evolution) follows ``below_ifmr``:
+    ``no_progenitor_delay`` (t_prog = 0) or ``clamp`` (the lowest IFMR progenitor). Zero where t_sys ≤ t_prog
+    (the WD cannot have formed yet).
+    """
+
+    shape: Literal["uniform_to_system_age"]
+    ifmr_segments: tuple[tuple[float, float, float, float], ...] = Field(..., min_length=1)
+    ifmr_ref: str
+    below_ifmr: Literal["no_progenitor_delay", "clamp"]
+    ms_lifetime_gyr_at_1msun: float = Field(..., gt=0.0)
+    ms_lifetime_mass_exponent: float
+
+class WDCoolingAgeMatchedConfig(_Strict):
+    """#552 re-centring (Ryan 2026-10-24): share ``weight`` of the WD cooling-age proposal follows ``shape`` (the R4-Q8
+    law) at the row's posterior-mean isochrone age; the rest is the defensive log-uniform ``wd_log10_cooling_age_gyr``."""
+
+    weight: float = Field(..., gt=0.0, lt=1.0)
+    shape: WDCoolingAgeTargetConfig
+
+
 class CompactComponentProposalConfig(_Strict):
     """One compact-object component of the rung-4 proposal (spec §13.2): probability ``weight``,
     then M2 log-uniform on [``m2_min_msun``, ``m2_max_msun``] (absolute, not tied to M1)."""
@@ -516,6 +547,8 @@ class CompactObjectProposalConfig(_Strict):
     sbc_holdout_salt: int = Field(..., ge=0)
     store_orbit_covariance: bool
     covariance_jacobian_step: float = Field(..., gt=0.0)
+    #: #552 re-centring: matched WD cooling-age component (None = log-uniform only, generation 1000).
+    wd_cooling_age_matched: WDCoolingAgeMatchedConfig | None = None
 
     @model_validator(mode="after")
     def _weights(self) -> CompactObjectProposalConfig:
@@ -608,25 +641,6 @@ class CompactM2TargetConfig(_Strict):
         return self
 
 
-class WDCoolingAgeTargetConfig(_Strict):
-    """Target density of the WD cooling age (spec §13.2, R4-Q3; provisional, reweight-only).
-
-    ``uniform_to_system_age``: constant WD formation rate, i.e. t_cool uniform on
-    [0, t_sys − t_prog(M_WD)], with t_sys the primary's own posterior-draw isochrone age (coeval system)
-    and t_prog = ``ms_lifetime_gyr_at_1msun`` × (M_i / M☉)^``ms_lifetime_mass_exponent`` at the initial
-    mass M_i from the inverted piecewise-linear IFMR ``ifmr_segments`` (M_f = slope M_i + intercept on
-    [M_i,lo, M_i,hi]); M_WD above the IFMR's final-mass range is clamped to its top. M_WD below it (He-core
-    and low-mass WDs, made by binary interaction rather than single-star evolution) follows ``below_ifmr``:
-    ``no_progenitor_delay`` (t_prog = 0) or ``clamp`` (the lowest IFMR progenitor). Zero where t_sys ≤ t_prog
-    (the WD cannot have formed yet).
-    """
-
-    shape: Literal["uniform_to_system_age"]
-    ifmr_segments: tuple[tuple[float, float, float, float], ...] = Field(..., min_length=1)
-    ifmr_ref: str
-    below_ifmr: Literal["no_progenitor_delay", "clamp"]
-    ms_lifetime_gyr_at_1msun: float = Field(..., gt=0.0)
-    ms_lifetime_mass_exponent: float
 
 
 class CompactOrbitTargetConfig(_Strict):
@@ -769,6 +783,10 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d["parent"].pop("extra_targets", None)
     if d.get("compact_object") is None:  # spec §13: luminous generations keep their fingerprints
         d.pop("compact_object", None)
+    elif d["compact_object"].get("wd_cooling_age_matched") is None:  # #552 re-centring: gen 1000 keeps its key
+        d["compact_object"].pop("wd_cooling_age_matched", None)
+    if not d["parent"].get("row_weight_fraction"):  # #552
+        d["parent"].pop("row_weight_fraction", None)
     m2 = d["m2"]  # §12.28 defaults keep older fingerprints
     if m2.get("evolved_tie", "row_m1") == "row_m1" and m2.get("evolved_q_min") is None and m2.get("evolved_q_max") is None:
         for k_ in ("evolved_tie", "evolved_q_min", "evolved_q_max"):
@@ -1180,9 +1198,12 @@ def relation_log10_flux_ratio(m1_msun: ArrayLike, m2_msun: ArrayLike) -> FloatAr
 
 def parent_proposal_probabilities(
     parallax_mas: ArrayLike, usable: ArrayLike, cfg: ParentProposalConfig, evolved: ArrayLike | None = None,
-    g_mag: ArrayLike | None = None, m1_msun: ArrayLike | None = None,
+    g_mag: ArrayLike | None = None, m1_msun: ArrayLike | None = None, row_weight: ArrayLike | None = None,
 ) -> FloatArray:
     """Normalized ``q(s)`` over snapshot rows (zero for unusable rows).
+
+    ``cfg.row_weight_fraction`` > 0 (#552): that share is ∝ ``row_weight`` (the §12.30 stratum weights; None = 1
+    for every row) over the usable rows, and the rest is the expression below scaled by 1 − the share.
 
     ``g_mag`` and ``m1_msun`` (per row) are required when ``cfg.target_weight > 0``: the targeted
     component is uniform over usable rows with G in ``target_g_range`` and parallax in
@@ -1192,6 +1213,13 @@ def parent_proposal_probabilities(
     is uniform over usable evolved rows. With ``evolved_weight == 0`` the result is the
     pre-2026-10-08 expression, bit for bit.
     """
+    if cfg.row_weight_fraction > 0.0:
+        base = parent_proposal_probabilities(parallax_mas, usable, cfg.model_copy(update={"row_weight_fraction": 0.0}),
+                                             evolved, g_mag, m1_msun)
+        ok_ = np.asarray(usable, bool)
+        rw_ = np.ones(ok_.size) if row_weight is None else np.asarray(row_weight, float)
+        tw_ = np.where(ok_, rw_, 0.0)
+        return (1.0 - cfg.row_weight_fraction) * base + cfg.row_weight_fraction * tw_ / tw_.sum()
     if cfg.extra_targets:
         if g_mag is None or m1_msun is None:
             raise ValueError("extra_targets need the per-row G and M1")
@@ -1560,7 +1588,7 @@ def sample_proposal(
     n = cfg.n_draws
     cols = parent.columns
     qs = parent_proposal_probabilities(cols["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
-                                       cols["phot_g_mean_mag"], parent.m1_msun)
+                                       cols["phot_g_mean_mag"], parent.m1_msun, parent.row_weight)
     row = rng.choice(parent.n_rows, size=n, replace=True, p=qs)
     m1 = parent.m1_msun[row]
     log_m1 = np.log10(m1)
@@ -1730,7 +1758,7 @@ def log_q_total_for(
     evaluated under every generation's ``q_j``.
     """
     qs = parent_proposal_probabilities(parent.columns["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
-                                       parent.columns["phot_g_mean_mag"], parent.m1_msun)
+                                       parent.columns["phot_g_mean_mag"], parent.m1_msun, parent.row_weight)
     row = np.asarray(truth["parent_row"], dtype=np.int64)
     # Deblended draws (spec §11.9) keep the proposal-space masses separately: q was proposed
     # relative to the row's M̂1, so the density is evaluated there, not at the truth M1.

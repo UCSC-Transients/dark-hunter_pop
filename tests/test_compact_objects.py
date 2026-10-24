@@ -20,6 +20,7 @@ from darkhunter_pop import proposal_set as ps
 CO_FRAGMENT = "config/population/proposal_set_co_v1_smoke.yaml"
 LUMINOUS = "config/population/proposal_set_single45.yaml"
 RUNG4 = "config/population/rung4_co_v1.yaml"
+RECENTRED = "config/population/proposal_set_co_v1_recentred1001.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -444,3 +445,105 @@ def test_contamination_is_a_declared_stand_in(tmp_path: Path) -> None:
     write_stand_ins(path, [si])
     got = read_stand_ins(path)
     assert got is not None and [s.name for s in got] == ["rung4_contamination_not_computed"]
+
+
+# ---------------------------------------------------------------------------
+# Re-centred proposal (#552, Ryan 2026-10-24; generation 1001)
+# ---------------------------------------------------------------------------
+
+
+def _parent_rw(n: int = 60, seed: int = 0) -> ps.ParentSnapshot:
+    import dataclasses
+
+    p = _parent(n, seed)
+    rng = np.random.default_rng(seed + 100)
+    iso = {**p.isochrone, "log_age_mean": rng.uniform(9.3, 10.1, n)}  # type: ignore[dict-item]
+    rw = np.where(p.columns["phot_g_mean_mag"] < 11.0, 0.05, 1.0)  # §12.30 bright stratum
+    return dataclasses.replace(p, isochrone=iso, row_weight=rw)
+
+
+@pytest.fixture(scope="module")
+def rec() -> ps.ProposalSetFragment:
+    return ps.load_proposal_set_fragment(RECENTRED)
+
+
+@pytest.mark.unit
+def test_recentred_config_same_version_and_old_fingerprint(frag: ps.ProposalSetFragment, rec: ps.ProposalSetFragment) -> None:
+    assert ps.primary_model_version(rec.proposal) == ps.primary_model_version(frag.proposal)
+    assert cob.check_co_generations([frag.proposal, rec.proposal]).version == "co_v1"
+    assert ps.fragment_fingerprint(frag) == "beba9ac1f609"  # gen 1000 keeps its key
+    assert ps.fragment_fingerprint(rec) != ps.fragment_fingerprint(frag)
+    assert rec.proposal.compact_object.wd_cooling_age_matched.shape == rec.target_co.wd_cooling_age  # type: ignore[union-attr]
+    from darkhunter_pop.decided_settings import check_launch
+
+    assert check_launch(RECENTRED) == []
+
+
+@pytest.mark.physics
+def test_row_weight_share_normalizes_and_matches_target(rec: ps.ProposalSetFragment) -> None:
+    par = _parent_rw()
+    cfg = rec.proposal.parent
+    q = ps.parent_proposal_probabilities(par.columns["parallax"], par.usable, cfg, par.is_giant, par.columns["phot_g_mean_mag"],
+                                         par.m1_msun, par.row_weight)
+    assert q.sum() == pytest.approx(1.0) and q[0] == 0.0
+    base = ps.parent_proposal_probabilities(par.columns["parallax"], par.usable, cfg.model_copy(update={"row_weight_fraction": 0.0}),
+                                            par.is_giant, par.columns["phot_g_mean_mag"], par.m1_msun)
+    tw = np.where(par.usable, par.row_weight, 0.0)
+    np.testing.assert_allclose(q, 0.3 * base + 0.7 * tw / tw.sum())
+    ratio = np.where(par.usable, tw / tw.sum() / q, 0.0)  # target row law / q: bounded by 1 / 0.7
+    assert ratio.max() <= 1 / 0.7 + 1e-12
+
+
+@pytest.mark.physics
+def test_matched_cooling_age_density_normalizes(rec: ps.ProposalSetFragment) -> None:
+    cfg = rec.proposal
+    lt = np.linspace(-7, 2, 400_001)
+    t = 10.0**lt
+    for m2, tsys in ((0.3, 5.0), (0.7, 8.0), (1.2, 0.5), (0.6, 1.0)):  # last: avail <= 0 -> log-uniform only
+        lq = cob.log_q_co_cooling_age(np.zeros(lt.size), t, cfg, m2_msun=np.full(lt.size, m2), t_sys_row_gyr=np.full(lt.size, tsys))
+        assert np.trapz(np.exp(lq), lt) == pytest.approx(1.0, abs=2e-3)
+    with pytest.raises(ValueError, match="m2_msun"):
+        cob.log_q_co_cooling_age([0], [1.0], cfg)
+
+
+@pytest.mark.unit
+def test_recentred_sampler_logq_consistent(rec: ps.ProposalSetFragment, frag: ps.ProposalSetFragment) -> None:
+    par = _parent_rw()
+    cfg = rec.proposal.model_copy(update={"n_draws": 3000})
+    a = cob.sample_co_proposal(par, cfg, draw_index_offset=100_002_000)
+    np.testing.assert_array_equal(a["m2_msun"], cob.sample_co_proposal(par, cfg, draw_index_offset=100_002_000)["m2_msun"])
+    np.testing.assert_allclose(cob.log_q_co_total_for(a, par, cfg), a["log_q_total"])
+    assert np.all(np.isfinite(a["log_q_total"]))
+    wd = a["co_component"] == 0
+    av = cob.wd_available_time_gyr(a["m2_msun"], cob.row_system_age_gyr(par, a["parent_row"]), cfg.compact_object.wd_cooling_age_matched.shape)  # type: ignore[union-attr]
+    assert np.mean(a["wd_cooling_age_gyr"][wd] < np.maximum(av[wd], 0)) > 0.6  # the matched share lands inside [0, avail]
+    # gen 1000 evaluated at gen-1001 draws (and vice versa) is finite where its support covers them
+    g0 = frag.proposal.model_copy(update={"n_draws": 3000})
+    b = cob.sample_co_proposal(par, g0, draw_index_offset=100_000_000)
+    assert np.all(np.isfinite(cob.log_q_co_total_for(b, par, cfg)))
+
+
+@pytest.mark.physics
+def test_mixture_weights_across_gens_1000_1001(frag: ps.ProposalSetFragment, rec: ps.ProposalSetFragment) -> None:
+    """Deterministic mixture over gens 1000 + 1001 keeps Σw unbiased, and the re-centred draws carry a higher ESS
+    fraction for WDs than the gen-1000 draws (the cooling-age and row laws now match the target)."""
+    par = _parent_rw(n=40, seed=3)
+    g0 = frag.proposal.model_copy(update={"n_draws": 20_000})
+    g1 = rec.proposal.model_copy(update={"n_draws": 20_000})
+    a = cob.sample_co_proposal(par, g0, draw_index_offset=100_000_000)
+    b = cob.sample_co_proposal(par, g1, draw_index_offset=100_020_000)
+    truth = {k: np.concatenate([a[k], b[k]]) for k in a if k in b}
+    truth["iso_log_age"] = np.asarray(par.isochrone["log_age_mean"], float)[truth["parent_row"]]  # type: ignore[index]
+    tg = frag.target_co
+    w = cob.co_importance_weights(truth, par, [g0, g1], tg, partition="all")  # type: ignore[arg-type]
+    dark = truth["co_component"] == 1
+    expect = par.scale_to_full * float(np.sum(np.where(par.usable, par.row_weight, 0.0))) * tg.dark.rate_per_primary  # type: ignore[union-attr]
+    assert np.sum(w[dark]) == pytest.approx(expect, rel=0.05)
+    gen = truth["generation"]
+    ess_frac = {}
+    for g, cfg in ((1000, g0), (1001, g1)):
+        sub = {k: v[gen == g] for k, v in truth.items()}
+        ws = cob.co_importance_weights(sub, par, [cfg], tg, partition="all")  # type: ignore[arg-type]
+        wd = sub["co_component"] == 0
+        ess_frac[g] = ps.kish_ess(ws[wd]) / wd.sum()
+    assert ess_frac[1001] > 1.5 * ess_frac[1000]

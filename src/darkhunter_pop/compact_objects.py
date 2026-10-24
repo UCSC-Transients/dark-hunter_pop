@@ -166,14 +166,51 @@ def log_q_co_m2(component: ArrayLike, m2_msun: ArrayLike, cfg: ps.ProposalConfig
     return out
 
 
-def log_q_co_cooling_age(component: ArrayLike, age_gyr: ArrayLike, cfg: ps.ProposalConfig) -> FloatArray:
-    """log q(log10 t_cool / Gyr) for WD draws; 0 (no such dimension) for dark draws."""
+#: Spawn slot of the matched cooling-age stream (#552 re-centring; the main stream stays as in generation 1000).
+CO_COOLING_MATCHED_RNG_SLOT: int = 21
+
+
+def row_system_age_gyr(parent: ps.ParentSnapshot, rows: ArrayLike) -> FloatArray:
+    """The row's posterior-mean isochrone age (Gyr); NaN without an isochrone fit."""
+    r = np.asarray(rows, np.int64)
+    if parent.isochrone is None or "log_age_mean" not in parent.isochrone:
+        return np.full(r.size, np.nan)
+    return 10.0 ** np.asarray(parent.isochrone["log_age_mean"], float)[r] / 1e9
+
+
+def _matched_avail(cfg: ps.ProposalConfig, m2: ArrayLike, t_sys_row: ArrayLike) -> FloatArray:
+    co = _co(cfg)
+    assert co.wd_cooling_age_matched is not None
+    av = wd_available_time_gyr(m2, t_sys_row, co.wd_cooling_age_matched.shape)
+    return np.where(np.isfinite(av) & (av > 0), av, np.nan)
+
+
+def log_q_co_cooling_age(
+    component: ArrayLike, age_gyr: ArrayLike, cfg: ps.ProposalConfig, *, m2_msun: ArrayLike | None = None,
+    t_sys_row_gyr: ArrayLike | None = None,
+) -> FloatArray:
+    """log q(log10 t_cool / Gyr) for WD draws; 0 (no such dimension) for dark draws.
+
+    With ``wd_cooling_age_matched`` (#552): weight w uniform in t on [0, avail(M2, t_sys,row)] (per dex: t ln10 / avail)
+    plus 1 − w log-uniform; where avail ≤ 0 or undefined, the log-uniform part takes the whole share."""
     co = _co(cfg)
     comp = np.asarray(component)
     lo, hi = co.wd_log10_cooling_age_gyr
+    t = np.asarray(age_gyr, float)
     with np.errstate(divide="ignore", invalid="ignore"):
-        lt = np.log10(np.asarray(age_gyr, float))
-    return np.where(comp == COMPONENT_CODES["wd"], _log_uniform_logpdf(lt, lo, hi), 0.0)
+        lt = np.log10(t)
+    ld = _log_uniform_logpdf(lt, lo, hi)
+    mc = co.wd_cooling_age_matched
+    if mc is not None:
+        if m2_msun is None or t_sys_row_gyr is None:
+            raise ValueError("wd_cooling_age_matched needs m2_msun and t_sys_row_gyr")
+        av = _matched_avail(cfg, m2_msun, t_sys_row_gyr)
+        has = np.isfinite(av)
+        w = np.where(has, mc.weight, 0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pm = np.where(has & (t > 0) & (t < np.where(has, av, 0.0)), t * math.log(10.0) / np.where(has, av, 1.0), 0.0)
+            ld = np.log(w * pm + (1.0 - w) * np.exp(ld))
+    return np.where(comp == COMPONENT_CODES["wd"], ld, 0.0)
 
 
 def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, draw_index_offset: int = 0) -> dict[str, NDArray[Any]]:
@@ -189,7 +226,7 @@ def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, dra
     n = cfg.n_draws
     cols = parent.columns
     qs = ps.parent_proposal_probabilities(cols["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
-                                          cols["phot_g_mean_mag"], parent.m1_msun)
+                                          cols["phot_g_mean_mag"], parent.m1_msun, parent.row_weight)
     row = rng.choice(parent.n_rows, size=n, replace=True, p=qs)
     is_wd = rng.uniform(size=n) < co.wd.weight
     comp = np.where(is_wd, COMPONENT_CODES["wd"], COMPONENT_CODES["dark"]).astype(np.int8)
@@ -198,6 +235,13 @@ def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, dra
     m2 = 10.0 ** rng.uniform(lo, hi)
     a_lo, a_hi = co.wd_log10_cooling_age_gyr
     t_cool = np.where(is_wd, 10.0 ** rng.uniform(a_lo, a_hi, size=n), np.nan)
+    t_sys_row = row_system_age_gyr(parent, row)
+    if co.wd_cooling_age_matched is not None:  # #552 re-centring: own RNG slot, the main stream is unchanged
+        rng_m = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, CO_COOLING_MATCHED_RNG_SLOT)))
+        av = _matched_avail(cfg, m2, t_sys_row)
+        pick = (rng_m.uniform(size=n) < co.wd_cooling_age_matched.weight) & np.isfinite(av)
+        u = rng_m.uniform(size=n)
+        t_cool = np.where(is_wd & pick, u * np.nan_to_num(av), t_cool)
 
     pc = cfg.period
     core = rng.uniform(size=n) < pc.core_weight
@@ -212,7 +256,7 @@ def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, dra
     log_q = {
         "log_q_parent": np.log(qs[row]),
         "log_q_co_m2": log_q_co_m2(comp, m2, cfg),
-        "log_q_co_cooling_age": log_q_co_cooling_age(comp, t_cool, cfg),
+        "log_q_co_cooling_age": log_q_co_cooling_age(comp, t_cool, cfg, m2_msun=m2, t_sys_row_gyr=t_sys_row),
         "log_q_log_p": ps.log_q_log_p(log_p, pc),
         "log_q_ecc": ps.log_q_ecc(ecc, period, cfg.eccentricity),
     }
@@ -255,13 +299,15 @@ def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, dra
 def log_q_co_total_for(truth: Mapping[str, NDArray[Any]], parent: ps.ParentSnapshot, cfg: ps.ProposalConfig) -> FloatArray:
     """One compact-object generation's log q at arbitrary stored draws (deterministic-mixture denominator)."""
     qs = ps.parent_proposal_probabilities(parent.columns["parallax"], parent.usable_for(cfg.parent), cfg.parent, parent.is_giant,
-                                          parent.columns["phot_g_mean_mag"], parent.m1_msun)
+                                          parent.columns["phot_g_mean_mag"], parent.m1_msun, parent.row_weight)
     row = np.asarray(truth["parent_row"], np.int64)
     m2 = np.asarray(truth.get("m2_proposal_msun", truth["m2_msun"]), float)
     p = np.asarray(truth["period_days"], float)
     with np.errstate(divide="ignore"):
         lqs = np.log(qs[row])
-    return (lqs + log_q_co_m2(truth["co_component"], m2, cfg) + log_q_co_cooling_age(truth["co_component"], truth["wd_cooling_age_gyr"], cfg)
+    lqc = log_q_co_cooling_age(truth["co_component"], truth["wd_cooling_age_gyr"], cfg, m2_msun=m2,
+                               t_sys_row_gyr=row_system_age_gyr(parent, row))
+    return (lqs + log_q_co_m2(truth["co_component"], m2, cfg) + lqc
             + ps.log_q_log_p(np.log10(p), cfg.period) + ps.log_q_ecc(truth["eccentricity"], p, cfg.eccentricity))
 
 
@@ -311,17 +357,21 @@ def ifmr_initial_mass(m_final: ArrayLike, segments: Sequence[Sequence[float]]) -
     return out
 
 
-def wd_log_cooling_age_target(truth: Mapping[str, NDArray[Any]], tc: ps.WDCoolingAgeTargetConfig) -> FloatArray:
-    """log target density per dex of t_cool for WD draws (uniform in t on [0, t_sys − t_prog]); NaN-safe."""
-    t = np.asarray(truth["wd_cooling_age_gyr"], float)
-    t_sys = 10.0 ** np.asarray(truth["iso_log_age"], float) / 1e9
-    m_wd = np.asarray(truth["m2_msun"], float)
-    mi = ifmr_initial_mass(m_wd, tc.ifmr_segments)
+def wd_available_time_gyr(m_wd: ArrayLike, t_sys_gyr: ArrayLike, tc: ps.WDCoolingAgeTargetConfig) -> FloatArray:
+    """t_sys − t_prog(M_WD): the time a WD of this mass has had to cool in a coeval system (may be ≤ 0)."""
+    m = np.asarray(m_wd, float)
+    mi = ifmr_initial_mass(m, tc.ifmr_segments)
     t_prog = tc.ms_lifetime_gyr_at_1msun * mi**tc.ms_lifetime_mass_exponent
     if tc.below_ifmr == "no_progenitor_delay":
         seg = np.asarray(tc.ifmr_segments, float)
-        t_prog = np.where(m_wd < float(np.min(seg[:, 2] * seg[:, 0] + seg[:, 3])), 0.0, t_prog)
-    avail = t_sys - t_prog
+        t_prog = np.where(m < float(np.min(seg[:, 2] * seg[:, 0] + seg[:, 3])), 0.0, t_prog)
+    return np.asarray(t_sys_gyr, float) - t_prog
+
+
+def wd_log_cooling_age_target(truth: Mapping[str, NDArray[Any]], tc: ps.WDCoolingAgeTargetConfig) -> FloatArray:
+    """log target density per dex of t_cool for WD draws (uniform in t on [0, t_sys − t_prog]); NaN-safe."""
+    t = np.asarray(truth["wd_cooling_age_gyr"], float)
+    avail = wd_available_time_gyr(truth["m2_msun"], 10.0 ** np.asarray(truth["iso_log_age"], float) / 1e9, tc)
     ok = np.isfinite(t) & (t > 0) & np.isfinite(avail) & (avail > 0) & (t < avail)
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(ok, np.log(np.where(ok, t * math.log(10.0) / avail, 1.0)), -np.inf)
