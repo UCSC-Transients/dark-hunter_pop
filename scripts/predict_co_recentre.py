@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--new-fragment", type=Path, required=True)
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--rung4-config", type=Path, default=Path("config/population/rung4_co_v1.yaml"))
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     old, new = ps.load_proposal_set_fragment(args.fragment), ps.load_proposal_set_fragment(args.new_fragment)
@@ -62,6 +63,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name:11s} n={row['n']:4d} det={row['n_detected']:3d} | ESS/draw all {row['ess_per_draw_all_measured']:.4f} -> "
               f"{row['ess_per_draw_all_predicted']:.4f} | detected {row['ess_per_draw_detected_measured']:.5f} -> "
               f"{row['ess_per_draw_detected_predicted']:.5f} | det/draw {row['detected_per_draw_measured']:.4f} -> {row['detected_per_draw_predicted']:.4f}")
+    # Per-cell (the §13.6 criterion: Kish ESS of all draws in each rung-4 table cell >= min_cell_ess).
+    r4 = cob.load_rung4_config(args.rung4_config)
+    vals = cob.selection_axis_values(t)
+    target_ess = r4.selection_table.min_cell_ess
+    for comp, code in cob.COMPONENT_CODES.items():
+        sel = t["co_component"] == code
+        tq = cob.build_selection_table(vals, w, det, r4.selection_table.axes, mask=sel)
+        tr = cob.build_selection_table(vals, w * np.sqrt(r), det, r4.selection_table.axes, mask=sel)  # Σ w² r in sum_w2
+        filled = tq.n_draws >= 2
+        e_meas = tq.ess[filled] / n
+        with np.errstate(divide="ignore", invalid="ignore"):
+            e_pred = (tq.sum_w[filled] ** 2 / tr.sum_w2[filled]) / n
+        need_m = np.sort(target_ess / e_meas)
+        need_p = np.sort(target_ess / e_pred)
+        k = max(int(np.ceil(0.9 * need_m.size)) - 1, 0)
+        cell = {"cells_filled": int(filled.sum()), "median_ess_per_draw_measured": float(np.median(e_meas)),
+                "median_ess_per_draw_predicted": float(np.median(e_pred)),
+                "draws_for_90pct_filled_cells_measured": float(need_m[k]), "draws_for_90pct_filled_cells_predicted": float(need_p[k])}
+        out[f"cells_{comp}"] = cell
+        print(f"cells {comp}: {cell}")
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(out, indent=2))
