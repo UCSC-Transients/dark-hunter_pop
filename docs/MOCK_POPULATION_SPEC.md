@@ -2579,6 +2579,17 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - Queued after it, sequentially: assemble if partial → `build_co_selection_table.py` on gens 1000 + 1001 + 1002 → `co_efficiency_report.py`.
 - Next step (not started until reported): the joint luminous + compact-object rung-3 refit (§5 ladder change, #554).
 
+**Result (2026-10-24).**
+- Run: 12:13–22:13 PDT, stopped by the wall clock at 281,667 contiguous draws (assembled prefix; 142 more finished past it). 0.99 CPU s per draw, about 77 CPU-h.
+- Gens 1000 + 1001 + 1002, training partition (56,959 draws held out for SBC):
+  - WD: 114,647 draws, 1,833 detected (1,108 orbits, 725 accelerations). ESS of all draws 6,787, of detected draws 18. Cells at ESS ≥ 30: 37 of the 54 filled (120 in all).
+  - Dark: 171,020 draws, 4,484 detected (3,672 orbits, 812 accelerations). ESS of all draws 65,402, of detected draws 1,069. Cells at ESS ≥ 30: 78 of the 84 filled.
+  - Covariance check: worst mismatch 6e-14; every matrix factorized by Cholesky.
+- **Mass recovery (gate 4b, dark, assuming f = 0).** Median bias +0.4 to +3.0 % in every M2 bin from 1 to 40 M⊙ (ESS 87–322 per bin). Coverage is 0.59–0.69 at 68 % and 0.90–0.94 at 95 %, so it is **low by about 5–10 points**. That fails the ±5 % gate in most bins; a likely contributor to check is a too-narrow M1 posterior (the lognormal isochrone summary). WD bins: bias 0–3 %, coverage 0.52–0.71 / 0.82–0.89, with low ESS (15–56).
+- **WD weight tail.** The heaviest detected WD weights (top 10 hold 34 % of the detected weight) come from the matched cooling-age component using the row's mean age while the target uses the draw's posterior-draw age. Where t > avail_row, only the 0.3 defensive part covers the target (1,451 WD draws carrying 21 % of the WD weight). Fix before the next batch: sample the matched component at the draw's own posterior-draw age (after the §12.33 photometry step). It is a proposal-only change, so it stays `co_v1`.
+- **Gate 4d** (σ_MC/σ_Poisson < 0.1) cannot be evaluated yet: the default θ_CO has `rate_per_primary` 1, so N_b is not a physical count. It is evaluated at rung 5 with the fitted rates.
+
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
