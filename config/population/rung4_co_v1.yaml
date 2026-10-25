@@ -1,0 +1,27 @@
+# #552 rung 4 (spec §13.3-13.4): selection-function table, mass-recovery hooks and contamination mode for co_v1.
+# Read by darkhunter_pop.compact_objects.load_rung4_config and scripts/build_co_selection_table.py. Bin edges are set
+# from the spec (§13.6: WD + dark x M2 bins over 0.15-40 Msun x 4 P bins x 3 G bins) before any recovered counts exist.
+# Not under config/fragments/.
+version: co_v1
+
+selection_table:
+  detection: orbit_or_acceleration   # P(published orbit or acceleration | cell), spec §13.3 item 1
+  axes:                              # name -> bin edges (draws outside are dropped)
+    log10_m2_msun: [-0.824, -0.523, -0.222, 0.0, 0.146, 0.342, 0.477, 0.699, 1.0, 1.301, 1.603]  # 0.15-40 Msun
+    log10_period_days: [0.2, 1.5, 2.5, 3.5, 8.0]
+    g_sys_mag: [9.0, 13.0, 16.0, 19.0]     # spec §12.36: G < 9 excluded (documented systematic)
+  # e, d and M1 are averaged within cells under θ_CO (§13.6 budget: M2 x 4 P x 3 G); the builder takes any of
+  # eccentricity / distance_kpc / m1_msun as further axes.
+  min_cell_ess: 30                   # §13.6 target ESS per cell
+
+mass_recovery:                       # spec §13.3 item 2, gate 4b
+  n_mc_draws: 2000
+  random_seed: 552
+  assumed_flux_ratio: 0.0            # the inversion assumes a dark companion (as the inference does); WD light -> bias
+  m1_posterior: isochrone_row_lognormal
+  coverage_levels: [0.68, 0.95]
+  log10_m2_edges: [-0.824, -0.523, -0.222, 0.0, 0.146, 0.342, 0.477, 0.699, 1.0, 1.301, 1.603]
+  max_abs_bias: 0.05                 # gate 4b: |bias| < 5 %
+  max_coverage_offset: 0.05          # gate 4b: coverage within +-5 % of nominal
+
+contamination: declared_stub         # phase 1: not computed; registered as a run_validity stand-in

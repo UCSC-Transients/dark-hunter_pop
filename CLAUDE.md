@@ -96,6 +96,7 @@ functions → `forward_model.py`; `rv_astrometry_gate` + `joint_orbit_fit` → `
 | `epoch_model.py` | Statistical DR3 epoch model wrapped around gaiamock's GOST list (gaps, p(G, l, b), clustered faint loss, bright-star noise, RUWE u0); `run_cascade` (#400) |
 | `giants.py` | Dereddened-CMD evolved-primary classifier, ridge, evolved companion light, diagnostics (#413) |
 | `isochrone_mass.py` | MIST v1.2 isochrone M1 on the dereddened CMD, mock parent and data side (`mass_calibration.method: MIST_isochrone`, off until #425) (#418) |
+| `compact_objects.py` | Rung 4 (§13): compact-object proposal/target (`co_v1`), WD light from the Bédard sequences, SBC partition, selection-function table, cascade covariance + mass recovery (#552) |
 | `injection_test.py` | Rung 1: re-inject published DR3 orbits through gaiamock_mod (#390) |
 | `cascade_replay.py` | Bit-for-bit replay of #390 realizations; recovers what the cascade discarded (#399, #398) |
 

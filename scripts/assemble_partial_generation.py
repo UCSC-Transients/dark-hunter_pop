@@ -64,7 +64,16 @@ def main(argv: list[str] | None = None) -> int:
         n_prefix += 1
     if n_prefix == 0:
         raise SystemExit("no contiguous completed draws from the offset")
-    truth_full = sample_proposal(parent, prop, draw_index_offset=off, config=cfg)
+    wd_mags = None
+    if prop.compact_object is not None:  # spec §13 (rung 4), as the driver
+        from darkhunter_pop import compact_objects as cob
+
+        truth_full = cob.sample_co_proposal(parent, prop, draw_index_offset=off)
+        mg_, mb_, mr_, teff_ = cob.wd_companion_abs_mags(truth_full, cob.wd_grid_for(prop, cfg.paths.data_root), prop)
+        truth_full.update(wd_abs_g=mg_, wd_abs_bp=mb_, wd_abs_rp=mr_, wd_teff_k=teff_)
+        wd_mags = (mg_, mb_, mr_)
+    else:
+        truth_full = sample_proposal(parent, prop, draw_index_offset=off, config=cfg)
     truth = {k: np.asarray(v)[:n_prefix] for k, v in truth_full.items()}
     # The same deterministic post-processing as scripts/run_proposal_pilot.py (the cascade ran on these truths):
     # MP-Q35/36 posterior deblending (#391 fix: assemblies before 2026-10-15 skipped it) and §12.25 resolved companions.
@@ -76,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     elif prop.m1 == "single_catalog_system":  # spec §12.33, as the driver
         from darkhunter_pop.proposal_set import apply_system_photometry
 
-        full = apply_system_photometry(full, parent, cfg, prop)
+        full = apply_system_photometry(full, parent, cfg, prop, companion_abs_mags=wd_mags)
     if prop.resolved_companions is not None:  # on the post-processed truth, exactly as the driver
         from darkhunter_pop.proposal_set import apply_resolved_companions
 
