@@ -104,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         acc = np.asarray(outcome["published_acceleration"], bool)
         filled = t.n_draws > 0
         rec_sel = sel & ~hold & orb & ("orbit_cov" in outcome)
+        if r4.mass_recovery.gate_period_max_days is not None:  # #557: gate 4b in the C1 domain (fitted P)
+            rec_sel &= np.asarray(outcome["cascade"])[:, 10] <= r4.mass_recovery.gate_period_max_days
         recovered = cob.recover_masses(truth, outcome, parent, r4.mass_recovery, select=rec_sel) if rec_sel.any() else None
         chk = np.asarray(outcome.get("orbit_cov_sigma_check", np.full(sel.size, np.nan)), float)[sel & orb]
         summary["components"][name] = {
@@ -121,9 +123,14 @@ def main(argv: list[str] | None = None) -> int:
             "covariance_sigma_check_median": float(np.nanmedian(chk)) if np.isfinite(chk).any() else None,
             "covariance_sigma_check_max": float(np.nanmax(chk)) if np.isfinite(chk).any() else None,
             "mass_recovery": None if recovered is None else cob.recovery_summary(truth["m2_msun"], recovered, w, r4.mass_recovery, mask=rec_sel),
+            "m2_posterior_prior": r4.mass_recovery.m2_posterior_prior,
+            "gate_period_max_days": r4.mass_recovery.gate_period_max_days,
             "factorization_counts": None if recovered is None else {
                 str(int(k)): int(v) for k, v in zip(*np.unique(recovered["factorization"][rec_sel], return_counts=True))},
         }
+    for c in summary["components"].values():  # spec §13.4 gate 4b (#557)
+        if c["mass_recovery"]:
+            c["gate_4b"] = cob.gate_4b(c["mass_recovery"], r4.mass_recovery, min_ess=r4.selection_table.min_cell_ess)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     path = cob.write_selection_tables(args.out_dir / "selection_table.h5", tables, attrs={
         "version": co.version, "primary_model": summary["primary_model"], "detection": r4.selection_table.detection,
