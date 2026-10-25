@@ -897,6 +897,9 @@ class CascadeRun:
     n_transits: int
     n_visibility_periods: int
     ruwe_scale: float
+    #: ``(t_ast_yr, psi, plx_factor, obs, err)`` exactly as handed to ``fit_full_astrometric_cascade``
+    #: (noise included); only with ``keep_epochs=True`` (spec §13.3 cascade covariance), else None.
+    epochs: tuple[NDArray[np.float64], ...] | None = None
 
 
 def run_cascade(
@@ -912,6 +915,7 @@ def run_cascade(
     skip_acceleration: bool,
     gaps_jd: NDArray[np.float64] | None = None,
     visibility_gap_day: float = 4.0,
+    keep_epochs: bool = False,
 ) -> CascadeRun:
     """gaiamock prediction and cascade with the epoch model and the excess noise.
 
@@ -946,7 +950,10 @@ def run_cascade(
         verbose=False, show_residuals=False, ruwe_min=ruwe_min * k,
         skip_acceleration=skip_acceleration,
     )
+    epochs = None
+    if keep_epochs:
+        epochs = tuple(np.asarray(a, dtype=np.float64) for a in (t, psi, pf, obs, err))
     return CascadeRun(
         cascade=rescale_cascade_ruwe(list(cascade), k), n_obs=int(t.size), n_transits=n_tr,
-        n_visibility_periods=n_vis, ruwe_scale=k,
+        n_visibility_periods=n_vis, ruwe_scale=k, epochs=epochs,
     )
