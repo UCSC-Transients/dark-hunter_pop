@@ -2603,13 +2603,15 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - **Cause 2, orbits longer than the baseline.** 6 % of the weight has a catastrophic fit (|pull| > 3): mostly P_true > 1038 d fitted with P_fit/P_true ≈ 0.4–0.8 at a0/σ ≈ 14. There the Gaussian at the best fit cannot cover the truth (68 % coverage 0.12–0.16).
   - Fix: gate 4b is evaluated in the C1 orbit domain the rung-3 fit already uses, P_fit ≤ 0.8 × 1038 d = 830.4 d (`mass_recovery.gate_period_max_days`, same value as the decided `rung3.c1_period_max_days`). Longer fitted periods enter rung 5 through the selection function only, not through per-object M2 posteriors.
 
-**Result after the fix (dark, C1, θ_CO-weighted).**
-- Pooled coverage 0.661 / 0.935 (nominal 0.68 / 0.95), within ±5 %.
-- Per M2 bin over 1–40 M⊙: bias −0.3 % to +0.9 % (gate < 5 %). Coverage 68 %: 0.60–0.76; 95 %: 0.89–0.96, at ESS 55–149 per bin.
-- Point-wise, two of seven bins are outside ±5 %: 1.4–2.2 M⊙ at 68 % (0.596) and 2.2–3 M⊙ at 95 % (0.891). Both are within 2σ of the MC noise, and the per-bin deviations are consistent with noise (χ² = 8.3 and 9.4 for 7 bins, p = 0.31 and 0.23).
-- A point-wise ±5 % test needs ESS ≈ 350 per bin, about 2.5× the current draws.
-- WD (not part of the gate) stays low, 0.60 / 0.88. The WD light (f = 0 assumed) and the low ESS (9–47 per bin) both contribute; #556 and the WD batch address the ESS.
-
+**Result after the fix** (`build_co_selection_table.py`, dark, C1 domain, θ_CO-weighted, 4,000 MC draws per object).
+- Bias passes in all 7 M2 bins (1–40 M⊙): −0.1 % to +0.7 %, against the < 5 % gate.
+- Coverage, per bin (ESS 55–149):
+  - 68 %: 0.649, 0.618, 0.624, 0.764, 0.616, 0.661, 0.662. Three of 7 bins are within ±5 %.
+  - 95 %: 0.921, 0.955, 0.891, 0.955, 0.908, 0.926, 0.944. Six of 7 bins are within ±5 %.
+- Pooled coverage is 0.661 / 0.935.
+- **Gate 4b status: FAILS point-wise.** The deviations are consistent with the MC noise of the coverage estimates (χ² = 8.6 and 11.5 for 7 bins, p = 0.28 and 0.12), so the gate is not decidable at this ESS. A point-wise ±5 % test needs ESS ≈ 350 per bin, about 2.5× the current draws.
+- The 68 % values sit mostly below nominal (pooled −1.9 points). A small residual under-coverage cannot be excluded; candidates are the Gaussian approximation in (P, e, φ_p) and the flat prior on ϖ and P.
+- WD (not in the gate) stays low, 0.60 / 0.84–0.95 at ESS 9–47 per bin. The WD light (f = 0 assumed) and the WD weight tail (#556) both contribute.
 
 ## References
 
