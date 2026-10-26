@@ -2707,6 +2707,15 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - Config: `mass_recovery.likelihood_tails: student_t`, `student_t_snr_edges`, `student_t_nu`.
 - Reweight-only: no re-simulation.
 
+**Result after the fix** (`docs/gate4b_564/`).
+- **ν calibration.** Held-out partition, 1,171 orbits. ν = 2.21 / 2.55 / 8.18 / 11.43 at a0/σ_a0 < 20 / 20–50 / 50–100 / > 100.
+- **Gate 4b on the training partition, gens 1000–1003, dark, C1 domain (ESS 92–228 per bin):**
+  - Bias −0.4 % to +0.4 %: passes.
+  - Coverage 68 %: 0.684, 0.631, 0.688, 0.765, 0.654, 0.724, 0.699 (6 of 7 bins within ±5 %; χ² = 9.5 for 7 bins, p = 0.22).
+  - Coverage 95 %: 0.948, 0.959, 0.955, 0.966, 0.947, 0.961, 0.958 (7 of 7 within ±5 %; χ² = 2.0, p = 0.96).
+- **Point-wise: 13 of 14 bin-level checks pass.** The one outside is 3–5 M⊙ at 68 %, which **over**-covers at 0.765 (+8.5 points, 2.3σ of its MC error). The deviations are consistent with noise.
+- **WD (not in the gate):** bias passes; 68 % coverage 0.60–0.71 (3 of 4 bins within); 95 % coverage 0.89–0.95 (3 of 4 within; χ² p = 0.0002). The WD light (f = 0 is assumed) remains the open WD issue.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).

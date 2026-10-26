@@ -21,6 +21,9 @@ mass_recovery:                       # spec §13.3 item 2, gate 4b
   m1_posterior: isochrone_row_lognormal
   m2_posterior_prior: isotropic_log_m2  # #557: isotropic orientation + log-uniform M2 (flat-TI pushes M2 high)
   gate_period_max_days: 830.4        # #557: gate 4b on the C1 domain P_fit <= 0.8 x 1038 d (= rung3.c1_period_max_days)
+  likelihood_tails: student_t        # #564: DR3-style solution errors are heavy-tailed; applied identically to real rows
+  student_t_snr_edges: [0.0, 20.0, 50.0, 100.0, 1.0e9]   # a0/sigma_a0 (DR3 `significance` for real rows)
+  student_t_nu: [2.21, 2.55, 8.18, 11.43]                # ML on held-out-partition a0 pulls (scripts/calibrate_student_t_564.py)
   coverage_levels: [0.68, 0.95]
   log10_m2_edges: [-0.824, -0.523, -0.222, 0.0, 0.146, 0.342, 0.477, 0.699, 1.0, 1.301, 1.603]
   max_abs_bias: 0.05                 # gate 4b: |bias| < 5 %
