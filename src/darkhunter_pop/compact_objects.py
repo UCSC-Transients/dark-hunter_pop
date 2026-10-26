@@ -399,20 +399,15 @@ def wd_log_cooling_age_target(truth: Mapping[str, NDArray[Any]], tc: ps.WDCoolin
         return np.where(ok, np.log(np.where(ok, t * math.log(10.0) / avail, 1.0)), -np.inf)
 
 
-def co_log_target(truth: Mapping[str, NDArray[Any]], target: ps.CompactObjectTargetConfig, parent: ps.ParentSnapshot | None = None) -> FloatArray:
-    """log λ_CO(x | θ_CO) in the proposal's measure (per row, per dex M2, per dex t_cool for WDs, per dex P,
-    per unit e or the circular point mass). Needs the truth after :func:`proposal_set.apply_system_photometry`
-    (``iso_log_age``, the drawn ``m1_msun``)."""
+def co_shape_log_density(truth: Mapping[str, NDArray[Any]], target: ps.CompactObjectTargetConfig) -> FloatArray:
+    """The rate × M2-law × P × e part of :func:`co_log_target` (no cooling age, M1 tilt or row weight): what a
+    reweighting to another component target (e.g. the §12.38 WD target) divides out."""
     comp = np.asarray(truth["co_component"])
     lm2 = np.log10(np.asarray(truth["m2_msun"], float))
     out = np.full(comp.size, -np.inf)
     for name, t in (("wd", target.wd), ("dark", target.dark)):
         sel = comp == COMPONENT_CODES[name]
         out[sel] = math.log(t.rate_per_primary) + _log_power_density(lm2[sel], t)
-    wd = comp == COMPONENT_CODES["wd"]
-    if wd.any():
-        sub = {k: np.asarray(truth[k])[wd] for k in ("wd_cooling_age_gyr", "iso_log_age", "m2_msun")}
-        out[wd] = out[wd] + wd_log_cooling_age_target(sub, target.wd_cooling_age)
     o = target.orbit
     p = np.asarray(truth["period_days"], float)
     e = np.asarray(truth["eccentricity"], float)
@@ -424,7 +419,19 @@ def co_log_target(truth: Mapping[str, NDArray[Any]], target: ps.CompactObjectTar
             le = np.where((e >= 0) & (e < emax), -np.log(emax), -np.inf)
         else:
             le = np.where((e > 0) & (e < emax), np.log(2.0 * e / emax**2), -np.inf)
-    out = out + np.where(circ, np.where(e == 0.0, 0.0, -np.inf), le)
+    return out + np.where(circ, np.where(e == 0.0, 0.0, -np.inf), le)
+
+
+def co_log_target(truth: Mapping[str, NDArray[Any]], target: ps.CompactObjectTargetConfig, parent: ps.ParentSnapshot | None = None) -> FloatArray:
+    """log λ_CO(x | θ_CO) in the proposal's measure (per row, per dex M2, per dex t_cool for WDs, per dex P,
+    per unit e or the circular point mass). Needs the truth after :func:`proposal_set.apply_system_photometry`
+    (``iso_log_age``, the drawn ``m1_msun``)."""
+    comp = np.asarray(truth["co_component"])
+    out = co_shape_log_density(truth, target)
+    wd = comp == COMPONENT_CODES["wd"]
+    if wd.any():
+        sub = {k: np.asarray(truth[k])[wd] for k in ("wd_cooling_age_gyr", "iso_log_age", "m2_msun")}
+        out[wd] = out[wd] + wd_log_cooling_age_target(sub, target.wd_cooling_age)
     m1 = np.asarray(truth["m1_msun"], float)
     if target.primary_m1_power != 0.0:
         out = out + target.primary_m1_power * np.log(np.maximum(m1 / target.primary_m1_pivot_msun, 1.0))

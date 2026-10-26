@@ -102,7 +102,11 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep):
     rep.append(f"compact objects: {comp.size} draws (gens {[g.generation for g in gens]}); C1 orbits WD {int((in_o & (comp == 0)).sum())}, dark {int((in_o & (comp == 1)).sum())}; "
                f"accelerations WD {int((in_a & (comp == 0)).sum())}, dark {int((in_a & (comp == 1)).sum())}")
     casc = np.asarray(o["cascade"], float)
+    shape_old = cob.co_shape_log_density(t, frags[0].target_co)  # #567: divided out when the WD target is replaced
     return dict(w=w, comp=comp, ob=ob, ab=ab, in_o=in_o, in_a=in_a, rows=np.asarray(t["parent_row"], np.int64), nonls=nonls,
+                shape_old=shape_old, m2_true=np.asarray(t["m2_msun"], float), p_true=np.asarray(t["period_days"], float),
+                e_true=np.asarray(t["eccentricity"], float), m1_true=np.asarray(t["m1_msun"], float),
+                t_sys=10.0 ** np.asarray(t["iso_log_age"], float) / 1e9, ecc_fit=casc[:, 14],
                 d_o=obs["d_orbit"], d_a=obs["d_accel"], sys_mg0=np.asarray(t["sys_mg0"], float), sys_colour0=np.asarray(t["sys_colour0"], float),
                 a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"])
 
@@ -246,8 +250,24 @@ def main(argv: list[str] | None = None) -> int:
     rep.append(f"F4 twin band: real twin / single per d bin {de.tolist()}: " + ", ".join(f"{int(a)}/{int(b)}" for a, b in zip(kt, ks)))
     # F5 modifier on the primary phase; the class axis stays on the system class
     evo_mod = lx["primary_evolved"] if jcfg.get("f_evo_on") == "primary_phase" else ns.m_cls
-    names = r5.POP + ("ln_f_evo", "ln_R_wd", "ln_R_dark", "N_s")
+    wdt = jr.WDTargetConfig(**jcfg["wd_target"]) if jcfg.get("wd_target") else None
+    wd_on = wdt is not None and wdt.enabled
+    wd_names = ("beta_wd", "f_mt", "f_he", "alpha_ni") if wd_on else ()
+    names = r5.POP + ("ln_f_evo", "ln_R_wd", "ln_R_dark") + wd_names + ("N_s",)
     i_fe, i_rw, i_rd, i_ns = (names.index(n) for n in ("ln_f_evo", "ln_R_wd", "ln_R_dark", "N_s"))
+    # #567: the WD draws that enter any bin or term; their target is re-evaluated at each θ
+    wd_rel = np.flatnonzero((co["comp"] == 0) & (co["in_o"] | co["in_a"]))
+
+    def wd_weights(th):
+        """WD draw weights at θ: default-target weights × λ_§12.38(θ) / λ_default (or × R_wd without the new target)."""
+        if not wd_on:
+            return w_co[wd_rel] * np.exp(th[i_rw])
+        j_ = {n: names.index(n) for n in wd_names}
+        lnew = jr.wd_target_log_density(co["m2_true"][wd_rel], co["p_true"][wd_rel], co["e_true"][wd_rel], co["m1_true"][wd_rel], co["t_sys"][wd_rel],
+                                        ln_r_wd=th[i_rw], beta=th[j_["beta_wd"]], f_mt=th[j_["f_mt"]], f_he=th[j_["f_he"]], alpha=th[j_["alpha_ni"]], cfg=wdt)
+        with np.errstate(invalid="ignore", over="ignore"):
+            r_ = np.exp(lnew - co["shape_old"][wd_rel])
+        return w_co[wd_rel] * np.where(np.isfinite(r_), r_, 0.0)
     grp_o, grp_a = row_bin_groups(ob, ns.prow), row_bin_groups(ab, ns.prow)
     ess_floor = float(jcfg["ess_min_inflate"])
     so_l = ob >= 0
@@ -260,19 +280,32 @@ def main(argv: list[str] | None = None) -> int:
     def lum_w(th):
         return ns.W["noW"] * np.exp(ns.log_mod(full(th)) + th[i_fe] * evo_mod)
 
+    wob, wab = co["ob"][wd_rel], co["ab"][wd_rel]
+
     def expected(th):
         w = lum_w(th)
-        Rw, Rd = np.exp(th[i_rw]), np.exp(th[i_rd])
-        mu_o = np.bincount(ob[so_l], weights=w[so_l], minlength=n_ob) + Rw * co_mu_o["wd"] + Rd * co_mu_o["dark"]
-        v_o = clustered_bin_variance(w, grp_o, n_ob) + Rw**2 * co_v_o["wd"] + Rd**2 * co_v_o["dark"]
+        Rd = np.exp(th[i_rd])
+        ww = wd_weights(th)
+        so_w, sa_w = wob >= 0, wab >= 0
+        mu_wd_o = np.bincount(wob[so_w], weights=ww[so_w], minlength=n_ob)
+        v_wd_o = np.bincount(wob[so_w], weights=ww[so_w] ** 2, minlength=n_ob)
+        mu_wd_a = np.bincount(wab[sa_w], weights=ww[sa_w], minlength=n_ab)
+        v_wd_a = np.bincount(wab[sa_w], weights=ww[sa_w] ** 2, minlength=n_ab)
+        mu_o = np.bincount(ob[so_l], weights=w[so_l], minlength=n_ob) + mu_wd_o + Rd * co_mu_o["dark"]
+        v_o = clustered_bin_variance(w, grp_o, n_ob) + v_wd_o + Rd**2 * co_v_o["dark"]
         sa = ab >= 0
-        mu_a = np.bincount(ab[sa], weights=w[sa], minlength=n_ab) + Rw * co_mu_a["wd"] + Rd * co_mu_a["dark"]
-        v_a = clustered_bin_variance(w, grp_a, n_ab) + Rw**2 * co_v_a["wd"] + Rd**2 * co_v_a["dark"]
+        mu_a = np.bincount(ab[sa], weights=w[sa], minlength=n_ab) + mu_wd_a + Rd * co_mu_a["dark"]
+        v_a = clustered_bin_variance(w, grp_a, n_ab) + v_wd_a + Rd**2 * co_v_a["dark"]
         return w, mu_o * ~empty_o, v_o * ~empty_o, mu_a * ~empty_a, v_a * ~empty_a
 
+    def co_draw_weights(th):
+        """All compact-object draw weights at θ (dark × R_dark; WD as :func:`wd_weights`, 0 outside the fit draws)."""
+        wc_ = w_co * np.where(co["comp"] == 1, np.exp(th[i_rd]), 0.0)
+        wc_[wd_rel] = wd_weights(th)
+        return wc_
+
     def twin_terms(th, w):
-        Rw, Rd = np.exp(th[i_rw]), np.exp(th[i_rd])
-        wc = w_co * np.where(co["comp"] == 0, Rw, Rd)
+        wc = co_draw_weights(th)
         mt = np.array([w[so_l & m_tw & (mdb == j)].sum() + wc[co["in_o"] & c_tw & (cdb == j)].sum() for j in range(nd)]) + th[i_ns] * st_tw
         ms = np.array([w[so_l & m_si & (mdb == j)].sum() + wc[co["in_o"] & c_si & (cdb == j)].sum() for j in range(nd)]) + th[i_ns] * st_si
         return mt, ms
@@ -290,9 +323,10 @@ def main(argv: list[str] | None = None) -> int:
 
     par = fc["parameters"]
     cr = jcfg["co_rates"]
-    x0 = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0], prior[0]], float)
-    bounds = ([(par[n][1], par[n][2]) for n in r5.POP] + [(-3.0, 3.0), (cr["ln_R_wd"][1], cr["ln_R_wd"][2]), (cr["ln_R_dark"][1], cr["ln_R_dark"][2]),
-                                                          (0.0, max(5 * prior[0], 1.0))])
+    wp = jcfg.get("wd_params", {}) if wd_on else {}
+    x0 = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names] + [prior[0]], float)
+    bounds = ([(par[n][1], par[n][2]) for n in r5.POP] + [(-3.0, 3.0), (cr["ln_R_wd"][1], cr["ln_R_wd"][2]), (cr["ln_R_dark"][1], cr["ln_R_dark"][2])]
+              + [(wp[n][1], wp[n][2]) for n in wd_names] + [(0.0, max(5 * prior[0], 1.0))])
     fixes = list(args.fix or [])
     if args.fix_from is not None:
         src = json.loads(args.fix_from.read_text())["results"]
@@ -348,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     w, mu_o, v_o, mu_a, v_a = expected(th)
     s = th[i_ns] * T + floor_o
     Rw, Rd = np.exp(th[i_rw]), np.exp(th[i_rd])
-    wc = w_co * np.where(co["comp"] == 0, Rw, Rd)
+    wc = co_draw_weights(th)
     near = sorted(round(f_ - best.fun, 2) for f_, _ in sols)
     fixed = {x.split("=")[0] for x in fixes}
     at_b = [names[i] for i in range(n_par) if names[i] not in fixed and min(abs(th[i] - bounds[i][0]), abs(th[i] - bounds[i][1])) < 1e-3 * max(1, abs(th[i]))]
@@ -397,6 +431,60 @@ def main(argv: list[str] | None = None) -> int:
     accel_by_d = {"real": radn.tolist(), "mock_lum": madn.tolist(), "mock_co": cadn.tolist(),
                   "orbit_accel_real": (rdn / radn).tolist(), "orbit_accel_mock": ((mdn + cdn + sdn) / (madn + cadn)).tolist(),
                   "accel_mock_over_real": ((madn + cadn) / radn).tolist()}
+    # #567 comparisons by distance: M2 inferred the same way on both sides (f = 0, Janssens M1 from M_G0), M1, m_f, P, e, colour
+    from darkhunter_pop.janssens_mass import invert_mg_to_mass_array
+    from darkhunter_pop.physics_utils import astrometric_mass_function, invert_astrometric_companion_mass
+
+    def m2_inf(mg0, a0, plx, P):
+        m1j = invert_mg_to_mass_array(mg0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            mf = astrometric_mass_function(a0, plx, P)
+            return m1j, mf, invert_astrometric_companion_mass(m1j, mf, 0.0)
+
+    lo_ = so_l
+    m1l, mfl, m2l = m2_inf(lx["sys_mg0"][lo_], casc_l[lo_, 17], casc_l[lo_, 0], casc_l[lo_, 10])
+    co_o = co["in_o"]
+    m1c, mfc, m2c = m2_inf(co["sys_mg0"][co_o], co["a0"][co_o], co["plx"][co_o], co["P"][co_o])
+    m1r, mfr, m2r = m2_inf(rmg, r_a0, rx["parallax"], rx["period"])
+    qs_ = (0.16, 0.5, 0.84)
+
+    def wq(x, w_):
+        ok_ = np.isfinite(x) & (w_ > 0)
+        if ok_.sum() < 3:
+            return [float("nan")] * 3
+        o_ = np.argsort(x[ok_])
+        c_ = np.cumsum(w_[ok_][o_]) / w_[ok_].sum()
+        return [float(x[ok_][o_][min(np.searchsorted(c_, q), ok_.sum() - 1)]) for q in qs_]
+
+    comp_tab = {}
+    var_m = {"M2_inf": (m2l, m2c, m2r), "M1_janssens": (m1l, m1c, m1r), "m_f": (mfl, mfc, mfr), "P": (casc_l[lo_, 10], co["P"][co_o], rx["period"]),
+             "e": (casc_l[lo_, 14], co["ecc_fit"][co_o], rx["eccentricity"]), "colour0": (lx["sys_colour0"][lo_], co["sys_colour0"][co_o], rc0)}
+    dl, dc, dr = ns.o_cols[1][lo_], co["d_o"][co_o], ns.ro_cols[1]
+    Al, Ac = A_l[lo_], A_c[co_o]
+    for sub_name, (ml_, mc__, mr_) in {"all_C1": (np.ones(dl.size, bool), np.ones(dc.size, bool), np.ones(dr.size, bool)),
+                                      "A>0.5": (Al > 0.5, Ac > 0.5, A_r > 0.5)}.items():
+        for lo, hi in zip(dE[:-1], dE[1:]):
+            bl, bc, br = ml_ & (dl >= lo) & (dl < hi), mc__ & (dc >= lo) & (dc < hi), mr_ & (dr >= lo) & (dr < hi)
+            row = {}
+            for vn, (xl, xc, xr) in var_m.items():
+                xm = np.concatenate([xl[bl], xc[bc], xr[br]])
+                wm = np.concatenate([w[lo_][bl], wc[co_o][bc], spur_w[br]])
+                row[vn] = {"mock_q16_50_84": wq(xm, wm), "mock_wd_only": wq(xc[bc], wc[co_o][bc] * (co["comp"][co_o][bc] == 0)), "real_q16_50_84": wq(xr[br], np.ones(br.sum()))}
+            comp_tab[f"{sub_name} d{lo:g}-{hi:g}"] = row
+    # implied WD M2: the fitted mock's WD truth M2 (A > 0.5, by d) vs the real large-A excess over luminous + spurious (in inferred M2)
+    m2e = np.array([0.15, 0.3, 0.45, 0.6, 0.8, 1.0, 1.2, 1.4, 3.0])
+    implied = {}
+    for lo, hi in zip(dE[:-1], dE[1:]):
+        bc = (Ac > 0.5) & (dc >= lo) & (dc < hi) & (co["comp"][co_o] == 0)
+        bl = (Al > 0.5) & (dl >= lo) & (dl < hi)
+        br = (A_r > 0.5) & (dr >= lo) & (dr < hi)
+        implied[f"d{lo:g}-{hi:g}"] = {"m2_edges": m2e.tolist(),
+                                      "mock_wd_truth_m2": np.histogram(co["m2_true"][co_o][bc], m2e, weights=wc[co_o][bc])[0].tolist(),
+                                      "mock_wd_inferred_m2": np.histogram(m2c[bc], m2e, weights=wc[co_o][bc])[0].tolist(),
+                                      "real_minus_lum_spur_inferred_m2": (np.histogram(m2r[br], m2e)[0] - np.histogram(m2l[bl], m2e, weights=w[lo_][bl])[0]
+                                                                          - np.histogram(m2r[br], m2e, weights=spur_w[br])[0]).tolist()}
+    res_extra = {"comparison_by_distance": comp_tab, "implied_wd_m2": implied,
+                 "wd_ess_orbits": float(ps.kish_ess(wc[co["in_o"] & (co["comp"] == 0)])), "wd_ess_accels": float(ps.kish_ess(wc[co["in_a"] & (co["comp"] == 0)]))}
     res = dict(names=list(names), theta=th.tolist(), err=err.tolist(), nll=float(best.fun), start_offsets=near, n_near=int(sum(x < 5 for x in near)),
                n_starts=len(sols), at_bound=at_b, N_s=float(th[i_ns]), N_s_pull=float((th[i_ns] - prior[0]) / prior[1]),
                R_wd=float(Rw), R_dark=float(Rd), co_orbits={"wd": float(wc[co["in_o"] & (co["comp"] == 0)].sum()), "dark": float(wc[co["in_o"] & (co["comp"] == 1)].sum())},
@@ -405,6 +493,13 @@ def main(argv: list[str] | None = None) -> int:
                d_ratio=((mdn + cdn + sdn) / rdn).tolist(), d_ratio_parts={"lum": (mdn / rdn).tolist(), "co": (cdn / rdn).tolist(), "spurious": (sdn / rdn).tolist()},
                twin_band={"real_twin": kt.tolist(), "real_single": ks.tolist(), "mock_twin": mt.tolist(), "mock_single": ms.tolist()},
                ppc=ppc, f2=f2, depletion=dsum, accel_by_distance=accel_by_d, ess_orbits=float(ps.kish_ess(w[so_l])), n_big_low=int(np.sum(big & (ess_b < args.min_ess))), n_big=int(big.sum()))
+    res.update(res_extra)
+    rep.append(f"    WD ESS at the fit: orbits {res['wd_ess_orbits']:.0f}, accelerations {res['wd_ess_accels']:.0f}")
+    for k_ in ("A>0.5 d0-0.3", "A>0.5 d0.7-1.5", "all_C1 d0-0.3"):
+        if k_ in comp_tab:
+            rep.append(f"    {k_}: M2_inf mock {[round(x, 2) for x in comp_tab[k_]['M2_inf']['mock_q16_50_84']]} (WD {[round(x, 2) for x in comp_tab[k_]['M2_inf']['mock_wd_only']]}) "
+                       f"real {[round(x, 2) for x in comp_tab[k_]['M2_inf']['real_q16_50_84']]}; M1_J mock {[round(x, 2) for x in comp_tab[k_]['M1_janssens']['mock_q16_50_84']]} "
+                       f"real {[round(x, 2) for x in comp_tab[k_]['M1_janssens']['real_q16_50_84']]}")
     rep.append(f"{res['n_near']}/{res['n_starts']} starts within Δ(-lnL) < 5 (offsets {near}); -lnL {best.fun:.1f}; at bound: {at_b or 'none'}")
     for nm, v, e_ in zip(names, th, err):
         rep.append(f"    {nm:10s} {v:+10.3f} +- {e_:.3f}")
