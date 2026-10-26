@@ -621,3 +621,70 @@ def test_gate_4b_pointwise_and_chi2() -> None:
     bad = good + [{**good[0], "coverage_0.68": 0.55}]
     assert not cob.gate_4b(bad, rc, min_ess=30)["passed_pointwise"]
     assert cob.gate_4b(bad, rc, min_ess=500)["bins_used"] == 0 and not cob.gate_4b(bad, rc, min_ess=500)["passed_pointwise"]
+
+
+# ---------------------------------------------------------------------------
+# #556: matched WD cooling age at the draw's posterior-draw age (gen 1003)
+# ---------------------------------------------------------------------------
+
+WD1003 = "config/population/proposal_set_co_v1_wd1003.yaml"
+
+
+@pytest.mark.unit
+def test_wd1003_config_and_older_fingerprints() -> None:
+    f3 = ps.load_proposal_set_fragment(WD1003)
+    assert f3.proposal.compact_object.wd_cooling_age_matched.age_source == "draw"  # type: ignore[union-attr]
+    assert ps.fragment_fingerprint(ps.load_proposal_set_fragment(RECENTRED)) == "f075282844af"
+    assert ps.fragment_fingerprint(ps.load_proposal_set_fragment("config/population/proposal_set_co_v1_batch1002.yaml")) == "217b5182ebc1"
+    assert cob.check_co_generations([ps.load_proposal_set_fragment(CO_FRAGMENT).proposal, f3.proposal]).version == "co_v1"
+    from darkhunter_pop.decided_settings import check_launch
+
+    assert check_launch(WD1003) == []
+
+
+@pytest.mark.unit
+def test_draw_age_sampler_matches_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sampler draws the MP-Q35 posterior age first (as apply_system_photometry will) and its stored log q equals the
+    density re-evaluated at the stored ``iso_log_age``; a row-mean generation evaluated at the same draws ignores it."""
+    par = _parent_rw()
+    f3 = ps.load_proposal_set_fragment(WD1003).proposal.model_copy(update={"n_draws": 3000})
+    ages = {}
+
+    def fake_posterior_draws(rows, parent, config, cfg, **kw):  # type: ignore[no-untyped-def]
+        r = np.asarray(rows)
+        la = 9.0 + 0.9 * np.sin(r * 1.7 + cfg.generation)  # deterministic per (row, generation), like the real one
+        ages["log_age"] = la
+        return {"log_age": la}, None, None, None, None
+
+    monkeypatch.setattr(ps, "posterior_draws", fake_posterior_draws)
+    with pytest.raises(ValueError, match="PipelineConfig"):
+        cob.sample_co_proposal(par, f3)
+    a = cob.sample_co_proposal(par, f3, draw_index_offset=100_410_000, config=object())
+    a["iso_log_age"] = ages["log_age"]
+    np.testing.assert_allclose(cob.log_q_co_total_for(a, par, f3), a["log_q_total"])
+    wd = a["co_component"] == 0
+    assert 0.65 < wd.mean() < 0.75
+    av = cob.wd_available_time_gyr(a["m2_msun"], 10 ** a["iso_log_age"] / 1e9, f3.compact_object.wd_cooling_age_matched.shape)  # type: ignore[union-attr]
+    inside = wd & (a["wd_cooling_age_gyr"] < np.maximum(av, 0))
+    assert inside.sum() / wd.sum() > 0.6
+    with pytest.raises(ValueError, match="iso_log_age"):
+        cob.log_q_co_total_for({k: v for k, v in a.items() if k != "iso_log_age"}, par, f3)
+    g1 = ps.load_proposal_set_fragment(RECENTRED).proposal
+    np.testing.assert_allclose(cob.log_q_co_total_for(a, par, g1), cob.log_q_co_total_for({**a, "iso_log_age": a["iso_log_age"] + 0.3}, par, g1))
+
+
+@pytest.mark.physics
+def test_draw_age_matching_bounds_wd_cooling_weights(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the target's own age in the matched share, the WD cooling-age weight ratio p/q is bounded by 1/0.7 where
+    the target has support (the gen-1002 tail came from t > t_avail at the row-mean age)."""
+    par = _parent_rw()
+    f3 = ps.load_proposal_set_fragment(WD1003)
+    monkeypatch.setattr(ps, "posterior_draws", lambda rows, parent, config, cfg, **kw: ({"log_age": 9.0 + 0.9 * np.cos(np.asarray(rows) * 0.3)}, None, None, None, None))
+    cfg = f3.proposal.model_copy(update={"n_draws": 5000})
+    a = cob.sample_co_proposal(par, cfg, draw_index_offset=100_410_000, config=object())
+    a["iso_log_age"] = 9.0 + 0.9 * np.cos(a["parent_row"] * 0.3)
+    wd = a["co_component"] == 0
+    lt = cob.wd_log_cooling_age_target({k: a[k][wd] for k in ("wd_cooling_age_gyr", "iso_log_age", "m2_msun")}, f3.target_co.wd_cooling_age)  # type: ignore[union-attr]
+    lq = a["log_q_co_cooling_age"][wd]
+    ok = np.isfinite(lt)
+    assert ok.mean() > 0.5 and np.max(lt[ok] - lq[ok]) <= math.log(1 / 0.7) + 1e-9

@@ -492,6 +492,9 @@ class WDCoolingAgeMatchedConfig(_Strict):
 
     weight: float = Field(..., gt=0.0, lt=1.0)
     shape: WDCoolingAgeTargetConfig
+    #: #556: ``row_mean`` (gens 1001-1002) = the row's posterior-mean age; ``draw`` = the draw's own MP-Q35 posterior
+    #: draw (``iso_log_age``, the age the target uses), drawn before the WD light by :func:`posterior_draws`.
+    age_source: Literal["row_mean", "draw"] = "row_mean"
 
 
 class CompactComponentProposalConfig(_Strict):
@@ -785,6 +788,8 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d.pop("compact_object", None)
     elif d["compact_object"].get("wd_cooling_age_matched") is None:  # #552 re-centring: gen 1000 keeps its key
         d["compact_object"].pop("wd_cooling_age_matched", None)
+    elif d["compact_object"]["wd_cooling_age_matched"].get("age_source", "row_mean") == "row_mean":  # #556: gens 1001-1002
+        d["compact_object"]["wd_cooling_age_matched"].pop("age_source", None)
     if not d["parent"].get("row_weight_fraction"):  # #552
         d["parent"].pop("row_weight_fraction", None)
     m2 = d["m2"]  # §12.28 defaults keep older fingerprints

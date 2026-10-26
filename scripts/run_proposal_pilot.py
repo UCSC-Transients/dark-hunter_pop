@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     if prop.compact_object is not None:  # spec §13 (rung 4): compact-object companions (WD with its own light, or dark)
         from darkhunter_pop import compact_objects as cob
 
-        truth = cob.sample_co_proposal(parent, prop, draw_index_offset=args.draw_index_offset)
+        truth = cob.sample_co_proposal(parent, prop, draw_index_offset=args.draw_index_offset, config=cfg)
         mg_, mb_, mr_, teff_ = cob.wd_companion_abs_mags(truth, cob.wd_grid_for(prop, cfg.paths.data_root), prop)
         truth.update(wd_abs_g=mg_, wd_abs_bp=mb_, wd_abs_rp=mr_, wd_teff_k=teff_)
         wd_mags = (mg_, mb_, mr_)

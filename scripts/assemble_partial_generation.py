@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     if prop.compact_object is not None:  # spec §13 (rung 4), as the driver
         from darkhunter_pop import compact_objects as cob
 
-        truth_full = cob.sample_co_proposal(parent, prop, draw_index_offset=off)
+        truth_full = cob.sample_co_proposal(parent, prop, draw_index_offset=off, config=cfg)
         mg_, mb_, mr_, teff_ = cob.wd_companion_abs_mags(truth_full, cob.wd_grid_for(prop, cfg.paths.data_root), prop)
         truth_full.update(wd_abs_g=mg_, wd_abs_bp=mb_, wd_abs_rp=mr_, wd_teff_k=teff_)
         wd_mags = (mg_, mb_, mr_)
