@@ -361,7 +361,9 @@ def test_recover_masses_unbiased_for_precise_dark_orbit() -> None:
     cov = np.diag(np.r_[np.full(5, 1e-6), 1e-4, 1e-6, 1e-6, np.full(4, (1e-4 * a0) ** 2)])
     cov[2, 2] = (1e-4 * plx) ** 2
     truth = {"draw_index": np.array([10, 11]), "parent_row": np.array([row, row]), "m2_msun": np.array([m2, m2])}
-    outcome = {"orbit_p0": np.stack([p0, p0]), "orbit_cov": np.stack([cov, np.full((12, 12), np.nan)])}
+    casc = np.zeros((2, ps.CASCADE_VECTOR_LENGTH))
+    casc[:, 17], casc[:, 18] = a0, 1e-4 * a0  # a0/σ_a0 = 10^4 (#564: the Student-t ν comes from it)
+    outcome = {"orbit_p0": np.stack([p0, p0]), "orbit_cov": np.stack([cov, np.full((12, 12), np.nan)]), "cascade": casc}
     rc = cob.load_rung4_config(RUNG4).mass_recovery
     rec = cob.recover_masses(truth, outcome, parent, rc, select=np.array([True, True]))
     assert rec["m2_med"][0] == pytest.approx(m2, rel=0.01)
