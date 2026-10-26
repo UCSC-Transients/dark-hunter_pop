@@ -1,0 +1,35 @@
+#391 rung 3 refit 5, model 'new' — §12.14-COMPLIANT 108-bin grid (G 2 x d 3 x log P 3 x e 3 x CMD class 2; Ryan 2026-10-11 top-up target)
+primary model: looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19
+
+orbit bins 48 (3 x 2 x 2 x 2 x 2) [[10.0, 13.0, 16.0, 19.5], [0.0, 1.0, 6.0], [0.0, 2.6, 2.9193], [0.0, 0.3, 1.0]] x class; accelerations 12
+real: 125226 C1 orbits (0.098 evolved), 324908 accelerations (0.099 evolved); empty bins: orbit 17 (130 real), acceleration 3
+M1 law mass: initial (|Δ ln w| median 0.0001); slope break M_br = None
+MP-Q27 IPD-pass weight §12.23 (unweighted mean per truth-distance bin, detected draws): {'d0-0.1 orbit': 0.9962, 'd0-0.1 accel': 0.9959, 'd0.1-0.2 orbit': 0.9987, 'd0.1-0.2 accel': 0.9998, 'd0.2-0.5 orbit': 0.9991, 'd0.2-0.5 accel': 0.9983, 'd0.5-6 orbit': 0.9997, 'd0.5-6 accel': 0.9997, 'below_envelope': 'orb6'}
+spurious template §12.16: pi covariates ['log10_a0_snr']; Σ pi_hat over real C1 orbits = 21434 (0.171 of them), σ_cal 0.085 (relative); extrapolation: clamp
+N_s prior N(21434, 1833)
+MC variance: parent_row
+profile: dgamma_q fixed at 0.401
+profile: ln_F_twin fixed at -0.768
+[noW] 4/4 starts within delta(-lnL) < 5 (offsets [0.0, 0.12, 0.31, 0.34]); -lnL 804.6; at bound: ['dgamma_q', 'ln_F_twin', 'b1']
+    ln_A           -0.109 +- nan
+    alpha_lo       +0.410 +- 0.185
+    alpha_hi       +0.018 +- 0.254
+    gamma_P        +0.062 +- 0.316
+    ln_L_P         +0.767 +- 0.279
+    dgamma_q       +0.401 +- nan
+    ln_F_twin      -0.768 +- nan
+    a1             +5.682 +- nan
+    a2             +3.646 +- 1.462
+    a3             +1.240 +- 0.368
+    b1            +30.000 +- nan
+    b2             +6.211 +- 3.039
+    b3             +2.475 +- 0.997
+    ln_f_evo       -0.017 +- nan
+    N_s        +30067.340 +- 1575.169
+    N_s 30067 vs prior 21434 +- 1833 (pull +4.7); (mock + spurious)/real 1.017; accelerations 0.989
+    evolved share of C1 orbits: real 0.098, mock 0.095 (with spurious 0.096)
+    d bins <0.3 / 0.3-0.7 / 0.7-1.5 / >1.5: (mock+spur)/real 0.96 / 1.04 / 1.01 / 1.23; mock-only 0.73 / 0.81 / 0.75 / 0.94; orbit:accel real 0.464 / 0.377 / 0.357 / 0.424 fit 0.418 / 0.409 / 0.364 / 0.460
+    G bins 5-9:nan 9-10:nan 10-12:0.99 12-14:0.99 14-15:1.16 15-16:0.82 16-19.5:1.00
+    ESS orbits 627; big bins below ESS_b 30: 8/16 (min 8.3, median 33)
+
+    e < 0.1: real 13330, fit 12907
