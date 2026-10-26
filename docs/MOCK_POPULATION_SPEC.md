@@ -2622,7 +2622,10 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 
 **Gen-1003 result (2026-10-26).**
 - **Run.** 19:53–05:53 PDT, stopped by the wall clock at 327,702 contiguous draws. 0.77 CPU s per draw, about 70 CPU-h.
-- **WD efficiency (the #556 fix works).** ESS per draw of all WD draws went from 0.029 (gen 1002) to 0.264 (gen 1003), ×9. Detected-WD ESS per draw went from 0.00008 to 0.0030.
+- **WD efficiency (the #556 fix works).**
+  - ESS per draw of all WD draws went from 0.029 (gen 1002) to 0.264 (gen 1003), ×9.
+  - Detected-WD ESS per draw went from 0.00008 to 0.0030.
+  - Weight tail: the top 10 detected WDs now hold 3.8 % of the detected weight (gens 1000–1003; 4.7 % in gen 1003 alone), against 34 % in gen 1002.
 - **Gens 1000–1003, training partition:**
   - WD: ESS 93,336 (detected 1,009). Cells at ESS ≥ 30: 48 of 56 filled.
   - Dark: ESS 103,431 (detected 1,722). Cells at ESS ≥ 30: 82 of 84 filled.
