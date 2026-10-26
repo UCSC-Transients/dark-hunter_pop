@@ -2620,6 +2620,23 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
   - Mixture validity: the posterior-draw law is the same for every generation (it is the row's posterior), so it cancels in every weight. A generation with `age_source: row_mean` (1001, 1002, the default, fingerprints unchanged) is still evaluated at the row mean.
 - **Batch.** One WD-focused 10-h generation (1003): WD component weight 0.7, with dark companions still drawn, so it also adds dark draws for gate 4b. draw_index from 100,410,000, 90 CPU-h budget. Then the table, efficiency and gate-4b per-bin re-check on gens 1000–1003. If gate 4b still fails per bin at ESS ≳ 350, stop and report; if it passes, go on to the joint refit (§5).
 
+**Gen-1003 result (2026-10-26).**
+- **Run.** 19:53–05:53 PDT, stopped by the wall clock at 327,702 contiguous draws. 0.77 CPU s per draw, about 70 CPU-h.
+- **WD efficiency (the #556 fix works).**
+  - ESS per draw of all WD draws went from 0.029 (gen 1002) to 0.264 (gen 1003), ×9.
+  - Detected-WD ESS per draw went from 0.00008 to 0.0030.
+  - Weight tail: the top 10 detected WDs now hold 3.8 % of the detected weight (gens 1000–1003; 4.7 % in gen 1003 alone), against 34 % in gen 1002.
+- **Gens 1000–1003, training partition:**
+  - WD: ESS 93,336 (detected 1,009). Cells at ESS ≥ 30: 48 of 56 filled.
+  - Dark: ESS 103,431 (detected 1,722). Cells at ESS ≥ 30: 82 of 84 filled.
+- **Gate 4b re-check, dark, C1 domain.** ESS per bin 92–228, still below the ~350 a decisive point-wise test needs.
+  - Bias passes in every bin: −0.3 % to +0.7 %.
+  - Coverage 68 %: 0.59, 0.57, 0.67, 0.74, 0.61, 0.70, 0.66 (3 of 7 bins within ±5 %).
+  - Coverage 95 %: 0.90, 0.93, 0.91, 0.94, 0.90, 0.94, 0.94 (5 of 7 within ±5 %).
+  - With more ESS the deviations are **no longer consistent with MC noise**: χ² = 18.8 and 22.4 for 7 bins, p = 0.009 and 0.002.
+- **Status: gate 4b FAILS.** There is a real residual under-coverage after the #557 fixes, about −3 points pooled at 68 % and −2 to −5 points at 95 %. The joint refit (§12.37) is not started; reported to Ryan.
+- **WD (not in the gate):** bias passes; coverage 0.55–0.67 at 68 % and 0.84–0.92 at 95 %.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
