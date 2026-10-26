@@ -513,12 +513,27 @@ class MassRecoveryConfig(BaseModel):
     #: M2 high. ``isotropic_log_m2``: isotropic orientation and log-uniform M2 (the injected R4-Q1 law), applied by
     #: importance-reweighting the likelihood draws with w = |d log M2 / d log a0| / (a0⁴ sin² i).
     m2_posterior_prior: Literal["flat_thiele_innes", "isotropic_log_m2"] = "flat_thiele_innes"
+    #: #564: likelihood draws Gaussian (DR3's own convention) or multivariate Student-t with ν by a0/σ_a0 bin
+    #: (``student_t_snr_edges``, one ``student_t_nu`` per bin; calibrated on the held-out partition by
+    #: ``scripts/calibrate_student_t_564.py``). Applied from the row's a0/σ_a0, so identically to real DR3/DR4 rows.
+    likelihood_tails: Literal["gaussian", "student_t"] = "gaussian"
+    student_t_snr_edges: tuple[float, ...] = ()
+    student_t_nu: tuple[float, ...] = ()
     #: #557: gate 4b is evaluated on fitted periods ≤ this (the C1 domain, = the decided rung3.c1_period_max_days);
     #: None = all accepted orbits.
     gate_period_max_days: float | None = Field(None, gt=0)
     #: Spec §13.4 gate 4b thresholds (reported; the gate is evaluated in a later phase).
     max_abs_bias: float = Field(..., gt=0)
     max_coverage_offset: float = Field(..., gt=0)
+
+
+def student_t_nu_for(snr: float, cfg: MassRecoveryConfig) -> float | None:
+    """ν for an orbit of significance a0/σ_a0 = ``snr`` (None = Gaussian)."""
+    if cfg.likelihood_tails != "student_t":
+        return None
+    e = np.asarray(cfg.student_t_snr_edges, float)
+    j = int(np.clip(np.searchsorted(e, snr, side="right") - 1, 0, len(cfg.student_t_nu) - 1))
+    return float(cfg.student_t_nu[j])
 
 
 class Rung4AnalysisConfig(BaseModel):
@@ -530,6 +545,14 @@ class Rung4AnalysisConfig(BaseModel):
     selection_table: SelectionTableConfig
     mass_recovery: MassRecoveryConfig
     contamination: Literal["declared_stub"]
+
+    @model_validator(mode="after")
+    def _student_t(self) -> Rung4AnalysisConfig:
+        mr = self.mass_recovery
+        if mr.likelihood_tails == "student_t" and (len(mr.student_t_nu) < 1 or len(mr.student_t_snr_edges) != len(mr.student_t_nu) + 1
+                                                   or any(v <= 0 for v in mr.student_t_nu)):
+            raise ValueError("student_t needs len(student_t_snr_edges) == len(student_t_nu) + 1 and ν > 0")
+        return self
 
     @model_validator(mode="after")
     def _levels(self) -> Rung4AnalysisConfig:
@@ -779,7 +802,7 @@ def m1_posterior_draws(parent: ps.ParentSnapshot, row: int, n: int, rng: np.rand
 
 def m2_posterior_draws(
     p0: ArrayLike, covariance: ArrayLike, m1_msun: ArrayLike, *, n_draws: int, random_seed: int, flux_ratio: float,
-    prior: str,
+    prior: str, student_t_nu: float | None = None,
 ) -> tuple[FloatArray, FloatArray, FloatArray, Any]:
     """(m_f, M2, weight) per Monte-Carlo draw of one orbit, and the covariance factorization (#557).
 
@@ -800,7 +823,11 @@ def m2_posterior_draws(
     dflt = inspect.signature(mcm.propagate_nss_solution).parameters  # the real-row path's eigenvalue floors
     factor = mcm.factorize_covariance(sol.covariance_array(), eig_rel_floor=dflt["eig_rel_floor"].default,
                                       eig_abs_floor=dflt["eig_abs_floor"].default)
-    d = mcm.sample_multivariate_normal(sol.values_array(), factor, n_draws, np.random.default_rng(int(random_seed)))
+    rng_ = np.random.default_rng(int(random_seed))
+    d = mcm.sample_multivariate_normal(sol.values_array(), factor, n_draws, rng_)
+    if student_t_nu is not None:  # #564: multivariate Student-t, x = μ + (x_N − μ) √(ν / χ²_ν)
+        mu_ = sol.values_array()
+        d = mu_ + (d - mu_) * np.sqrt(student_t_nu / rng_.chisquare(student_t_nu, size=n_draws))[:, None]
     a, b, f_, g = (d[:, idx[k]] for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes"))
     a0, m_f, m2 = mcm.propagate_thiele_innes_draws(a, b, f_, g, d[:, idx["parallax"]], d[:, idx["period"]], m1_msun, flux_ratio=flux_ratio)
     if prior == "flat_thiele_innes":
@@ -848,8 +875,12 @@ def recover_masses(
         m1 = m1_posterior_draws(parent, int(rows[i]), cfg.n_mc_draws, np.random.default_rng([seed, 1]), cfg.m1_posterior)
         if not np.all(np.isfinite(m1)):
             continue
+        nu = None
+        if cfg.likelihood_tails == "student_t":  # #564: ν from the orbit's own a0/σ_a0
+            casc_i = np.asarray(outcome["cascade"], float)[i]
+            nu = student_t_nu_for(float(casc_i[17] / casc_i[18]) if casc_i[18] > 0 else 0.0, cfg)
         m_f, m2, wq, method = m2_posterior_draws(p0s[i], covs[i], m1, n_draws=cfg.n_mc_draws, random_seed=seed,
-                                                 flux_ratio=cfg.assumed_flux_ratio, prior=cfg.m2_posterior_prior)
+                                                 flux_ratio=cfg.assumed_flux_ratio, prior=cfg.m2_posterior_prior, student_t_nu=nu)
         ok = np.isfinite(m2) & (wq > 0)
         if not ok.any():
             continue
