@@ -2613,6 +2613,13 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - The 68 % values sit mostly below nominal (pooled −1.9 points). A small residual under-coverage cannot be excluded; candidates are the Gaussian approximation in (P, e, φ_p) and the flat prior on ϖ and P.
 - WD (not in the gate) stays low, 0.60 / 0.84–0.95 at ESS 9–47 per bin. The WD light (f = 0 assumed) and the WD weight tail (#556) both contribute.
 
+### 13.11 WD cooling-age proposal at the draw's own age (#556; Ryan approved 2026-10-25)
+
+- **Problem (gen 1002, §13.9).** The matched cooling-age share used the row's posterior-mean age, while the target uses the draw's posterior-draw age (`iso_log_age`). Where t > t_avail,row, only the 0.3 log-uniform share covers the target: 1,451 WD draws carry 21 % of the WD weight, and the top 10 detected WDs hold 34 % of the detected weight.
+- **Fix (proposal only; `co_v1` unchanged).** `wd_cooling_age_matched.age_source: draw` takes the age from the draw's own MP-Q35 posterior draw (`proposal_set.posterior_draws`). That draw depends only on (row, generation), so the sampler draws it before the WD light is computed, and the §12.33 photometry step reproduces it exactly. q is then evaluated at the stored `iso_log_age`.
+  - Mixture validity: the posterior-draw law is the same for every generation (it is the row's posterior), so it cancels in every weight. A generation with `age_source: row_mean` (1001, 1002, the default, fingerprints unchanged) is still evaluated at the row mean.
+- **Batch.** One WD-focused 10-h generation (1003): WD component weight 0.7, with dark companions still drawn, so it also adds dark draws for gate 4b. draw_index from 100,410,000, 90 CPU-h budget. Then the table, efficiency and gate-4b per-bin re-check on gens 1000–1003. If gate 4b still fails per bin at ESS ≳ 350, stop and report; if it passes, go on to the joint refit (§5).
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).

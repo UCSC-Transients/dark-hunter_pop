@@ -178,6 +178,19 @@ def row_system_age_gyr(parent: ps.ParentSnapshot, rows: ArrayLike) -> FloatArray
     return 10.0 ** np.asarray(parent.isochrone["log_age_mean"], float)[r] / 1e9
 
 
+def matched_system_age_gyr(
+    cfg: ps.ProposalConfig, parent: ps.ParentSnapshot, rows: ArrayLike, *, iso_log_age: ArrayLike | None = None,
+) -> FloatArray:
+    """The system age the matched cooling-age share uses: the row's posterior mean (``age_source: row_mean``) or the
+    draw's posterior-draw age (``draw``, #556: ``iso_log_age`` per draw, log10 yr; required then)."""
+    mc = _co(cfg).wd_cooling_age_matched
+    if mc is None or mc.age_source == "row_mean":
+        return row_system_age_gyr(parent, rows)
+    if iso_log_age is None:
+        raise ValueError("wd_cooling_age_matched.age_source draw needs the per-draw iso_log_age")
+    return 10.0 ** np.asarray(iso_log_age, float) / 1e9
+
+
 def _matched_avail(cfg: ps.ProposalConfig, m2: ArrayLike, t_sys_row: ArrayLike) -> FloatArray:
     co = _co(cfg)
     assert co.wd_cooling_age_matched is not None
@@ -213,7 +226,9 @@ def log_q_co_cooling_age(
     return np.where(comp == COMPONENT_CODES["wd"], ld, 0.0)
 
 
-def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, draw_index_offset: int = 0) -> dict[str, NDArray[Any]]:
+def sample_co_proposal(
+    parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, draw_index_offset: int = 0, config: Any = None,
+) -> dict[str, NDArray[Any]]:
     """Draw ``cfg.n_draws`` compact-object systems; truth columns (luminous names where shared) + log q terms.
 
     Deterministic given ``cfg.base_seed`` and ``cfg.generation`` (the same ``SeedSequence`` stream as
@@ -235,7 +250,14 @@ def sample_co_proposal(parent: ps.ParentSnapshot, cfg: ps.ProposalConfig, *, dra
     m2 = 10.0 ** rng.uniform(lo, hi)
     a_lo, a_hi = co.wd_log10_cooling_age_gyr
     t_cool = np.where(is_wd, 10.0 ** rng.uniform(a_lo, a_hi, size=n), np.nan)
-    t_sys_row = row_system_age_gyr(parent, row)
+    if co.wd_cooling_age_matched is not None and co.wd_cooling_age_matched.age_source == "draw":
+        if config is None:
+            raise ValueError("wd_cooling_age_matched.age_source draw needs the PipelineConfig (config=...)")
+        # #556: the same MP-Q35 posterior draws apply_system_photometry makes later (they depend on rows and generation only)
+        iso_age = np.asarray(ps.posterior_draws(row, parent, config, cfg)[0]["log_age"], float)
+        t_sys_row = matched_system_age_gyr(cfg, parent, row, iso_log_age=iso_age)
+    else:
+        t_sys_row = row_system_age_gyr(parent, row)
     if co.wd_cooling_age_matched is not None:  # #552 re-centring: own RNG slot, the main stream is unchanged
         rng_m = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, CO_COOLING_MATCHED_RNG_SLOT)))
         av = _matched_avail(cfg, m2, t_sys_row)
@@ -306,7 +328,7 @@ def log_q_co_total_for(truth: Mapping[str, NDArray[Any]], parent: ps.ParentSnaps
     with np.errstate(divide="ignore"):
         lqs = np.log(qs[row])
     lqc = log_q_co_cooling_age(truth["co_component"], truth["wd_cooling_age_gyr"], cfg, m2_msun=m2,
-                               t_sys_row_gyr=row_system_age_gyr(parent, row))
+                               t_sys_row_gyr=matched_system_age_gyr(cfg, parent, row, iso_log_age=truth.get("iso_log_age")))
     return (lqs + log_q_co_m2(truth["co_component"], m2, cfg) + lqc
             + ps.log_q_log_p(np.log10(p), cfg.period) + ps.log_q_ecc(truth["eccentricity"], p, cfg.eccentricity))
 
