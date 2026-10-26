@@ -113,3 +113,25 @@ def test_wd_target_branches_normalize_and_respect_the_ifmr_floor() -> None:
     assert l[0] > l[1] + 10
     assert jr.wd_target_log_density([0.6], [1e4], [0.3], [2.0], [5.0], ln_r_wd=0.5, beta=1.0, f_mt=0.0, f_he=0.5, alpha=2.35, cfg=WDT)[0] == pytest.approx(
         0.5 + math.log(2.0) + jr.wd_target_log_density([0.6], [1e4], [0.3], [2.0], [5.0], ln_r_wd=0.0, beta=0.0, f_mt=0.0, f_he=0.5, alpha=2.35, cfg=WDT)[0])
+
+
+@pytest.mark.physics
+def test_kroupa_is_continuous_and_wd_physics_rate_rises_with_m1() -> None:
+    br, sl = (0.08, 0.5), (0.3, 1.3, 2.3)
+    lx = jr.kroupa_log_xi([0.5 - 1e-9, 0.5 + 1e-9, 0.08 - 1e-9, 0.08 + 1e-9], br, sl)
+    assert lx[0] == pytest.approx(lx[1], abs=1e-6) and lx[2] == pytest.approx(lx[3], abs=1e-6)
+    assert jr.kroupa_log_xi([2.0], br, sl)[0] - jr.kroupa_log_xi([1.0], br, sl)[0] == pytest.approx(-2.3 * math.log(2))
+    cfg = jr.WDPhysicsConfig(enabled=True, imf_breaks_msun=br, imf_slopes=sl, imf_ref="Kroupa 2001",
+                             mds17_table_path="config/population/moe_distefano2017.yaml", mds17_m1_interpolation="linear_m1",
+                             mds17_eta_floor=-0.9, log_p_ni_min=3.0, log_p_max=8.0, mt=WDT)
+    m1 = np.array([0.3, 0.6, 1.0])
+    l = jr.wd_physics_log_density(np.full(3, 0.7), np.full(3, 1e4), np.full(3, 0.3), m1, np.full(3, 10.0),
+                                  ln_a_ni=0.0, ln_r_mt=-50.0, f_he=0.5, cfg=cfg)
+    assert np.all(np.isfinite(l))
+    # the IFMR floor: a 0.6 Msun WD (M_p ~ 1.4) cannot accompany a 2.0 Msun primary (M_p must exceed M1)
+    assert jr.wd_physics_log_density([0.6], [1e4], [0.3], [2.0], [1.0], ln_a_ni=0.0, ln_r_mt=-50.0, f_he=0.5, cfg=cfg)[0] < -40
+    # q = M1/M_p below MdS17's 0.1: none on the non-interacting branch
+    assert jr.wd_physics_log_density([1.2], [1e4], [0.3], [0.2], [10.0], ln_a_ni=0.0, ln_r_mt=-50.0, f_he=0.5, cfg=cfg)[0] < -40
+    # the post-MT branch enters through ln R_mt alone
+    lm = jr.wd_physics_log_density([0.3], [54.0], [0.05], [1.0], [8.0], ln_a_ni=-50.0, ln_r_mt=0.0, f_he=1.0, cfg=cfg)[0]
+    assert lm == pytest.approx(jr.wd_target_log_density([0.3], [54.0], [0.05], [1.0], [8.0], ln_r_wd=0.0, beta=0.0, f_mt=1.0, f_he=1.0, alpha=2.35, cfg=WDT)[0], abs=1e-9)

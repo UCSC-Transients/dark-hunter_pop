@@ -296,3 +296,83 @@ def wd_target_log_density(
         mix = np.logaddexp(np.logaddexp(math.log(max(1 - f_mt, 1e-300)) + l_ni, math.log(max(f_mt * f_he, 1e-300)) + l_he),
                            math.log(max(f_mt * (1 - f_he), 1e-300)) + l_co)
     return ln_r_wd + beta * np.log(m1_ / cfg.m1_pivot_msun) + mix
+
+
+# ---------------------------------------------------------------------------
+# #570: physics-derived WD rate vs M1 (spec §12.39) — MdS17 applied to the WD progenitor
+# ---------------------------------------------------------------------------
+
+
+class WDPhysicsConfig(BaseModel):
+    """§12.39 non-interacting branch: Kroupa IMF, MdS17 at the progenitor, Cummings IFMR; post-MT branch shapes from
+    :class:`WDTargetConfig` (``mt``). Fitted: ln A_ni, ln R_mt, f_He."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool
+    imf_breaks_msun: tuple[float, ...]
+    imf_slopes: tuple[float, ...]
+    imf_ref: str
+    mds17_table_path: str
+    mds17_m1_interpolation: str
+    mds17_eta_floor: float
+    log_p_ni_min: float
+    log_p_max: float
+    mt: WDTargetConfig
+
+
+def kroupa_log_xi(m: ArrayLike, breaks: Sequence[float], slopes: Sequence[float]) -> FloatArray:
+    """log ξ(M) (per unit mass, arbitrary normalisation) of a continuous broken power law ξ ∝ M^-α_k."""
+    mm = np.asarray(m, float)
+    b = np.asarray(breaks, float)
+    a = np.asarray(slopes, float)
+    k = np.clip(np.searchsorted(b, mm, side="right"), 0, a.size - 1)
+    # continuity constants: log c_k so that ξ is continuous at every break
+    logc = np.zeros(a.size)
+    for j in range(1, a.size):
+        logc[j] = logc[j - 1] + (a[j] - a[j - 1]) * math.log(b[j - 1])
+    with np.errstate(divide="ignore"):
+        return logc[k] - a[k] * np.log(mm)
+
+
+def wd_physics_log_density(
+    m2: ArrayLike, period_days: ArrayLike, ecc: ArrayLike, m1: ArrayLike, t_sys_gyr: ArrayLike,
+    *, ln_a_ni: float, ln_r_mt: float, f_he: float, cfg: WDPhysicsConfig,
+) -> FloatArray:
+    """log λ_WD per looks-single primary in the proposal's measure (per dex M_WD, per dex P, per unit e or the circular
+    point mass), without the cooling-age factor. Non-interacting: A_ni ξ(M_p) f_MdS17(log P|M_p) p_q(M1/M_p) p_e
+    |dM_p/dM_WD| M_WD ln10 / (M_p ξ(M1)), M_p = IFMR⁻¹(M_WD) > max(M1, M_TO(t_sys)), log P ≥ log_p_ni_min.
+    Post-MT: R_mt [f_He p_He + (1 − f_He) p_CO] (shapes of :func:`wd_target_log_density`)."""
+    from darkhunter_pop import moe_distefano as mds
+    from darkhunter_pop.compact_objects import ifmr_initial_mass
+
+    m, p, e, m1_ = (np.asarray(x, float) for x in (m2, period_days, ecc, m1))
+    lp = np.log10(p)
+    mt = cfg.mt
+    seg = np.asarray(mt.ifmr_segments, float)
+    mi_lo_tab, mi_hi_tab = float(seg[:, 0].min()), float(seg[:, 1].max())
+    mp = ifmr_initial_mass(m, seg)
+    slope = np.full(m.size, np.nan)
+    for (a_lo, a_hi, sl, ic) in seg:
+        slope = np.where(np.isnan(slope) & (m >= sl * a_lo + ic) & (m <= sl * a_hi + ic), sl, slope)
+    m_to = (np.asarray(t_sys_gyr, float) / mt.ms_lifetime_gyr_at_1msun) ** (1.0 / mt.ms_lifetime_mass_exponent)
+    lo = np.maximum(m1_, np.where(np.isfinite(m_to), m_to, np.inf))
+    q = m1_ / mp
+    table = mds.load_mds17_table(cfg.mds17_table_path)
+    ok = (np.isfinite(slope) & (mp > lo) & (mp >= mi_lo_tab) & (mp <= mi_hi_tab) & (q >= table.q_range[0]) & (q <= table.q_range[1])
+          & (lp >= cfg.log_p_ni_min) & (lp <= cfg.log_p_max))
+    l_ni = np.full(m.size, -np.inf)
+    if ok.any():
+        mps = np.clip(mp[ok], table.m1_range[0], table.m1_range[1])
+        f = mds.f_logp_q03(mps, lp[ok], table)
+        pq = mds.q_density(q[ok], mps, lp[ok], table, m1_interpolation=cfg.mds17_m1_interpolation)
+        circ = mds.is_circular(p[ok], table)
+        pe = np.where(circ, (e[ok] == 0.0).astype(float),
+                      mds.e_density(e[ok], mps, p[ok], table, m1_interpolation=cfg.mds17_m1_interpolation, eta_floor=cfg.mds17_eta_floor))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            l_ni[ok] = (ln_a_ni + kroupa_log_xi(mp[ok], cfg.imf_breaks_msun, cfg.imf_slopes) - kroupa_log_xi(m1_[ok], cfg.imf_breaks_msun, cfg.imf_slopes)
+                        + np.log(f * pq * pe) - np.log(slope[ok]) - np.log(mp[ok]) + np.log(m[ok] * math.log(10.0)))
+    l_mt = wd_target_log_density(m, p, e, m1_, t_sys_gyr, ln_r_wd=ln_r_mt, beta=0.0, f_mt=1.0, f_he=f_he, alpha=2.35, cfg=mt)
+    with np.errstate(invalid="ignore"):
+        out = np.logaddexp(l_ni, l_mt)
+    return np.where(np.isnan(out), -np.inf, out)
