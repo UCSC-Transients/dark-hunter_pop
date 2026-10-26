@@ -79,3 +79,37 @@ def test_photocentre_size_and_co_observables() -> None:
                           {"cascade": casc, "accepted_orbital": np.array([True, True]), "published_acceleration": np.array([False, True])}, 830.4)
     assert o["in_orbit"].tolist() == [True, False] and o["in_accel"].tolist() == [False, True]
     assert o["d_orbit"][0] == 0.5 and o["d_accel"][1] == 0.25 and o["cls"].tolist() == [0.0, 1.0]
+
+
+WDT = jr.WDTargetConfig(
+    enabled=True, m1_pivot_msun=1.0, ifmr_segments=((0.83, 2.85, 0.080, 0.489), (2.85, 3.60, 0.187, 0.184), (3.60, 7.20, 0.107, 0.471)),
+    ms_lifetime_gyr_at_1msun=10.0, ms_lifetime_mass_exponent=-2.5, log_p_ni_min=3.0, log_p_max=8.0, m_wd_min=0.15, m_wd_max=1.4,
+    he_max_msun=0.46, ts99_a=4.5, ts99_b_days=1.2e5, ts99_c_msun=0.12, ts99_ref="TS99", he_sigma_log_p=0.2, co_mt_mu_msun=0.6,
+    co_mt_sigma_msun=0.1, co_mt_mu_log_p=2.5, co_mt_sigma_log_p=0.35, co_mt_ref="El-Badry+2024", e_mt_max=0.2,
+    circular_period_days=2.0, e_max_period_scale_days=2.0, e_max_exponent=-2.0 / 3.0)
+
+
+@pytest.mark.physics
+def test_wd_target_branches_normalize_and_respect_the_ifmr_floor() -> None:
+    lm = np.linspace(math.log10(0.15), math.log10(1.4), 241)
+    lpg = np.linspace(0.2, 8.0, 391)
+    eg = np.linspace(0.0, 1.0, 201)[:-1] + 0.0025
+    M, LP, E = np.meshgrid(10**lm, lpg, eg, indexing="ij")
+    tots = {}
+    for f_mt, f_he in ((0.0, 0.5), (1.0, 1.0), (1.0, 0.0), (0.4, 0.3)):
+        l = jr.wd_target_log_density(M.ravel(), 10 ** LP.ravel(), E.ravel(), np.full(M.size, 0.9), np.full(M.size, 8.0),
+                                     ln_r_wd=0.0, beta=0.0, f_mt=f_mt, f_he=f_he, alpha=2.35, cfg=WDT).reshape(M.shape)
+        tots[(f_mt, f_he)] = np.trapz(np.trapz(np.trapz(np.exp(l), eg, axis=2), lpg, axis=1), lm)
+    assert tots[(0.0, 0.5)] == pytest.approx(1.0, abs=0.03) and tots[(1.0, 0.0)] == pytest.approx(1.0, abs=0.03)
+    # He WDs below ~0.2 Msun lie at P < 10^0.2 d on TS99 (outside the astrometric domain): that part of the branch is cut
+    assert 0.75 < tots[(1.0, 1.0)] < 0.85
+    assert tots[(0.4, 0.3)] == pytest.approx(0.6 * tots[(0.0, 0.5)] + 0.4 * (0.3 * tots[(1.0, 1.0)] + 0.7 * tots[(1.0, 0.0)]), rel=1e-6)
+    # IFMR floor: an older primary (M1 2.0, young system) forbids WDs below IFMR(2.0) = 0.649 on the non-interacting branch
+    l = jr.wd_target_log_density([0.6, 0.7], [1e4, 1e4], [0.3, 0.3], [2.0, 2.0], [1.0, 1.0], ln_r_wd=0.0, beta=0.0, f_mt=0.0, f_he=0.5, alpha=2.35, cfg=WDT)
+    assert l[0] == -np.inf and np.isfinite(l[1])
+    # He WDs follow TS99: 0.30 Msun sits near 54 d
+    assert 10 ** jr.ts99_log_period(0.30, WDT) == pytest.approx(1.2e5 * 0.18**4.5, rel=1e-9)
+    l = jr.wd_target_log_density([0.3, 0.3], [54.0, 5000.0], [0.05, 0.05], [1.0, 1.0], [8.0, 8.0], ln_r_wd=0.0, beta=0.0, f_mt=1.0, f_he=1.0, alpha=2.35, cfg=WDT)
+    assert l[0] > l[1] + 10
+    assert jr.wd_target_log_density([0.6], [1e4], [0.3], [2.0], [5.0], ln_r_wd=0.5, beta=1.0, f_mt=0.0, f_he=0.5, alpha=2.35, cfg=WDT)[0] == pytest.approx(
+        0.5 + math.log(2.0) + jr.wd_target_log_density([0.6], [1e4], [0.3], [2.0], [5.0], ln_r_wd=0.0, beta=0.0, f_mt=0.0, f_he=0.5, alpha=2.35, cfg=WDT)[0])

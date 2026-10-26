@@ -187,3 +187,112 @@ def co_observables(truth: Mapping[str, NDArray[Any]], outcome: Mapping[str, NDAr
     return {"g": np.asarray(truth["phot_g_mean_mag"], float), "d_orbit": d_o, "d_accel": d_a, "log_p": lp, "ecc": casc[:, 14],
             "cls": np.asarray(truth["sys_evolved"], bool).astype(float), "in_orbit": orb,
             "in_accel": np.asarray(outcome["published_acceleration"], bool)}
+
+
+# ---------------------------------------------------------------------------
+# #567: physical WD target (spec §12.38) — a parameterised target, not population synthesis
+# ---------------------------------------------------------------------------
+
+
+class WDTargetConfig(BaseModel):
+    """Fixed shape numbers of the §12.38 WD target (fitted: ln R_wd, β, f_mt, f_He, α; see :func:`wd_target_log_density`)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool
+    m1_pivot_msun: float = Field(..., gt=0)
+    ifmr_segments: tuple[tuple[float, float, float, float], ...]
+    ms_lifetime_gyr_at_1msun: float = Field(..., gt=0)
+    ms_lifetime_mass_exponent: float
+    log_p_ni_min: float
+    log_p_max: float
+    m_wd_min: float = Field(..., gt=0)
+    m_wd_max: float = Field(..., gt=0)
+    he_max_msun: float = Field(..., gt=0)
+    ts99_a: float = Field(..., gt=0)
+    ts99_b_days: float = Field(..., gt=0)
+    ts99_c_msun: float
+    ts99_ref: str
+    he_sigma_log_p: float = Field(..., gt=0)
+    co_mt_mu_msun: float = Field(..., gt=0)
+    co_mt_sigma_msun: float = Field(..., gt=0)
+    co_mt_mu_log_p: float
+    co_mt_sigma_log_p: float = Field(..., gt=0)
+    co_mt_ref: str
+    e_mt_max: float = Field(..., gt=0, le=1)
+    circular_period_days: float = Field(..., gt=0)
+    e_max_period_scale_days: float = Field(..., gt=0)
+    e_max_exponent: float = Field(..., lt=0)
+
+
+def _ln_norm_pdf(x: FloatArray, mu: ArrayLike, sig: float) -> FloatArray:
+    return -0.5 * ((x - mu) / sig) ** 2 - math.log(sig * math.sqrt(2 * math.pi))
+
+
+def ts99_log_period(m_wd: ArrayLike, cfg: WDTargetConfig) -> FloatArray:
+    """log10 P (days) of the Tauris & Savonije (1999) relation M_WD = (P/b)^(1/a) + c; NaN for M_WD ≤ c."""
+    m = np.asarray(m_wd, float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(m > cfg.ts99_c_msun, math.log10(cfg.ts99_b_days) + cfg.ts99_a * np.log10(m - cfg.ts99_c_msun), np.nan)
+
+
+def _e_logpdf(e: FloatArray, p: FloatArray, kind: str, cfg: WDTargetConfig) -> FloatArray:
+    circ = p <= cfg.circular_period_days
+    if kind == "uniform_to_emax":
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            em = np.clip(1.0 - (p / cfg.e_max_period_scale_days) ** cfg.e_max_exponent, 0.0, 1.0)
+            le = np.where((e >= 0) & (e < em), -np.log(em), -np.inf)
+    else:
+        le = np.where((e >= 0) & (e < cfg.e_mt_max), -math.log(cfg.e_mt_max), -np.inf)
+    return np.where(circ, np.where(e == 0.0, 0.0, -np.inf), le)
+
+
+def wd_target_log_density(
+    m2: ArrayLike, period_days: ArrayLike, ecc: ArrayLike, m1: ArrayLike, t_sys_gyr: ArrayLike,
+    *, ln_r_wd: float, beta: float, f_mt: float, f_he: float, alpha: float, cfg: WDTargetConfig,
+) -> FloatArray:
+    """log λ_WD in the proposal's measure (per dex M2, per dex P, per unit e or the circular point mass), WITHOUT the
+    cooling-age factor (it is the §13.2 law in every branch and cancels against the default target)."""
+    m, p, e = (np.asarray(x, float) for x in (m2, period_days, ecc))
+    m1_ = np.asarray(m1, float)
+    lp = np.log10(p)
+    ln10 = math.log(10.0)
+    seg = np.asarray(cfg.ifmr_segments, float)
+    mi_lo_tab, mi_hi_tab = float(seg[:, 0].min()), float(seg[:, 1].max())
+    # (a) non-interacting: M_i ≥ max(M1, M_TO(t_sys)), p(M_i) ∝ M_i^-α on [lo, mi_hi]
+    m_to = (np.asarray(t_sys_gyr, float) / cfg.ms_lifetime_gyr_at_1msun) ** (1.0 / cfg.ms_lifetime_mass_exponent)
+    lo = np.maximum(np.maximum(m1_, np.where(np.isfinite(m_to), m_to, np.inf)), mi_lo_tab)
+    ok_lo = lo < mi_hi_tab
+    if abs(alpha - 1.0) < 1e-9:
+        z = np.log(mi_hi_tab / np.where(ok_lo, lo, 1.0))
+    else:
+        z = (np.where(ok_lo, lo, 1.0) ** (1 - alpha) - mi_hi_tab ** (1 - alpha)) / (alpha - 1)
+    from darkhunter_pop.compact_objects import ifmr_initial_mass
+
+    mi = ifmr_initial_mass(m, seg)
+    slope = np.full(m.size, np.nan)
+    for (a_lo, a_hi, sl, ic) in seg:
+        f_lo, f_hi = sl * a_lo + ic, sl * a_hi + ic
+        slope = np.where(np.isnan(slope) & (m >= f_lo) & (m <= f_hi), sl, slope)
+    inside = ok_lo & np.isfinite(slope) & (mi >= lo) & (mi <= mi_hi_tab)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lpm_ni = np.where(inside, -alpha * np.log(np.where(inside, mi, 1.0)) - np.log(np.where(inside, z, 1.0))
+                          - np.log(np.where(inside, slope, 1.0)) + np.log(m * ln10), -np.inf)
+    lpp_ni = np.where((lp >= cfg.log_p_ni_min) & (lp <= cfg.log_p_max), -math.log(cfg.log_p_max - cfg.log_p_ni_min), -np.inf)
+    l_ni = lpm_ni + lpp_ni + _e_logpdf(e, p, "uniform_to_emax", cfg)
+    # (b1) post-MT He WDs on the TS99 relation
+    in_he = (m >= cfg.m_wd_min) & (m <= cfg.he_max_msun)
+    lpt = ts99_log_period(m, cfg)
+    l_he = np.where(in_he & np.isfinite(lpt), np.log(m * ln10 / (cfg.he_max_msun - cfg.m_wd_min)) + _ln_norm_pdf(lp, np.nan_to_num(lpt), cfg.he_sigma_log_p), -np.inf)
+    l_he = l_he + _e_logpdf(e, p, "mt", cfg)
+    # (b2) post-MT CO WDs (AU scales): truncated normal in M_WD on [he_max, m_wd_max]
+    from scipy.special import ndtr
+
+    zc = ndtr((cfg.m_wd_max - cfg.co_mt_mu_msun) / cfg.co_mt_sigma_msun) - ndtr((cfg.he_max_msun - cfg.co_mt_mu_msun) / cfg.co_mt_sigma_msun)
+    in_co = (m > cfg.he_max_msun) & (m <= cfg.m_wd_max)
+    l_co = np.where(in_co, _ln_norm_pdf(m, cfg.co_mt_mu_msun, cfg.co_mt_sigma_msun) - math.log(zc) + np.log(m * ln10)
+                    + _ln_norm_pdf(lp, cfg.co_mt_mu_log_p, cfg.co_mt_sigma_log_p), -np.inf) + _e_logpdf(e, p, "mt", cfg)
+    with np.errstate(divide="ignore"):
+        mix = np.logaddexp(np.logaddexp(math.log(max(1 - f_mt, 1e-300)) + l_ni, math.log(max(f_mt * f_he, 1e-300)) + l_he),
+                           math.log(max(f_mt * (1 - f_he), 1e-300)) + l_co)
+    return ln_r_wd + beta * np.log(m1_ / cfg.m1_pivot_msun) + mix
