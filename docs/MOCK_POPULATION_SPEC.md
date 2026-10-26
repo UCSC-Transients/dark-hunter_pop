@@ -2446,6 +2446,45 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Open item (option a), DEFERRED (Ryan, 2026-10-23) until an end-to-end pipeline exists.** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
 
+### 12.37 Joint luminous + compact-object refit with the #554 fixes (Ryan, 2026-10-25; §5 ladder change)
+
+Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in `src/darkhunter_pop/joint_refit.py`, config `config/population/rung3_joint_v1.yaml`.
+
+**Data and weights.**
+- Luminous gens 42–46 (`looks_single_v2`) and compact-object gens 1000–1003 (`…:co_v1`).
+- Each family keeps its own deterministic mixture. They are never pooled into one weight set (§13.2).
+- Per bin, the expectation is μ_b(θ) = μ_lum,b(θ) + R_wd μ_wd,b + R_dark μ_dark,b + N_s T_b. The variances add in the same way, with the R² factors.
+- The compact-object observables use the luminous definitions (system G, 1/ϖ_fit, log P_fit, e_fit, system CMD class, C1 P_fit ≤ 830.4 d, published accelerations).
+
+**θ_CO.**
+- ln R_wd and ln R_dark: compact companions per looks-single primary, with the default θ_CO shapes inside each component (R4-Q1, R4-Q8). Flat priors within the config bounds.
+- NS and BH are not separated here (§13.0, #551).
+
+**#554 fixes. All are reweight-only; nothing is re-simulated.**
+- **F1 (posterior-predictive check, not in the likelihood).** Mock (luminous + compact objects) against real, by distance, for:
+  - the photocentre size A = (a0/ϖ)/P^{2/3};
+  - log a0/σ_a0.
+  The spurious term is shown separately, as the π̂-weighted real orbits.
+- **F2 (ESS guard).** v_b → v_b × max(1, ESS_min / ESS_b(θ)) with ESS_min = 10, so low-ESS bins cannot choose the mode. Every fit also reports two profiles: twins held at θ44 (dγ_q, ln F_twin), and N_s held at its prior.
+- **F3 (q-dependent flux-ratio scatter for coeval main-sequence pairs).**
+  - σ_f(q) = σ_0 for q ≤ q_a, falling linearly to σ_min at q = 1, with σ_0 = 0.1, σ_min = 0.03, q_a = 0.8. Evolved systems keep σ_0.
+  - Applied as the factor N(log f; rel, σ_f(q)) / N(log f; rel, σ_0) on the stored log f and the coeval MIST relation.
+  - σ_min = 0.03 is the reweightable floor (#554): σ_f → 0 would need a re-simulation.
+- **F4 (twin-band occupancy).** C1 orbits with (BP−RP)₀ 0.85–2.0 are split into a twin band (ΔM ∈ [−0.95, −0.55)) and a single band (ΔM ∈ [−0.25, 0.25)), per distance bin 0–0.2–0.5–1.0 kpc. The real twin count enters as a binomial term with p(θ) = μ_twin / (μ_twin + μ_single), mock luminous + compact objects.
+- **F5 (f_evo by primary phase).** The evolved modifier acts on the primary's own isochrone phase (posterior-draw phase ≥ 2) instead of the system CMD class.
+- **F6 (looks-single depletion).** Per (G, d) parent cell, Λ_ns(θ) is the expected number of companions per row that make the system look non-single: a published orbit or acceleration, a 5-parameter RUWE ≥ 1.25, a later cascade stage, or system ΔM < −0.4 at (BP−RP)₀ 1.05–2.75. All weights of rows in the cell (luminous and compact-object) are multiplied by exp(+Λ_ns), i.e. 1 / P(looks single).
+  - Λ_ns is evaluated at the base weights: MdS17 for the luminous companions, default θ_CO with the fitted R for the compact objects. It is a fixed factor inside each fit, as in #554's depletion analysis.
+  - It is recomputed once at the fitted luminous θ through the detected-draw subset, and the change is reported.
+
+**Reported.**
+- Convergence across starts.
+- The N_s pull.
+- The twin parameters.
+- The distance and A posterior-predictive checks.
+- The F2 (goodness of fit) median by G.
+- R_wd and R_dark.
+- The two profiles.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
