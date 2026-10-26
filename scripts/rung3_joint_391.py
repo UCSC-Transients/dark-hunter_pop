@@ -103,7 +103,7 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep):
                f"accelerations WD {int((in_a & (comp == 0)).sum())}, dark {int((in_a & (comp == 1)).sum())}")
     casc = np.asarray(o["cascade"], float)
     return dict(w=w, comp=comp, ob=ob, ab=ab, in_o=in_o, in_a=in_a, rows=np.asarray(t["parent_row"], np.int64), nonls=nonls,
-                d_o=obs["d_orbit"], sys_mg0=np.asarray(t["sys_mg0"], float), sys_colour0=np.asarray(t["sys_colour0"], float),
+                d_o=obs["d_orbit"], d_a=obs["d_accel"], sys_mg0=np.asarray(t["sys_mg0"], float), sys_colour0=np.asarray(t["sys_colour0"], float),
                 a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"])
 
 
@@ -390,6 +390,13 @@ def main(argv: list[str] | None = None) -> int:
     cdn = np.histogram(co["d_o"][co["in_o"]], dE, weights=wc[co["in_o"]])[0]
     sdn = np.histogram(ns.ro_cols[1], dE, weights=spur_w)[0]
     mt, ms = twin_terms(th, w)
+    sa_l = ab >= 0
+    radn = np.histogram(ns.ra_cols[1], dE)[0].astype(float)
+    madn = np.histogram(ns.a_cols[1][sa_l], dE, weights=w[sa_l])[0]
+    cadn = np.histogram(co["d_a"][co["in_a"]], dE, weights=wc[co["in_a"]])[0]
+    accel_by_d = {"real": radn.tolist(), "mock_lum": madn.tolist(), "mock_co": cadn.tolist(),
+                  "orbit_accel_real": (rdn / radn).tolist(), "orbit_accel_mock": ((mdn + cdn + sdn) / (madn + cadn)).tolist(),
+                  "accel_mock_over_real": ((madn + cadn) / radn).tolist()}
     res = dict(names=list(names), theta=th.tolist(), err=err.tolist(), nll=float(best.fun), start_offsets=near, n_near=int(sum(x < 5 for x in near)),
                n_starts=len(sols), at_bound=at_b, N_s=float(th[i_ns]), N_s_pull=float((th[i_ns] - prior[0]) / prior[1]),
                R_wd=float(Rw), R_dark=float(Rd), co_orbits={"wd": float(wc[co["in_o"] & (co["comp"] == 0)].sum()), "dark": float(wc[co["in_o"] & (co["comp"] == 1)].sum())},
@@ -397,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
                total=float((mu_o.sum() + s.sum()) / N_o), accel=float((mu_a.sum() + floor_a.sum()) / k_a.sum()),
                d_ratio=((mdn + cdn + sdn) / rdn).tolist(), d_ratio_parts={"lum": (mdn / rdn).tolist(), "co": (cdn / rdn).tolist(), "spurious": (sdn / rdn).tolist()},
                twin_band={"real_twin": kt.tolist(), "real_single": ks.tolist(), "mock_twin": mt.tolist(), "mock_single": ms.tolist()},
-               ppc=ppc, f2=f2, depletion=dsum, ess_orbits=float(ps.kish_ess(w[so_l])), n_big_low=int(np.sum(big & (ess_b < args.min_ess))), n_big=int(big.sum()))
+               ppc=ppc, f2=f2, depletion=dsum, accel_by_distance=accel_by_d, ess_orbits=float(ps.kish_ess(w[so_l])), n_big_low=int(np.sum(big & (ess_b < args.min_ess))), n_big=int(big.sum()))
     rep.append(f"{res['n_near']}/{res['n_starts']} starts within Δ(-lnL) < 5 (offsets {near}); -lnL {best.fun:.1f}; at bound: {at_b or 'none'}")
     for nm, v, e_ in zip(names, th, err):
         rep.append(f"    {nm:10s} {v:+10.3f} +- {e_:.3f}")
@@ -407,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
     rep.append("    d bins " + " / ".join(f"{a:g}-{b:g}" for a, b in zip(dE[:-1], dE[1:])) + ": total/real " + " / ".join(f"{x:.2f}" for x in res["d_ratio"])
                + "; lum " + " / ".join(f"{x:.2f}" for x in res["d_ratio_parts"]["lum"]) + "; CO " + " / ".join(f"{x:.3f}" for x in res["d_ratio_parts"]["co"])
                + "; spurious " + " / ".join(f"{x:.2f}" for x in res["d_ratio_parts"]["spurious"]))
+    rep.append("    orbit:accel by d real " + " / ".join(f"{x:.3f}" for x in accel_by_d["orbit_accel_real"]) + "; mock " + " / ".join(f"{x:.3f}" for x in accel_by_d["orbit_accel_mock"])
+               + "; accel mock/real " + " / ".join(f"{x:.2f}" for x in accel_by_d["accel_mock_over_real"]))
     rep.append("    twin/single real " + " ".join(f"{a / max(b, 1):.2f}" for a, b in zip(kt, ks)) + "; mock " + " ".join(f"{a / max(b, 1e-9):.2f}" for a, b in zip(mt, ms)))
     for k_, v_ in ppc.items():
         A_ = v_["A"]
