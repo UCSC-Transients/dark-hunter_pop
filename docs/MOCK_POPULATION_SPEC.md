@@ -2536,6 +2536,29 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
 - M2 inferred the same way on both sides (f = 0 inversion, M1 from the Janssens et al. 2022 M_G relation);
 - M1 (Janssens), m_f, P, e and (BP−RP)₀.
 
+**Result (2026-10-26; `docs/gate391/wd567/`). The distance mismatch does not go away, and the fit is Monte-Carlo limited.**
+- **Convergence.** Only 4 of 12 starts lie within Δ(−lnL) < 5; the other offsets run up to 85. Several Hessian errors are undefined. At their bounds: α_lo (+5), b1, b3.
+- **Likelihood.** −lnL 16,474.2, against 16,482.7 for v1 (Δ = 8.5 for 4 extra parameters).
+- **Fitted WD parameters:**
+  - ln R_wd = −2.29 ± 0.29, i.e. R_wd = 0.10 per primary at M1 = 1 M⊙;
+  - **β_wd = +1.93 ± 0.34** (the WD rate rises steeply with M1);
+  - f_mt = 0.057 ± 0.019, f_He = 0.43 ± 0.11;
+  - α_ni = 0.74 ± 0.77, poorly constrained.
+- **The dark component switches on:** R_dark = 0.0099, giving 8.5k dark C1 orbits. The physical WD law cannot supply the large-A excess at 0.7–1.5 kpc (real inferred M2 0.8–1.2 M⊙), so the fit uses dark companions. A ≈ 1 %-per-star dark companion rate is not physical; it signals a model shortfall rather than a measurement.
+- **N_s pull** +0.0.
+- **Twin occupancy** matched at 0.32 / 0.33 / 0.46 in every distance bin.
+- **F2 median, mock/real:** G 10–13 4.89 / 4.55.
+- **WD ESS at the fit: 41 (orbits), 115 (accelerations).** The co_v1 proposal (log-uniform M2, wide cooling ages) covers the physical target formally but inefficiently. The fit is MC-limited, and 9 of 16 big bins are below ESS 30.
+- **A > 0.5, mock + spurious against real:** < 0.3 kpc **3,014 against 600**; 0.3–0.7 kpc 4,511 against 2,516; 0.7–1.5 kpc 4,333 against 3,288; > 1.5 kpc 1,011 against 849. The nearby mismatch is worse than in v1.
+- **Distance, (mock + CO + spurious)/real:** 0.79 / 1.07 / 1.00 / 0.96.
+- **Accelerations by distance, mock/real:** 0.81 / 1.03 / 1.01 / 1.11.
+- **Comparisons**, A > 0.5 at d < 0.3 kpc (16 / 50 / 84 %):
+  - Janssens M1: mock 0.36 / 0.67 / 0.97, real 0.55 / 0.77 / 1.09. Mock large-A orbits come from lower-mass primaries, as Ryan suspected.
+  - Inferred M2: mock 0.88 / 3.21 / 17.7 (the dark contribution), real 0.59 / 0.68 / 0.91.
+  - The real large-A excess over luminous + spurious, in inferred M2, peaks at 0.6–0.8 M⊙ nearby, and at 0.8–1.2 M⊙ at 0.7–1.5 kpc.
+- **Profiles (Δ(−lnL)):** β_wd = 0: 7.3; f_mt at its minimum: 10.7; twins at θ44: 6.0; N_s at its prior: 0.0.
+- **Status.** Stopped and reported. A trustworthy fit of this target needs new draws: a co_v1 top-up generation whose WD proposal follows the physical branches (IFMR floor, TS99 He branch, post-MT CO). The existing gens give WD ESS 41. A version change is not needed: it is a proposal-only top-up.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
