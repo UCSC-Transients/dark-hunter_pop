@@ -2514,6 +2514,28 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
   - That attribution overshoots large A nearby (×3.7 at d < 0.3 kpc) and undershoots at 0.7–1.5 kpc. The WD rate is not yet a clean measurement: it absorbs a luminous-model shortfall with a distance dependence the compact-object component does not have.
   - The e-shape parameters b1 and b3 sit at their bounds.
 
+### 12.38 Physical WD target for the joint refit (#567; Ryan, 2026-10-26)
+
+**Why.** The §12.37 joint fit puts R_wd = 0.022 on a provisional WD law: log-uniform 0.15–1.40 M⊙, about 49 % below 0.45 M⊙, independent of M1. It over-predicts large-A orbits nearby (×3.7 at d < 0.3 kpc) and under-predicts them at 0.7–1.5 kpc. Since A ≈ M2/(M1+M2)^(2/3), both the WD mass law and the primary-mass dependence of the rate move A with distance.
+
+**Scope.** This is a parameterised target, not population synthesis (CLAUDE.md). Every number is in `rung3_joint_v2.yaml` → `joint.wd_target`. It is reweight-only on co_v1 gens 1000–1003; their proposal covers M2 0.15–1.40 at every P.
+
+**Target.** λ_WD = R_wd (M1/M_piv)^β × [(1 − f_mt) p_ni + f_mt (f_He p_He + (1 − f_He) p_CO)], with the §13.2 cooling-age law in every branch.
+- **(a) Non-interacting branch, p_ni.**
+  - Coeval system: the WD progenitor was more massive than the current primary, and has left the MS within the system age: M_i ≥ max(M1, M_TO(t_sys)), with t_MS = 10 Gyr (M/M⊙)^−2.5, the same lifetime law as R4-Q8.
+  - p(M_i) ∝ M_i^−α on [M_i,min, 7.2 M⊙]. M_WD = IFMR(M_i), the Cummings et al. (2018) MIST IFMR already in config, which gives the lower limit M_WD ≥ IFMR(M_i,min).
+  - Wide orbits: log P uniform on [log_p_ni_min, 8]; e uniform below e_max(P).
+- **(b) Post-mass-transfer branch.**
+  - He WDs: M_WD uniform on [0.15, he_max]. log P ~ N(log P_TS99(M_WD), σ_logP), with P_TS99 from the Tauris & Savonije (1999) Pop I relation M_WD = (P/b)^(1/a) + c, a = 4.50 (confirmed), b = 1.2 × 10⁵ d and c = 0.120 M⊙ (from the paper; to be verified against it). This gives P ≈ 54 d at 0.30 M⊙ and ≈ 820 d at 0.45 M⊙.
+  - Post-MT CO WDs (El-Badry et al. 2024 AU-scale systems): M_WD ~ N(μ_CO, σ_CO) on [he_max, M_Ch]; log P ~ N(μ_logP, σ_logP,CO).
+  - Both have e uniform on [0, e_mt_max]; circular at P ≤ 2 d, as in the proposal.
+- **Fitted:** ln R_wd, β, f_mt, f_He, α. All other shape numbers are fixed in config.
+- **External WD mass functions** (Gaia 100 pc field WDs; El-Badry et al. 2024 astrometric WD masses) are comparison only, never priors.
+
+**Comparisons.** Mock WD orbits (at the fit) against real orbits, by distance, for all C1 orbits and for A > 0.5:
+- M2 inferred the same way on both sides (f = 0 inversion, M1 from the Janssens et al. 2022 M_G relation);
+- M1 (Janssens), m_f, P, e and (BP−RP)₀.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
