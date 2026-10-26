@@ -2472,7 +2472,9 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
   - σ_min = 0.03 is the reweightable floor (#554): σ_f → 0 would need a re-simulation.
 - **F4 (twin-band occupancy).** C1 orbits with (BP−RP)₀ 0.85–2.0 are split into a twin band (ΔM ∈ [−0.95, −0.55)) and a single band (ΔM ∈ [−0.25, 0.25)), per distance bin 0–0.2–0.5–1.0 kpc. The real twin count enters as a binomial term with p(θ) = μ_twin / (μ_twin + μ_single), mock luminous + compact objects.
 - **F5 (f_evo by primary phase).** The evolved modifier acts on the primary's own isochrone phase (posterior-draw phase ≥ 2) instead of the system CMD class.
-- **F6 (looks-single depletion).** Per (G, d) parent cell, Λ_ns(θ) is the expected number of companions per row that make the system look non-single: a published orbit or acceleration, a 5-parameter RUWE ≥ 1.25, a later cascade stage, or system ΔM < −0.4 at (BP−RP)₀ 1.05–2.75. All weights of rows in the cell are multiplied by exp(+Λ_ns(θ)), i.e. 1 / P(looks single), recomputed at each θ.
+- **F6 (looks-single depletion).** Per (G, d) parent cell, Λ_ns(θ) is the expected number of companions per row that make the system look non-single: a published orbit or acceleration, a 5-parameter RUWE ≥ 1.25, a later cascade stage, or system ΔM < −0.4 at (BP−RP)₀ 1.05–2.75. All weights of rows in the cell (luminous and compact-object) are multiplied by exp(+Λ_ns), i.e. 1 / P(looks single).
+  - Λ_ns is evaluated at the base weights: MdS17 for the luminous companions, default θ_CO with the fitted R for the compact objects. It is a fixed factor inside each fit, as in #554's depletion analysis.
+  - It is recomputed once at the fitted luminous θ through the detected-draw subset, and the change is reported.
 
 **Reported.**
 - Convergence across starts.
