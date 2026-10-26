@@ -385,7 +385,7 @@ rung3:
       ts99_a: 4.5
       ts99_b_days: 120000.0
       ts99_c_msun: 0.12
-      ts99_ref: Tauris & Savonije 1999, MNRAS 350, 928, Pop I fit M_WD=(P/b)^(1/a)+c;
+      ts99_ref: Tauris & Savonije 1999, A&A 350, 928, Pop I fit M_WD=(P/b)^(1/a)+c;
         a=4.50 confirmed, b and c from the paper (VERIFY)
       he_sigma_log_p: 0.2
       co_mt_mu_msun: 0.6
