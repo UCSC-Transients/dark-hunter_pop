@@ -479,6 +479,14 @@ class MassRecoveryConfig(BaseModel):
     m1_posterior: Literal["isochrone_row_lognormal"]
     coverage_levels: tuple[float, ...]
     log10_m2_edges: tuple[float, ...]
+    #: #557: prior of the per-object M2 posterior. ``flat_thiele_innes`` = the Gaussian likelihood alone (flat in
+    #: A, B, F, G, ϖ, P; the NSS reproduction convention), whose implied prior ∝ a0³ sin³ i in (a0, ω, Ω, i) pushes
+    #: M2 high. ``isotropic_log_m2``: isotropic orientation and log-uniform M2 (the injected R4-Q1 law), applied by
+    #: importance-reweighting the likelihood draws with w = |d log M2 / d log a0| / (a0⁴ sin² i).
+    m2_posterior_prior: Literal["flat_thiele_innes", "isotropic_log_m2"] = "flat_thiele_innes"
+    #: #557: gate 4b is evaluated on fitted periods ≤ this (the C1 domain, = the decided rung3.c1_period_max_days);
+    #: None = all accepted orbits.
+    gate_period_max_days: float | None = Field(None, gt=0)
     #: Spec §13.4 gate 4b thresholds (reported; the gate is evaluated in a later phase).
     max_abs_bias: float = Field(..., gt=0)
     max_coverage_offset: float = Field(..., gt=0)
@@ -740,6 +748,47 @@ def m1_posterior_draws(parent: ps.ParentSnapshot, row: int, n: int, rng: np.rand
     return 10.0 ** (mu + sd * rng.standard_normal(n))
 
 
+def m2_posterior_draws(
+    p0: ArrayLike, covariance: ArrayLike, m1_msun: ArrayLike, *, n_draws: int, random_seed: int, flux_ratio: float,
+    prior: str,
+) -> tuple[FloatArray, FloatArray, FloatArray, Any]:
+    """(m_f, M2, weight) per Monte-Carlo draw of one orbit, and the covariance factorization (#557).
+
+    The likelihood draws are the full-covariance Gaussian of the cascade solution, propagated through
+    ``mc_mass_function`` (``factorize_covariance`` → ``sample_multivariate_normal`` → ``propagate_thiele_innes_draws``),
+    the real-row code path. ``prior`` sets the per-draw weight (see :class:`MassRecoveryConfig`):
+    ``flat_thiele_innes`` → 1; ``isotropic_log_m2`` → |d log M2 / d log a0| / (a0⁴ sin² i), where |∂(A,B,F,G)/∂(a0, ω,
+    Ω, i)| = a0³ sin³ i, the isotropic prior is ∝ sin i, log-uniform M2 maps to p(a0) ∝ |d log M2/d log a0| / a0, and
+    d log a0 / d log M2 = 1 − (2/3) M2 / (M1 + M2) for a dark companion (f = 0) at fixed M1 and P.
+    """
+    from darkhunter_pop import mc_mass_function as mcm
+
+    names = list(ps.ORBIT_PARAMETER_NAMES)
+    idx = {k: names.index(k) for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes", "parallax", "period")}
+    sol = cascade_parameter_set(p0, covariance)
+    import inspect
+
+    dflt = inspect.signature(mcm.propagate_nss_solution).parameters  # the real-row path's eigenvalue floors
+    factor = mcm.factorize_covariance(sol.covariance_array(), eig_rel_floor=dflt["eig_rel_floor"].default,
+                                      eig_abs_floor=dflt["eig_abs_floor"].default)
+    d = mcm.sample_multivariate_normal(sol.values_array(), factor, n_draws, np.random.default_rng(int(random_seed)))
+    a, b, f_, g = (d[:, idx[k]] for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes"))
+    a0, m_f, m2 = mcm.propagate_thiele_innes_draws(a, b, f_, g, d[:, idx["parallax"]], d[:, idx["period"]], m1_msun, flux_ratio=flux_ratio)
+    if prior == "flat_thiele_innes":
+        w = np.ones(n_draws)
+    elif prior == "isotropic_log_m2":
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cos_i = (a * g - b * f_) / a0**2
+            sin2 = np.clip(1.0 - cos_i**2, 0.0, 1.0)
+            m1 = np.broadcast_to(np.asarray(m1_msun, float), m2.shape)
+            dl = 1.0 - (2.0 / 3.0) * m2 / (m1 + m2)
+            w = 1.0 / (np.abs(dl) * a0**4 * sin2)
+        w = np.where(np.isfinite(w) & np.isfinite(m2) & (m2 > 0), w, 0.0)
+    else:
+        raise ValueError(f"unknown m2_posterior_prior {prior!r}")
+    return np.asarray(m_f, float), np.asarray(m2, float), w, factor.method
+
+
 def recover_masses(
     truth: Mapping[str, NDArray[Any]],
     outcome: Mapping[str, NDArray[Any]],
@@ -757,7 +806,7 @@ def recover_masses(
 
     sel = np.flatnonzero(np.asarray(select, bool))
     n = np.asarray(truth["draw_index"]).size
-    out = {k: np.full(n, np.nan) for k in ("m_f_med", "m2_med", "m2_pit", "factorization")}
+    out = {k: np.full(n, np.nan) for k in ("m_f_med", "m2_med", "m2_pit", "factorization", "mc_ess")}
     codes = {mcm.CovarianceFactorization.CHOLESKY: 0, mcm.CovarianceFactorization.CHOLESKY_NUGGET: 1, mcm.CovarianceFactorization.EIGEN_CLIP: 2}
     p0s, covs = np.asarray(outcome["orbit_p0"], float), np.asarray(outcome["orbit_cov"], float)
     m2_true = np.asarray(truth["m2_msun"], float)
@@ -770,15 +819,19 @@ def recover_masses(
         m1 = m1_posterior_draws(parent, int(rows[i]), cfg.n_mc_draws, np.random.default_rng([seed, 1]), cfg.m1_posterior)
         if not np.all(np.isfinite(m1)):
             continue
-        dr = mcm.propagate_nss_solution(cascade_parameter_set(p0s[i], covs[i]), m1_msun=m1, n_draws=cfg.n_mc_draws,
-                                        random_seed=seed, flux_ratio=cfg.assumed_flux_ratio)
-        m2 = dr.m2_msun[np.isfinite(dr.m2_msun)]
-        if m2.size == 0:
+        m_f, m2, wq, method = m2_posterior_draws(p0s[i], covs[i], m1, n_draws=cfg.n_mc_draws, random_seed=seed,
+                                                 flux_ratio=cfg.assumed_flux_ratio, prior=cfg.m2_posterior_prior)
+        ok = np.isfinite(m2) & (wq > 0)
+        if not ok.any():
             continue
-        out["m_f_med"][i] = float(np.nanmedian(dr.m_f_msun))
-        out["m2_med"][i] = float(np.median(m2))
-        out["m2_pit"][i] = float(np.mean(m2 < m2_true[i]))
-        out["factorization"][i] = codes[dr.factorization]
+        m2o, wo = m2[ok], wq[ok]
+        order = np.argsort(m2o)
+        cw = np.cumsum(wo[order]) / wo.sum()
+        out["m_f_med"][i] = float(np.nanmedian(m_f))
+        out["m2_med"][i] = float(m2o[order][min(np.searchsorted(cw, 0.5), m2o.size - 1)])
+        out["m2_pit"][i] = float(np.sum(wo[m2o < m2_true[i]]) / wo.sum())
+        out["mc_ess"][i] = ps.kish_ess(wo)
+        out["factorization"][i] = codes[method]
     return out
 
 
@@ -804,11 +857,32 @@ def recovery_summary(
             frac = med[s] / t[s] - 1.0
             order = np.argsort(frac)
             cw = np.cumsum(w[s][order]) / w[s].sum()
-            rec["median_bias"] = float(frac[order][np.searchsorted(cw, 0.5)])
+            rec["median_bias"] = float(frac[order][min(np.searchsorted(cw, 0.5), frac.size - 1)])
             for lv in cfg.coverage_levels:
                 rec[f"coverage_{lv:g}"] = float(np.sum(w[s] * (np.abs(pit[s] - 0.5) < lv / 2.0)) / w[s].sum())
+                rec[f"coverage_{lv:g}_mc_sigma"] = float(math.sqrt(lv * (1 - lv) / rec["ess"])) if rec["ess"] > 0 else float("nan")
         rows.append(rec)
     return rows
+
+
+def gate_4b(rows: Sequence[Mapping[str, Any]], cfg: MassRecoveryConfig, *, min_ess: float) -> dict[str, Any]:
+    """Spec §13.4 gate 4b on :func:`recovery_summary` rows with ESS ≥ ``min_ess``: |bias| < ``max_abs_bias`` and
+    |coverage − level| ≤ ``max_coverage_offset`` per bin (point-wise), plus the χ² of the coverage deviations against
+    their MC σ per level (the noise-aware check reported beside it, #557). The point-wise result is the gate."""
+    from scipy import stats
+
+    used = [r for r in rows if r.get("ess", 0) >= min_ess and "median_bias" in r]
+    out: dict[str, Any] = {"bins_used": len(used), "bias_ok": all(abs(r["median_bias"]) < cfg.max_abs_bias for r in used)}
+    point = out["bias_ok"]
+    for lv in cfg.coverage_levels:
+        dev = [r[f"coverage_{lv:g}"] - lv for r in used]
+        ok = [abs(d) <= cfg.max_coverage_offset for d in dev]
+        chi = float(sum((d / r[f"coverage_{lv:g}_mc_sigma"]) ** 2 for d, r in zip(dev, used)))
+        out[f"coverage_{lv:g}"] = {"bins_within": int(sum(ok)), "chi2": chi, "dof": len(used),
+                                   "p_value": float(stats.chi2.sf(chi, len(used))) if used else float("nan")}
+        point = point and all(ok)
+    out["passed_pointwise"] = bool(point and used)
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -2590,6 +2590,29 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - **Gate 4d** (σ_MC/σ_Poisson < 0.1) cannot be evaluated yet: the default θ_CO has `rate_per_primary` 1, so N_b is not a physical count. It is evaluated at rung 5 with the fitted rates.
 
 
+### 13.10 Gate 4b: M2 coverage diagnosis and fix (#557, Ryan approved 2026-10-25)
+
+**Finding (gens 1000–1002, accepted orbits, training partition, θ_CO weights;** `scripts/diag_coverage_557.py`**).**
+- **Not the cause:**
+  - The M1 posterior: with M1 fixed at the truth, dark 68 % coverage stays at 0.63.
+  - The covariance core: pulls of ϖ, P and a0 have σ_MAD 0.97–1.06, and the good fits have std 0.97–0.98.
+  - f = 0 for dark companions; for WDs the true f moves 95 % coverage only from 0.86 to 0.91.
+- **Cause 1, the implied prior.** The Gaussian likelihood draws are flat in (A, B, F, G). Since |∂(A,B,F,G)/∂(a0, ω, Ω, i)| = a0³ sin³ i, that is a prior ∝ a0³ sin³ i in the physical parameters, which pushes a0 and M2 high. The truth then sits in the lower tail: P(PIT < 0.16) = 0.30 against P(PIT > 0.84) = 0.14.
+  - Fix: weight each likelihood draw by |d log M2 / d log a0| / (a0⁴ sin² i). That gives an isotropic orientation and the injected log-uniform M2 law (R4-Q1).
+  - Config: `mass_recovery.m2_posterior_prior: isotropic_log_m2`. The NSS reproduction paths keep the flat convention.
+- **Cause 2, orbits longer than the baseline.** 6 % of the weight has a catastrophic fit (|pull| > 3): mostly P_true > 1038 d fitted with P_fit/P_true ≈ 0.4–0.8 at a0/σ ≈ 14. There the Gaussian at the best fit cannot cover the truth (68 % coverage 0.12–0.16).
+  - Fix: gate 4b is evaluated in the C1 orbit domain the rung-3 fit already uses, P_fit ≤ 0.8 × 1038 d = 830.4 d (`mass_recovery.gate_period_max_days`, same value as the decided `rung3.c1_period_max_days`). Longer fitted periods enter rung 5 through the selection function only, not through per-object M2 posteriors.
+
+**Result after the fix** (`build_co_selection_table.py`, dark, C1 domain, θ_CO-weighted, 4,000 MC draws per object).
+- Bias passes in all 7 M2 bins (1–40 M⊙): −0.1 % to +0.7 %, against the < 5 % gate.
+- Coverage, per bin (ESS 55–149):
+  - 68 %: 0.649, 0.618, 0.624, 0.764, 0.616, 0.661, 0.662. Three of 7 bins are within ±5 %.
+  - 95 %: 0.921, 0.955, 0.891, 0.955, 0.908, 0.926, 0.944. Six of 7 bins are within ±5 %.
+- Pooled coverage is 0.661 / 0.935.
+- **Gate 4b status: FAILS point-wise.** The deviations are consistent with the MC noise of the coverage estimates (χ² = 8.6 and 11.5 for 7 bins, p = 0.28 and 0.12), so the gate is not decidable at this ESS. A point-wise ±5 % test needs ESS ≈ 350 per bin, about 2.5× the current draws.
+- The 68 % values sit mostly below nominal (pooled −1.9 points). A small residual under-coverage cannot be excluded; candidates are the Gaussian approximation in (P, e, φ_p) and the flat prior on ϖ and P.
+- WD (not in the gate) stays low, 0.60 / 0.84–0.95 at ESS 9–47 per bin. The WD light (f = 0 assumed) and the WD weight tail (#556) both contribute.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).

@@ -547,3 +547,77 @@ def test_mixture_weights_across_gens_1000_1001(frag: ps.ProposalSetFragment, rec
         wd = sub["co_component"] == 0
         ess_frac[g] = ps.kish_ess(ws[wd]) / wd.sum()
     assert ess_frac[1001] > 1.5 * ess_frac[1000]
+
+
+# ---------------------------------------------------------------------------
+# #557: M2 posterior prior and gate 4b
+# ---------------------------------------------------------------------------
+
+
+def _ti(a: float, w: float, om: float, i: float) -> np.ndarray:
+    c = math.cos(i)
+    return np.array([a * (math.cos(w) * math.cos(om) - math.sin(w) * math.sin(om) * c),
+                     a * (math.cos(w) * math.sin(om) + math.sin(w) * math.cos(om) * c),
+                     -a * (math.sin(w) * math.cos(om) + math.cos(w) * math.sin(om) * c),
+                     -a * (math.sin(w) * math.sin(om) - math.cos(w) * math.cos(om) * c)])
+
+
+@pytest.mark.physics
+def test_thiele_innes_jacobian_is_a_cubed_sin_cubed() -> None:
+    rng = np.random.default_rng(1)
+    for _ in range(5):
+        p = np.array([rng.uniform(0.5, 3), rng.uniform(0, 6), rng.uniform(0, 6), rng.uniform(0.1, 3)])
+        jac = np.zeros((4, 4))
+        for k in range(4):
+            d = np.zeros(4)
+            d[k] = 1e-6
+            jac[:, k] = (_ti(*(p + d)) - _ti(*(p - d))) / 2e-6
+        assert abs(np.linalg.det(jac)) == pytest.approx(p[0] ** 3 * math.sin(p[3]) ** 3, rel=1e-5)
+
+
+@pytest.mark.physics
+def test_isotropic_log_m2_prior_calibrates_coverage_flat_does_not() -> None:
+    """SBC on the M2 posterior: truths from isotropic orientation and log-uniform M2, Gaussian TI noise at a0/σ ≈ 8.
+    The prior-weighted posterior covers at the nominal rate and is unbiased in PIT; the flat-TI one is pushed high."""
+    rng = np.random.default_rng(7)
+    m1, period, plx = 1.0, 400.0, 2.0
+    names = list(ps.ORBIT_PARAMETER_NAMES)
+    pits = {"flat_thiele_innes": [], "isotropic_log_m2": []}
+    for _ in range(300):
+        m2 = 10 ** rng.uniform(0.3, 1.3)
+        a0 = ((m1 + m2) * (period / 365.25) ** 2) ** (1 / 3) * m2 / (m1 + m2) * plx
+        ti = _ti(a0, rng.uniform(0, 2 * np.pi), rng.uniform(0, 2 * np.pi), math.acos(rng.uniform(-1, 1)))
+        sig = a0 / 8.0
+        p0 = np.zeros(12)
+        p0[names.index("parallax")], p0[names.index("period")] = plx, period
+        for j, k in enumerate(("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes")):
+            p0[names.index(k)] = ti[j] + sig * rng.standard_normal()
+        cov = np.diag(np.full(12, 1e-10))
+        for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes"):
+            cov[names.index(k), names.index(k)] = sig**2
+        seed = int(rng.integers(2**31))
+        for prior in pits:
+            _, m2d, wq, _ = cob.m2_posterior_draws(p0, cov, np.full(4000, m1), n_draws=4000, random_seed=seed, flux_ratio=0.0, prior=prior)
+            ok = np.isfinite(m2d) & (wq > 0)
+            pits[prior].append(np.sum(wq[ok][m2d[ok] < m2]) / wq[ok].sum())
+    iso = np.asarray(pits["isotropic_log_m2"])
+    flat = np.asarray(pits["flat_thiele_innes"])
+    assert np.mean(np.abs(iso - 0.5) < 0.34) == pytest.approx(0.68, abs=0.07)
+    assert np.mean(np.abs(iso - 0.5) < 0.475) == pytest.approx(0.95, abs=0.04)
+    assert abs(np.mean(iso < 0.16) - np.mean(iso > 0.84)) < 0.08
+    assert np.mean(flat < 0.16) - np.mean(flat > 0.84) > 0.08  # flat TI: truth in the lower tail too often
+    with pytest.raises(ValueError, match="unknown"):
+        cob.m2_posterior_draws(p0, cov, np.ones(10), n_draws=10, random_seed=1, flux_ratio=0.0, prior="nope")
+
+
+@pytest.mark.unit
+def test_gate_4b_pointwise_and_chi2() -> None:
+    rc = cob.load_rung4_config(RUNG4).mass_recovery
+    assert rc.m2_posterior_prior == "isotropic_log_m2" and rc.gate_period_max_days == pytest.approx(830.4)
+    good = [{"ess": 400.0, "median_bias": 0.01, "coverage_0.68": 0.69, "coverage_0.68_mc_sigma": 0.023,
+             "coverage_0.95": 0.94, "coverage_0.95_mc_sigma": 0.011}] * 3
+    g = cob.gate_4b(good, rc, min_ess=30)
+    assert g["passed_pointwise"] and g["bins_used"] == 3 and g["coverage_0.68"]["p_value"] > 0.5
+    bad = good + [{**good[0], "coverage_0.68": 0.55}]
+    assert not cob.gate_4b(bad, rc, min_ess=30)["passed_pointwise"]
+    assert cob.gate_4b(bad, rc, min_ess=500)["bins_used"] == 0 and not cob.gate_4b(bad, rc, min_ess=500)["passed_pointwise"]
