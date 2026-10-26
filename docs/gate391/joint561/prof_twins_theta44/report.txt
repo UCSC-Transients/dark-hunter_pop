@@ -1,0 +1,40 @@
+#561 joint luminous + co_v1 refit — Joint luminous + co_v1 refit v1 (spec §12.37, #561): v12 grid + compact-object rates + #554 fixes F1-F6
+luminous primary model: looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19
+
+F3 flux scatter {'enabled': True, 'sigma_0': 0.1, 'sigma_min': 0.03, 'q_taper_start': 0.8}: |Δ ln w| median 0.000, q >= 0.95 median Δ ln w +0.000
+F5 f_evo on primary phase >= 2.0: 0.237 of fit draws (system class 0.224)
+compact objects: 613369 draws (gens [1000, 1001, 1002, 1003]); C1 orbits WD 1826, dark 2439; accelerations WD 1655, dark 969
+F6 looks-single depletion P(looks single) per (G, d) cell: G10-11 d0-0.3 0.781; G10-11 d0.3-0.7 0.835; G10-11 d0.7-1.5 0.859; G10-11 d1.5-6 0.920; G11-13 d0-0.3 0.803; G11-13 d0.3-0.7 0.846; G11-13 d0.7-1.5 0.842; G11-13 d1.5-6 0.915; G13-16 d0-0.3 0.771; G13-16 d0.3-0.7 0.813; G13-16 d0.7-1.5 0.884; G13-16 d1.5-6 0.938; G16-19.5 d0-0.3 0.905; G16-19.5 d0.3-0.7 0.878; G16-19.5 d0.7-1.5 0.876; G16-19.5 d1.5-6 0.949
+   compact-object share of Λ_ns at the starting rates: max 2.40e-02 (luminous max 0.260)
+F4 twin band: real twin / single per d bin [0.0, 0.2, 0.5, 1.0]: 1059/3314, 3841/11564, 2361/5099
+profile: dgamma_q fixed at 0.4007
+profile: ln_F_twin fixed at -0.7676
+N_s prior N(21434, 1833); ESS floor for variance inflation 10; real C1 orbits 125226, accelerations 324908
+4/4 starts within Δ(-lnL) < 5 (offsets [0.0, 0.01, 0.12, 0.61]); -lnL 16493.3; at bound: ['a1', 'b3', 'ln_R_dark']
+    ln_A           -0.004 +- 0.074
+    alpha_lo       +2.211 +- 1.181
+    alpha_hi       -0.246 +- 0.346
+    gamma_P        -0.274 +- nan
+    ln_L_P         +0.877 +- 0.047
+    dgamma_q       +0.401 +- 0.057
+    ln_F_twin      -0.768 +- nan
+    a1            +20.000 +- nan
+    a2             +1.105 +- 0.253
+    a3             +0.642 +- nan
+    b1            +18.982 +- nan
+    b2             +1.352 +- 0.457
+    b3             +1.000 +- nan
+    ln_f_evo       -0.002 +- 0.081
+    ln_R_wd        -4.014 +- 0.206
+    ln_R_dark     -14.000 +- 24.239
+    N_s        +21964.520 +- 1857.931
+    N_s 21965 vs prior 21434 +- 1833 (pull +0.3); (mock+CO+spurious)/real 1.031; accelerations 1.002
+    compact objects: R_wd 0.0181, R_dark 8.32e-07 per primary; expected C1 orbits WD 8209, dark 1; accelerations WD 10345, dark 1
+    d bins 0-0.3 / 0.3-0.7 / 0.7-1.5 / 1.5-6: total/real 0.96 / 1.09 / 0.98 / 1.14; lum 0.71 / 0.86 / 0.73 / 0.89; CO 0.110 / 0.062 / 0.046 / 0.029; spurious 0.14 / 0.17 / 0.20 / 0.23
+    twin/single real 0.32 0.33 0.46; mock 0.32 0.31 0.47
+    PPC d0-0.3: A > 0.5: mock+spur 1487 (CO 1289) vs real 600
+    PPC d0.3-0.7: A > 0.5: mock+spur 2238 (CO 1741) vs real 2516
+    PPC d0.7-1.5: A > 0.5: mock+spur 2533 (CO 1002) vs real 3288
+    PPC d1.5-6: A > 0.5: mock+spur 966 (CO 60) vs real 849
+    F2 median mock/real: G10-13 4.86/4.55; G13-16 -0.02/0.09; G16-19.5 0.14/0.64
+    ESS orbits 714; big bins below ESS 30: 6/16

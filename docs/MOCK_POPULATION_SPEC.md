@@ -2485,6 +2485,35 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
 - R_wd and R_dark.
 - The two profiles.
 
+**Result (2026-10-26; `docs/gate391/joint561/`).** Luminous gens 42–46 plus co_v1 gens 1000–1003. F1–F6 on, 12 starts.
+- **Convergence.** 12 of 12 starts within Δ(−lnL) < 5 (offsets 0.00–0.68). At their bounds: b1 and b3 (e-shape), and ln R_dark (lower bound).
+- **N_s** = 21.7k against the prior 21.4k ± 1.8k: pull **+0.2** (it was +4.7 in #554).
+- **Twins.** dγ_q = +0.72 ± 0.13, ln F_twin = +0.02 ± 0.76. Neither is at a bound. Twin/single occupancy per distance bin 0–0.2 / 0.2–0.5 / 0.5–1.0 kpc: mock 0.32 / 0.33 / 0.46, real 0.32 / 0.33 / 0.46 (F4 term).
+- **Compact objects.**
+  - R_wd = 0.022 per primary (ln R_wd −3.81 ± 0.20). That gives 10.0k expected C1 orbits and 12.6k accelerations, 8 % of C1 orbits.
+  - R_dark is at its lower bound (8 × 10⁻⁷). The dark rate is unconstrained from above at this level and is consistent with zero.
+- **Distance (orbits).** (mock + CO + spurious)/real per bin 0–0.3 / 0.3–0.7 / 0.7–1.5 / >1.5 kpc:
+  - totals: 1.00 / 1.06 / 0.95 / 1.21;
+  - luminous 0.73 / 0.82 / 0.69 / 0.95, CO 0.13 / 0.08 / 0.06 / 0.04, spurious 0.14 / 0.17 / 0.20 / 0.22.
+  - Orbit:acceleration ratio, real 0.464 / 0.377 / 0.357 / 0.424, mock 0.424 / 0.404 / 0.349 / 0.523.
+  - Accelerations mock/real 1.09 / 0.99 / 0.97 / 0.98.
+- **A = (a0/ϖ)/P^(2/3)** (F1), counts with A > 0.5, mock + spurious against real:
+  - d < 0.3 kpc: **2,248 (CO 1,575) against 600**, an over-prediction of large-A orbits nearby, carried by the WD companions;
+  - 0.3–0.7 kpc: 2,697 against 2,516;
+  - 0.7–1.5 kpc: 2,758 against 3,288;
+  - > 1.5 kpc: 1,218 against 849.
+- **F2 median, mock/real:** G 10–13 4.96 / 4.55, G 13–16 −0.02 / 0.09, G 16–19.5 0.14 / 0.64.
+- **ESS.** Orbit ESS 600. Big bins below ESS 30: 6 of 16.
+- **Profiles.**
+  - Twins held at θ44 (dγ_q +0.40, ln F_twin −0.77): Δ(−lnL) = **10.6**, N_s pull +0.3, ln R_wd −4.01.
+  - N_s held at its prior: Δ = **0.0**.
+- **F6 depletion:** P(looks single) is 0.77–0.95 per (G, d) cell. The compact-object share of Λ_ns is at most 0.024.
+- **F3** changes the weights of the coeval main-sequence draws with q ≥ 0.8 (about 10 % of the accepted draws). Draws far from the relation already had negligible weight at σ_0.
+- **Reading.**
+  - The N_s tension of #554 is gone: high-A orbits are now attributed to WD companions instead of spurious orbits.
+  - That attribution overshoots large A nearby (×3.7 at d < 0.3 kpc) and undershoots at 0.7–1.5 kpc. The WD rate is not yet a clean measurement: it absorbs a luminous-model shortfall with a distance dependence the compact-object component does not have.
+  - The e-shape parameters b1 and b3 sit at their bounds.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
