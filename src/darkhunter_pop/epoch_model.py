@@ -227,6 +227,83 @@ def load_u0_table(path: Path, expected_sha256: str | None = None) -> RuweU0Table
 
 
 @dataclass(frozen=True)
+class RuweU0Table2D:
+    """``u0(G, BP-RP)`` on a regular grid (noise model v3, spec §8.12): the 41st percentile of mock single-star UWE
+    in G x colour cells (Lindegren 2018 TN LL-124). Bilinear interpolation, clamped to the grid edges."""
+
+    g: tuple[float, ...]
+    colour: tuple[float, ...]
+    u0: tuple[tuple[float, ...], ...]  # [len(g)][len(colour)]
+    path: Path | None = None
+
+    def __post_init__(self) -> None:
+        arr = np.asarray(self.u0, dtype=np.float64)
+        if arr.shape != (len(self.g), len(self.colour)) or len(self.g) < 2 or len(self.colour) < 2:
+            raise ValueError("u0 2-D table needs a full g x colour grid with >= 2 nodes per axis")
+        if np.any(np.diff(self.g) <= 0) or np.any(np.diff(self.colour) <= 0) or np.any(~(arr > 0)):
+            raise ValueError("u0 2-D table axes must increase and u0 must be > 0")
+
+    def __call__(self, g_mag: float, bp_rp: float) -> float:
+        g = np.asarray(self.g)
+        c = np.asarray(self.colour)
+        arr = np.asarray(self.u0, dtype=np.float64)
+        x = float(np.clip(g_mag, g[0], g[-1]))
+        y = float(np.clip(bp_rp, c[0], c[-1]))
+        i = int(np.clip(np.searchsorted(g, x) - 1, 0, g.size - 2))
+        j = int(np.clip(np.searchsorted(c, y) - 1, 0, c.size - 2))
+        tx = (x - g[i]) / (g[i + 1] - g[i])
+        ty = (y - c[j]) / (c[j + 1] - c[j])
+        return float((1 - tx) * (1 - ty) * arr[i, j] + tx * (1 - ty) * arr[i + 1, j]
+                     + (1 - tx) * ty * arr[i, j + 1] + tx * ty * arr[i + 1, j + 1])
+
+
+def load_u0_table_2d(path: Path, expected_sha256: str | None = None) -> RuweU0Table2D:
+    """Read the 2-D u0 CSV (``#`` comments, then ``g,bp_rp,u0`` rows on a full grid); verify sha256."""
+    if expected_sha256:
+        got = _sha256(path)
+        if got != expected_sha256:
+            raise ValueError(f"u0 table {path} sha256 {got} != configured {expected_sha256}")
+    rows = [ln for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    if rows[0].replace(" ", "").lower().split(",")[:3] != ["g", "bp_rp", "u0"]:
+        raise ValueError(f"unexpected 2-D u0 table header {rows[0]!r}")
+    vals = np.array([[float(x) for x in r.split(",")[:3]] for r in rows[1:]])
+    g, c = np.unique(vals[:, 0]), np.unique(vals[:, 1])
+    grid = np.full((g.size, c.size), np.nan)
+    grid[np.searchsorted(g, vals[:, 0]), np.searchsorted(c, vals[:, 1])] = vals[:, 2]
+    return RuweU0Table2D(g=tuple(g), colour=tuple(c), u0=tuple(tuple(r) for r in grid), path=Path(path))
+
+
+@dataclass(frozen=True)
+class NoiseColourConfig:
+    """Noise model v3 (#572, #454; spec §8.12). Actual per-CCD noise x ``s(G, C)`` (gaiamock's realistic epoch
+    errors; s replaces the N2d excess), stated per-CCD error x ``e(G)``, RUWE = UWE / ``u0(G, C)``; C = observed BP-RP."""
+
+    version: str
+    colour_clip: tuple[float, float]
+    colour_ref: float
+    a_knots_g: tuple[float, ...]
+    a_coef: tuple[float, ...]
+    b_knots_g: tuple[float, ...]
+    b_coef: tuple[float, ...]
+    q_coef: float
+    stated_knots_g: tuple[float, ...]
+    stated_scale: tuple[float, ...]
+    u0: RuweU0Table2D
+
+    def actual_scale(self, g_mag: float, bp_rp: float) -> float:
+        """``s = exp(a(G) + b(G) c + q c^2)``, ``c = clip(BP-RP) - colour_ref``."""
+        if not np.isfinite(bp_rp):
+            raise ValueError("noise_colour needs a finite observed BP-RP for every source")
+        c = float(np.clip(bp_rp, *self.colour_clip)) - self.colour_ref
+        a = float(np.interp(g_mag, self.a_knots_g, self.a_coef))
+        b = float(np.interp(g_mag, self.b_knots_g, self.b_coef))
+        return float(np.exp(a + b * c + self.q_coef * c * c))
+
+    def stated_factor(self, g_mag: float) -> float:
+        return float(np.interp(g_mag, self.stated_knots_g, self.stated_scale))
+
+
+@dataclass(frozen=True)
 class EpochModelConfig:
     """Parameters of the epoch model (``dr3.epoch_model`` in config).
 
@@ -284,6 +361,7 @@ class EpochModelConfig:
     excess_noise: PerCcdExcessNoiseConfig | None = None
     ruwe_u0: RuweU0Table | None = None
     vp_loss: VisibilityPeriodLossConfig | None = None
+    noise_colour: NoiseColourConfig | None = None
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -358,7 +436,23 @@ def epoch_model_config_from_mapping(
         excess_noise=_noise_from(section.get("bright_excess_noise")),
         ruwe_u0=_u0_from(section.get("ruwe_u0"), root),
         vp_loss=_vp_from(section.get("visibility_period_loss")),
+        noise_colour=_colour_from(section.get("noise_colour"), root),
         provenance=str(section.get("provenance", "")),
+    )
+
+
+def _colour_from(m: Mapping[str, Any] | None, root: Path) -> NoiseColourConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    path = Path(str(m["u0_table"]))
+    return NoiseColourConfig(
+        version=str(m["version"]), colour_clip=(float(m["colour_clip"][0]), float(m["colour_clip"][1])),
+        colour_ref=float(m["colour_ref"]), a_knots_g=tuple(float(x) for x in m["a_knots_g"]),
+        a_coef=tuple(float(x) for x in m["a_coef"]), b_knots_g=tuple(float(x) for x in m["b_knots_g"]),
+        b_coef=tuple(float(x) for x in m["b_coef"]), q_coef=float(m["q_coef"]),
+        stated_knots_g=tuple(float(x) for x in m["stated_scale_knots_g"]),
+        stated_scale=tuple(float(x) for x in m["stated_scale"]),
+        u0=load_u0_table_2d(path if path.is_absolute() else root / path, m.get("u0_table_sha256")),
     )
 
 
@@ -718,10 +812,12 @@ class SourceEpochContext:
     l_deg: float | None = None
     b_deg: float | None = None
     beta_deg: float | None = None
+    #: observed system BP-RP; read only by the noise-model colour term (spec §8.12)
+    bp_rp: float | None = None
 
 
 def source_context(ra_deg: float, dec_deg: float, g_mag: float,
-                   density_per_deg2: float | None = None) -> SourceEpochContext:
+                   density_per_deg2: float | None = None, bp_rp: float | None = None) -> SourceEpochContext:
     """:class:`SourceEpochContext` with Galactic (l, b) and ecliptic latitude from (ra, dec)."""
     from astropy.coordinates import SkyCoord
     import astropy.units as u
@@ -730,7 +826,8 @@ def source_context(ra_deg: float, dec_deg: float, g_mag: float,
     gal = c.galactic
     ecl = c.barycentrictrueecliptic
     return SourceEpochContext(g_mag=float(g_mag), density_per_deg2=density_per_deg2,
-                              l_deg=float(gal.l.deg), b_deg=float(gal.b.deg), beta_deg=float(ecl.lat.deg))
+                              l_deg=float(gal.l.deg), b_deg=float(gal.b.deg), beta_deg=float(ecl.lat.deg),
+                              bp_rp=None if bp_rp is None else float(bp_rp))
 
 
 @contextlib.contextmanager
@@ -888,6 +985,75 @@ def rescale_cascade_ruwe(cascade: list[float], k: float) -> list[float]:
     return out
 
 
+def noise_model_version(config: Any) -> str:
+    """Label of the per-CCD noise model a draw was simulated with (spec §8.12; never mix versions).
+
+    ``n2d_s1232`` is the production model of spec §8.8 with the §12.32 knots. Accepts an
+    :class:`EpochModelConfig` or the ``dr3.epoch_model`` pydantic section.
+    """
+    colour = getattr(config, "noise_colour", None)
+    if colour is not None and getattr(colour, "enabled", True):
+        return str(colour.version)
+    return "n2d_s1232"
+
+
+@contextlib.contextmanager
+def actual_noise_scale(gaiamock: ModuleType, scale: float) -> Iterator[None]:
+    """Multiply gaiamock's actual per-epoch noise (``get_realistic_epoch_astrometry_errors``) by ``scale`` for the
+    duration of one predict call (spec §8.12). The stated error (``al_uncertainty_per_ccd_interp``) is untouched; the
+    RNG stream is unchanged. ``scale == 1`` leaves gaiamock unpatched."""
+    if scale == 1.0:
+        yield
+        return
+    orig = gaiamock.get_realistic_epoch_astrometry_errors
+
+    def _scaled(*args: Any, **kwargs: Any) -> Any:
+        return scale * orig(*args, **kwargs)
+
+    gaiamock.get_realistic_epoch_astrometry_errors = _scaled
+    try:
+        yield
+    finally:
+        gaiamock.get_realistic_epoch_astrometry_errors = orig
+
+
+def colour_actual_scale(source: SourceEpochContext, config: EpochModelConfig) -> float:
+    """``s(G, C)`` of the noise-model colour term, 1 when it is off."""
+    if not config.enabled or config.noise_colour is None:
+        return 1.0
+    return config.noise_colour.actual_scale(source.g_mag, np.nan if source.bp_rp is None else source.bp_rp)
+
+
+def per_ccd_noise(
+    obs: NDArray[np.float64],
+    err: NDArray[np.float64],
+    g_mag: float,
+    bp_rp: float,
+    config: EpochModelConfig,
+    rng: np.random.Generator,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
+    """Apply the configured per-CCD noise model to gaiamock's ``(obs, err)``; return ``(obs, err, k)``.
+
+    ``k`` is the RUWE scale (RUWE = UWE / k). With the colour term off this is exactly the §8.8 model: N2d white noise
+    from ``rng`` and ``k = u0(G)``. With it on (spec §8.12; the predict call must have run inside
+    :func:`actual_noise_scale` with ``s(G, C)``): the N2d excess is scaled by ``s``, the stated error by ``e(G)``, and
+    ``k = u0(G, C)``. ``bp_rp`` is the observed system colour.
+    """
+    obs = np.asarray(obs, dtype=np.float64)
+    err = np.asarray(err, dtype=np.float64)
+    nc = config.noise_colour if config.enabled else None
+    k = 1.0
+    if config.enabled and config.excess_noise is not None and nc is None:  # §8.12: s(G, C) replaces the N2d excess
+        extra, k = per_ccd_excess_noise(err, g_mag, config.excess_noise, rng)
+        obs = obs + extra
+    if config.enabled and config.ruwe_u0 is not None:
+        k = ruwe_scale_u0(g_mag, config)
+    if nc is not None:
+        err = err * nc.stated_factor(g_mag)
+        k = nc.u0(g_mag, bp_rp)
+    return obs, err, k
+
+
 @dataclass(frozen=True)
 class CascadeRun:
     """One wrapped gaiamock prediction + cascade."""
@@ -934,15 +1100,12 @@ def run_cascade(
     The caller enters ``forward_model.seeded_global_rng`` around this call, exactly as for
     a bare gaiamock call.
     """
-    with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd):
+    s = colour_actual_scale(source, config)
+    with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd), actual_noise_scale(gaiamock, s):
         t, psi, pf, obs, err = predict()
     t = np.asarray(t, dtype=np.float64)
-    k = 1.0
-    if config.enabled and config.excess_noise is not None:
-        extra, k = per_ccd_excess_noise(err, source.g_mag, config.excess_noise, noise_rng)
-        obs = np.asarray(obs, dtype=np.float64) + extra
-    if config.enabled and config.ruwe_u0 is not None:
-        k = ruwe_scale_u0(source.g_mag, config)
+    bp_rp = np.nan if source.bp_rp is None else float(source.bp_rp)
+    obs, err, k = per_ccd_noise(obs, err, source.g_mag, bp_rp, config, noise_rng)
     n_vis = n_visibility_periods_from_days(t * 365.25, visibility_gap_day)
     n_tr = int(fov_transit_ids(t * 365.25, config.transit_split_day).max() + 1) if t.size else 0
     cascade = gaiamock.fit_full_astrometric_cascade(
