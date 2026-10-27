@@ -715,7 +715,20 @@ at G = 13.
 - **Version.** `noise_model: colour_v2` in a fragment adds `:noise_colour_v2` to the primary-model version.
   Production stays `n2d_s1232`. No binaries are re-simulated.
 
-**Results.** In `docs/gate_noise_colour/v2/README.md` (filled in below when done).
+**Results (2026-10-27; `docs/gate_noise_colour/v2/README.md`).**
+- **Fit.** BIC picks b(G)c + qc² on each side (240.2, against 459.4 for G only). Faint b = +0.029 / +0.043 / +0.027 /
+  +0.022 (±0.007–0.014) at G 13.25 / 14 / 16 / 18.5.
+- **e(G):** 0.94 / 0.93 / 0.91 / 0.80 / 0.85 below 13; 0.91 / 0.99 / 1.02 / 1.01 / 0.99 above (held to 19).
+- **Single stars, paired.** The σ_act DR3/mock rms goes from 0.041 (n2d) to 0.0078. Single-star σ_ϖ envelope jump
+  at 13: DR3 +24.6%, v2 +22.3% (n2d +19.0%, v1 +1.2%). Falloff 12.45/13.05: DR3 0.97, v2 1.04 (n2d 1.17). The faint
+  envelope is 0.968 × DR3.
+- **#390 orbits.** F2 median below/above 13: v2 4.91 / 0.23, DR3 4.90 / 0.16. Bright F2 90th percentile: v2 11.0,
+  DR3 11.5.
+- **Documented residuals:**
+  - the orbit envelope step (#390, noisy): 1.07 against DR3's 1.19;
+  - the faint F2 > 3 tail: 0.20 against 0.12;
+  - the faint σ envelope: −3%, from gaiamock's surplus of CCD observations.
+- **Status.** Off by default; adoption is Ryan's call.
 
 ## References
 
