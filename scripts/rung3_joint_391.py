@@ -77,7 +77,7 @@ def luminous_extras(args, ns, parent, jcfg, rep):
     return out
 
 
-def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep):
+def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=None):
     """Compact-object draws (gens 1000–1003): base weights (rate 1 per primary per component), F6 inputs, bins."""
     frags = [ps.load_proposal_set_fragment(f) for f in args.co_fragments]
     gens = [f.proposal for f in frags]
@@ -93,7 +93,12 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep):
     o_cols = [obs["g"], obs["d_orbit"], obs["log_p"], obs["ecc"]]
     in_o = obs["in_orbit"] & (bin_index(o_cols, [out_[a] for a in r4.AXES]) >= 0)
     in_a = obs["in_accel"] & (bin_index([obs["g"], obs["d_accel"]], [out_["g_mag"], out_["distance_kpc"]]) >= 0)
-    ob = np.where(in_o, bin_index(o_cols + [obs["cls"]], oe + [r5.CLS_EDGES]), -1)
+    casc0 = np.asarray(o["cascade"], float)
+    if aE is None:
+        ob = np.where(in_o, bin_index(o_cols + [obs["cls"]], oe + [r5.CLS_EDGES]), -1)
+    else:
+        a_c = jr.photocentre_size(casc0[:, 17], casc0[:, 0], casc0[:, 10])
+        ob = np.where(in_o, bin_index(o_cols + [a_c, obs["cls"]], oe + [aE, r5.CLS_EDGES]), -1)
     ab = np.where(in_a, bin_index([obs["g"], obs["d_accel"], obs["cls"]], ae + [r5.CLS_EDGES]), -1)
     dcfg = jr.DepletionConfig(**jcfg["depletion"])
     nonls = jr.nonsingle_flags(o["solution_type"], o["cascade"], o["accepted_orbital"], o["published_acceleration"],
@@ -106,9 +111,41 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep):
     return dict(w=w, comp=comp, ob=ob, ab=ab, in_o=in_o, in_a=in_a, rows=np.asarray(t["parent_row"], np.int64), nonls=nonls,
                 shape_old=shape_old, m2_true=np.asarray(t["m2_msun"], float), p_true=np.asarray(t["period_days"], float),
                 e_true=np.asarray(t["eccentricity"], float), m1_true=np.asarray(t["m1_msun"], float),
-                t_sys=10.0 ** np.asarray(t["iso_log_age"], float) / 1e9, ecc_fit=casc[:, 14],
+                t_sys=10.0 ** np.asarray(t["iso_log_age"], float) / 1e9, ecc_fit=casc[:, 14], casc=casc,
                 d_o=obs["d_orbit"], d_a=obs["d_accel"], sys_mg0=np.asarray(t["sys_mg0"], float), sys_colour0=np.asarray(t["sys_colour0"], float),
                 a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"])
+
+
+def real_accel_obs(args, ns, parent):
+    """Real published accelerations in the fit domain (same order as ns.ra_sid): CMD, ϖ/σ_ϖ, significance, F2, RUWE."""
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+    from astropy.table import Table
+
+    from darkhunter_pop.giants import cmd_for_rows, load_giants_config
+
+    cfg = ns.cfg
+    gcfg = load_giants_config(Path("config/population/giants.yaml"))
+    pc = parent.columns
+    pg = np.asarray(pc["phot_g_mean_mag"], float)
+    snr = np.asarray(pc["parallax"], float) / np.asarray(pc["parallax_error"], float)
+    dzp = parent.truth_parallax_mas - np.asarray(pc["parallax"], float)
+    ge = np.array([0, 11, 13, 15, 17, 25.0])
+    zp = np.array([np.median(dzp[parent.usable & (pg >= a) & (pg < b) & (snr > 20)]) for a, b in zip(ge[:-1], ge[1:])])
+    at = Table.read(args.accel_snapshot / "table.h5", path="data")
+    sid = np.asarray(at["source_id"], np.int64)
+    pos = {s_: i for i, s_ in enumerate(sid)}
+    idx = np.array([pos[s_] for s_ in ns.ra_sid])
+    col = lambda n: np.ma.filled(np.ma.asarray(at[n], float), np.nan)[idx]  # noqa: E731
+    g, bprp = col("g_mag"), col("bp_mag") - col("rp_mag")
+    plx = col("parallax") + zp[np.clip(np.digitize(g, ge) - 1, 0, 4)]
+    eplx = col("parallax_error")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rr, rlo, rhi = np.where(plx > 0, 1000 / plx, np.nan), np.where(plx > 0, 1000 / (plx + eplx), np.nan), np.where(plx - eplx > 0, 1000 / (plx - eplx), np.nan)
+    gal = SkyCoord(ra=col("ra") * u.deg, dec=col("dec") * u.deg).galactic
+    c = cmd_for_rows(g, bprp, gal.l.deg, gal.b.deg, rr, rlo, rhi, cfg, gcfg)
+    return {"colour0": np.asarray(c.colour0, float), "mg0": np.asarray(c.mg0, float), "plx_snr": col("parallax") / eplx,
+            "signif": col("significance"), "f2": col("goodness_of_fit"), "ruwe": col("ruwe")}
 
 
 def real_cmd(args, ns, parent):
@@ -190,8 +227,25 @@ def main(argv: list[str] | None = None) -> int:
     row_d = 1.0 / parent.truth_parallax_mas
     oe = [np.asarray(fc["orbit_bins"][a], float) for a in r4.AXES]
     ae = [np.asarray(fc["acceleration_bins"][a], float) for a in ("g_mag", "distance_kpc")]
-    ob, ab, k_o, k_a, n_ob, n_ab, rob = r5.binned5(ns, oe, ae)
-    co = co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep)
+    # #570: optional A = (a0/ϖ)/P^(2/3) orbit axis (edges fixed in config before any fit), before the class axis
+    from darkhunter_pop.physics_utils import photocenter_a0_from_thiele_innes as _a0ti
+
+    aE = np.asarray(fc["orbit_bins"]["a_photocentre"], float) if fc["orbit_bins"].get("a_photocentre") else None
+    A_l_fit = jr.photocentre_size(ns.casc[:, 17], ns.casc[:, 0], ns.casc[:, 10])
+    A_r_fit = jr.photocentre_size(_a0ti(ns.r_extra["A"], ns.r_extra["B"], ns.r_extra["F"], ns.r_extra["G"]), ns.r_extra["parallax"], ns.r_extra["period"])
+    if aE is None:
+        ob, ab, k_o, k_a, n_ob, n_ab, rob = r5.binned5(ns, oe, ae)
+    else:
+        ob = np.where(ns.in_o, bin_index(ns.o_cols + [A_l_fit, ns.m_cls], oe + [aE, r5.CLS_EDGES]), -1)
+        ab = np.where(ns.in_a, bin_index(ns.a_cols + [ns.m_cls], ae + [r5.CLS_EDGES]), -1)
+        n_ob = int(np.prod([e.size - 1 for e in oe])) * (aE.size - 1) * 2
+        n_ab = int(np.prod([e.size - 1 for e in ae])) * 2
+        rob = bin_index(ns.ro_cols + [A_r_fit, ns.r_cls], oe + [aE, r5.CLS_EDGES])
+        rab = bin_index(ns.ra_cols + [ns.ra_cls], ae + [r5.CLS_EDGES])
+        k_o = np.bincount(rob[rob >= 0], minlength=n_ob).astype(float)
+        k_a = np.bincount(rab[rab >= 0], minlength=n_ab).astype(float)
+        rep.append(f"A axis edges {aE.tolist()}: real C1 orbits per A bin {np.histogram(A_r_fit[rob >= 0], aE)[0].tolist()}")
+    co = co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=aE)
     # F6 at base weights (luminous MdS17; compact objects at the configured starting rates)
     R0 = {"wd": np.exp(jcfg["co_rates"]["ln_R_wd"][0]), "dark": np.exp(jcfg["co_rates"]["ln_R_dark"][0])}
     w_dep = np.concatenate([lx["w0"], co["w"] * np.where(co["comp"] == 0, R0["wd"], R0["dark"])])
@@ -215,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     sig_cal = float(np.std([r5.pi_hat(cal, ns.r_cov, clamp=(a5.extrapolation == "clamp"), beta=b).sum() for b in bs]) / S0)
     prior = (S0, sig_cal * S0)
     N_o = float(k_o.sum())
-    shp = [e.size - 1 for e in oe] + [2]
+    shp = [e.size - 1 for e in oe] + ([aE.size - 1] if aE is not None else []) + [2]
     phi = float(fc["empty_bin_floor"])
     base_o = np.bincount(ob[ob >= 0], weights=ns.W["noW"][ob >= 0], minlength=n_ob) + sum(
         np.bincount(co["ob"][(co["ob"] >= 0) & (co["comp"] == c)], weights=w_co[(co["ob"] >= 0) & (co["comp"] == c)], minlength=n_ob) for c in (0, 1))
@@ -252,7 +306,11 @@ def main(argv: list[str] | None = None) -> int:
     evo_mod = lx["primary_evolved"] if jcfg.get("f_evo_on") == "primary_phase" else ns.m_cls
     wdt = jr.WDTargetConfig(**jcfg["wd_target"]) if jcfg.get("wd_target") else None
     wd_on = wdt is not None and wdt.enabled
-    wd_names = ("beta_wd", "f_mt", "f_he", "alpha_ni") if wd_on else ()
+    wdp = jr.WDPhysicsConfig(**jcfg["wd_physics"]) if jcfg.get("wd_physics") else None
+    wdp_on = wdp is not None and wdp.enabled
+    if wdp_on:
+        wd_on = False  # §12.39 replaces the §12.38 target
+    wd_names = ("beta_wd", "f_mt", "f_he", "alpha_ni") if wd_on else (("ln_R_mt", "f_he") if wdp_on else ())
     names = r5.POP + ("ln_f_evo", "ln_R_wd", "ln_R_dark") + wd_names + ("N_s",)
     i_fe, i_rw, i_rd, i_ns = (names.index(n) for n in ("ln_f_evo", "ln_R_wd", "ln_R_dark", "N_s"))
     # #567: the WD draws that enter any bin or term; their target is re-evaluated at each θ
@@ -260,6 +318,12 @@ def main(argv: list[str] | None = None) -> int:
 
     def wd_weights(th):
         """WD draw weights at θ: default-target weights × λ_§12.38(θ) / λ_default (or × R_wd without the new target)."""
+        if wdp_on:  # §12.39: physics-derived non-interacting rate (ln A_ni = ln_R_wd) + post-MT branch
+            lnew = jr.wd_physics_log_density(co["m2_true"][wd_rel], co["p_true"][wd_rel], co["e_true"][wd_rel], co["m1_true"][wd_rel], co["t_sys"][wd_rel],
+                                             ln_a_ni=th[i_rw], ln_r_mt=th[names.index("ln_R_mt")], f_he=th[names.index("f_he")], cfg=wdp)
+            with np.errstate(invalid="ignore", over="ignore"):
+                r_ = np.exp(lnew - co["shape_old"][wd_rel])
+            return w_co[wd_rel] * np.where(np.isfinite(r_), r_, 0.0)
         if not wd_on:
             return w_co[wd_rel] * np.exp(th[i_rw])
         j_ = {n: names.index(n) for n in wd_names}
@@ -313,8 +377,13 @@ def main(argv: list[str] | None = None) -> int:
     def nll(th):
         w, mu_o, v_o, mu_a, v_a = expected(th)
         mo = mu_o + th[i_ns] * T + floor_o
-        ll = say_loglike(k_o, mo, jr.inflate_low_ess_variance(mu_o, v_o, ess_floor))
-        ll += say_loglike(k_a, mu_a + floor_a, jr.inflate_low_ess_variance(mu_a, v_a, ess_floor))
+        if relvar["o"] is not None:  # #570: relative MC variance fixed at the reference θ, v = (μ / μ_ref)² v_ref × F2
+            ll = say_loglike(k_o, mo, mu_o**2 * relvar["o"]) + say_loglike(k_a, mu_a + floor_a, mu_a**2 * relvar["a"])
+        elif infl["o"] is not None:  # #570: F2 factors fixed at the reference θ (not gameable by the optimiser)
+            ll = say_loglike(k_o, mo, v_o * infl["o"]) + say_loglike(k_a, mu_a + floor_a, v_a * infl["a"])
+        else:
+            ll = say_loglike(k_o, mo, jr.inflate_low_ess_variance(mu_o, v_o, ess_floor))
+            ll += say_loglike(k_a, mu_a + floor_a, jr.inflate_low_ess_variance(mu_a, v_a, ess_floor))
         ll += -0.5 * ((th[i_ns] - prior[0]) / prior[1]) ** 2
         if tb.enabled:
             mt, ms = twin_terms(th, w)
@@ -323,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
 
     par = fc["parameters"]
     cr = jcfg["co_rates"]
-    wp = jcfg.get("wd_params", {}) if wd_on else {}
+    wp = jcfg.get("wd_params", {}) if (wd_on or wdp_on) else {}
     x0 = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names] + [prior[0]], float)
     bounds = ([(par[n][1], par[n][2]) for n in r5.POP] + [(-3.0, 3.0), (cr["ln_R_wd"][1], cr["ln_R_wd"][2]), (cr["ln_R_dark"][1], cr["ln_R_dark"][2])]
               + [(wp[n][1], wp[n][2]) for n in wd_names] + [(0.0, max(5 * prior[0], 1.0))])
@@ -345,6 +414,24 @@ def main(argv: list[str] | None = None) -> int:
         src = src.get("joint", src.get("noW"))
         th_src = dict(zip(src["names"], src["theta"]))
         x0 = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
+    infl = {"o": None, "a": None}
+    relvar = {"o": None, "a": None}
+    if jcfg.get("mc_variance_at", "current") == "reference_relative":
+        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ro = np.where(mo_r > 0, vo_r / np.where(mo_r > 0, mo_r, 1.0) ** 2, 0.0)
+            ra = np.where(ma_r > 0, va_r / np.where(ma_r > 0, ma_r, 1.0) ** 2, 0.0)
+            fo = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
+            fa = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
+        relvar["o"], relvar["a"] = ro * fo, ra * fa
+        rep.append(f"MC variance: relative error per bin fixed at the reference θ (F2 floor {ess_floor:g} applied there); "
+                   f"median relative MC error of orbit bins {np.median(np.sqrt(ro[mo_r > 0])):.3f}")
+    if jcfg.get("ess_inflation_at", "current") == "reference":
+        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            infl["o"] = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
+            infl["a"] = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
+        rep.append(f"F2 inflation at the reference θ (start point): {int(np.sum(infl['o'] > 1))} orbit and {int(np.sum(infl['a'] > 1))} acceleration bins inflated")
     rep.append(f"N_s prior N({prior[0]:.0f}, {prior[1]:.0f}); ESS floor for variance inflation {ess_floor:g}; real C1 orbits {int(N_o)}, accelerations {int(k_a.sum())}")
     sols, best = [], None
     for s_ in range(args.n_starts):
@@ -519,6 +606,36 @@ def main(argv: list[str] | None = None) -> int:
     rep.append("    F2 median mock/real: " + "; ".join(f"{k_} {v_['mock_median']:.2f}/{v_['real_median']:.2f}" for k_, v_ in f2.items()))
     rep.append(f"    ESS orbits {res['ess_orbits']:.0f}; big bins below ESS {args.min_ess:g}: {res['n_big_low']}/{res['n_big']}")
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    # #570 plot dump: per-draw observables and weights at the fit (mock luminous, mock WD, real, spurious)
+    ra_obs = real_accel_obs(args, ns, parent)
+    cc = co["casc"]
+    cl = ns.casc
+    sa_l = ab >= 0
+    wdo = co["in_o"] & (co["comp"] == 0)
+    wda = co["in_a"] & (co["comp"] == 0)
+
+    def acc_cols(c_):
+        nine = np.isclose(c_[:, 0], -9.0)
+        return {"plx_snr": c_[:, 2] / c_[:, 3], "signif": c_[:, 1], "f2": np.where(nine, c_[:, 13], c_[:, 9]), "ruwe": np.where(nine, c_[:, 12], c_[:, 8])}
+
+    al, ac = acc_cols(cl[sa_l]), acc_cols(cc[wda])
+    dump = {
+        "o_lum_w": w[so_l], "o_lum_g": ns.o_cols[0][so_l], "o_lum_d": ns.o_cols[1][so_l], "o_lum_colour0": lx["sys_colour0"][so_l], "o_lum_mg0": lx["sys_mg0"][so_l],
+        "o_lum_P": cl[so_l, 10], "o_lum_e": cl[so_l, 14], "o_lum_A": A_l_fit[so_l], "o_lum_a0snr": cl[so_l, 17] / cl[so_l, 18], "o_lum_plxsnr": cl[so_l, 0] / cl[so_l, 1],
+        "o_lum_f2": cl[so_l, 21], "o_lum_ruwe": cl[so_l, 22],
+        "o_wd_w": wc[wdo], "o_wd_g": co["g"][wdo], "o_wd_d": co["d_o"][wdo], "o_wd_colour0": co["sys_colour0"][wdo], "o_wd_mg0": co["sys_mg0"][wdo],
+        "o_wd_P": cc[wdo, 10], "o_wd_e": cc[wdo, 14], "o_wd_A": jr.photocentre_size(cc[wdo, 17], cc[wdo, 0], cc[wdo, 10]), "o_wd_a0snr": cc[wdo, 17] / cc[wdo, 18],
+        "o_wd_plxsnr": cc[wdo, 0] / cc[wdo, 1], "o_wd_f2": cc[wdo, 21], "o_wd_ruwe": cc[wdo, 22],
+        "o_real_g": ns.ro_cols[0], "o_real_d": ns.ro_cols[1], "o_real_colour0": rc0, "o_real_mg0": rmg, "o_real_P": 10 ** ns.ro_cols[2], "o_real_e": ns.ro_cols[3],
+        "o_real_A": A_r_fit, "o_real_a0snr": 10 ** ns.r_cov["log10_a0_snr"], "o_real_plxsnr": 10 ** ns.r_cov["log10_parallax_snr"], "o_real_f2": rx["goodness_of_fit"],
+        "o_real_ruwe": rx["ruwe"] if "ruwe" in rx else np.full(rc0.size, np.nan), "o_spur_w": spur_w,
+        "a_lum_w": w[sa_l], "a_lum_g": ns.a_cols[0][sa_l], "a_lum_d": ns.a_cols[1][sa_l], "a_lum_colour0": lx["sys_colour0"][sa_l], "a_lum_mg0": lx["sys_mg0"][sa_l],
+        **{f"a_lum_{k}": v for k, v in al.items()},
+        "a_wd_w": wc[wda], "a_wd_g": co["g"][wda], "a_wd_d": co["d_a"][wda], "a_wd_colour0": co["sys_colour0"][wda], "a_wd_mg0": co["sys_mg0"][wda],
+        **{f"a_wd_{k}": v for k, v in ac.items()},
+        "a_real_g": ns.ra_cols[0], "a_real_d": ns.ra_cols[1], **{f"a_real_{k}": v for k, v in ra_obs.items()},
+    }
+    np.savez_compressed(args.out_dir / "plot_dump.npz", **dump)
     (args.out_dir / "summary.json").write_text(json.dumps({"label": fc.get("label"), "results": {"joint": res}}, indent=1, default=float))
     (args.out_dir / "report.txt").write_text("\n".join(rep) + "\n")
     print("\n".join(rep))

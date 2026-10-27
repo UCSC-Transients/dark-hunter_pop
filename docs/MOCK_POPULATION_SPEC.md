@@ -600,6 +600,11 @@ SourceEpochContext(g_mag), epoch_model_rng(base_seed, stream, draw_index)):` in
 
 ## 5. Validation ladder (each rung gates the next)
 
+**Validation logic (Ryan, 2026-10-26; #570).**
+- **Rung 3** is validated only by matching the mock's multi-dimensional distributions of observables to DR3 data: same cuts; 1-D and pairwise 2-D; orbits and accelerations.
+- **NS/BH (dark-companion) rates are rung-5 inference.** They are neither fitted nor validated in rung 3: R_dark ≡ 0 there, and there are no literature-sample counts.
+- **Rung 4 stays mock-only:** injection/recovery, gate 4b, SBC.
+
 **Ladder change (Ryan, 2026-10-24; #554).** Rung 3 is no longer closed out on its own before rung 4. After the first rung-4 production batch (§13.9), rung 3 is refit **jointly** on the luminous generations plus the compact-object (`co_v1`) generations, together with the reweight-only fixes from the gen-46 diagnosis (#554 / PR #555, `docs/gate391/v2_single/diag46/README.md`). Rung 4's selection function and gates then use that joint fit. The two sample families are still never mixed in one deterministic-mixture weight set (§13.2): the joint fit sums their separately weighted expectations.
 
 | Rung | What | Acceptance |
@@ -2558,6 +2563,65 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
   - The real large-A excess over luminous + spurious, in inferred M2, peaks at 0.6–0.8 M⊙ nearby, and at 0.8–1.2 M⊙ at 0.7–1.5 kpc.
 - **Profiles (Δ(−lnL)):** β_wd = 0: 7.3; f_mt at its minimum: 10.7; twins at θ44: 6.0; N_s at its prior: 0.0.
 - **Status.** Stopped and reported. A trustworthy fit of this target needs new draws: a co_v1 top-up generation whose WD proposal follows the physical branches (IFMR floor, TS99 He branch, post-MT CO). The existing gens give WD ESS 41. A version change is not needed: it is a proposal-only top-up.
+
+### 12.39 Rung 3 v3: luminous + WD + spurious, physics-derived WD rate, A axis, full observable comparison (#570; Ryan, 2026-10-26)
+
+**Model.**
+- μ_b = μ_lum,b(θ) + μ_WD,b(θ_WD) + N_s T_b, with **R_dark ≡ 0** (§5: dark rates belong to rung 5).
+- Each family keeps its own deterministic-mixture weights; the WD draws are co_v1 gens 1000–1003, reweighted.
+- Fitted: the luminous θ, ln f_evo, N_s, and the WD normalisations (below). F2–F6 of §12.37 are kept. F1 becomes a fit axis (A).
+
+**Physics-derived WD rate.** A parameterised target, not population synthesis. Numbers and references are in `rung3_joint_v3.yaml` → `joint.wd_physics`.
+- **Non-interacting branch.** The current primary (mass M1) was the companion of the WD progenitor (mass M_p). The WD rate per looks-single primary is
+  λ_ni(M_WD, P, e | M1, t_sys) = A_ni · ξ(M_p) f_MdS17(log P | M_p) p_q(q = M1/M_p | M_p, P) p_e(e | M_p, P) · |dM_p/dM_WD| / (M_p ξ(M1)).
+  - M_p = IFMR⁻¹(M_WD) (Cummings et al. 2018, MIST); the IFMR floor follows from M_p > max(M1, M_TO(t_sys)).
+  - ξ is the Kroupa (2001) IMF.
+  - P and e are the MdS17 laws at M_p (as for luminous companions, no mass-loss widening; a documented simplification), restricted to log P ≥ log_p_ni_min (non-interacting).
+  - The M1 dependence of the rate is derived, not fitted: this replaces the free β_wd of §12.38.
+- **Post-mass-transfer branch.** As in §12.38: He WDs on the Tauris & Savonije (1999) relation with scatter, and post-MT CO WDs at AU scales. Rate R_mt per primary; He fraction f_He.
+- **Free:** ln A_ni, ln R_mt, f_He.
+- **ESS:** the WD ESS at the fit is reported. The co_v1 proposal covers M2 0.15–1.40 at every P, but not efficiently for this target (§12.38: ESS 41).
+
+**A axis.** The orbit grid gains A = (a0/ϖ)/P_yr^(2/3) with edges [0, 0.5, 5], fixed before any fit.
+- For a dark companion A = M2/(M1+M2)^(2/3); a luminous main-sequence companion dilutes the photocentre, so luminous systems sit mostly at A < 0.5, while WD and other compact companions reach A > 0.5 (El-Badry et al. 2024 AMRF classes; A = AMRF × M1^(1/3)).
+- A is not degenerate with the existing cells: it depends on the masses, not on G, d, P or e.
+- a0/σ_a0 was not chosen, because it is mostly set by G and d, which are already axes.
+
+**F2 amendment (#570).** The §12.37 inflation was computed at the current θ. With the A axis, the optimiser exploited it: it moved to an ESS-starved mode (orbit ESS 53; ln A −1.3, α_hi +4.4) whose own low ESS inflated its variances and flattened the likelihood (mock/real 1.78, N_s pull +9.6). The inflation factors are therefore now fixed at the reference θ (the start point, i.e. the §12.37 v1 fit) for the whole fit: config `ess_inflation_at: reference`.
+  - That alone did not remove the mode: the MC variance itself grows when the weights concentrate, so the SAY likelihood still flattened there (second attempt: mock/real 1.67, N_s pull +9.9, orbit ESS 64).
+  - The relative MC error per bin is therefore also fixed at the reference θ: v_b(θ) = (μ_b(θ)/μ_b,ref)² v_b,ref × F2 (`mc_variance_at: reference_relative`). Moving into an ESS-starved corner no longer buys likelihood. The ESS at the fit is still reported, so a fit that lands in such a corner is flagged.
+
+**Plots** (`docs/gate391/rung3_v3/plots/`, with README.md and index.html). DR3 against the weighted mock (luminous, WD and spurious components shown), same cuts.
+- Observables:
+  - orbits: G, distance, (BP−RP)₀, M_G0, P, e, A, a0/σ_a0, ϖ/σ_ϖ, F2, RUWE;
+  - accelerations: G, distance, (BP−RP)₀, M_G0, ϖ/σ_ϖ, F2, RUWE.
+- **1-D:** real histogram with Poisson errors, mock with an MC + Poisson band, and a ratio panel; also split by distance (< 0.3 / 0.3–0.7 / 0.7–1.5 / > 1.5 kpc).
+- **2-D (every pair):** real and mock on the same colour scale, plus the normalised residual (k − μ)/√(μ + σ²_MC).
+- **Ranking:** every 1-D distribution by χ²/dof, with an MC error from a bootstrap over mock draws.
+
+**Result (2026-10-26; `docs/gate391/rung3_v3/`; plots and ranking in `plots/`, README.md and index.html). The v3 model is Monte-Carlo limited and does not yet match DR3.**
+- **Fit** (third attempt; the first two are kept under `superseded_try1`, `superseded_try2`; see the F2 amendment):
+  - 7 of 12 starts within Δ(−lnL) < 5. At bounds: dγ_q (+1), b1. Hessian errors are undefined.
+  - −lnL 16,910.8.
+  - **N_s = 41.7k against the prior 21.4k ± 1.8k (pull +11.1).** Holding N_s at its prior costs Δ = 39.9; holding the twins at θ44 costs Δ = −4.2 (a better optimum: the main fit's starts did not find it).
+  - Mock/real orbits 1.26 overall; by distance 0.89 / 1.15 / 1.57 / 2.34 (< 0.3 / 0.3–0.7 / 0.7–1.5 / > 1.5 kpc). Accelerations mock/real 1.05.
+- **WD.** A_ni = 1.19: the MdS17-on-progenitor rate is consistent with its physical normalisation. R_mt = 0.0033 per primary, f_He = 0.32.
+  - WD ESS at the fit: 54 (orbits), 42 (accelerations).
+  - The WD component supplies 11.3k C1 orbits and **181k of the 341k mock accelerations** (wide WD companions at P > 10³ d). That is a strong, MC-noisy prediction to test.
+- **A > 0.5 orbits, mock + spurious against real:** < 0.3 kpc 1,724 against 600; 0.3–0.7 kpc 1,549 against 2,516; 0.7–1.5 kpc 3,058 against 3,288; > 1.5 kpc 887 against 849.
+- **MC limits.**
+  - Luminous orbit ESS at the fit: 168.
+  - 9 of 13 big bins are below ESS 30.
+  - The median relative MC error of an orbit bin at the reference θ is 0.48: the A axis splits the luminous draws thinly.
+- **Worst 1-D distributions, χ²/dof** (25 bins; the MC error is a 30-fold bootstrap of the mock draws):
+  - orbit F2 19.9 (χ² 498 ± 226); acceleration distance 18.1 (453 ± 756);
+  - orbit a0/σ_a0 11.8 (294 ± 192); acceleration significance 11.8 (294 ± 356); acceleration (BP−RP)₀ 11.6 (291 ± 280);
+  - orbit ϖ/σ_ϖ 11.2 (279 ± 114); acceleration F2 9.0 (225 ± 911); orbit P 7.4 (186 ± 94).
+  - The best match is orbit e at 1.5.
+  - The worst 2-D maps are all accelerations (G × (BP−RP)₀, G × d, G × F2).
+- **Reading.**
+  - With R_dark ≡ 0 the luminous + WD model has no clean way to make the 7.3k real A > 0.5 orbits. The fit moves into ESS-starved corners (dγ_q at +1, high-mass tilt α_hi +3.1) and N_s takes up the rest.
+  - The new draws needed are: (i) a co_v1 WD top-up following the §12.39 target; (ii) a luminous top-up in the A > 0.5 and evolved / distant cells.
 
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 

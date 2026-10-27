@@ -1,0 +1,430 @@
+# #570 rung 3 v3 (spec §12.39; Ryan 2026-10-26): luminous + WD + spurious, R_dark = 0 (passed as --fix ln_R_dark=-50),
+# physics-derived WD rate (Kroupa IMF, MdS17 at the progenitor, Cummings IFMR; post-MT branch), A axis [0, 0.5, 5]. Not under config/fragments/.
+rung3:
+  m1_law_mass: initial
+  mc_variance: parent_row
+  resolved_companions:
+    enabled: true
+    snapshot: external_catalogs/elbadry2021_widebinaries_sub10as_20261014T035624Z/catalog_sub10as.csv
+    sha256: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565
+    r_chance_max: 0.1
+    g2_max: 19.5
+    theta_edges_arcsec:
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.85
+    - 1.0
+    - 1.25
+    - 1.5
+    - 2.0
+    - 2.5
+    - 3.0
+    - 4.0
+    - 6.0
+    - 8.0
+    - 10.0
+    dg_edges:
+    - 0.0
+    - 1.0
+    - 2.0
+    - 3.0
+    - 4.0
+    - 5.0
+    - 6.5
+    - 8.0
+    - 12.0
+    ref_theta_arcsec:
+    - 4.0
+    - 10.0
+    min_pairs: 30
+    projection_factor: 0.85
+    below_envelope: orb6
+    orb6:
+      snapshot_dir: external_catalogs/orb6_usno_20261014T042048Z
+      sha256:
+        orb6_parsed.ecsv: b2512365690e305ea84d1f3bb057904ab34a064f7fa07d13e5a79ffd3671dc2c
+        orb6_gaiadr3_xmatch5as.ecsv: c3b7ff16ecd0eda923870aab8c6bc50bbfe72bfd1b20c30aea0126e1d628fa3f
+      epoch_yr: 2016.0
+      grade_weights:
+        1: 1.0
+        2: 1.0
+        3: 1.0
+        4: 0.5
+      match_min_arcsec: 2.0
+      sep_tol_frac: 0.3
+      sep_tol_min_arcsec: 0.3
+      theta_edges_arcsec:
+      - 0.02
+      - 0.05
+      - 0.1
+      - 0.15
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
+      - 0.7
+      - 1.0
+      - 1.5
+      - 2.5
+      dg_edges:
+      - 0.0
+      - 1.0
+      - 2.0
+      - 3.0
+      - 5.0
+      - 12.0
+      min_weight: 8
+      ref_theta_max_arcsec: 0.1
+      fill_dg_max: 5.0
+    hold_min_arcsec: 0.1
+  cmd_binary_conditioning:
+    enabled: false
+    m1_min_msun: null
+    q_edges:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.8
+    - 0.9
+    - 0.95
+    - 1.0
+  c1_period_max_days: 830.4
+  likelihood: say_effective
+  parameters:
+    ln_A:
+    - 0.0
+    - -3.0
+    - 3.0
+    alpha_lo:
+    - 0.5
+    - -3.0
+    - 5.0
+    alpha_hi:
+    - 0.0
+    - -5.0
+    - 5.0
+    gamma_P:
+    - 0.0
+    - -2.0
+    - 1.0
+    ln_L_P:
+    - 0.0
+    - -1.5
+    - 2.5
+    dgamma_q:
+    - 0.0
+    - -1.5
+    - 1.0
+    ln_F_twin:
+    - 0.0
+    - -4.0
+    - 1.5
+    a1:
+    - 1.4
+    - 0.1
+    - 20.0
+    a2:
+    - 1.4
+    - 0.1
+    - 20.0
+    a3:
+    - 1.4
+    - 0.1
+    - 20.0
+    b1:
+    - 1.0
+    - 1.0
+    - 30.0
+    b2:
+    - 1.0
+    - 1.0
+    - 30.0
+    b3:
+    - 1.0
+    - 1.0
+    - 30.0
+    N_s:
+    - 0.0
+    - 0.0
+    - 0.0
+  m1_pivot_msun: 0.8
+  log_p_tilt_pivot: 2.7
+  long_p_centre: 3.0
+  long_p_width: 0.1
+  twin_q_min: 0.95
+  eta_floor: -0.9
+  q_normalization: mds17_q03_to_1
+  q_norm_grid_points: 200
+  spurious_extrapolation: clamp
+  spurious_template: additive_pr455_shape_binning_independent_prior
+  ecc_log_p_ranges:
+  - 2.0
+  - 2.6
+  spurious:
+    prior_bin_distance_kpc:
+    - 0.7
+    - 1.5
+    prior_bin_g_mag:
+    - 12.0
+    - 16.0
+    prior_mean: 0.21
+    prior_sigma: 0.04
+    shrink_n0: 20
+    min_systems_per_marginal_bin: 10
+  ess_collapse_threshold: 100
+  min_ess_per_bin: 30
+  outer:
+    g_mag:
+    - 10.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 1.0
+  candidates:
+    g_mag:
+    - - 5.0
+      - 12.0
+      - 14.0
+      - 16.0
+      - 19.5
+    - - 5.0
+      - 13.0
+      - 19.5
+    - - 5.0
+      - 19.5
+    distance_kpc:
+    - - 0.0
+      - 0.3
+      - 0.7
+      - 1.5
+      - 6.0
+    - - 0.0
+      - 0.5
+      - 1.0
+      - 6.0
+    - - 0.0
+      - 0.7
+      - 6.0
+    log10_period_days:
+    - - 0.0
+      - 2.3
+      - 2.6
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.5
+      - 2.75
+      - 2.9193
+    - - 0.0
+      - 2.6
+      - 2.9193
+    eccentricity:
+    - - 0.0
+      - 0.3
+      - 0.6
+      - 1.0
+    - - 0.0
+      - 0.4
+      - 1.0
+    - - 0.0
+      - 1.0
+  empty_bin_floor: 1.0
+  orbit_bins:
+    g_mag:
+    - 10.0
+    - 13.0
+    - 16.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 1.0
+    - 6.0
+    log10_period_days:
+    - 0.0
+    - 2.6
+    - 2.9193
+    eccentricity:
+    - 0.0
+    - 0.3
+    - 1.0
+    a_photocentre:
+    - 0.0
+    - 0.5
+    - 5.0
+  acceleration_bins:
+    g_mag:
+    - 10.0
+    - 13.0
+    - 16.0
+    - 19.5
+    distance_kpc:
+    - 0.0
+    - 1.0
+    - 6.0
+  cmd_class_axis: true
+  label: "Rung 3 v3 (spec \xA712.39, #570): luminous + WD (MdS17-on-progenitor rate\
+    \ + post-MT) + spurious; R_dark = 0; A axis"
+  joint:
+    co_rates:
+      ln_R_wd:
+      - 0.0
+      - -5.0
+      - 5.0
+      ln_R_dark:
+      - -50.0
+      - -50.0
+      - -49.0
+    ess_min_inflate: 10.0
+    mc_variance_at: reference_relative   # #570: the relative MC error per bin is fixed at the reference θ (current-θ variance was exploited)
+    ess_inflation_at: reference   # #570: F2 factors fixed at the start θ (v1 joint fit); 'current' was exploited by the optimiser
+    flux_scatter:
+      enabled: true
+      sigma_0: 0.1
+      sigma_min: 0.03
+      q_taper_start: 0.8
+    twin_band:
+      enabled: true
+      colour0_range:
+      - 0.85
+      - 2.0
+      twin_dm:
+      - -0.95
+      - -0.55
+      single_dm:
+      - -0.25
+      - 0.25
+      distance_edges_kpc:
+      - 0.0
+      - 0.2
+      - 0.5
+      - 1.0
+    f_evo_on: primary_phase
+    primary_phase_evolved_min: 2.0
+    depletion:
+      enabled: true
+      g_edges:
+      - 10.0
+      - 11.0
+      - 13.0
+      - 16.0
+      - 19.5
+      distance_edges_kpc:
+      - 0.0
+      - 0.3
+      - 0.7
+      - 1.5
+      - 6.0
+      ruwe_max: 1.25
+      dm_min: -0.4
+      dm_colour_range:
+      - 1.05
+      - 2.75
+    ppc:
+      distance_edges_kpc:
+      - 0.0
+      - 0.3
+      - 0.7
+      - 1.5
+      - 6.0
+      a_edges:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.5
+      - 1.0
+      - 5.0
+      log_a0_snr_edges:
+      - 0.0
+      - 1.0
+      - 1.5
+      - 2.0
+      - 2.5
+      - 4.0
+      f2_g_edges:
+      - 10.0
+      - 13.0
+      - 16.0
+      - 19.5
+    profiles:
+      twins_at: docs/gate391/v2_single/v12/v12_gens42_44_noW/summary.json
+      twin_names:
+      - dgamma_q
+      - ln_F_twin
+    wd_physics:
+      enabled: true
+      imf_breaks_msun:
+      - 0.08
+      - 0.5
+      imf_slopes:
+      - 0.3
+      - 1.3
+      - 2.3
+      imf_ref: Kroupa 2001, MNRAS 322, 231
+      mds17_table_path: config/population/moe_distefano2017.yaml
+      mds17_m1_interpolation: linear_m1
+      mds17_eta_floor: -0.9
+      log_p_ni_min: 3.0
+      log_p_max: 8.0
+      mt:
+        enabled: true
+        m1_pivot_msun: 1.0
+        ifmr_segments:
+        - - 0.83
+          - 2.85
+          - 0.08
+          - 0.489
+        - - 2.85
+          - 3.6
+          - 0.187
+          - 0.184
+        - - 3.6
+          - 7.2
+          - 0.107
+          - 0.471
+        ms_lifetime_gyr_at_1msun: 10.0
+        ms_lifetime_mass_exponent: -2.5
+        log_p_ni_min: 3.0
+        log_p_max: 8.0
+        m_wd_min: 0.15
+        m_wd_max: 1.4
+        he_max_msun: 0.46
+        ts99_a: 4.5
+        ts99_b_days: 120000.0
+        ts99_c_msun: 0.12
+        ts99_ref: Tauris & Savonije 1999, A&A 350, 928, Pop I fit M_WD=(P/b)^(1/a)+c;
+          a=4.50 confirmed, b and c from the paper (VERIFY)
+        he_sigma_log_p: 0.2
+        co_mt_mu_msun: 0.6
+        co_mt_sigma_msun: 0.1
+        co_mt_mu_log_p: 2.5
+        co_mt_sigma_log_p: 0.35
+        co_mt_ref: 'El-Badry et al. 2024 (OJAp) AU-scale WD+MS binaries: P ~ 100-1000
+          d, M_WD ~ 0.5-0.8 (simple parameterisation)'
+        e_mt_max: 0.2
+        circular_period_days: 2.0
+        e_max_period_scale_days: 2.0
+        e_max_exponent: -0.6666666666666666
+    wd_params:
+      ln_R_mt:
+      - -4.0
+      - -14.0
+      - 0.0
+      f_he:
+      - 0.5
+      - 0.01
+      - 0.99
