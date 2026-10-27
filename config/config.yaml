@@ -1071,6 +1071,18 @@ dr3:
       u0_table: config/epoch_model/dr3_ruwe_u0_colour_v2.csv
       u0_table_sha256: f6d0ff5cf6d5dccace26b3290b4b1bfb65f4c5816aeafca80cf027a1c45b76e9
       provenance: "#579: s from singles_n2d_r16 (relative to n2d_s1232); e from reinject_n2d with s applied analytically; u0 from singles_n2d_r16 x s / e"
+    # #581 (EPOCH_MODEL_SPEC §8.14; Ryan 2026-10-27): transit keep scale kappa_T(G) on p_keep and an independent CCD-row
+    # keep rho(G) after gaiamock's prediction, calibrated on the looks-single single stars (same rows, DR3 quality snapshot
+    # 20261027T054741Z): mean matched transits and n_good_obs_al per matched transit per G bin
+    # (scripts/epoch_transit_recal_581.py calibrate). Adds "+tr1" to the noise/epoch version. OFF until Ryan adopts it.
+    transit_recal:
+      enabled: false
+      version: tr1
+      transit_keep_scale_knots_g: [10.294, 11.620, 12.604, 13.586, 14.581, 15.500, 16.500, 17.500, 18.500]
+      transit_keep_scale: [1.0005, 0.9850, 0.9880, 0.9880, 0.9932, 0.9910, 0.9895, 0.9987, 1.0042]
+      ccd_row_keep_knots_g: [10.294, 11.620, 12.604, 13.586, 14.581, 15.500, 16.500, 17.500, 18.500]
+      ccd_row_keep: [0.9896, 0.9793, 0.9820, 0.9827, 0.9821, 0.9818, 0.9834, 0.9827, 0.9823]
+      provenance: "#581: calibrated on singles_v2_r16 (colour_v2 single stars, 995,344 realizations) vs DR3 same rows"
     # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
     excess_noise:
       enabled: false

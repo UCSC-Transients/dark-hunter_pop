@@ -66,12 +66,14 @@ def _star(task: tuple[int, int, dict[str, float]]) -> list[dict[str, Any]]:
     c0 = time.process_time()
     src = emod.source_context(v["ra"], v["dec"], v["g"], bp_rp=v["bp_rp"])
     seeds = mock_global_rng_seeds(_W["base_seed"], STREAM, idx)
+    erng = emod.epoch_model_rng(_W["base_seed"], STREAM, idx)
     with seeded_global_rng(seeds, _W["c_funcs"]), emod.gost_epoch_model(
-        gm, em, src, emod.epoch_model_rng(_W["base_seed"], STREAM, idx), gaps_jd=_W["gaps"]
+        gm, em, src, erng, gaps_jd=_W["gaps"]
     ), emod.actual_noise_scale(gm, emod.colour_actual_scale(src, em)):
         t, psi, pf, obs, err = gm.predict_astrometry_single_source(
             ra=v["ra"], dec=v["dec"], parallax=v["plx_true"], pmra=v["pmra"], pmdec=v["pmdec"],
             phot_g_mean_mag=v["g"], data_release="dr3")
+    t, psi, pf, obs, err = emod.thin_ccd_rows((t, psi, pf, obs, err), v["g"], em, erng)  # #581 (spec §8.14)
     obs, err, k = emod.per_ccd_noise(
         np.asarray(obs, float), np.asarray(err, float), v["g"], v["bp_rp"], em,
         emod.epoch_model_rng(_W["base_seed"], STREAM, idx, tag=emod.PER_CCD_NOISE_RNG_TAG))
@@ -150,8 +152,10 @@ def cmd_simulate(a: argparse.Namespace) -> None:
     em = cfg.dr3.epoch_model
     if em is None or not em.enabled:
         raise SystemExit("dr3.epoch_model must be configured and enabled")
-    if a.enable_colour:  # §8.12 colour model (config section, switched on for this run)
+    if a.enable_colour:  # §8.12/§8.13 colour model (config section, switched on for this run)
         em = em.model_copy(update={"noise_colour": em.noise_colour.model_copy(update={"enabled": True})})
+    if a.enable_recal:  # §8.14 transit / CCD-row recalibration
+        em = em.model_copy(update={"transit_recal": em.transit_recal.model_copy(update={"enabled": True})})
     par, ok, version = select_rows(Path(a.parent_dir), Path(a.fragment), cfg)
     g = np.asarray(par.columns["phot_g_mean_mag"], float)
     rng = np.random.default_rng(a.seed)
@@ -221,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--realizations", type=int, default=1, help="noise realizations per row (< REAL_STRIDE)")
     p.add_argument("--enable-colour", action="store_true", help="switch dr3.epoch_model.noise_colour on")
+    p.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
     p.set_defaults(func=cmd_simulate)
     a = ap.parse_args(argv)
     a.func(a)

@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--colours", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400/inj390.h5"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--enable-colour", action="store_true", help="switch dr3.epoch_model.noise_colour on")
+    ap.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
     ap.add_argument("--stated-scale", type=float, nargs="*", default=None, help="override noise_colour.stated_scale")
     ap.add_argument("--n-realizations", type=int, default=2)
     ap.add_argument("--workers", type=int, default=6)
@@ -100,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.stated_scale:
             nc = nc.model_copy(update={"stated_scale": list(a.stated_scale)})
         em = em.model_copy(update={"noise_colour": nc})
+    if a.enable_recal:  # #581 (spec §8.14)
+        em = em.model_copy(update={"transit_recal": em.transit_recal.model_copy(update={"enabled": True})})
     nmv = noise_model_version(em)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

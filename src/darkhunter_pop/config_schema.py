@@ -2722,6 +2722,30 @@ class EpochRuweU0Config(BaseModel):
     provenance: str = ""
 
 
+class EpochTransitRecalConfig(BaseModel):
+    """#581 (docs/EPOCH_MODEL_SPEC.md §8.14): per-transit keep scale kappa_T(G) on p_keep and an independent CCD-row keep
+    rho(G) after gaiamock's prediction, calibrated on single stars against DR3 matched transits and n_good_obs_al."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    version: str = "tr1"
+    transit_keep_scale_knots_g: list[float] = Field(..., min_length=1)
+    transit_keep_scale: list[float] = Field(..., min_length=1)
+    ccd_row_keep_knots_g: list[float] = Field(..., min_length=1)
+    ccd_row_keep: list[float] = Field(..., min_length=1)
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochTransitRecalConfig:
+        for kn, v in ((self.transit_keep_scale_knots_g, self.transit_keep_scale), (self.ccd_row_keep_knots_g, self.ccd_row_keep)):
+            if len(kn) != len(v) or any(b <= a for a, b in zip(kn[:-1], kn[1:])):
+                raise ValueError("transit_recal knots must increase and carry one value each")
+        if any(not (0.0 < x <= 1.2) for x in self.transit_keep_scale) or any(not (0.0 < x <= 1.0) for x in self.ccd_row_keep):
+            raise ValueError("transit_keep_scale must be in (0, 1.2] and ccd_row_keep in (0, 1]")
+        return self
+
+
 class EpochNoiseColourConfig(BaseModel):
     """Noise model v3 (#572, #454; docs/EPOCH_MODEL_SPEC.md §8.12): actual per-CCD noise x s(G, BP-RP), stated
     per-CCD error x e(G), RUWE = UWE / u0(G, BP-RP). Disabled = the §8.8 / §12.32 model (``n2d_s1232``)."""
@@ -2852,6 +2876,7 @@ class EpochModelPathConfig(BaseModel):
     ruwe_u0: EpochRuweU0Config | None = None
     visibility_period_loss: EpochVisibilityPeriodLossConfig | None = None
     noise_colour: EpochNoiseColourConfig | None = None
+    transit_recal: EpochTransitRecalConfig | None = None
     provenance: str = ""
 
     @model_validator(mode="after")

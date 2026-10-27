@@ -366,6 +366,23 @@ class NoiseColourConfig:
 
 
 @dataclass(frozen=True)
+class TransitRecalConfig:
+    """#581 (spec §8.14): p_keep x kappa_T(G); each CCD row kept with probability rho(G) after the prediction."""
+
+    version: str
+    keep_knots_g: tuple[float, ...]
+    keep_scale: tuple[float, ...]
+    row_knots_g: tuple[float, ...]
+    row_keep: tuple[float, ...]
+
+    def kappa(self, g_mag: float) -> float:
+        return float(np.interp(g_mag, self.keep_knots_g, self.keep_scale))
+
+    def rho(self, g_mag: float) -> float:
+        return float(np.interp(g_mag, self.row_knots_g, self.row_keep))
+
+
+@dataclass(frozen=True)
 class EpochModelConfig:
     """Parameters of the epoch model (``dr3.epoch_model`` in config).
 
@@ -424,6 +441,7 @@ class EpochModelConfig:
     ruwe_u0: RuweU0Table | None = None
     vp_loss: VisibilityPeriodLossConfig | None = None
     noise_colour: NoiseColourConfig | None = None
+    transit_recal: TransitRecalConfig | None = None
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -499,8 +517,18 @@ def epoch_model_config_from_mapping(
         ruwe_u0=_u0_from(section.get("ruwe_u0"), root),
         vp_loss=_vp_from(section.get("visibility_period_loss")),
         noise_colour=_colour_from(section.get("noise_colour"), root),
+        transit_recal=_recal_from(section.get("transit_recal")),
         provenance=str(section.get("provenance", "")),
     )
+
+
+def _recal_from(m: Mapping[str, Any] | None) -> TransitRecalConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return TransitRecalConfig(version=str(m["version"]), keep_knots_g=tuple(float(x) for x in m["transit_keep_scale_knots_g"]),
+                              keep_scale=tuple(float(x) for x in m["transit_keep_scale"]),
+                              row_knots_g=tuple(float(x) for x in m["ccd_row_keep_knots_g"]),
+                              row_keep=tuple(float(x) for x in m["ccd_row_keep"]))
 
 
 def _colour_from(m: Mapping[str, Any] | None, root: Path) -> NoiseColourConfig | None:
@@ -755,12 +783,15 @@ def keep_probability(
     """
     cont = config.continuous
     if cont is None:
-        return 1.0 - transit_loss_probability(g_mag, config, density_per_deg2=density_per_deg2)
+        p = 1.0 - transit_loss_probability(g_mag, config, density_per_deg2=density_per_deg2)
+        return p if config.transit_recal is None else float(min(1.0, p * config.transit_recal.kappa(g_mag)))
     eta = cont.coef_g[0] + float(g_polynomial_basis(g_mag, cont)[0] @ np.asarray(cont.coef_g[1:]))
     if cont.sky_lmax > 0:
         if l_deg is None or b_deg is None:
             raise ValueError("the continuous loss model has a sky term; pass l_deg and b_deg")
         eta += float(real_sph_harm_galactic(l_deg, b_deg, cont.sky_lmax)[0] @ np.asarray(cont.coef_sky))
+    if config.transit_recal is not None:  # #581 (spec §8.14)
+        eta += float(np.log(config.transit_recal.kappa(g_mag)))
     return float(min(1.0, np.exp(eta)))
 
 
@@ -1063,9 +1094,23 @@ def noise_model_version(config: Any) -> str:
     :class:`EpochModelConfig` or the ``dr3.epoch_model`` pydantic section.
     """
     colour = getattr(config, "noise_colour", None)
-    if colour is not None and getattr(colour, "enabled", True):
-        return str(colour.version)
-    return "n2d_s1232"
+    base = str(colour.version) if colour is not None and getattr(colour, "enabled", True) else "n2d_s1232"
+    recal = getattr(config, "transit_recal", None)
+    if recal is not None and getattr(recal, "enabled", True):  # #581 (spec §8.14): epoch recalibration joins the label
+        base = f"{base}+{recal.version}"
+    return base
+
+
+def thin_ccd_rows(arrays: tuple[Any, ...], g_mag: float, config: EpochModelConfig, rng: np.random.Generator) -> tuple[Any, ...]:
+    """#581 (spec §8.14): keep each CCD row of ``(t, psi, plx_factor, obs, err)`` with probability rho(G).
+
+    A no-op (no draw) when ``transit_recal`` is off or the epoch model is disabled.
+    """
+    if not config.enabled or config.transit_recal is None:
+        return arrays
+    n = len(arrays[0])
+    keep = rng.random(n) < config.transit_recal.rho(g_mag)
+    return tuple(np.asarray(a)[keep] for a in arrays)
 
 
 @contextlib.contextmanager
@@ -1175,6 +1220,7 @@ def run_cascade(
     s = colour_actual_scale(source, config)
     with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd), actual_noise_scale(gaiamock, s):
         t, psi, pf, obs, err = predict()
+    t, psi, pf, obs, err = thin_ccd_rows((t, psi, pf, obs, err), source.g_mag, config, epoch_rng)  # #581; after GOST thinning
     t = np.asarray(t, dtype=np.float64)
     bp_rp = np.nan if source.bp_rp is None else float(source.bp_rp)
     obs, err, k = per_ccd_noise(obs, err, source.g_mag, bp_rp, config, noise_rng)
