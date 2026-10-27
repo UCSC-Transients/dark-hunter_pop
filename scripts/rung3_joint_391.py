@@ -377,7 +377,9 @@ def main(argv: list[str] | None = None) -> int:
     def nll(th):
         w, mu_o, v_o, mu_a, v_a = expected(th)
         mo = mu_o + th[i_ns] * T + floor_o
-        if infl["o"] is not None:  # #570: F2 factors fixed at the reference θ (not gameable by the optimiser)
+        if relvar["o"] is not None:  # #570: relative MC variance fixed at the reference θ, v = (μ / μ_ref)² v_ref × F2
+            ll = say_loglike(k_o, mo, mu_o**2 * relvar["o"]) + say_loglike(k_a, mu_a + floor_a, mu_a**2 * relvar["a"])
+        elif infl["o"] is not None:  # #570: F2 factors fixed at the reference θ (not gameable by the optimiser)
             ll = say_loglike(k_o, mo, v_o * infl["o"]) + say_loglike(k_a, mu_a + floor_a, v_a * infl["a"])
         else:
             ll = say_loglike(k_o, mo, jr.inflate_low_ess_variance(mu_o, v_o, ess_floor))
@@ -413,6 +415,17 @@ def main(argv: list[str] | None = None) -> int:
         th_src = dict(zip(src["names"], src["theta"]))
         x0 = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
     infl = {"o": None, "a": None}
+    relvar = {"o": None, "a": None}
+    if jcfg.get("mc_variance_at", "current") == "reference_relative":
+        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ro = np.where(mo_r > 0, vo_r / np.where(mo_r > 0, mo_r, 1.0) ** 2, 0.0)
+            ra = np.where(ma_r > 0, va_r / np.where(ma_r > 0, ma_r, 1.0) ** 2, 0.0)
+            fo = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
+            fa = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
+        relvar["o"], relvar["a"] = ro * fo, ra * fa
+        rep.append(f"MC variance: relative error per bin fixed at the reference θ (F2 floor {ess_floor:g} applied there); "
+                   f"median relative MC error of orbit bins {np.median(np.sqrt(ro[mo_r > 0])):.3f}")
     if jcfg.get("ess_inflation_at", "current") == "reference":
         _, mo_r, vo_r, ma_r, va_r = expected(x0)
         with np.errstate(divide="ignore", invalid="ignore"):

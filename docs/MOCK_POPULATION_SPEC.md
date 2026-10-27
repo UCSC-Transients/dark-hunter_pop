@@ -2588,6 +2588,8 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
 - a0/σ_a0 was not chosen, because it is mostly set by G and d, which are already axes.
 
 **F2 amendment (#570).** The §12.37 inflation was computed at the current θ. With the A axis, the optimiser exploited it: it moved to an ESS-starved mode (orbit ESS 53; ln A −1.3, α_hi +4.4) whose own low ESS inflated its variances and flattened the likelihood (mock/real 1.78, N_s pull +9.6). The inflation factors are therefore now fixed at the reference θ (the start point, i.e. the §12.37 v1 fit) for the whole fit: config `ess_inflation_at: reference`.
+  - That alone did not remove the mode: the MC variance itself grows when the weights concentrate, so the SAY likelihood still flattened there (second attempt: mock/real 1.67, N_s pull +9.9, orbit ESS 64).
+  - The relative MC error per bin is therefore also fixed at the reference θ: v_b(θ) = (μ_b(θ)/μ_b,ref)² v_b,ref × F2 (`mc_variance_at: reference_relative`). Moving into an ESS-starved corner no longer buys likelihood. The ESS at the fit is still reported, so a fit that lands in such a corner is flagged.
 
 **Plots** (`docs/gate391/rung3_v3/plots/`, with README.md and index.html). DR3 against the weighted mock (luminous, WD and spurious components shown), same cuts.
 - Observables:
