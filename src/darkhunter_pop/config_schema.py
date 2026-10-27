@@ -2722,6 +2722,47 @@ class EpochRuweU0Config(BaseModel):
     provenance: str = ""
 
 
+class EpochNoiseColourConfig(BaseModel):
+    """Noise model v3 (#572, #454; docs/EPOCH_MODEL_SPEC.md §8.12): actual per-CCD noise x s(G, BP-RP), stated
+    per-CCD error x e(G), RUWE = UWE / u0(G, BP-RP). Disabled = the §8.8 / §12.32 model (``n2d_s1232``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    version: str = "colour_v1"
+    colour_clip: list[float] = Field(default_factory=lambda: [0.0, 3.5], min_length=2, max_length=2)
+    colour_ref: float = 1.2
+    #: ln s(G, C) = a(G) + b(G) c + q c^2, c = clip(BP-RP) - colour_ref; a and b piecewise linear in G (constant
+    #: outside their knots). s replaces the N2d excess (bright_excess_noise is not applied when this is enabled).
+    a_knots_g: list[float] = Field(default_factory=lambda: [6.0, 19.0], min_length=1)
+    a_coef: list[float] = Field(default_factory=lambda: [0.0, 0.0], min_length=1)
+    a_coef_err: list[float] = Field(default_factory=list)
+    b_knots_g: list[float] = Field(default_factory=lambda: [6.0, 19.0], min_length=1)
+    b_coef: list[float] = Field(default_factory=lambda: [0.0, 0.0], min_length=1)
+    b_coef_err: list[float] = Field(default_factory=list)
+    q_coef: float = 0.0
+    q_coef_err: float | None = None
+    #: e(G), linear interpolation in G, constant outside
+    stated_scale_knots_g: list[float] = Field(default_factory=lambda: [6.0, 19.0], min_length=1)
+    stated_scale: list[float] = Field(default_factory=lambda: [1.0, 1.0], min_length=1)
+    u0_table: str
+    u0_table_sha256: str
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochNoiseColourConfig:
+        for kn, cf in ((self.a_knots_g, self.a_coef), (self.b_knots_g, self.b_coef)):
+            if len(kn) != len(cf) or any(b <= a for a, b in zip(kn[:-1], kn[1:])):
+                raise ValueError("noise_colour knots must increase and carry one coefficient each")
+        if len(self.stated_scale_knots_g) != len(self.stated_scale) or any(v <= 0 for v in self.stated_scale):
+            raise ValueError("stated_scale needs one positive value per knot")
+        if any(b <= a for a, b in zip(self.stated_scale_knots_g[:-1], self.stated_scale_knots_g[1:])):
+            raise ValueError("stated_scale_knots_g must increase")
+        if self.version == "n2d_s1232":
+            raise ValueError("noise_colour.version must differ from the production label n2d_s1232")
+        return self
+
+
 class EpochTransitLossConfig(BaseModel):
     """Per-FoV-transit loss probability after the gaps (docs/EPOCH_MODEL_SPEC.md §3)."""
 
@@ -2785,6 +2826,7 @@ class EpochModelPathConfig(BaseModel):
     bright_excess_noise: EpochBrightExcessNoiseConfig | None = None
     ruwe_u0: EpochRuweU0Config | None = None
     visibility_period_loss: EpochVisibilityPeriodLossConfig | None = None
+    noise_colour: EpochNoiseColourConfig | None = None
     provenance: str = ""
 
     @model_validator(mode="after")

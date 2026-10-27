@@ -589,6 +589,84 @@ different correction to match the data." The changes:
 | V1 | richer degraded-star loss distribution (two degraded levels or beta-distributed q) | would fix the N ≤ 5 deficit and the 9–11 overshoot; each fit costs hours on the laptop |
 | V2 | **ADOPTED 2026-10-06 (Ryan)**: fit on 5/6-parameter stars only | DR3's 2-parameter stars carry ~60% of the tail |
 
+### 8.12 Noise model v3: a colour term and a refit F2 calibration (#572, #454; Ryan, 2026-10-26)
+
+**Why.** The rung-3 v3 comparison (MOCK_POPULATION_SPEC §12.39) misses DR3 systematically: F2, a mock deficit of
+high ϖ/σ_ϖ that depends on colour, and a mock a0/σ_a0–RUWE edge that DR3 crosses. Ryan's decisions (2026-10-26):
+- the per-CCD noise model depends only on G, so add a **colour** term;
+- refit the F2 calibration over the full G range (#454; §12.32 fixed only G < 13);
+- test the edge against N (#573).
+Correlated or heavy-tailed errors, triples, giant jitter, VIMs, partially resolved pairs and σ scaling are out of
+scope.
+
+**Single-star control** (`scripts/single_star_noise_control.py`).
+- Rows: looks-single parent rows (§12.33 flags, every flag except RUWE < 1.25; G < 19), stratified in 0.5-mag G bins.
+- Each row is simulated at its own position, observed G and observed BP−RP, with true parallax 1/d_BJ: §8 epoch
+  model, gaiamock `predict_astrometry_single_source`, the configured per-CCD noise, the 5-parameter fit
+  (`fit_5par_solution_only`) and the full cascade.
+- The DR3 side is the same rows, with the approved astrometric-quality snapshot
+  `20261027T054741Z_gaia_source_astrometric_quality_K1000000` (gof_al, chi2_al, excess noise, n_good_obs_al).
+- The RUWE < 1.25 cut is applied to both sides at comparison.
+
+**What a single star can calibrate.** DR3's single-star F2 (`astrometric_gof_al`) and excess noise ε come from AGIS
+weights that include ε, so they are ≈ 0 by construction. They are not comparable to the NSS orbit F2, which uses the
+NSS per-CCD error model; gaiamock's stated error (Holl et al. 2022, "EDR3 adjusted") is that model and depends on
+G only. The single-star observable that maps onto the mock without convention issues is the **actual** noise:
+- DR3: σ_act = σ_ϖ × UWE if ε = 0 (UWE = √(χ²_AL/(n_good − 5)), AGIS weights without ε), else σ_ϖ (ε absorbs the
+  excess);
+- mock: σ_act = σ_ϖ,formal × c, the c-inflated parallax error.
+
+**Model (version `colour_v1`; switch `dr3.epoch_model.noise_colour`).** Per star, with x = (clip(G) − 14)/4 and
+c = clip(BP−RP) − c_ref, where BP−RP is the observed system colour:
+1. **Actual per-CCD noise × s(G, C).** The scale multiplies everything that is actual noise: gaiamock's
+   `get_realistic_epoch_astrometry_errors`, wrapped inside the predict call the way §8 wraps the GOST list, and the
+   N2d excess. ln s = Σ a_ij x^i c^j. The terms are chosen by BIC, and the fit is a weighted least-squares fit of
+   the median paired ratio σ_act,DR3/σ_act,mock in G × colour cells, with bootstrap errors.
+2. **Stated per-CCD error × e(G).** This is the G-only F2 calibration (#454). e is piecewise linear in G knots and
+   fitted so that the median F2 of accepted re-injected #390 orbits matches DR3 per G bin. F2 is a deterministic
+   function of χ²_red × (s/e)², so e is solved per bin on the re-injection output, then validated by a re-run.
+   σ and RUWE do not depend on e: c·σ_formal is invariant, and u0 scales with it.
+3. **u0(G, C).** The RUWE normalisation becomes the 41st percentile of mock single-star UWE in G × BP−RP cells,
+   which is DR3's definition (Lindegren 2018). It is computed from the single-star control: UWE scales exactly by
+   s/e per star, because every noise term is a per-star scalar multiple. It is stored as a 2-D table.
+- With `noise_colour` disabled, everything is bit-for-bit the §8.8 / §12.32 model (`n2d_s1232`).
+- The calibration is statistical, never per star; every number lives in config.
+
+**Never mixing draws.**
+- `epoch_model.noise_model_version(cfg)` labels the model (`n2d_s1232` or `colour_v1`).
+- A proposal fragment carries `noise_model` (default `n2d_s1232`, so older generations keep their version), and the
+  launch refuses when it differs from the config.
+- `primary_model_version` gains a `:noise_<version>` suffix for any non-default model, so
+  `check_single_primary_model` refuses to combine generations made with different noise models.
+- Turning the colour term on invalidates every stored proposal-set draw (MOCK_POPULATION_SPEC §3.5): luminous
+  gens 42–46 and co_v1 gens 1000–1003. They are not re-simulated in #572.
+
+**Results (2026-10-27; `docs/gate_noise_colour/README.md`).**
+- **Colour term.** BIC picks a(G) + b(G) c + q c² (BIC 262.1 against 459.0 for G only).
+  - b at G 10.75 / 12.25 / 14 / 16 / 18.5 = −0.154 ± 0.044 / −0.029 ± 0.019 / +0.043 ± 0.010 / +0.023 ± 0.009 /
+    +0.018 ± 0.009 per mag of BP−RP; q = +0.011 ± 0.006.
+  - Refitting on the colour-model run returns the same coefficients, so the fit has converged.
+- **e(G)** at G 9.9 / 11.0 / 12.1 / 12.7 / 13.5 / 14.4 / 15.5 = 0.936 / 0.932 / 0.847 / 0.848 / 0.972 / 1.021 / 1.001
+  (±0.01–0.02).
+- **Single stars, paired DR3/mock σ_act.**
+  - The rms of the cell ln ratios goes from 0.041 to 0.0135.
+  - The colour gradient at G ≥ 13 is removed: 0.95 → 1.08 blue to red before, 0.99–1.01 after.
+  - The bright actual-noise excess is removed: 0.83–0.87 before, 0.98–1.00 after, for BP−RP 0.6–1.5.
+  - Single-star RUWE medians at G < 13 go from 1.06–1.07 to 1.00–1.03; DR3 is 0.98–0.99.
+- **Re-injected #390 orbits.**
+  - F2 medians match DR3 per G bin within errors.
+  - The bright σ_ϖ ratio goes from 1.01–1.13 to 0.88–1.00.
+  - The red-star F2 at G ≥ 13 (BP−RP > 2.5) goes from −0.10 to 2.08; DR3 is 3.53.
+  - Documented residuals: bright red F2 (2.6 against 5.8, n = 46), and a0/σ_a0 at G 10.5–11.5 (0.81 × DR3).
+- **Single-star false solutions (#574).** 0 accepted orbits and 0 published accelerations in 995,344 realizations,
+  under both models. That is < 3 × 10⁻⁶ per star, i.e. < 1.1 × 10³ in the 3.8 × 10⁸-star parent (95%), against the
+  §12.16 N_s of 21–42 × 10³.
+- **Edge (#573).** The offset does not scale with N. Multiplicative noise changes cancel in it.
+- **§12.16 spurious template.** It must be recalibrated with any adopted noise model, because both its k_i and
+  A_mock come from cascades run with the mock noise.
+- **Adoption** is Ryan's call (`noise_colour.enabled: false`). Adopting it means re-simulating luminous gens 42–46
+  and co_v1 gens 1000–1003.
+
 ## References
 
 - Boubert, D., Everall, A. & Holl, B. 2020, "Completeness of the Gaia-verse I"
