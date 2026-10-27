@@ -56,8 +56,7 @@ noise level) times σ_a0/σ_ϖ, a ratio that does not depend on the noise level 
   specs, and on the published `goodness_of_fit` / c relation measured here.
 - **So both sides apply the same F2-based inflation.** The remaining noise-free σ_a0/σ_ϖ difference therefore lies
   elsewhere. Candidates:
-  - ν and N: gaiamock fits per-CCD data with ν ≈ N_ccd − 12, while DR3's `astrometric_n_good_obs_al` is 13% lower
-    (ELBADRY2024 spec §8). This scales σ_ϖ and σ_a0 alike, so it cancels in the geometry ratio.
+  - ν and N: gaiamock fits per-CCD data with ν ≈ N_ccd − 12. With the epoch model, mock N_obs / DR3 `astrometric_n_good_obs_al` is a median 1.031 and a mean 1.049 on single stars (#581; the "13%" was the stale bare-gaiamock #398 number). This scales σ_ϖ and σ_a0 alike, so it cancels in the geometry ratio.
   - the a0/σ_a0 propagation at large A: DR3 `significance` against gaiamock's linearised a0 error;
   - the correlation of the Thiele–Innes elements with ϖ in DR3's full covariance.
   Separating these needs the DR3 per-row covariance (`corr_vec`), which is a follow-up.
