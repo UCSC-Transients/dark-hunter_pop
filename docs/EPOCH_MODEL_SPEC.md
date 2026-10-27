@@ -641,7 +641,31 @@ c = clip(BP−RP) − c_ref, where BP−RP is the observed system colour:
 - Turning the colour term on invalidates every stored proposal-set draw (MOCK_POPULATION_SPEC §3.5): luminous
   gens 42–46 and co_v1 gens 1000–1003. They are not re-simulated in #572.
 
-**Results.** Filled in from `docs/gate_noise_colour/README.md` when the fit is done (below).
+**Results (2026-10-27; `docs/gate_noise_colour/README.md`).**
+- **Colour term.** BIC picks a(G) + b(G) c + q c² (BIC 262.1 against 459.0 for G only).
+  - b at G 10.75 / 12.25 / 14 / 16 / 18.5 = −0.154 ± 0.044 / −0.029 ± 0.019 / +0.043 ± 0.010 / +0.023 ± 0.009 /
+    +0.018 ± 0.009 per mag of BP−RP; q = +0.011 ± 0.006.
+  - Refitting on the colour-model run returns the same coefficients, so the fit has converged.
+- **e(G)** at G 9.9 / 11.0 / 12.1 / 12.7 / 13.5 / 14.4 / 15.5 = 0.936 / 0.932 / 0.847 / 0.848 / 0.972 / 1.021 / 1.001
+  (±0.01–0.02).
+- **Single stars, paired DR3/mock σ_act.**
+  - The rms of the cell ln ratios goes from 0.041 to 0.0135.
+  - The colour gradient at G ≥ 13 is removed: 0.95 → 1.08 blue to red before, 0.99–1.01 after.
+  - The bright actual-noise excess is removed: 0.83–0.87 before, 0.98–1.00 after, for BP−RP 0.6–1.5.
+  - Single-star RUWE medians at G < 13 go from 1.06–1.07 to 1.00–1.03; DR3 is 0.98–0.99.
+- **Re-injected #390 orbits.**
+  - F2 medians match DR3 per G bin within errors.
+  - The bright σ_ϖ ratio goes from 1.01–1.13 to 0.88–1.00.
+  - The red-star F2 at G ≥ 13 (BP−RP > 2.5) goes from −0.10 to 2.08; DR3 is 3.53.
+  - Documented residuals: bright red F2 (2.6 against 5.8, n = 46), and a0/σ_a0 at G 10.5–11.5 (0.81 × DR3).
+- **Single-star false solutions (#574).** 0 accepted orbits and 0 published accelerations in 995,344 realizations,
+  under both models. That is < 3 × 10⁻⁶ per star, i.e. < 1.1 × 10³ in the 3.8 × 10⁸-star parent (95%), against the
+  §12.16 N_s of 21–42 × 10³.
+- **Edge (#573).** The offset does not scale with N. Multiplicative noise changes cancel in it.
+- **§12.16 spurious template.** It must be recalibrated with any adopted noise model, because both its k_i and
+  A_mock come from cascades run with the mock noise.
+- **Adoption** is Ryan's call (`noise_colour.enabled: false`). Adopting it means re-simulating luminous gens 42–46
+  and co_v1 gens 1000–1003.
 
 ## References
 
