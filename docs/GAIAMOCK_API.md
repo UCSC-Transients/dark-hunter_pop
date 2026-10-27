@@ -63,6 +63,14 @@ Do **not** reimplement anything listed under “Provided by gaiamock_mod” in
 
 `plot_residuals*`, `plot_2d_orbit_and_residuals` — prefer `darkhunter_pop.plotting` for product figures; these are fine for notebooks.
 
+> **Per-CCD noise and the G = 13 discontinuity (#579; EPOCH_MODEL_SPEC note after §8.5, §8.13).**
+> - gaiamock's `al_uncertainty_per_ccd_interp` (Holl et al. 2022 Fig. 3, "EDR3 adjusted"), and
+>   `get_realistic_epoch_astrometry_errors` built on it, are **smooth** through G = 13.
+> - DR3's σ_ϖ envelope and NSS F2 step at G = 13, from a bright/faint processing choice keyed on measured G. The pop
+>   side models that step itself: N2d now, and `colour_v2` on top of N2d with the same break.
+> - Never "fix" the step inside gaiamock, and never smooth it away in a pop-side noise term. Affected observables:
+>   σ_ϖ, σ_a0, F2, c, RUWE/u0.
+
 ## Mod vs stock differences (do not “fix” by calling stock)
 
 - **Unbinned CCD-level** measurements (no FOV binning) — slower, better RUWE variance.

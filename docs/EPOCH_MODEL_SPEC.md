@@ -363,6 +363,23 @@ But with RUWE renormalised, bright NSS RUWE falls to 0.87–0.91 × published, t
 significance to 0.93 and acceptance to 0.661. Without renormalisation, single bright stars have
 RUWE 1.28 instead of ~1.0. No single data-noise term satisfies both.
 
+> **The G = 13 discontinuity is ours, and every noise-model change must keep it (Ryan, 2026-10-27; #579).**
+> - **What DR3 shows.** DR3's σ_ϖ lower envelope jumps by about +22–25% going brighter across G = 13: orbits
+>   10.6 → 13.2 µas, singles 9.4 → 11.5 µas between G = 13.05 and 12.95. It falls back to about the faint-side level
+>   by G ≈ 12.4. The NSS F2 steps in the same way (El-Badry et al. 2024, Fig. 10).
+> - **Where the mock's step comes from.** gaiamock's base per-CCD calibration (`al_uncertainty_per_ccd_interp`,
+>   Holl et al. 2022 Fig. 3, "EDR3 adjusted") is **smooth** through G = 13. The step in the mock is entirely the N2d
+>   term (§8.5, recalibrated in MOCK_POPULATION_SPEC §12.32): r²(G) > 0 for G < 13 and 0 above, with RUWE renormalised
+>   (§8.8).
+> - **What it models.** An undocumented DR3 bright/faint processing choice, keyed on each source's **measured** G.
+>   The mock keys it on each system's observed G. It is a fixed, documented discontinuity, not smooth physics, and
+>   it is never fitted away.
+> - **What it affects:** σ_ϖ and every other astrometric σ, including σ_a0; F2 and the error inflation c; RUWE
+>   through u0. In the cascade it reaches orbit significance, ϖ/σ_ϖ and a0/σ_a0, and therefore the cuts.
+> - **The rule.** A noise-model change must keep a break at G = 13 in every G-dependent term: separate knots on each
+>   side and no interpolation across it. It must be validated on the σ_ϖ envelope jump and the F2 step.
+>   `colour_v1` (§8.12) broke this rule and is superseded by `colour_v2` (§8.13).
+
 ### 8.6 Options remaining for Ryan (none chosen)
 
 | | option | note |
@@ -666,6 +683,52 @@ c = clip(BP−RP) − c_ref, where BP−RP is the observed system colour:
   A_mock come from cascades run with the mock noise.
 - **Adoption** is Ryan's call (`noise_colour.enabled: false`). Adopting it means re-simulating luminous gens 42–46
   and co_v1 gens 1000–1003.
+
+### 8.13 Noise model `colour_v2`: colour term on top of N2d, with the G = 13 break (#579; Ryan, 2026-10-27)
+
+**Why.** `colour_v1` (§8.12) replaced N2d with smooth a(G) knots, which erased the DR3 G = 13 discontinuity
+(note after §8.5). `colour_v2` keeps N2d and puts the colour term and the F2 calibration on top of it, with a break
+at G = 13.
+
+**Model** (`dr3.epoch_model.noise_colour` with `break_g: 13.0`, `keep_n2d: true`, version `colour_v2`).
+- N2d is applied exactly as in production (§8.5, §8.8, §12.32).
+- **Actual per-CCD noise.** gaiamock's realistic epoch errors and the N2d excess are both multiplied by
+  s(G, C) = exp(a(G) + b(G) c + q c²), with c = clip(BP−RP) − 1.2.
+  - a, b and q have separate parameters for G < 13 (bright) and G ≥ 13 (faint): each side has its own knots,
+    constant beyond them, with no interpolation across 13.
+  - G is the observed system G, the same value that drives gaiamock's noise and N2d.
+- **Stated per-CCD error × e(G)**, with the same break and knots out to G = 19 (#454).
+- **RUWE = UWE / u0(G, BP−RP).** The u0 table carries the break: rows at G < 13 and at G ≥ 13 form two grids, and
+  each is interpolated only within its own side.
+- **Calibration.**
+  - s is fitted on the paired single-star σ_act ratio **relative to production `n2d_s1232`**, which is exact
+    because s multiplies all actual noise.
+  - e is fitted on the #390 re-injection F2. F2 depends on χ²_red × (s/e)², transformed analytically from the
+    production re-injection, then validated by a re-run.
+  - u0 is the 41st percentile of the production single-star UWE × s/e per cell, also exact.
+- **Validation.**
+  - The σ_ϖ lower envelope (2nd percentile, 0.1-mag bins) for orbits and singles against DR3, including the jump at
+    13 and the 13 → 12.4 falloff.
+  - F2 against G for orbits (El-Badry 2024 Fig. 10 style) and the bright high-F2 tail.
+  - Medians and tails (RUWE > 1.4, F2 > 3) against G at 0.1 mag.
+  - The single-star before/after table.
+- **Version.** `noise_model: colour_v2` in a fragment adds `:noise_colour_v2` to the primary-model version.
+  Production stays `n2d_s1232`. No binaries are re-simulated.
+
+**Results (2026-10-27; `docs/gate_noise_colour/v2/README.md`).**
+- **Fit.** BIC picks b(G)c + qc² on each side (240.2, against 459.4 for G only). Faint b = +0.029 / +0.043 / +0.027 /
+  +0.022 (±0.007–0.014) at G 13.25 / 14 / 16 / 18.5.
+- **e(G):** 0.94 / 0.93 / 0.91 / 0.80 / 0.85 below 13; 0.91 / 0.99 / 1.02 / 1.01 / 0.99 above (held to 19).
+- **Single stars, paired.** The σ_act DR3/mock rms goes from 0.041 (n2d) to 0.0078. Single-star σ_ϖ envelope jump
+  at 13: DR3 +24.6%, v2 +22.3% (n2d +19.0%, v1 +1.2%). Falloff 12.45/13.05: DR3 0.97, v2 1.04 (n2d 1.17). The faint
+  envelope is 0.968 × DR3.
+- **#390 orbits.** F2 median below/above 13: v2 4.91 / 0.23, DR3 4.90 / 0.16. Bright F2 90th percentile: v2 11.0,
+  DR3 11.5.
+- **Documented residuals:**
+  - the orbit envelope step (#390, noisy): 1.07 against DR3's 1.19;
+  - the faint F2 > 3 tail: 0.20 against 0.12;
+  - the faint σ envelope: −3%, from gaiamock's surplus of CCD observations.
+- **Status.** Off by default; adoption is Ryan's call.
 
 ## References
 
