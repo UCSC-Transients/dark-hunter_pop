@@ -1147,7 +1147,7 @@ def test_old_generations_ignore_supplement_rows_bit_for_bit() -> None:
 @pytest.mark.unit
 def test_fingerprint_unchanged_by_new_default_fields(fragment: ps.ProposalSetFragment) -> None:
     d = fragment.proposal.model_dump(mode="json")
-    for k in ("resolved_companions", "parent_supplement", "compact_object"):  # compact_object: #552 (None for luminous)
+    for k in ("resolved_companions", "parent_supplement", "compact_object", "noise_model"):  # compact_object: #552; noise_model: #572 (default popped)
         d.pop(k, None)
     d["parent"].pop("include_supplement", None)
     d["parent"].pop("extra_targets", None)
