@@ -1033,6 +1033,29 @@ dr3:
       table: config/epoch_model/dr3_ruwe_u0_mock.csv
       table_sha256: ff4973fe16687b180bcd08eea74c36e144d3363d8ca086dd738e895fa615c8cb  # §12.32 recalibrated (G < 13)
       provenance: "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
+    # #572 / #454 noise model v3 (EPOCH_MODEL_SPEC §8.12; Ryan 2026-10-26): actual per-CCD noise x s(G, BP-RP),
+    # ln s = a(G) + b(G) c + q c^2, c = clip(BP-RP) - colour_ref (observed system colour), a/b piecewise linear in G;
+    # s replaces the N2d excess. Stated per-CCD error x e(G) (F2 calibration, #454). RUWE = UWE / u0(G, BP-RP).
+    # Fitted on the paired single-star sigma_act ratio (scripts/noise_colour_analysis_572.py fit; errors include
+    # sqrt(chi2/dof)). OFF until Ryan adopts it: switching it on invalidates every stored proposal-set draw (spec §3.5).
+    noise_colour:
+      enabled: false
+      version: colour_v1
+      colour_clip: [0.0, 3.5]
+      colour_ref: 1.2
+      a_knots_g: [8.0, 9.75, 10.25, 10.75, 11.25, 11.75, 12.25, 12.75, 13.25, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0]
+      a_coef: [0.0719, 0.0440, 0.0458, -0.0485, 0.1763, 0.0351, -0.0771, 0.0281, -0.0708, 0.0287, -0.0069, -0.0061, -0.0535, -0.0117, -0.0608]
+      a_coef_err: [0.0733, 0.0868, 0.0385, 0.0288, 0.0236, 0.0130, 0.0119, 0.0116, 0.0083, 0.0074, 0.0061, 0.0061, 0.0061, 0.0062, 0.0085]
+      b_knots_g: [10.75, 12.25, 14.0, 16.0, 18.5]
+      b_coef: [-0.1535, -0.0289, 0.0430, 0.0225, 0.0178]
+      b_coef_err: [0.0439, 0.0190, 0.0102, 0.0085, 0.0087]
+      q_coef: 0.0114
+      q_coef_err: 0.0055
+      stated_scale_knots_g: [9.887, 11.027, 12.088, 12.744, 13.514, 14.397, 15.462]
+      stated_scale: [0.9362, 0.9317, 0.8471, 0.8479, 0.9716, 1.0210, 1.0009]
+      u0_table: config/epoch_model/dr3_ruwe_u0_colour_v1.csv
+      u0_table_sha256: d21fc7d36736d27b346c11fc36dde4d62e704ed1ac290de132b015cc7a9349a5
+      provenance: "s: iteration 0 (singles_n2d_r16, N2d removed approx.); e: #390 re-injection with s on (reinject_colour_iter0_e1)"
     # El-Badry et al. (2024) Sect. 3.3.1 bright-star excess noise; validation only.
     excess_noise:
       enabled: false

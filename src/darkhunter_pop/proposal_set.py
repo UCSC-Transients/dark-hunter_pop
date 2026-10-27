@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, ContextManager, Literal, Mapping, Sequence
+from typing import Any, Callable, ContextManager, Final, Literal, Mapping, Sequence
 
 import numpy as np
 import yaml
@@ -611,6 +611,10 @@ class ProposalConfig(_Strict):
     # model configured at ``dr3.epoch_model`` (the runner builds the wrapper); ``off`` keeps
     # gaiamock's GOST list. Generation-time: it changes the epochs (spec §3.5).
     epoch_model: Literal["off", "dr3_config"] = "off"
+    #: Spec EPOCH_MODEL_SPEC §8.12 (#572): the per-CCD noise model the draws are simulated with
+    #: (``epoch_model.noise_model_version``). The default is the §8.8 / §12.32 production model, so every older
+    #: generation keeps its primary-model version and fingerprint; the launch refuses when the config differs.
+    noise_model: str = "n2d_s1232"
     #: Spec §13 (rung 4): compact-object companions instead of the luminous proposal; None = luminous.
     #: ``m2`` / ``flux`` are then not sampled (kept so the fragment schema and the decided-settings guard
     #: stay one); ``m2_p_shape`` must be None (it is a q = M2 / M1 shape).
@@ -737,6 +741,20 @@ def load_proposal_set_fragment(path: str | Path) -> ProposalSetFragment:
     return ProposalSetFragment.model_validate(yaml.safe_load(p.read_text()))
 
 
+#: The §8.8 / §12.32 per-CCD noise model label (``epoch_model.noise_model_version`` with the colour term off).
+DEFAULT_NOISE_MODEL: Final[str] = "n2d_s1232"
+
+
+def check_noise_model(cfg: ProposalConfig, epoch_config: Any) -> None:
+    """Refuse a launch whose fragment ``noise_model`` differs from the configured epoch model (spec §8.12)."""
+    from darkhunter_pop.epoch_model import noise_model_version
+
+    got = noise_model_version(epoch_config)
+    if cfg.noise_model != got:
+        raise ValueError(f"fragment noise_model {cfg.noise_model!r} != configured epoch-model noise {got!r} "
+                         "(EPOCH_MODEL_SPEC §8.12: draws of different noise models are never mixed)")
+
+
 def primary_model_version(cfg: ProposalConfig) -> str:
     """Spec §12.33 sample separation: ``row_system_v1`` (deblended row photometry, gens <= 39) or
     ``looks_single_v2:...`` with the single-cut parameters (gen 40, 41 and 42 are distinct versions)."""
@@ -747,6 +765,8 @@ def primary_model_version(cfg: ProposalConfig) -> str:
         raise ValueError("single_catalog_system needs proposal.single_catalog")
     lo, hi = sc.dm_colour_range
     base = f"looks_single_v2:ruwe{sc.ruwe_max:g}:dm{sc.dm_min:g}:c{lo:g}-{hi:g}:g{sc.system_g_max:g}"
+    if cfg.noise_model != DEFAULT_NOISE_MODEL:  # EPOCH_MODEL_SPEC §8.12: never mix noise models
+        base = f"{base}:noise_{cfg.noise_model}"
     # Spec §13.2: compact-object generations carry their own suffix and are never combined with luminous ones.
     return base if cfg.compact_object is None else f"{base}:{cfg.compact_object.version}"
 
@@ -784,6 +804,8 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d["parent"].pop("include_supplement", None)
     if not d["parent"].get("extra_targets"):
         d["parent"].pop("extra_targets", None)
+    if d.get("noise_model") == DEFAULT_NOISE_MODEL:  # §8.12: older generations keep their fingerprints
+        d.pop("noise_model", None)
     if d.get("compact_object") is None:  # spec §13: luminous generations keep their fingerprints
         d.pop("compact_object", None)
     elif d["compact_object"].get("wd_cooling_age_matched") is None:  # #552 re-centring: gen 1000 keeps its key
@@ -1830,7 +1852,9 @@ def epoch_source_context(draw: Mapping[str, Any]) -> Any:
 
     from darkhunter_pop import epoch_model as em
 
-    src = em.source_context(float(draw["ra_deg"]), float(draw["dec_deg"]), float(draw["phot_g_mean_mag"]))
+    bp = draw.get("sys_bp_rp")  # observed system colour: the §8.12 noise colour term
+    src = em.source_context(float(draw["ra_deg"]), float(draw["dec_deg"]), float(draw["phot_g_mean_mag"]),
+                            bp_rp=None if bp is None else float(bp))
     upd = {}
     for key in ("l_deg", "b_deg"):
         v = draw.get(key)
