@@ -64,15 +64,25 @@ def edges_for(real, mock, w, log, nb):
     return np.linspace(lo, hi, nb + 1)
 
 
+ALIASES = {"plxsnr": ("plxsnr", "plx_snr")}
+
+
+def _get(z, pfx, comp, key):
+    for k in ALIASES.get(key, (key,)):
+        if f"{pfx}_{comp}_{k}" in z.files:
+            return np.asarray(z[f"{pfx}_{comp}_{k}"], float)
+    raise KeyError(f"{pfx}_{comp}_{key}")
+
+
 class Kind:
     """One sample (orbits or accelerations): real arrays, mock components (luminous, WD, spurious) with weights."""
 
     def __init__(self, z, pfx, obs):
         self.obs = obs
-        self.real = {k: np.asarray(z[f"{pfx}_real_{k}"], float) for k in obs}
+        self.real = {k: _get(z, pfx, "real", k) for k in obs}
         self.comp = {}
         for c in ("lum", "wd"):
-            self.comp[c] = ({k: np.asarray(z[f"{pfx}_{c}_{k}"], float) for k in obs}, np.asarray(z[f"{pfx}_{c}_w"], float))
+            self.comp[c] = ({k: _get(z, pfx, c, k) for k in obs}, np.asarray(z[f"{pfx}_{c}_w"], float))
         if f"{pfx}_spur_w" in z.files:
             self.comp["spurious"] = (self.real, np.asarray(z[f"{pfx}_spur_w"], float))
 
@@ -101,9 +111,12 @@ class Kind:
         return sel, (self.real["d"] >= lo) & (self.real["d"] < hi)
 
 
+MU_FLOOR = 0.5  # counts: a bin the mock leaves (nearly) empty is scored against half a count, not against 1e-300
+
+
 def chi2(k, mu, var):
-    ok = mu > 0
-    return float(np.sum((k[ok] - mu[ok]) ** 2 / (mu[ok] + var[ok]))), int(ok.sum())
+    ok = (mu > 0) | (k > 0)
+    return float(np.sum((k[ok] - mu[ok]) ** 2 / (np.maximum(mu[ok], MU_FLOOR) + var[ok]))), int(ok.sum())
 
 
 def boot_chi2(kind, cols, edges, logs, k, sel=None, rsel=None, seed=0):
@@ -153,7 +166,7 @@ def plot_2d(kind, ka, kb, la, lb, ea, eb, out, style, dpi, title):
     vmax = max(np.nanmax(k), np.nanmax(mu), 1.0)
     vmin = max(min(np.min(k[k > 0]) if np.any(k > 0) else 1.0, np.min(mu[mu > 0]) if np.any(mu > 0) else 1.0), 0.3)
     with np.errstate(divide="ignore", invalid="ignore"):
-        res = np.where(mu > 0, (k - mu) / np.sqrt(mu + var), np.nan)
+        res = np.where((mu > 0) | (k > 0), (k - mu) / np.sqrt(np.maximum(mu, MU_FLOOR) + var), np.nan)
     fig, axs = plt.subplots(1, 3, figsize=(16.5, 5.2))
     for ax, data, ttl in ((axs[0], k, "DR3"), (axs[1], mu, "mock (lum + WD + spurious)")):
         m = ax.pcolormesh(ea, eb, np.where(data > 0, data, np.nan).T, norm=LogNorm(vmin=vmin, vmax=vmax), cmap="viridis")
@@ -218,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     md = ["# Rung 3 v3: DR3 against the weighted mock (luminous + WD + spurious)", "",
           "Spec §12.39 (#570). Mock = luminous (gens 42–46) + WD (co_v1 gens 1000–1003, physics-derived rate) + spurious (real orbits × N_s π̂/Σπ̂). "
           "1-D: DR3 with Poisson errors, mock total with an MC + Poisson band, components, ratio panel. 2-D: DR3 | mock | (k−μ)/√(μ+σ²_MC). "
-          "χ² = Σ (k−μ)²/(μ+σ²_MC) over bins with μ > 0; MC error from a 30-fold bootstrap of the mock draws.", "", head,
+          "χ² = Σ (k−μ)²/(max(μ, 0.5)+σ²_MC) over bins with μ > 0 or k > 0; MC error from a 30-fold bootstrap of the mock draws.", "", head,
           "## Ranking (worst first, χ²/dof)", "", "| kind | distribution | split | χ²/dof | χ² ± MC | figure |", "|---|---|---|---:|---:|---|"]
     for r_ in rank:
         e_ = f" ± {r_['chi2_mc_err']:.1f}" if r_["chi2_mc_err"] is not None else ""

@@ -2599,6 +2599,30 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
 - **2-D (every pair):** real and mock on the same colour scale, plus the normalised residual (k − μ)/√(μ + σ²_MC).
 - **Ranking:** every 1-D distribution by χ²/dof, with an MC error from a bootstrap over mock draws.
 
+**Result (2026-10-26; `docs/gate391/rung3_v3/`; plots and ranking in `plots/`, README.md and index.html). The v3 model is Monte-Carlo limited and does not yet match DR3.**
+- **Fit** (third attempt; the first two are kept under `superseded_try1`, `superseded_try2`; see the F2 amendment):
+  - 7 of 12 starts within Δ(−lnL) < 5. At bounds: dγ_q (+1), b1. Hessian errors are undefined.
+  - −lnL 16,910.8.
+  - **N_s = 41.7k against the prior 21.4k ± 1.8k (pull +11.1).** Holding N_s at its prior costs Δ = 39.9; holding the twins at θ44 costs Δ = −4.2 (a better optimum: the main fit's starts did not find it).
+  - Mock/real orbits 1.26 overall; by distance 0.89 / 1.15 / 1.57 / 2.34 (< 0.3 / 0.3–0.7 / 0.7–1.5 / > 1.5 kpc). Accelerations mock/real 1.05.
+- **WD.** A_ni = 1.19: the MdS17-on-progenitor rate is consistent with its physical normalisation. R_mt = 0.0033 per primary, f_He = 0.32.
+  - WD ESS at the fit: 54 (orbits), 42 (accelerations).
+  - The WD component supplies 11.3k C1 orbits and **181k of the 341k mock accelerations** (wide WD companions at P > 10³ d). That is a strong, MC-noisy prediction to test.
+- **A > 0.5 orbits, mock + spurious against real:** < 0.3 kpc 1,724 against 600; 0.3–0.7 kpc 1,549 against 2,516; 0.7–1.5 kpc 3,058 against 3,288; > 1.5 kpc 887 against 849.
+- **MC limits.**
+  - Luminous orbit ESS at the fit: 168.
+  - 9 of 13 big bins are below ESS 30.
+  - The median relative MC error of an orbit bin at the reference θ is 0.48: the A axis splits the luminous draws thinly.
+- **Worst 1-D distributions, χ²/dof** (25 bins; the MC error is a 30-fold bootstrap of the mock draws):
+  - orbit F2 19.9 (χ² 498 ± 226); acceleration distance 18.1 (453 ± 756);
+  - orbit a0/σ_a0 11.8 (294 ± 192); acceleration significance 11.8 (294 ± 356); acceleration (BP−RP)₀ 11.6 (291 ± 280);
+  - orbit ϖ/σ_ϖ 11.2 (279 ± 114); acceleration F2 9.0 (225 ± 911); orbit P 7.4 (186 ± 94).
+  - The best match is orbit e at 1.5.
+  - The worst 2-D maps are all accelerations (G × (BP−RP)₀, G × d, G × F2).
+- **Reading.**
+  - With R_dark ≡ 0 the luminous + WD model has no clean way to make the 7.3k real A > 0.5 orbits. The fit moves into ESS-starved corners (dγ_q at +1, high-mass tilt α_hi +3.1) and N_s takes up the rest.
+  - The new draws needed are: (i) a co_v1 WD top-up following the §12.39 target; (ii) a luminous top-up in the A > 0.5 and evolved / distant cells.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
