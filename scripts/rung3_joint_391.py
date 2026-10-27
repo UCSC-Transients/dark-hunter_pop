@@ -377,8 +377,11 @@ def main(argv: list[str] | None = None) -> int:
     def nll(th):
         w, mu_o, v_o, mu_a, v_a = expected(th)
         mo = mu_o + th[i_ns] * T + floor_o
-        ll = say_loglike(k_o, mo, jr.inflate_low_ess_variance(mu_o, v_o, ess_floor))
-        ll += say_loglike(k_a, mu_a + floor_a, jr.inflate_low_ess_variance(mu_a, v_a, ess_floor))
+        if infl["o"] is not None:  # #570: F2 factors fixed at the reference θ (not gameable by the optimiser)
+            ll = say_loglike(k_o, mo, v_o * infl["o"]) + say_loglike(k_a, mu_a + floor_a, v_a * infl["a"])
+        else:
+            ll = say_loglike(k_o, mo, jr.inflate_low_ess_variance(mu_o, v_o, ess_floor))
+            ll += say_loglike(k_a, mu_a + floor_a, jr.inflate_low_ess_variance(mu_a, v_a, ess_floor))
         ll += -0.5 * ((th[i_ns] - prior[0]) / prior[1]) ** 2
         if tb.enabled:
             mt, ms = twin_terms(th, w)
@@ -409,6 +412,13 @@ def main(argv: list[str] | None = None) -> int:
         src = src.get("joint", src.get("noW"))
         th_src = dict(zip(src["names"], src["theta"]))
         x0 = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
+    infl = {"o": None, "a": None}
+    if jcfg.get("ess_inflation_at", "current") == "reference":
+        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            infl["o"] = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
+            infl["a"] = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
+        rep.append(f"F2 inflation at the reference θ (start point): {int(np.sum(infl['o'] > 1))} orbit and {int(np.sum(infl['a'] > 1))} acceleration bins inflated")
     rep.append(f"N_s prior N({prior[0]:.0f}, {prior[1]:.0f}); ESS floor for variance inflation {ess_floor:g}; real C1 orbits {int(N_o)}, accelerations {int(k_a.sum())}")
     sols, best = [], None
     for s_ in range(args.n_starts):

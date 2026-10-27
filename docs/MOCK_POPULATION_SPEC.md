@@ -2587,6 +2587,8 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
 - A is not degenerate with the existing cells: it depends on the masses, not on G, d, P or e.
 - a0/σ_a0 was not chosen, because it is mostly set by G and d, which are already axes.
 
+**F2 amendment (#570).** The §12.37 inflation was computed at the current θ. With the A axis, the optimiser exploited it: it moved to an ESS-starved mode (orbit ESS 53; ln A −1.3, α_hi +4.4) whose own low ESS inflated its variances and flattened the likelihood (mock/real 1.78, N_s pull +9.6). The inflation factors are therefore now fixed at the reference θ (the start point, i.e. the §12.37 v1 fit) for the whole fit: config `ess_inflation_at: reference`.
+
 **Plots** (`docs/gate391/rung3_v3/plots/`, with README.md and index.html). DR3 against the weighted mock (luminous, WD and spurious components shown), same cuts.
 - Observables:
   - orbits: G, distance, (BP−RP)₀, M_G0, P, e, A, a0/σ_a0, ϖ/σ_ϖ, F2, RUWE;
