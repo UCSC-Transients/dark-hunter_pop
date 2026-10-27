@@ -149,8 +149,9 @@ def hat(g: np.ndarray, knots: list[float]) -> np.ndarray:
     return np.column_stack([np.interp(g, knots, eye[k]) for k in range(len(knots))])
 
 
-A_KNOTS = [8.5, 9.5, 10.5, 11.5, 12.5, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0]
-B_KNOTS = [9.5, 12.0, 14.0, 16.0, 18.5]
+#: knots at the bright 0.5-mag cell centres (DR3 window-class / gating structure at G ~ 11-13), 1 mag fainter
+A_KNOTS = [8.0, 9.75, 10.25, 10.75, 11.25, 11.75, 12.25, 12.75, 13.25, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0]
+B_KNOTS = [10.75, 12.25, 14.0, 16.0, 18.5]
 FIT_FRAME = {"colour_clip": [0.0, 3.5], "colour_ref": 1.2, "a_knots_g": A_KNOTS, "b_knots_g": B_KNOTS}
 #: nested models (spec §8.12: BIC picks the colour term)
 MODELS = {"G_only": (True, False, False, False), "G+c": (True, True, False, False),
@@ -284,7 +285,18 @@ def plot_fit(res: dict, out: Path) -> None:
         ax.errorbar([x["g"] for x in sel], [np.exp(x["ln_ratio"]) for x in sel], yerr=[np.exp(x["ln_ratio"]) * x["err"] for x in sel],
                     color=st["color"], marker=st["marker"], ls="none", capsize=2, ms=5, label=f"BP−RP {c0:g}–{c1:g}")
         cm = float(np.median([x["c"] for x in sel]))
-        ax.plot(gg, s_model(gg, np.full_like(gg, cm), res), color=st["color"], ls=st["linestyle"], lw=1.5)
+        g_ok = gg >= 11.5
+        ax.plot(gg[g_ok], s_model(gg[g_ok], np.full(g_ok.sum(), cm), res), color=st["color"], ls=st["linestyle"], lw=1.5)
+    for k, (c0, c1) in enumerate(zip(C_EDGES_BRIGHT[:-1], C_EDGES_BRIGHT[1:])):  # bright cells: coarse colour bins
+        sel = [x for x in cells if x["c_bin"] == [c0, c1]]
+        if not sel:
+            continue
+        col = ["#555555", "#999999", "#000000"][k]
+        ax.errorbar([x["g"] for x in sel], [np.exp(x["ln_ratio"]) for x in sel], yerr=[np.exp(x["ln_ratio"]) * x["err"] for x in sel],
+                    color=col, marker="D", mfc="none", ls="none", capsize=2, ms=6, label=f"G < 11.5, BP−RP {c0:g}–{c1:g}")
+        cm = float(np.median([x["c"] for x in sel]))
+        g_b = gg <= 11.5
+        ax.plot(gg[g_b], s_model(gg[g_b], np.full(g_b.sum(), cm), res), color=col, ls="-", lw=1.2)
     ax.axhline(1, color="0.5", lw=1)
     pl.apply_axes_style(ax, style, xlabel="$G$ (mag)", ylabel=r"required actual-noise scale $s$",
                         title=f"s(G, BP−RP) from {res['noise_model_version']} singles: {res['adopted']}")
@@ -303,6 +315,11 @@ def cmd_u0(a: argparse.Namespace) -> None:
     g = d["phot_g_mean_mag"][m["row"]]
     c = d["bp_rp"][m["row"]]
     e = np.interp(g, a.stated_knots_g, a.stated_scale)
+    # the run's own actual-noise scale (and stated scale, if it had one) is divided out first: exact for a colour-model
+    # run, approximate (N2d ~ sqrt(1 + r2)) for an n2d_s1232 run
+    nc_run = meta["epoch_model"].get("noise_colour") or {}
+    e_run = np.interp(g, nc_run["stated_scale_knots_g"], nc_run["stated_scale"]) if nc_run.get("enabled") else 1.0
+    m["uwe"] = m["uwe"] / np.exp(run_prior_ln_s(meta, g, c)) * e_run
     uwe = m["uwe"] * s_model(g, c, fit) / e
     gn = np.arange(a.g_min, a.g_max + 1e-9, a.g_step)
     cn = np.array(a.colour_nodes)
@@ -312,7 +329,7 @@ def cmd_u0(a: argparse.Namespace) -> None:
     for i, g0 in enumerate(gn):
         b = np.isfinite(m["uwe"]) & (np.abs(g - g0) <= a.g_step / 2 + 1e-9)
         if b.sum() >= 100:
-            base[i] = np.percentile(m["uwe"][b] / np.interp(g[b], a.stated_knots_g, a.stated_scale), 41)
+            base[i] = np.percentile(m["uwe"][b] / np.interp(g[b], a.stated_knots_g, a.stated_scale), 41)  # bare UWE / e
     good = np.isfinite(base)
     base = np.interp(gn, gn[good], base[good])
     grid = base[:, None] * s_model(np.repeat(gn, cn.size), np.tile(cn, gn.size), fit).reshape(gn.size, cn.size)
@@ -526,6 +543,91 @@ def plot_compare(res: dict, runs: dict, d: dict, out: Path, a: argparse.Namespac
     plt.close(fig)
 
 
+F2_G_EDGES = np.array([6.0, 10.5, 11.5, 12.5, 13.0, 14.0, 15.0, 17.0])
+
+
+def f2_transform(f2: np.ndarray, nu: np.ndarray, factor: np.ndarray) -> np.ndarray:
+    """F2 after scaling chi2_red by ``factor`` (stated errors / sqrt(factor)); Wilson-Hilferty both ways."""
+    k = np.sqrt(9.0 * nu / 2.0)
+    chi = np.clip(f2 / k + 1.0 - 2.0 / (9.0 * nu), 1e-9, None) ** 3
+    return k * ((chi * factor) ** (1.0 / 3.0) + 2.0 / (9.0 * nu) - 1.0)
+
+
+def load_reinjection(path: Path, gate390: Path, colours: Path) -> dict[str, np.ndarray]:
+    import h5py
+
+    meta = json.loads((path / "inject_meta.json").read_text())
+    with h5py.File(gate390, "r") as f:
+        T = f["systems/truth"]
+        tr = {k: T[k][()] for k in ("goodness_of_fit", "significance", "parallax_error", "ruwe", "g_mag", "period")}
+        ix = {int(s_): i for i, s_ in enumerate(f["systems/source_id"][()])}
+    rows = [json.loads(x) for x in (path / "inject.jsonl").read_text().splitlines()]
+    acc = [r for r in rows if r.get("accepted")]
+    i = np.array([ix[r["source_id"]] for r in acc])
+    out = {"f2_mock": np.array([r["goodness_of_fit"] for r in acc], float), "nu": np.array([r["n_obs"] for r in acc], float) - 12.0,
+           "sig_mock": np.array([r["significance"] for r in acc], float), "plxerr_mock": np.array([r["parallax_error"] for r in acc], float),
+           "ruwe_mock": np.array([r["ruwe"] for r in acc], float), "bp_rp": np.array([r.get("bp_rp", np.nan) for r in acc], float),
+           "f2_dr3": tr["goodness_of_fit"][i], "sig_dr3": tr["significance"][i], "plxerr_dr3": tr["parallax_error"][i],
+           "ruwe_dr3": tr["ruwe"][i], "g": tr["g_mag"][i], "sid": i, "n_rows": len(rows), "n_acc": len(acc)}
+    nc = meta["epoch_model"].get("noise_colour") or {}
+    out["e_run"] = (np.interp(out["g"], nc["stated_scale_knots_g"], nc["stated_scale"]) if nc.get("enabled") else np.ones(len(acc)))
+    out["version"] = meta["noise_model_version"]
+    return out
+
+
+def cmd_f2(a: argparse.Namespace) -> None:
+    from scipy.optimize import brentq
+
+    r = load_reinjection(Path(a.reinjection), Path(a.gate390), Path(a.colours))
+    rng = np.random.default_rng(454)
+    res: dict = {"reinjection": str(a.reinjection), "version": r["version"], "n_accepted": r["n_acc"], "n_realizations": r["n_rows"],
+                 "g_edges": F2_G_EDGES.tolist(), "bins": []}
+    knots, scale, scale_err = [], [], []
+    for lo, hi in zip(F2_G_EDGES[:-1], F2_G_EDGES[1:]):
+        b = np.flatnonzero((r["g"] >= lo) & (r["g"] < hi) & np.isfinite(r["f2_mock"]) & np.isfinite(r["f2_dr3"]) & (r["nu"] > 0))
+        if b.size < 20:
+            continue
+
+        def solve(ii: np.ndarray) -> float:
+            target = np.median(r["f2_dr3"][ii])
+            fun = lambda le: np.median(f2_transform(r["f2_mock"][ii], r["nu"][ii], (r["e_run"][ii] / np.exp(le)) ** 2)) - target
+            return float(np.exp(brentq(fun, -1.5, 1.5)))
+
+        e = solve(b)
+        sys_ = np.unique(r["sid"][b])
+        boots = []
+        for _ in range(a.n_boot):
+            pick = rng.choice(sys_, sys_.size)
+            ii = np.concatenate([b[r["sid"][b] == s_] for s_ in pick])
+            boots.append(solve(ii))
+        knots.append(float(np.median(r["g"][b])))
+        scale.append(e)
+        scale_err.append(float(np.std(boots)))
+        res["bins"].append({"g_bin": [lo, hi], "n": int(b.size), "n_systems": int(sys_.size), "g_median": knots[-1],
+                            "f2_median_dr3": float(np.median(r["f2_dr3"][b])), "f2_median_mock_run": float(np.median(r["f2_mock"][b])),
+                            "e": e, "e_err": scale_err[-1],
+                            "sig_ratio_mock_over_dr3": float(np.median(r["sig_mock"][b] / r["sig_dr3"][b])),
+                            "plxerr_ratio_mock_over_dr3": float(np.median(r["plxerr_mock"][b] / r["plxerr_dr3"][b])),
+                            "ruwe_ratio_mock_over_dr3": float(np.median(r["ruwe_mock"][b] / r["ruwe_dr3"][b]))})
+    res["stated_scale_knots_g"], res["stated_scale"], res["stated_scale_err"] = knots, scale, scale_err
+    # colour residual after the e(G) calibration
+    e_all = np.interp(r["g"], knots, scale)
+    f2_new = f2_transform(r["f2_mock"], r["nu"], (r["e_run"] / e_all) ** 2)
+    res["colour_residual_after_e"] = []
+    for c0, c1 in zip(C_EDGES[:-1], C_EDGES[1:]):
+        for g0, g1 in ((6.0, 13.0), (13.0, 19.0)):
+            b = (r["bp_rp"] >= c0) & (r["bp_rp"] < c1) & (r["g"] >= g0) & (r["g"] < g1) & np.isfinite(f2_new)
+            if b.sum() >= 15:
+                res["colour_residual_after_e"].append({"c_bin": [c0, c1], "g_bin": [g0, g1], "n": int(b.sum()),
+                                                       "f2_dr3": float(np.median(r["f2_dr3"][b])), "f2_mock": float(np.median(f2_new[b]))})
+    Path(a.out).write_text(json.dumps(res, indent=1))
+    for x in res["bins"]:
+        print(f"G {x['g_bin']}: n {x['n']} F2 DR3 {x['f2_median_dr3']:.2f} mock {x['f2_median_mock_run']:.2f} -> e {x['e']:.3f} ± {x['e_err']:.3f};"
+              f" sig {x['sig_ratio_mock_over_dr3']:.3f} plxerr {x['plxerr_ratio_mock_over_dr3']:.3f} ruwe {x['ruwe_ratio_mock_over_dr3']:.3f}")
+    for x in res["colour_residual_after_e"]:
+        print(f"  colour {x['c_bin']} G {x['g_bin']}: n {x['n']} F2 DR3 {x['f2_dr3']:.2f} mock(e) {x['f2_mock']:.2f}")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -558,6 +660,13 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--runs", nargs="+", required=True, help="label=run_dir")
             p.add_argument("--label", required=True)
             p.add_argument("--out-dir", required=True)
+    p = sub.add_parser("f2")
+    p.add_argument("--reinjection", required=True)
+    p.add_argument("--gate390", default="/Users/rfoley/darkhunter/pop/dark-hunter_pop/output/gate390/injection_test_full.h5")
+    p.add_argument("--colours", default="/Users/rfoley/darkhunter/pop/dark-hunter_pop/data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400/inj390.h5")
+    p.add_argument("--out", required=True)
+    p.add_argument("--n-boot", type=int, default=100)
+    p.set_defaults(func=cmd_f2)
     a = ap.parse_args(argv)
     a.func(a)
     return 0
