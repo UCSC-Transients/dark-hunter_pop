@@ -246,3 +246,31 @@ def test_configured_colour_v2_has_the_g13_break() -> None:
     r2 = em.excess_noise_r2(12.99, em.epoch_model_config_from_mapping(on).excess_noise)
     step = nc.actual_scale(12.99, 1.2) * np.sqrt(1 + r2) / nc.actual_scale(13.0, 1.2)
     assert step > 1.05
+
+
+@pytest.mark.unit
+def test_transit_recal_keep_scale_rows_and_version() -> None:
+    rc = em.TransitRecalConfig(version="tr_test", keep_knots_g=(10.0, 18.0), keep_scale=(0.98, 0.98), row_knots_g=(10.0, 18.0),
+                               row_keep=(0.5, 0.5))
+    base = _cfg()
+    on = dataclasses.replace(base, transit_recal=rc)
+    assert em.keep_probability(15.0, on, l_deg=10.0, b_deg=5.0) == pytest.approx(
+        min(1.0, 0.98 * em.keep_probability(15.0, base, l_deg=10.0, b_deg=5.0)))
+    arrs = tuple(np.arange(20000.0) for _ in range(5))
+    kept = em.thin_ccd_rows(arrs, 15.0, on, np.random.default_rng(1))
+    assert len(kept[0]) == pytest.approx(10000, rel=0.03) and np.array_equal(kept[0], kept[3])
+    rng = np.random.default_rng(2)
+    assert em.thin_ccd_rows(arrs, 15.0, base, rng) is arrs and rng.random() == np.random.default_rng(2).random()
+    assert em.noise_model_version(on) == "n2d_s1232+tr_test"
+    assert em.noise_model_version(dataclasses.replace(on, noise_colour=_colour_v2())) == "colour_v2_test+tr_test"
+
+
+@pytest.mark.unit
+def test_configured_transit_recal_is_off_and_loads() -> None:
+    sec = load_config().dr3.epoch_model
+    assert sec is not None and sec.transit_recal is not None and sec.transit_recal.enabled is False
+    assert em.noise_model_version(sec) == "n2d_s1232"
+    on = sec.model_copy(update={"transit_recal": sec.transit_recal.model_copy(update={"enabled": True})})
+    cfg = em.epoch_model_config_from_mapping(on)
+    assert cfg.transit_recal is not None and 0.95 < cfg.transit_recal.rho(15.0) < 1.0 and 0.95 < cfg.transit_recal.kappa(15.0) < 1.05
+    assert em.noise_model_version(on) == "n2d_s1232+tr1"

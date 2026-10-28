@@ -67,7 +67,7 @@ def _inject(task: tuple[dict[str, float], int, float, list[int]]) -> list[dict[s
                                   noise_rng=epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r, tag=PER_CCD_NOISE_RNG_TAG),
                                   ruwe_min=_W["ruwe_min"], skip_acceleration=False, gaps_jd=_W["gaps"])
             rec = it.parse_cascade_result(run.cascade, n_visibility_periods=run.n_visibility_periods, n_obs=run.n_obs, cuts=_W["cuts"])
-            rec.update(sim_n_visibility_periods=run.n_visibility_periods, sim_n_obs=run.n_obs, ruwe_scale=run.ruwe_scale)
+            rec.update(sim_n_visibility_periods=run.n_visibility_periods, sim_n_obs=run.n_obs, sim_n_transits=run.n_transits, ruwe_scale=run.ruwe_scale)
         except Exception as exc:  # noqa: BLE001 - recorded, never dropped
             rec = {"error": repr(exc)}
         rec.update(source_id=int(sid), realization=int(r), bp_rp=bp_rp, cpu_s=time.process_time() - c0)
@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--colours", default=str(P / "data/dr3/gaia_snapshots/20261003T063811Z_epoch_counts_400/inj390.h5"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--enable-colour", action="store_true", help="switch dr3.epoch_model.noise_colour on")
+    ap.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
     ap.add_argument("--stated-scale", type=float, nargs="*", default=None, help="override noise_colour.stated_scale")
     ap.add_argument("--n-realizations", type=int, default=2)
     ap.add_argument("--workers", type=int, default=6)
@@ -100,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.stated_scale:
             nc = nc.model_copy(update={"stated_scale": list(a.stated_scale)})
         em = em.model_copy(update={"noise_colour": nc})
+    if a.enable_recal:  # #581 (spec §8.14)
+        em = em.model_copy(update={"transit_recal": em.transit_recal.model_copy(update={"enabled": True})})
     nmv = noise_model_version(em)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

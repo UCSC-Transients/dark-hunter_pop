@@ -55,8 +55,10 @@ The model sits behind `dr3.epoch_model.noise_colour` (`enabled: false`, `version
 - All DR3 orbits: jump +26.8%, falloff 1.05.
 - For the #390 orbits (0.2-mag bins, small numbers), the 12.5–13 / 13–13.5 envelope ratio is 1.19 for DR3, 1.15 for
   n2d, 1.04 for v1 and 1.07 for v2. v2's orbit step is weaker than DR3's; the bins are noisy.
-- The faint singles envelope stays about 3% below DR3. e cannot change σ. The likely cause is gaiamock's 13%
-  surplus of CCD observations over DR3 `n_good_obs_al` (√1.13 ≈ 6%), partly offset by s. This is a documented
+- The faint singles envelope stays about 3% below DR3. e cannot change σ. **Correction (#581):** the earlier "13% surplus of CCD observations" was
+  the stale bare-gaiamock #398 number. With the epoch model, mock N_obs / DR3 `astrometric_n_good_obs_al` is a median 1.031 and
+  a mean 1.049 (124k pairs), from 1.2% too many transits and 1.4% too many CCD rows per transit (8.81 against 8.65–8.69). That
+  is about 2% in σ, the size of the residual. #581 recalibrates it. This is a documented
   residual.
 
 **F2 of the re-injected #390 orbits**, mock against DR3 on the same orbits:

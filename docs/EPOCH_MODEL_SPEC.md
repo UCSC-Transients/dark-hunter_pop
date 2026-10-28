@@ -727,8 +727,66 @@ at G = 13.
 - **Documented residuals:**
   - the orbit envelope step (#390, noisy): 1.07 against DR3's 1.19;
   - the faint F2 > 3 tail: 0.20 against 0.12;
-  - the faint σ envelope: −3%, from gaiamock's surplus of CCD observations.
+  - the faint σ envelope: −3%. The likely cause is 3–5% too many CCD observations (the stale "13%" quoted here
+    earlier was corrected on 2026-10-27, #581). §8.14 recalibrates it.
 - **Status.** Off by default; adoption is Ryan's call.
+
+### 8.14 Transit and CCD-row recalibration on single stars (#581; Ryan, 2026-10-27)
+
+**Measurement.** The colour_v2 single-star run (995,344 realizations of 62,209 looks-single parent rows) was paired
+with the DR3 astrometric-quality snapshot by source_id.
+- The "13% more CCD observations" quoted in §8.13 was the bare-gaiamock #398 number, which the §3 epoch model had
+  already reduced. The current numbers:
+  - mock N_obs / DR3 `astrometric_n_good_obs_al`: median 1.031, mean 1.049;
+  - mock transits / DR3 `astrometric_matched_transits`: median 1.013, mean 1.031;
+  - N_vis: median 1.000, mean 0.996.
+- **The paired tail is grid noise.** The paired transit ratio is broad (10–90%: 0.79–1.27; 99%: 1.86) because
+  gaiamock's 3.7° GOST grid gives each star a noisy transit count (§8.2: per-star rms 0.108). The *marginal*
+  distributions at fixed G match closely:
+  - 5/16/50/84/95% quantiles are within one transit;
+  - mean transits are 1.0–1.2% high at G < 17 and 0.0–0.4% low at 17–19;
+  - DR3's 99th percentile is slightly higher (93–99 against 88–91).
+  So the mean ratio > median ratio reflects grid scatter, not a missing loss. A heavier loss tail (E4 episodes) would
+  make the upper tail worse, so E4 stays off.
+- **CCD rows per transit** (the never-applied factor (a) of §3): mock 8.81 at all G (gaiamock's 9.78 rows × 0.9
+  random keep), against DR3 `astrometric_n_good_obs_al` / `astrometric_matched_transits` = 8.65–8.69 at G ≥ 12 and
+  8.77–8.82 at G < 12. `n_good/n_obs` is 0.995, so outlier rejection does not explain it.
+
+**Model (`dr3.epoch_model.transit_recal`, version tag `tr1`).** Statistical, never per star.
+1. **Transit keep scale κ_T(G).** p_keep(G, l, b) is multiplied by κ_T(G): piecewise linear in G, fitted so the mean
+   transit count per G bin matches DR3 on the same rows.
+2. **CCD-row keep ρ(G).** After gaiamock's prediction, each CCD row is kept independently with probability ρ(G), drawn
+   from the epoch-model Generator after the GOST thinning (no other stream moves). ρ(G) is DR3's (n_good / matched
+   transits) divided by the mock's rows per transit, per G bin.
+3. N_vis is not touched. Its mean ratio is 0.996.
+
+**Version.** `noise_model_version` appends `+tr1` when `transit_recal` is enabled, for example `colour_v2+tr1`. A
+fragment's `noise_model` must equal that, and the primary-model version carries it, so draws can never mix. It is
+meant to be adopted together with colour_v2 as one version.
+
+**Validation.**
+- Paired and marginal ratios (median, mean, tails) of transits, CCD obs and N_vis.
+- The single-star σ_ϖ envelope: faint side against DR3, and the jump at 13.
+- #390 re-check: σ ratios and F2. s and e are left as fitted under §8.13; if the σ envelope moves, the shift is
+  reported, not absorbed.
+
+**Results (2026-10-28; `docs/gate_noise_colour/epoch_tr1/README.md`).**
+- **Calibration.** κ_T = 0.985–1.004 and ρ = 0.979–0.990.
+- **Counts on single stars.**
+  - transits, ratio of means: 1.0054 → 1.0011;
+  - CCD obs, ratio of means: 1.023 → 1.001;
+  - CCD rows per transit: 8.65, equal to DR3.
+- **First #390 check, s and e as fitted under §8.13.** The faint side regressed: σ_ϖ ratio 1.018, F2 median 0.32. s
+  and e had absorbed the old count surplus.
+- **Refit.** s, e and u0 were refit in the tr1 frame (exact rescaling). Because the numbers changed, the model is
+  relabelled **`colour_v2.1`**, and the combined label is `colour_v2.1+tr1`.
+- **Single stars with the refit.**
+  - σ_act rms 0.0075; medians 0.997 / 1.001 / 1.001.
+  - Envelope jump +23.0% (DR3 +24.6%); falloff 1.05; faint envelope 0.968.
+- **#390 against colour_v2.**
+  - σ_ϖ ratio: 0.948 / 1.003 against 0.945 / 1.000.
+  - F2 median: 5.07 / 0.25 against 4.91 / 0.23 (DR3 4.90 / 0.16), inside the e bootstrap error.
+  - Orbit envelope step: 1.07 in both.
 
 ## References
 
