@@ -770,6 +770,24 @@ meant to be adopted together with colour_v2 as one version.
 - #390 re-check: σ ratios and F2. s and e are left as fitted under §8.13; if the σ envelope moves, the shift is
   reported, not absorbed.
 
+**Results (2026-10-28; `docs/gate_noise_colour/epoch_tr1/README.md`).**
+- **Calibration.** κ_T = 0.985–1.004 and ρ = 0.979–0.990.
+- **Counts on single stars.**
+  - transits, ratio of means: 1.0054 → 1.0011;
+  - CCD obs, ratio of means: 1.023 → 1.001;
+  - CCD rows per transit: 8.65, equal to DR3.
+- **First #390 check, s and e as fitted under §8.13.** The faint side regressed: σ_ϖ ratio 1.018, F2 median 0.32. s
+  and e had absorbed the old count surplus.
+- **Refit.** s, e and u0 were refit in the tr1 frame (exact rescaling). Because the numbers changed, the model is
+  relabelled **`colour_v2.1`**, and the combined label is `colour_v2.1+tr1`.
+- **Single stars with the refit.**
+  - σ_act rms 0.0075; medians 0.997 / 1.001 / 1.001.
+  - Envelope jump +23.0% (DR3 +24.6%); falloff 1.05; faint envelope 0.968.
+- **#390 against colour_v2.**
+  - σ_ϖ ratio: 0.948 / 1.003 against 0.945 / 1.000.
+  - F2 median: 5.07 / 0.25 against 4.91 / 0.23 (DR3 4.90 / 0.16), inside the e bootstrap error.
+  - Orbit envelope step: 1.07 in both.
+
 ## References
 
 - Boubert, D., Everall, A. & Holl, B. 2020, "Completeness of the Gaia-verse I"

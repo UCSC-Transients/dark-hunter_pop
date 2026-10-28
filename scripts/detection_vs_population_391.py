@@ -96,7 +96,7 @@ def _inject(task: tuple[dict[str, Any], int]) -> dict[str, Any]:
 
     with seeded_global_rng(seeds, c):
         run = em.run_cascade(
-            gm, c, predict, _W["emc"], em.source_context(v["ra"], v["dec"], v["g_mag"]),
+            gm, c, predict, _W["emc"], em.source_context(v["ra"], v["dec"], v["g_mag"], bp_rp=row.get("bp_rp")),  # §8.12/§8.13 colour
             epoch_rng=em.epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r),
             noise_rng=em.epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r, tag=em.PER_CCD_NOISE_RNG_TAG),
             ruwe_min=_W["pop"].ruwe_min, skip_acceleration=_W["pop"].skip_acceleration, gaps_jd=_W["gaps"])
@@ -302,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         rowmap["corr_vec"] = cv[np.isfinite(cv)]
         rowmap["bit_index"] = int(pub["bit_index"][i])
         rowmap["source_id"] = int(pub["source_id"][i])
+        rowmap["bp_rp"] = float(col("bp_mag")[rb[j]] - col("rp_mag")[rb[j]])  # observed colour for the noise colour term
         sub_rows.append({k: (x.item() if isinstance(x, np.generic) else x) for k, x in rowmap.items()})
     done: dict[tuple[int, int], dict[str, Any]] = {}
     if args.inject_log.exists():
@@ -320,7 +321,8 @@ def main(argv: list[str] | None = None) -> int:
                       "t_periastron": float(t["Tp_days"][gidx]), "eccentricity": float(t["eccentricity"][gidx]),
                       "Omega_rad": float(t["Omega_rad"][gidx]), "inc_rad": float(np.radians(t["inc_deg"][gidx])),
                       "omega_rad": float(t["omega_rad"][gidx]), "a0_mas": float(m_a0[gidx]),
-                      "g_mag": float(t["phot_g_mean_mag"][gidx]), "seed_id": int(t["draw_index"][gidx]) + MOCK_ID_OFFSET})
+                      "g_mag": float(t["phot_g_mean_mag"][gidx]), "seed_id": int(t["draw_index"][gidx]) + MOCK_ID_OFFSET,
+                      "bp_rp": float(np.asarray(pc["bp_rp"], float)[row[gidx]])})
     tasks += [(xr, 0) for xr in xrows if (xr["seed_id"], 0) not in done]
     # symmetric rung 1 on the mock: the mock's own *accepted* orbits matched to the re-injected real systems on
     # recovered quantities (1 nearest each), re-injected at their *fitted* orbit (A, B, F, G -> Campbell; period,
@@ -342,7 +344,8 @@ def main(argv: list[str] | None = None) -> int:
                       "t_periastron": float(casc[gidx, 12] * m_P_rec[gidx] / (2 * np.pi)),
                       "eccentricity": float(casc[gidx, 14]), "Omega_rad": float(fOm[gidx]), "inc_rad": float(finc[gidx]),
                       "omega_rad": float(fom[gidx]), "a0_mas": float(fa0[gidx]), "g_mag": float(t["phot_g_mean_mag"][gidx]),
-                      "seed_id": int(t["draw_index"][gidx]) + 2 * MOCK_ID_OFFSET})
+                      "seed_id": int(t["draw_index"][gidx]) + 2 * MOCK_ID_OFFSET,
+                      "bp_rp": float(np.asarray(pc["bp_rp"], float)[row[gidx]])})
     tasks += [(sr, r) for sr in srows for r in range(args.n_real) if (sr["seed_id"], r) not in done]
     base_seed = int(cfg.selection_function_astrometric.mock_population.random_seed)
     emc = dataclasses.replace(em.epoch_model_config_from_mapping(cfg.active_dr().epoch_model), enabled=True)
