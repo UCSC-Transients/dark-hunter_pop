@@ -2623,6 +2623,41 @@ Script `scripts/rung3_joint_391.py` (built on `rung3_refit5_391.py`), helpers in
   - With R_dark ≡ 0 the luminous + WD model has no clean way to make the 7.3k real A > 0.5 orbits. The fit moves into ESS-starved corners (dγ_q at +1, high-mass tilt α_hi +3.1) and N_s takes up the rest.
   - The new draws needed are: (i) a co_v1 WD top-up following the §12.39 target; (ii) a luminous top-up in the A > 0.5 and evolved / distant cells.
 
+### 12.40 Re-simulation under the adopted noise/epoch model `colour_v2.1+tr1` (Ryan, 2026-10-28; #583)
+
+**What changed.** EPOCH_MODEL_SPEC §8.13 and §8.14 were adopted: the colour term on top of N2d with the G = 13 break,
+the F2 stated-error scale, u0(G, BP−RP), and the transit and CCD-row recalibration. Under §3.5 every stored draw is
+invalidated: luminous gens 42–46 and co_v1 gens 1000–1003. The §12.16 spurious template is recalibrated as well.
+
+**Queue.** One heavy job at a time. Each generation runs under `scripts/jobs/start_generation.sh` with 10 h of wall
+clock, 90 CPU-h, ≤ 8 workers, the memory guard and `nice`. A generation stopped by its guards is assembled from its
+prefix.
+- (a) The §12.16 re-injection samples, re-run with the adopted model (`scripts/detection_vs_population_391.py`): the
+  PR #455 far sample (0.7–1.5 kpc, G 13–16, 300 systems) and the near sample (d < 0.5 kpc, 130 systems), 3
+  realizations each. Then the π̂ refit (`scripts/calibrate_spurious_391.py`).
+- (b) Luminous gens 47–51 follow the recipes of gens 42–46. Gen 52 is a top-up for the v3 fit's ESS-starved cells:
+  - A > 0.5, served by a larger dark-companion fraction and a high-M1 tilt;
+  - evolved and distant cells.
+- (c) Compact objects:
+  - gen 1004 follows the gen-1001/1002 re-centred recipe;
+  - gen 1005 is WD-focused. Its WD share is 0.8, and its period core covers log P 3.0–5.5, the §12.39 non-interacting
+    branch where the WD ESS was starved, with the defensive 0.2–8 range kept. It also keeps the matched cooling-age
+    component.
+  - The §12.39 target enters only through these proposal components. Building a proposal component tabulated from
+    the full target density is a possible later efficiency step.
+- **draw_index ranges:**
+
+  | generation | 47 | 48 | 49 | 50 | 51 | 52 | 1004 | 1005 |
+  |---|---|---|---|---|---|---|---|---|
+  | draw_index starts at | 7,000,000 | 7,500,000 | 8,000,000 | 8,500,000 | 9,000,000 | 9,500,000 | 100,810,000 | 101,210,000 |
+
+  Luminous generations reserve 500,000 indices each, and compact-object generations 400,000.
+- **Version.** Every fragment carries `noise_model: colour_v2.1+tr1`, so the primary-model versions are
+  `looks_single_v2:…:noise_colour_v2.1+tr1` and `…:noise_colour_v2.1+tr1:co_v1`.
+- **Decided-settings guard.** `min_guarded_generation` is 47. Gens 1000–1003 are exempt, as superseded `n2d_s1232`
+  draws.
+- **No refit until Ryan instructs it.**
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes

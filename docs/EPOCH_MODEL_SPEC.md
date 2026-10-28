@@ -686,6 +686,12 @@ c = clip(BP−RP) − c_ref, where BP−RP is the observed system colour:
 
 ### 8.13 Noise model `colour_v2`: colour term on top of N2d, with the G = 13 break (#579; Ryan, 2026-10-27)
 
+> **ADOPTED 2026-10-28 (Ryan: "If everything checks out, start the runs"; #583)** as `colour_v2.1`, refit in the
+> §8.14 tr1 frame, together with tr1. Production noise/epoch label: **`colour_v2.1+tr1`**.
+> `dr3.epoch_model.noise_colour.enabled` and `transit_recal.enabled` are true. Generations from 47 (luminous) and
+> 1004 (compact objects) carry `noise_model: colour_v2.1+tr1`. Every earlier draw (`n2d_s1232`) is superseded and is
+> never mixed with these.
+
 **Why.** `colour_v1` (§8.12) replaced N2d with smooth a(G) knots, which erased the DR3 G = 13 discontinuity
 (note after §8.5). `colour_v2` keeps N2d and puts the colour term and the F2 calibration on top of it, with a break
 at G = 13.
@@ -732,6 +738,8 @@ at G = 13.
 - **Status.** Off by default; adoption is Ryan's call.
 
 ### 8.14 Transit and CCD-row recalibration on single stars (#581; Ryan, 2026-10-27)
+
+> **ADOPTED 2026-10-28 (Ryan; #583)** with `colour_v2.1` as `colour_v2.1+tr1`. See the note in §8.13.
 
 **Measurement.** The colour_v2 single-star run (995,344 realizations of 62,209 looks-single parent rows) was paired
 with the DR3 astrometric-quality snapshot by source_id.

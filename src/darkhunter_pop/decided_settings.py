@@ -42,6 +42,8 @@ class DecidedSettings(BaseModel):
 
     schema_version: int
     min_guarded_generation: int
+    #: #583: generations at or above min_guarded_generation that are superseded and never relaunched under the guard
+    exempt_generations: list[int] = []
     settings: list[DecidedSetting]
 
     def for_scope(self, scope: Scope) -> list[DecidedSetting]:
