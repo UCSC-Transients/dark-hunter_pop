@@ -50,7 +50,11 @@ _W: dict[str, Any] = {}
 
 # ---------------------------------------------------------------- re-injection worker
 def _init(base_seed: int, cuts_json: str, emc_json: str) -> None:
-    os.nice(10)
+    try:  # already niced when launched through run_heavy.sh (#583)
+        if os.nice(0) < 10:
+            os.nice(10 - os.nice(0))
+    except PermissionError:
+        pass
     from threadpoolctl import threadpool_limits
 
     import dataclasses
