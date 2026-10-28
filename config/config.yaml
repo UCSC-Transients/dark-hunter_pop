@@ -1038,7 +1038,7 @@ dr3:
     # 20261027T054741Z): mean matched transits and n_good_obs_al per matched transit per G bin
     # (scripts/epoch_transit_recal_581.py calibrate). Adds "+tr1" to the noise/epoch version. OFF until Ryan adopts it.
     transit_recal:
-      enabled: false
+      enabled: true  # ADOPTED 2026-10-28 (Ryan; #583, EPOCH_MODEL_SPEC §8.14)
       version: tr1
       transit_keep_scale_knots_g: [10.294, 11.620, 12.604, 13.586, 14.581, 15.500, 16.500, 17.500, 18.500]
       transit_keep_scale: [1.0005, 0.9850, 0.9880, 0.9880, 0.9932, 0.9910, 0.9895, 0.9987, 1.0042]
@@ -1053,7 +1053,7 @@ dr3:
     # production on the paired single stars and the #390 re-injection (scripts/noise_colour_v2_579.py).
     # OFF until Ryan adopts it: switching it on invalidates every stored proposal-set draw (spec §3.5).
     noise_colour:
-      enabled: false
+      enabled: true  # ADOPTED 2026-10-28 (Ryan; #583, EPOCH_MODEL_SPEC §8.13)
       version: colour_v2.1  # #581 refit of colour_v2 in the tr1 frame (numbers changed: new label)
       break_g: 13.0
       keep_n2d: true

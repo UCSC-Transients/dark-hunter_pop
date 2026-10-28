@@ -21,7 +21,7 @@ def _guarded_launch_fragments() -> list[Path]:
     out = []
     for p in sorted(POP.glob("proposal_set_*.yaml")):
         gen = (yaml.safe_load(p.read_text()).get("proposal") or {}).get("generation")
-        if gen is not None and int(gen) >= st.min_guarded_generation:
+        if gen is not None and int(gen) >= st.min_guarded_generation and int(gen) not in st.exempt_generations:
             out.append(p)
     return out
 
@@ -48,7 +48,7 @@ def test_settings_file_loads_and_every_entry_has_a_ref() -> None:
 @pytest.mark.unit
 def test_guarded_launch_fragments_carry_the_decided_settings() -> None:
     frags = _guarded_launch_fragments()
-    assert POP / "proposal_set_single42.yaml" in frags
+    assert POP / "proposal_set_single47.yaml" in frags and POP / "proposal_set_co_v1_wd1005.yaml" in frags
     cfg = load_config(Path("config/config.yaml"))
     for f in frags:
         dev = ds.check_launch(f, config=cfg, parent_dir=BJ_PARENT)

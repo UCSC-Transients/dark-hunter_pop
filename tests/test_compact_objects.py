@@ -101,7 +101,8 @@ def test_co_config_validation(frag: ps.ProposalSetFragment) -> None:
 def test_co_fragment_carries_decided_settings() -> None:
     from darkhunter_pop.decided_settings import check_launch
 
-    assert check_launch(CO_FRAGMENT) == []
+    # #583: superseded n2d_s1232 generation; only the adopted noise_model differs
+    assert {d.key for d in check_launch(CO_FRAGMENT)} <= {"proposal.noise_model"}
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +479,8 @@ def test_recentred_config_same_version_and_old_fingerprint(frag: ps.ProposalSetF
     assert rec.proposal.compact_object.wd_cooling_age_matched.shape == rec.target_co.wd_cooling_age  # type: ignore[union-attr]
     from darkhunter_pop.decided_settings import check_launch
 
-    assert check_launch(RECENTRED) == []
+    # #583: superseded n2d_s1232 generation; only the adopted noise_model differs
+    assert {d.key for d in check_launch(RECENTRED)} <= {"proposal.noise_model"}
 
 
 @pytest.mark.physics
@@ -641,7 +643,8 @@ def test_wd1003_config_and_older_fingerprints() -> None:
     assert cob.check_co_generations([ps.load_proposal_set_fragment(CO_FRAGMENT).proposal, f3.proposal]).version == "co_v1"
     from darkhunter_pop.decided_settings import check_launch
 
-    assert check_launch(WD1003) == []
+    # #583: superseded n2d_s1232 generation; only the adopted noise_model differs
+    assert {d.key for d in check_launch(WD1003)} <= {"proposal.noise_model"}
 
 
 @pytest.mark.unit

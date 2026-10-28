@@ -34,14 +34,16 @@ def _colour(**kw: Any) -> em.NoiseColourConfig:
 def _cfg(colour: em.NoiseColourConfig | None = None) -> em.EpochModelConfig:
     sec = load_config().dr3.epoch_model
     assert sec is not None
-    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=colour)
+    # the production config carries the adopted colour model and tr1 (#583); unit tests start from the bare N2d model
+    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=colour, transit_recal=None)
 
 
 @pytest.mark.unit
 def test_production_label_and_colour_off_is_default() -> None:
     sec = load_config().dr3.epoch_model
     assert sec is not None
-    assert em.noise_model_version(sec) == ps.DEFAULT_NOISE_MODEL == "n2d_s1232"
+    assert ps.DEFAULT_NOISE_MODEL == "n2d_s1232"
+    assert em.noise_model_version(sec) == "colour_v2.1+tr1"  # adopted 2026-10-28 (#583)
     assert em.noise_model_version(_cfg()) == "n2d_s1232"
     assert em.noise_model_version(_cfg(_colour())) == "colour_test"
     assert em.noise_model_version(_cfg(_colour_v2())) == "colour_v2_test"
@@ -133,7 +135,7 @@ def test_config_noise_colour_section_loads_when_present() -> None:
         pytest.skip("no noise_colour section configured")
     on = sec.model_copy(update={"noise_colour": sec.noise_colour.model_copy(update={"enabled": True})})
     cfg = em.epoch_model_config_from_mapping(on)
-    assert cfg.noise_colour is not None and em.noise_model_version(cfg) == sec.noise_colour.version
+    assert cfg.noise_colour is not None and em.noise_model_version(cfg).split("+")[0] == sec.noise_colour.version
     assert 0.5 < cfg.noise_colour.actual_scale(15.0, 1.0) < 1.5
     assert 0.8 < cfg.noise_colour.u0(15.0, 1.0) < 1.3
 
@@ -237,7 +239,7 @@ def test_schema_v2_validation() -> None:
 def test_configured_colour_v2_has_the_g13_break() -> None:
     sec = load_config().dr3.epoch_model
     assert sec is not None and sec.noise_colour is not None
-    assert sec.noise_colour.enabled is False  # production stays n2d_s1232 until Ryan adopts it
+    assert sec.noise_colour.enabled is True  # adopted 2026-10-28 (#583)
     on = sec.model_copy(update={"noise_colour": sec.noise_colour.model_copy(update={"enabled": True})})
     nc = em.epoch_model_config_from_mapping(on).noise_colour
     assert nc is not None and nc.break_g == 13.0 and nc.keep_n2d
@@ -266,10 +268,12 @@ def test_transit_recal_keep_scale_rows_and_version() -> None:
 
 
 @pytest.mark.unit
-def test_configured_transit_recal_is_off_and_loads() -> None:
+def test_configured_transit_recal_is_adopted_and_loads() -> None:
     sec = load_config().dr3.epoch_model
-    assert sec is not None and sec.transit_recal is not None and sec.transit_recal.enabled is False
-    assert em.noise_model_version(sec) == "n2d_s1232"
+    assert sec is not None and sec.transit_recal is not None and sec.transit_recal.enabled is True  # #583
+    off = sec.model_copy(update={"noise_colour": None, "transit_recal": sec.transit_recal.model_copy(update={"enabled": False})})
+    assert em.noise_model_version(off) == "n2d_s1232"
+    sec = off
     on = sec.model_copy(update={"transit_recal": sec.transit_recal.model_copy(update={"enabled": True})})
     cfg = em.epoch_model_config_from_mapping(on)
     assert cfg.transit_recal is not None and 0.95 < cfg.transit_recal.rho(15.0) < 1.0 and 0.95 < cfg.transit_recal.kappa(15.0) < 1.05

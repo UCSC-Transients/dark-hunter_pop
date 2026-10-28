@@ -553,7 +553,11 @@ def test_proposal_draws_go_through_epoch_model_run_cascade(monkeypatch: pytest.M
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     frag = ps.load_proposal_set_fragment(RESTART)
-    setup = mod.build_epoch_setup(load_config(), frag.proposal)
+    from darkhunter_pop.epoch_model import noise_model_version
+
+    cfg_ = load_config()
+    frag = frag.model_copy(update={"proposal": frag.proposal.model_copy(update={"noise_model": noise_model_version(cfg_.dr3.epoch_model)})})  # #583
+    setup = mod.build_epoch_setup(cfg_, frag.proposal)
     assert isinstance(setup, ps.EpochSetup) and setup.config.enabled
     seen: dict[str, object] = {}
 

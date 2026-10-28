@@ -1,0 +1,177 @@
+# #583 gen 1005 (Ryan 2026-10-28): WD-focused compact-object batch under colour_v2.1+tr1 (MOCK_POPULATION_SPEC
+# §12.40): gen-1003 recipe with WD share 0.8 and the period core on the §12.39 non-interacting branch (log P 3-5.5;
+# defensive 0.2-8 kept). draw_index from 101,210,000 (pass --draw-index-offset 101210000; reserved
+# 101,210,000-101,609,999). The original gen-1003 header follows.
+# #556 rung 4 (spec §13.11), compact-object generation 1003 = WD-FOCUSED 10-h batch (Ryan 2026-10-25): the gen-1002
+# re-centred proposal with (i) the matched WD cooling-age share at the draw's own posterior-draw age (age_source: draw)
+# and (ii) WD component weight 0.7 (dark 0.3; dark draws still feed gate 4b). Same co_v1 primary-model version, so gens
+# 1000-1003 combine in one deterministic mixture. draw_index starts at 100,410,000 (pass --draw-index-offset 100410000;
+# gen 1002 used at most 100,010,000-100,409,999); this generation uses at most 100,410,000-100,809,999.
+# Not under config/fragments/.
+
+proposal:
+  noise_model: colour_v2.1+tr1    # #583 (EPOCH_MODEL_SPEC §8.13/§8.14)
+  generation: 1005
+  n_draws: 400000                    # production batch (Ryan 2026-10-24); stopped by the 10 h / 90 CPU-h guards
+  base_seed: 391
+  data_release: dr3
+  ruwe_min: 1.4                      # gaiamock cascade (Halbwachs et al. 2023 §1.2 input RUWE)
+  skip_acceleration: false
+  parent_supplement:                 # spec §12.30
+    snapshot: 20261019T161515Z_gaia_source_supplement_K1000000-20000000_G11_plx0p2_bj
+    bright_g_max: 11.0
+  parent:                            # q(s): 0.7 row-weight-matched (#552 re-centring) + 0.3 the gen-1000 mixture (defensive)
+    row_weight_fraction: 0.7
+    uniform_fraction: 0.3
+    parallax_power: 0.75
+    parallax_cap_mas: 10.0
+    evolved_weight: 0.25
+    include_supplement: true         # spec §12.30
+    target_weight: 0.0
+    target_g_range: [13.0, 19.5]
+    target_parallax_range_mas: [0.2, 1.0]
+    target_m1_pivot_msun: 0.8
+    target_m1_power: 0.48
+  # m2 / flux: the luminous proposal's sections. NOT sampled by compact-object generations (compact_object below
+  # replaces them); kept at the gen-46 values so the fragment schema and the decided-settings guard stay one.
+  m2:
+    q_tied_weight: 0.9
+    q_min: 0.08
+    q_max: 1.0
+    m2_min_msun: 0.05
+    m2_max_msun: 50.0
+    evolved_tie: deblended_dark
+    evolved_q_min: 0.05
+    evolved_q_max: 1.0
+  flux:
+    dark_fraction: 0.1
+    relation: mist_coeval_row
+    relation_weight: 0.9
+    relation_sigma_dex: 0.20
+    log_f_min: -7.0
+    log_f_max: 0.5
+    evolved_rows_centre: evolved_relation_deblended
+    evolved_sigma_dex: 0.4
+    evolved_relation_weight: 0.6
+  period:                            # spec §13.2: core log P 1.5-3.5 (dark-companion sensitivity peak) + defensive 0.2-8
+    core_weight: 0.6                 # gen 1005: core on the §12.39 non-interacting WD branch (log P >= 3)
+    core_log_p_min: 3.0
+    core_log_p_max: 5.5
+    log_p_min: 0.2
+    log_p_max: 8.0
+  eccentricity:                      # #409/#410 bounded proposal (spec §13.2)
+    shape: mds17_bounded
+    circular_period_days: 2.0
+    floor_eta: -0.9
+    floor_weight: 0.25
+    support_weight: 0.60
+    defensive_e_max: 0.999
+    e_max_period_scale_days: 2.0
+    e_max_exponent: -0.6666666666666666
+  compact_object:                    # spec §13.2
+    version: co_v1
+    wd:                              # WD component: M2 log-uniform 0.15-1.40 Msun (M_Ch truncation in the target)
+      weight: 0.8                    # gen 1005 WD-focused
+      m2_min_msun: 0.15
+      m2_max_msun: 1.40
+    dark:                            # dark component: f = 0, M2 log-uniform 1-40 Msun (> 40 a later extension)
+      weight: 0.2                    # gen 1005
+      m2_min_msun: 1.0
+      m2_max_msun: 40.0
+    wd_log10_cooling_age_gyr: [-3.0, 1.15]   # 1 Myr - 14 Gyr, log-uniform (a stored, reweightable truth column)
+    wd_light:                        # R4-Q3: the WD's own light (Montreal photometry, Bedard et al. 2020 sequences)
+      snapshot: reference/wd_cooling/20261023T230106Z_montreal_bedard2020_DA
+      sha256: fb501b1e16bfc44e6aa43bf91c8df499a6c19c0d1402682e1e2ec150d58eb695
+      atmosphere: DA
+      min_age_yr: 1.0e5
+    sbc_holdout_fraction: 0.2        # spec §3.8: held-out SBC partition
+    sbc_holdout_salt: 552
+    store_orbit_covariance: true     # spec §13.3: full 12x12 cascade covariance per orbital fit
+    covariance_jacobian_step: 1.0e-8 # gaiamock's own Jacobian step (get_uncertainties_at_best_fit_binary_solution)
+    wd_cooling_age_matched:          # #552 re-centring: 0.7 the R4-Q8 law, 0.3 the log-uniform above
+      weight: 0.7
+      age_source: draw               # #556: the draw's own posterior-draw age (the target's age)
+      shape:                         # same numbers as target_co.wd_cooling_age
+        shape: uniform_to_system_age
+        ifmr_segments:
+          - [0.83, 2.85, 0.080, 0.489]
+          - [2.85, 3.60, 0.187, 0.184]
+          - [3.60, 7.20, 0.107, 0.471]
+        ifmr_ref: "Cummings et al. 2018, ApJ 866, 21, Table 1 (MIST), as in dark-hunter_sed cummings_ifmr.py"
+        below_ifmr: no_progenitor_delay
+        ms_lifetime_gyr_at_1msun: 10.0
+        ms_lifetime_mass_exponent: -2.5
+  acceleration_publication:          # El-Badry et al. (2024) §5.2.1
+    significance_min: 20.0
+    f2_max_seven_parameter: 22.0
+  decision_ref: "Ryan 2026-10-02, #391 issuecomment-5963152741 (spec §0.1); rung 4 Ryan 2026-10-23 (spec §13)"
+  parallax_floor_mas: 0.2                           # MP-Q1
+  halbwachs_ipd_cstar_cuts: applied_star_values     # MP-Q3 (Halbwachs et al. 2023 §1.2)
+  halbwachs_cuts:
+    ipd_frac_multi_peak_max: 2.0
+    ipd_gof_harmonic_amplitude_max: 0.1
+    cstar_nsigma: 1.645
+  truth_distance: bailer_jones2021_geometric        # MP-Q4
+  m1: single_catalog_system                         # spec §12.33
+  giant_flag_logg_max: 3.6
+  light_split: system_from_components               # spec §12.33
+  single_catalog:
+    ruwe_max: 1.25
+    dm_min: -0.4
+    dm_colour_range: [1.05, 2.75]
+    system_g_max: 19.0
+  resolved_companions:                              # spec §12.25 (dark companions are never resolved: f = 0)
+    snapshot: external_catalogs/elbadry2021_widebinaries_sub10as_20261014T035624Z/catalog_sub10as.csv
+    sha256: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565
+    r_chance_max: 0.1
+    g2_max: 19.5
+    theta_edges_arcsec: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0, 10.0]
+    dg_edges: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.5, 8.0, 12.0]
+    ref_theta_arcsec: [4.0, 10.0]
+    min_pairs: 30
+    projection_factor: 0.85
+  epoch_model: dr3_config                           # #400 E1 decided: on
+
+target_mds17:                        # the luminous model (decided settings); for rung 4 a contaminant only (rung 5)
+  table_path: config/population/moe_distefano2017.yaml
+  provisional_m1_interpolation: linear_m1
+  provisional_eta_floor: -0.9
+  provisional_low_mass_policy: log_linear_to_zero
+  provisional_low_mass_anchor_msun: 0.8
+  provisional_low_mass_zero_msun: 0.08
+  provisional_multiplicity: poisson_intensity
+  mass_luminosity: mist_coeval
+  flux_sigma_dex: 0.1
+  provisional_compact_mixture: none
+
+target_co:                           # default reweighting target θ_CO (spec §13.2-13.3); reweight-only, provisional
+  version: co_v1
+  primary_m1_power: 0.0              # every looks-single primary equally likely to host a compact companion (QUESTION for Ryan)
+  primary_m1_pivot_msun: 1.0
+  wd:                                # R4-Q1: broad log-uniform, no literature prior; hard M_Ch (constants.M_CH)
+    rate_per_primary: 1.0
+    m2_min_msun: 0.15
+    m2_max_msun: 1.40
+    slope: 0.0
+  dark:                              # NS / BH classes are assigned in population_model (spec §13.0, #551)
+    rate_per_primary: 1.0
+    m2_min_msun: 1.0
+    m2_max_msun: 40.0
+    slope: 0.0
+  wd_cooling_age:                    # constant WD formation rate since the progenitor left the MS (coeval with the primary)
+    shape: uniform_to_system_age
+    ifmr_segments:                   # Cummings et al. (2018) MIST eqs 4-6: (Mi_lo, Mi_hi, slope, intercept)
+      - [0.83, 2.85, 0.080, 0.489]
+      - [2.85, 3.60, 0.187, 0.184]
+      - [3.60, 7.20, 0.107, 0.471]
+    ifmr_ref: "Cummings et al. 2018, ApJ 866, 21, Table 1 (MIST), as in dark-hunter_sed cummings_ifmr.py"
+    below_ifmr: no_progenitor_delay  # M_WD < 0.555 (He / low-mass WDs from binary interaction): no MS delay (QUESTION for Ryan)
+    ms_lifetime_gyr_at_1msun: 10.0   # Hurley et al. (2000) power-law approximation, as in dark-hunter_sed
+    ms_lifetime_mass_exponent: -2.5
+  orbit:                             # log-uniform P over the MdS17 range; e uniform below MdS17 e_max(P)
+    log_p_min: 0.2
+    log_p_max: 8.0
+    eccentricity: uniform_to_emax
+    circular_period_days: 2.0
+    e_max_period_scale_days: 2.0
+    e_max_exponent: -0.6666666666666666
