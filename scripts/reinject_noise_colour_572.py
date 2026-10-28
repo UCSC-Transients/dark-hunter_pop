@@ -67,7 +67,7 @@ def _inject(task: tuple[dict[str, float], int, float, list[int]]) -> list[dict[s
                                   noise_rng=epoch_model_rng(_W["base_seed"], it.INJECTION_RNG_STREAM, sid, r, tag=PER_CCD_NOISE_RNG_TAG),
                                   ruwe_min=_W["ruwe_min"], skip_acceleration=False, gaps_jd=_W["gaps"])
             rec = it.parse_cascade_result(run.cascade, n_visibility_periods=run.n_visibility_periods, n_obs=run.n_obs, cuts=_W["cuts"])
-            rec.update(sim_n_visibility_periods=run.n_visibility_periods, sim_n_obs=run.n_obs, ruwe_scale=run.ruwe_scale)
+            rec.update(sim_n_visibility_periods=run.n_visibility_periods, sim_n_obs=run.n_obs, sim_n_transits=run.n_transits, ruwe_scale=run.ruwe_scale)
         except Exception as exc:  # noqa: BLE001 - recorded, never dropped
             rec = {"error": repr(exc)}
         rec.update(source_id=int(sid), realization=int(r), bp_rp=bp_rp, cpu_s=time.process_time() - c0)

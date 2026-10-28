@@ -134,7 +134,14 @@ def cmd_fit_e(a: argparse.Namespace) -> None:
 
     par = json.loads(Path(a.s_fit).read_text())["params"]
     r = n.load_reinjection(Path(a.reinjection), Path(a.gate390), Path(a.colours))
-    s = np.exp(ln_s(r["g"], np.where(np.isfinite(r["bp_rp"]), r["bp_rp"], CREF), par))
+    c_ = np.where(np.isfinite(r["bp_rp"]), r["bp_rp"], CREF)
+    # the run's own s and e are divided out (#581: e is refit on a colour_v2+tr1 run, exact in chi2_red x (s/e)^2)
+    rmeta = json.loads((Path(a.reinjection) / "inject_meta.json").read_text())
+    nc = rmeta["epoch_model"].get("noise_colour") or {}
+    s_run = np.exp(run_ln_s(rmeta, r["g"], c_))
+    e_run = e_of(r["g"], nc) if nc.get("enabled") and nc.get("break_g") is not None else np.ones(r["g"].size)
+    r["e_run"] = e_run
+    s = np.exp(ln_s(r["g"], c_, par)) / s_run * e_run  # relative actual/stated factor; e solved on top
     rng = np.random.default_rng(454)
     out: dict = {"reinjection": str(a.reinjection), "bins": []}
     for side, bins in (("bright", E_BINS_B), ("faint", E_BINS_F)):
@@ -169,12 +176,13 @@ def cmd_fit_e(a: argparse.Namespace) -> None:
 
 def cmd_u0(a: argparse.Namespace) -> None:
     m, meta = n.load_mock(Path(a.run))
-    if meta["noise_model_version"] != "n2d_s1232":
-        raise SystemExit("u0 is built from the production single-star run")
     d = n.load_dr3(Path(a.parent_dir), Path(a.quality_dir))
     par = {**json.loads(Path(a.s_fit).read_text())["params"], **e_params(json.loads(Path(a.e_fit).read_text()))}
     g, c = d["phot_g_mean_mag"][m["row"]], d["bp_rp"][m["row"]]
-    base_uwe = m["uwe"] / e_of(g, par)  # UWE x s / e = (UWE / e) x s; s is applied at the nodes
+    # divide out the run's own s and e (exact; production run: none), then UWE x s / e = (UWE / e) x s at the nodes
+    nc = meta["epoch_model"].get("noise_colour") or {}
+    e_run = e_of(g, nc) if nc.get("enabled") and nc.get("break_g") is not None else 1.0
+    base_uwe = m["uwe"] / np.exp(run_ln_s(meta, g, c)) * e_run / e_of(g, par)
     cn = np.array([0.0, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 3.5])
     lines = [f"# u0(G, BP-RP) for noise model colour_v2 (EPOCH_MODEL_SPEC §8.13, #579): 41st percentile of production",
              f"# single-star UWE ({Path(a.run).name}) / e(G) in 0.5-mag windows that never cross G = {BREAK:g}, x s(G, C) at",
