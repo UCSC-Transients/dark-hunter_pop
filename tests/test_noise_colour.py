@@ -44,6 +44,7 @@ def test_production_label_and_colour_off_is_default() -> None:
     assert em.noise_model_version(sec) == ps.DEFAULT_NOISE_MODEL == "n2d_s1232"
     assert em.noise_model_version(_cfg()) == "n2d_s1232"
     assert em.noise_model_version(_cfg(_colour())) == "colour_test"
+    assert em.noise_model_version(_cfg(_colour_v2())) == "colour_v2_test"
 
 
 @pytest.mark.unit
@@ -174,3 +175,74 @@ def test_epoch_source_context_carries_system_colour() -> None:
     src = ps.epoch_source_context({"ra_deg": 10.0, "dec_deg": 20.0, "phot_g_mean_mag": 12.0, "sys_bp_rp": 1.3})
     assert src.bp_rp == pytest.approx(1.3)
     assert ps.epoch_source_context({"ra_deg": 10.0, "dec_deg": 20.0, "phot_g_mean_mag": 12.0}).bp_rp is None
+
+
+def _colour_v2(**kw: Any) -> em.NoiseColourConfig:
+    u0 = em.RuweU0TableBroken(bright=em.RuweU0Table2D(g=(10.0, 12.9), colour=(0.5, 2.5), u0=((1.2, 1.2), (1.3, 1.3))),
+                              faint=em.RuweU0Table2D(g=(13.0, 18.0), colour=(0.5, 2.5), u0=((0.95, 0.95), (1.0, 1.0))), break_g=13.0)
+    base: dict[str, Any] = dict(
+        version="colour_v2_test", colour_clip=(0.2, 2.6), colour_ref=1.2, a_knots_g=(10.0, 12.9), a_coef=(0.0, np.log(0.9)),
+        b_knots_g=(10.0, 12.9), b_coef=(0.0, 0.0), q_coef=0.0, stated_knots_g=(10.0, 12.9), stated_scale=(0.9, 0.8), u0=u0,
+        break_g=13.0, keep_n2d=True, colour_clip_faint=(0.0, 3.5), a_knots_g_faint=(13.0, 18.0), a_coef_faint=(np.log(1.1), 0.0),
+        b_knots_g_faint=(13.0, 18.0), b_coef_faint=(0.05, 0.05), q_coef_faint=0.0, stated_knots_g_faint=(13.0, 19.0),
+        stated_scale_faint=(1.0, 1.0))
+    base.update(kw)
+    return em.NoiseColourConfig(**base)
+
+
+@pytest.mark.unit
+def test_colour_v2_break_is_not_interpolated() -> None:
+    nc = _colour_v2()
+    assert nc.actual_scale(12.99, 1.2) == pytest.approx(0.9)  # bright side, held at its last knot
+    assert nc.actual_scale(13.0, 1.2) == pytest.approx(1.1)  # faint side starts at the break
+    assert nc.stated_factor(12.99) == pytest.approx(0.8) and nc.stated_factor(13.0) == pytest.approx(1.0)
+    assert nc.u0(12.99, 1.0) == pytest.approx(1.3) and nc.u0(13.0, 1.0) == pytest.approx(0.95)
+    # per-side colour clip: bright clamps at 2.6, faint at 3.5
+    assert nc.actual_scale(13.5, 3.5) == pytest.approx(np.exp(np.interp(13.5, (13.0, 18.0), (np.log(1.1), 0.0)) + 0.05 * 2.3))
+
+
+@pytest.mark.unit
+def test_colour_v2_keeps_n2d_scaled_by_s() -> None:
+    cfg = _cfg(_colour_v2())
+    err = np.full(400, 0.13)
+    o, e, k = em.per_ccd_noise(np.zeros(400), err, 12.0, 1.2, cfg, np.random.default_rng(5))
+    extra, _ = em.per_ccd_excess_noise(err, 12.0, cfg.excess_noise, np.random.default_rng(5))
+    s = cfg.noise_colour.actual_scale(12.0, 1.2)
+    np.testing.assert_allclose(o, s * extra)  # same draws as production, scaled by s
+    np.testing.assert_allclose(e, err * cfg.noise_colour.stated_factor(12.0))
+    assert k == pytest.approx(cfg.noise_colour.u0(12.0, 1.2))
+    o2, _, _ = em.per_ccd_noise(np.zeros(400), err, 14.0, 1.2, cfg, np.random.default_rng(5))
+    assert not o2.any()  # N2d is zero at G >= 13
+
+
+@pytest.mark.unit
+def test_broken_u0_table_loads_split(tmp_path: Path) -> None:
+    p = tmp_path / "u0.csv"
+    p.write_text("# t\ng,bp_rp,u0\n12.0,0.5,1.2\n12.0,2.5,1.2\n12.99,0.5,1.3\n12.99,2.5,1.3\n13.0,0.5,0.9\n13.0,2.5,0.9\n14.0,0.5,1.0\n14.0,2.5,1.0\n")
+    t = em.load_u0_table_2d(p, break_g=13.0)
+    assert isinstance(t, em.RuweU0TableBroken)
+    assert t(12.995, 1.0) == pytest.approx(1.3) and t(13.0, 1.0) == pytest.approx(0.9)
+
+
+@pytest.mark.unit
+def test_schema_v2_validation() -> None:
+    ok = dict(u0_table="x.csv", u0_table_sha256="0" * 64)
+    with pytest.raises(ValueError, match="faint"):
+        EpochNoiseColourConfig(**ok, version="colour_v2", break_g=13.0)
+    with pytest.raises(ValueError, match="keep_n2d"):
+        EpochNoiseColourConfig(**ok, keep_n2d=True)
+
+
+@pytest.mark.unit
+def test_configured_colour_v2_has_the_g13_break() -> None:
+    sec = load_config().dr3.epoch_model
+    assert sec is not None and sec.noise_colour is not None
+    assert sec.noise_colour.enabled is False  # production stays n2d_s1232 until Ryan adopts it
+    on = sec.model_copy(update={"noise_colour": sec.noise_colour.model_copy(update={"enabled": True})})
+    nc = em.epoch_model_config_from_mapping(on).noise_colour
+    assert nc is not None and nc.break_g == 13.0 and nc.keep_n2d
+    assert isinstance(nc.u0, em.RuweU0TableBroken)
+    # N2d is kept: the production bright step survives (actual noise at 12.99 >> 13.0 once N2d's sqrt(1 + r2) is included)
+    r2 = em.excess_noise_r2(12.99, em.epoch_model_config_from_mapping(on).excess_noise)
+    step = nc.actual_scale(12.99, 1.2) * np.sqrt(1 + r2) / nc.actual_scale(13.0, 1.2)
+    assert step > 1.05

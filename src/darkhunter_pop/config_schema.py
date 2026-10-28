@@ -2745,6 +2745,22 @@ class EpochNoiseColourConfig(BaseModel):
     #: e(G), linear interpolation in G, constant outside
     stated_scale_knots_g: list[float] = Field(default_factory=lambda: [6.0, 19.0], min_length=1)
     stated_scale: list[float] = Field(default_factory=lambda: [1.0, 1.0], min_length=1)
+    #: colour_v2 (#579, spec §8.13): DR3's G = 13 bright/faint discontinuity. With ``break_g`` set, the fields above
+    #: are the bright side (G < break_g) and the ``*_faint`` fields the faint side (G >= break_g); nothing is
+    #: interpolated across the break, and the u0 table is split there. ``keep_n2d``: N2d stays on, multiplied by s.
+    break_g: float | None = None
+    keep_n2d: bool = False
+    colour_clip_faint: list[float] | None = Field(None, min_length=2, max_length=2)  # default: colour_clip
+    a_knots_g_faint: list[float] = Field(default_factory=list)
+    a_coef_faint: list[float] = Field(default_factory=list)
+    a_coef_faint_err: list[float] = Field(default_factory=list)
+    b_knots_g_faint: list[float] = Field(default_factory=list)
+    b_coef_faint: list[float] = Field(default_factory=list)
+    b_coef_faint_err: list[float] = Field(default_factory=list)
+    q_coef_faint: float = 0.0
+    q_coef_faint_err: float | None = None
+    stated_scale_knots_g_faint: list[float] = Field(default_factory=list)
+    stated_scale_faint: list[float] = Field(default_factory=list)
     u0_table: str
     u0_table_sha256: str
     provenance: str = ""
@@ -2758,6 +2774,15 @@ class EpochNoiseColourConfig(BaseModel):
             raise ValueError("stated_scale needs one positive value per knot")
         if any(b <= a for a, b in zip(self.stated_scale_knots_g[:-1], self.stated_scale_knots_g[1:])):
             raise ValueError("stated_scale_knots_g must increase")
+        if self.break_g is not None:
+            for kn, cf in ((self.a_knots_g_faint, self.a_coef_faint), (self.b_knots_g_faint, self.b_coef_faint),
+                           (self.stated_scale_knots_g_faint, self.stated_scale_faint)):
+                if not kn or len(kn) != len(cf) or any(b <= a for a, b in zip(kn[:-1], kn[1:])):
+                    raise ValueError("noise_colour with break_g needs increasing faint-side knots, one value each")
+            if any(v <= 0 for v in self.stated_scale_faint):
+                raise ValueError("stated_scale_faint must be positive")
+        elif self.keep_n2d:
+            raise ValueError("keep_n2d is only defined with break_g (colour_v2)")
         if self.version == "n2d_s1232":
             raise ValueError("noise_colour.version must differ from the production label n2d_s1232")
         return self

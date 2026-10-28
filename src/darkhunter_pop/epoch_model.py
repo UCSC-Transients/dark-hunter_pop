@@ -257,7 +257,48 @@ class RuweU0Table2D:
                      + (1 - tx) * ty * arr[i, j + 1] + tx * ty * arr[i + 1, j + 1])
 
 
-def load_u0_table_2d(path: Path, expected_sha256: str | None = None) -> RuweU0Table2D:
+@dataclass(frozen=True)
+class RuweU0TableBroken:
+    """Two :class:`RuweU0Table2D` grids split at ``break_g`` (colour_v2, spec §8.13): G < break_g uses ``bright``,
+    G >= break_g ``faint``; each is clamped to its own side, never interpolated across the break."""
+
+    bright: RuweU0Table2D
+    faint: RuweU0Table2D
+    break_g: float
+
+    def __call__(self, g_mag: float, bp_rp: float) -> float:
+        return self.bright(g_mag, bp_rp) if g_mag < self.break_g else self.faint(g_mag, bp_rp)
+
+
+def load_u0_table_2d(path: Path, expected_sha256: str | None = None,
+                     break_g: float | None = None) -> RuweU0Table2D | RuweU0TableBroken:
+    """Read the 2-D u0 CSV; with ``break_g``, rows at G < break_g and G >= break_g form two separate grids."""
+    if break_g is not None:
+        if expected_sha256:
+            got = _sha256(path)
+            if got != expected_sha256:
+                raise ValueError(f"u0 table {path} sha256 {got} != configured {expected_sha256}")
+        lines = [ln for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+        head, rows = lines[0], lines[1:]
+        parts = []
+        for keep in (lambda g: g < break_g, lambda g: g >= break_g):
+            sub = [r for r in rows if keep(float(r.split(",")[0]))]
+            parts.append(_u0_grid(head, sub, path))
+        return RuweU0TableBroken(bright=parts[0], faint=parts[1], break_g=float(break_g))
+    return _load_u0_table_2d(path, expected_sha256)
+
+
+def _u0_grid(head: str, rows: list[str], path: Path) -> RuweU0Table2D:
+    if head.replace(" ", "").lower().split(",")[:3] != ["g", "bp_rp", "u0"]:
+        raise ValueError(f"unexpected 2-D u0 table header {head!r}")
+    vals = np.array([[float(x) for x in r.split(",")[:3]] for r in rows])
+    g, c = np.unique(vals[:, 0]), np.unique(vals[:, 1])
+    grid = np.full((g.size, c.size), np.nan)
+    grid[np.searchsorted(g, vals[:, 0]), np.searchsorted(c, vals[:, 1])] = vals[:, 2]
+    return RuweU0Table2D(g=tuple(g), colour=tuple(c), u0=tuple(tuple(r) for r in grid), path=Path(path))
+
+
+def _load_u0_table_2d(path: Path, expected_sha256: str | None = None) -> RuweU0Table2D:
     """Read the 2-D u0 CSV (``#`` comments, then ``g,bp_rp,u0`` rows on a full grid); verify sha256."""
     if expected_sha256:
         got = _sha256(path)
@@ -288,18 +329,39 @@ class NoiseColourConfig:
     q_coef: float
     stated_knots_g: tuple[float, ...]
     stated_scale: tuple[float, ...]
-    u0: RuweU0Table2D
+    u0: Any
+    #: colour_v2 (spec §8.13): the G = 13 break; the fields above are then the bright side, these the faint side
+    break_g: float | None = None
+    keep_n2d: bool = False
+    colour_clip_faint: tuple[float, float] | None = None
+    a_knots_g_faint: tuple[float, ...] = ()
+    a_coef_faint: tuple[float, ...] = ()
+    b_knots_g_faint: tuple[float, ...] = ()
+    b_coef_faint: tuple[float, ...] = ()
+    q_coef_faint: float = 0.0
+    stated_knots_g_faint: tuple[float, ...] = ()
+    stated_scale_faint: tuple[float, ...] = ()
+
+    def _faint(self, g_mag: float) -> bool:
+        return self.break_g is not None and g_mag >= self.break_g
 
     def actual_scale(self, g_mag: float, bp_rp: float) -> float:
-        """``s = exp(a(G) + b(G) c + q c^2)``, ``c = clip(BP-RP) - colour_ref``."""
+        """``s = exp(a(G) + b(G) c + q c^2)``, ``c = clip(BP-RP) - colour_ref``; per side of ``break_g``."""
         if not np.isfinite(bp_rp):
             raise ValueError("noise_colour needs a finite observed BP-RP for every source")
+        if self._faint(g_mag):
+            c = float(np.clip(bp_rp, *(self.colour_clip_faint or self.colour_clip))) - self.colour_ref
+            a = float(np.interp(g_mag, self.a_knots_g_faint, self.a_coef_faint))
+            b = float(np.interp(g_mag, self.b_knots_g_faint, self.b_coef_faint))
+            return float(np.exp(a + b * c + self.q_coef_faint * c * c))
         c = float(np.clip(bp_rp, *self.colour_clip)) - self.colour_ref
         a = float(np.interp(g_mag, self.a_knots_g, self.a_coef))
         b = float(np.interp(g_mag, self.b_knots_g, self.b_coef))
         return float(np.exp(a + b * c + self.q_coef * c * c))
 
     def stated_factor(self, g_mag: float) -> float:
+        if self._faint(g_mag):
+            return float(np.interp(g_mag, self.stated_knots_g_faint, self.stated_scale_faint))
         return float(np.interp(g_mag, self.stated_knots_g, self.stated_scale))
 
 
@@ -452,7 +514,16 @@ def _colour_from(m: Mapping[str, Any] | None, root: Path) -> NoiseColourConfig |
         b_coef=tuple(float(x) for x in m["b_coef"]), q_coef=float(m["q_coef"]),
         stated_knots_g=tuple(float(x) for x in m["stated_scale_knots_g"]),
         stated_scale=tuple(float(x) for x in m["stated_scale"]),
-        u0=load_u0_table_2d(path if path.is_absolute() else root / path, m.get("u0_table_sha256")),
+        u0=load_u0_table_2d(path if path.is_absolute() else root / path, m.get("u0_table_sha256"), m.get("break_g")),
+        break_g=None if m.get("break_g") is None else float(m["break_g"]), keep_n2d=bool(m.get("keep_n2d", False)),
+        colour_clip_faint=None if m.get("colour_clip_faint") is None else (float(m["colour_clip_faint"][0]), float(m["colour_clip_faint"][1])),
+        a_knots_g_faint=tuple(float(x) for x in m.get("a_knots_g_faint", ())),
+        a_coef_faint=tuple(float(x) for x in m.get("a_coef_faint", ())),
+        b_knots_g_faint=tuple(float(x) for x in m.get("b_knots_g_faint", ())),
+        b_coef_faint=tuple(float(x) for x in m.get("b_coef_faint", ())),
+        q_coef_faint=float(m.get("q_coef_faint", 0.0)),
+        stated_knots_g_faint=tuple(float(x) for x in m.get("stated_scale_knots_g_faint", ())),
+        stated_scale_faint=tuple(float(x) for x in m.get("stated_scale_faint", ())),
     )
 
 
@@ -1043,9 +1114,10 @@ def per_ccd_noise(
     err = np.asarray(err, dtype=np.float64)
     nc = config.noise_colour if config.enabled else None
     k = 1.0
-    if config.enabled and config.excess_noise is not None and nc is None:  # §8.12: s(G, C) replaces the N2d excess
+    if config.enabled and config.excess_noise is not None and (nc is None or nc.keep_n2d):
+        # §8.12 (colour_v1): s replaces N2d. §8.13 (colour_v2): N2d stays, and s multiplies it like all actual noise
         extra, k = per_ccd_excess_noise(err, g_mag, config.excess_noise, rng)
-        obs = obs + extra
+        obs = obs + (extra if nc is None else nc.actual_scale(g_mag, bp_rp) * extra)
     if config.enabled and config.ruwe_u0 is not None:
         k = ruwe_scale_u0(g_mag, config)
     if nc is not None:
