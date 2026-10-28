@@ -25,7 +25,8 @@ REPO = Path(__file__).resolve().parents[1]
 def _cfg(**kw: Any) -> em.EpochModelConfig:
     base = load_config().dr3.epoch_model
     assert base is not None
-    out = dataclasses.replace(em.epoch_model_config_from_mapping(base), enabled=True)
+    # #583: the adopted colour model and tr1 are tested in tests/test_noise_colour.py; here the bare §8 epoch model
+    out = dataclasses.replace(em.epoch_model_config_from_mapping(base), enabled=True, noise_colour=None, transit_recal=None)
     if any(k_.startswith("transit_loss") for k_ in kw):
         # binned-model tests: switch off the continuous / clustered / visibility-period parts
         kw = {"continuous": None, "clustered": None, "vp_loss": None, **kw}
