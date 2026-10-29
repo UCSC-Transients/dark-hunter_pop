@@ -56,8 +56,8 @@ def test_actual_scale_stated_factor_and_u0_2d() -> None:
     assert nc.actual_scale(14.0, 2.2) == pytest.approx(np.exp(0.05))
     assert nc.actual_scale(20.0, 9.0) == pytest.approx(np.exp(0.05 * (3.5 - 1.2)))  # clamped G and colour
     assert nc.stated_factor(12.0) == pytest.approx(0.95)
-    with pytest.raises(ValueError, match="BP-RP"):
-        nc.actual_scale(12.0, float("nan"))
+    # #585: a missing colour uses the pivot (c = 0)
+    assert nc.actual_scale(12.0, float("nan")) == pytest.approx(nc.actual_scale(12.0, nc.colour_ref))
     u0 = _u0_2d()
     assert u0(12.0, 1.5) == pytest.approx(0.25 * (1.2 + 1.4 + 1.0 + 1.1))
     assert u0(5.0, -1.0) == pytest.approx(1.2) and u0(30.0, 9.0) == pytest.approx(1.1)
@@ -278,3 +278,15 @@ def test_configured_transit_recal_is_adopted_and_loads() -> None:
     cfg = em.epoch_model_config_from_mapping(on)
     assert cfg.transit_recal is not None and 0.95 < cfg.transit_recal.rho(15.0) < 1.0 and 0.95 < cfg.transit_recal.kappa(15.0) < 1.05
     assert em.noise_model_version(on) == "n2d_s1232+tr1"
+
+
+@pytest.mark.unit
+def test_missing_colour_uses_the_pivot_on_both_sides_of_the_break() -> None:
+    cfg = _cfg(_colour_v2())
+    nc = cfg.noise_colour
+    for g in (12.5, 14.0):
+        assert nc.actual_scale(g, float("nan")) == pytest.approx(nc.actual_scale(g, 1.2))
+        _, _, k_nan = em.per_ccd_noise(np.zeros(10), np.full(10, 0.1), g, float("nan"), cfg, np.random.default_rng(0))
+        _, _, k_ref = em.per_ccd_noise(np.zeros(10), np.full(10, 0.1), g, 1.2, cfg, np.random.default_rng(0))
+        assert k_nan == pytest.approx(k_ref)
+    assert em.colour_actual_scale(em.SourceEpochContext(14.0), cfg) == pytest.approx(nc.actual_scale(14.0, 1.2))

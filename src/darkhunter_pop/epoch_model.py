@@ -347,8 +347,8 @@ class NoiseColourConfig:
 
     def actual_scale(self, g_mag: float, bp_rp: float) -> float:
         """``s = exp(a(G) + b(G) c + q c^2)``, ``c = clip(BP-RP) - colour_ref``; per side of ``break_g``."""
-        if not np.isfinite(bp_rp):
-            raise ValueError("noise_colour needs a finite observed BP-RP for every source")
+        if bp_rp is None or not np.isfinite(bp_rp):  # #585 (spec §8.13): missing colour -> the pivot, c = 0 (G-only s)
+            bp_rp = self.colour_ref
         if self._faint(g_mag):
             c = float(np.clip(bp_rp, *(self.colour_clip_faint or self.colour_clip))) - self.colour_ref
             a = float(np.interp(g_mag, self.a_knots_g_faint, self.a_coef_faint))
@@ -1137,7 +1137,7 @@ def colour_actual_scale(source: SourceEpochContext, config: EpochModelConfig) ->
     """``s(G, C)`` of the noise-model colour term, 1 when it is off."""
     if not config.enabled or config.noise_colour is None:
         return 1.0
-    return config.noise_colour.actual_scale(source.g_mag, np.nan if source.bp_rp is None else source.bp_rp)
+    return config.noise_colour.actual_scale(source.g_mag, np.nan if source.bp_rp is None else source.bp_rp)  # NaN -> pivot (#585)
 
 
 def per_ccd_noise(
@@ -1167,7 +1167,7 @@ def per_ccd_noise(
         k = ruwe_scale_u0(g_mag, config)
     if nc is not None:
         err = err * nc.stated_factor(g_mag)
-        k = nc.u0(g_mag, bp_rp)
+        k = nc.u0(g_mag, bp_rp if (bp_rp is not None and np.isfinite(bp_rp)) else nc.colour_ref)  # #585: pivot colour
     return obs, err, k
 
 

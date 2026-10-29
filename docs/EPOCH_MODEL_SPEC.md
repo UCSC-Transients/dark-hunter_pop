@@ -692,6 +692,13 @@ c = clip(BP−RP) − c_ref, where BP−RP is the observed system colour:
 > 1004 (compact objects) carry `noise_model: colour_v2.1+tr1`. Every earlier draw (`n2d_s1232`) is superseded and is
 > never mixed with these.
 
+> **Sources without a usable BP−RP (#585; 2026-10-28).** A source whose observed BP−RP is missing or not finite
+> (DR3 has no BP/RP photometry for some rows) gets the colour term **at the pivot**, c = 0. Its s is then the
+> G-only exp(a(G)) on its side of the G = 13 break, and u0 is evaluated at BP−RP = `colour_ref` (1.2). The rule is the
+> same for mock systems and for real re-injected orbits. It is statistical, never per star; it adds no new
+> calibration, and the version label is unchanged because no draw under `colour_v2.1+tr1` existed before the fix.
+> The number of affected rows per sample and generation is recorded in `docs/gate_noise_colour/colour_nan/README.md`.
+
 **Why.** `colour_v1` (§8.12) replaced N2d with smooth a(G) knots, which erased the DR3 G = 13 discontinuity
 (note after §8.5). `colour_v2` keeps N2d and puts the colour term and the F2 calibration on top of it, with a break
 at G = 13.
