@@ -1,0 +1,716 @@
+{
+ "teff_poly_log10": [
+  0.062068929396577675,
+  -0.33883186064975235,
+  3.9891610484270346
+ ],
+ "f2_cut": 12.0,
+ "orbits": {
+  "dwarf": [
+   {
+    "log_theta_uas": [
+     -1.0,
+     0.5
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     0.5,
+     1.0
+    ],
+    "n_dr3": 1954,
+    "n_mock": 18,
+    "p_dr3": 0.024053224155578302,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": 4.626044511795044,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     1.0,
+     1.5
+    ],
+    "n_dr3": 33042,
+    "n_mock": 2002,
+    "p_dr3": 0.07944434356273833,
+    "p_mock_unweighted": 0.047452547452547456,
+    "p_mock_default": 0.040444915392256885,
+    "f2_median_dr3": 4.466290712356567,
+    "f2_median_mock": 4.458134249167501
+   },
+   {
+    "log_theta_uas": [
+     1.5,
+     2.0
+    ],
+    "n_dr3": 3462,
+    "n_mock": 1538,
+    "p_dr3": 0.1346042749855575,
+    "p_mock_unweighted": 0.04161248374512354,
+    "p_mock_default": 0.09738348853704495,
+    "f2_median_dr3": 5.3211610317230225,
+    "f2_median_mock": 3.474664366853815
+   },
+   {
+    "log_theta_uas": [
+     2.0,
+     2.5
+    ],
+    "n_dr3": 21,
+    "n_mock": 38,
+    "p_dr3": 0.38095238095238093,
+    "p_mock_unweighted": 0.05263157894736842,
+    "p_mock_default": 0.0,
+    "f2_median_dr3": 10.14810562133789,
+    "f2_median_mock": 4.582590848865948
+   },
+   {
+    "log_theta_uas": [
+     2.5,
+     4.0
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   }
+  ],
+  "dwarf_by_G": [
+   {
+    "g": [
+     8,
+     10
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN,
+    "f2_p99_dr3": NaN,
+    "f2_p99_mock": NaN
+   },
+   {
+    "g": [
+     10,
+     11
+    ],
+    "n_dr3": 5468,
+    "n_mock": 2761,
+    "p_dr3": 0.12783467446964156,
+    "p_mock_unweighted": 0.04020282506338283,
+    "f2_median_dr3": 4.586525201797485,
+    "f2_median_mock": 3.738884483629883,
+    "f2_p99_dr3": 22.260890808105465,
+    "f2_p99_mock": 15.59548238262952,
+    "p_dr3_small_theta": 0.13057790782735917,
+    "p_dr3_large_theta": 0.1250914411119239
+   },
+   {
+    "g": [
+     11,
+     12
+    ],
+    "n_dr3": 11092,
+    "n_mock": 331,
+    "p_dr3": 0.1419040750090155,
+    "p_mock_unweighted": 0.08459214501510574,
+    "f2_median_dr3": 4.924290418624878,
+    "f2_median_mock": 6.0350664637425995,
+    "f2_p99_dr3": 23.237151908874516,
+    "f2_p99_mock": 16.75791712091914,
+    "p_dr3_small_theta": 0.15037865128020195,
+    "p_dr3_large_theta": 0.13342949873782906
+   },
+   {
+    "g": [
+     12,
+     13
+    ],
+    "n_dr3": 21919,
+    "n_mock": 617,
+    "p_dr3": 0.03982845932752407,
+    "p_mock_unweighted": 0.059967585089141004,
+    "f2_median_dr3": 4.374706745147705,
+    "f2_median_mock": 5.006101732188442,
+    "f2_p99_dr3": 18.345247306823726,
+    "f2_p99_mock": 20.001326810539577,
+    "p_dr3_small_theta": 0.032302217355598135,
+    "p_dr3_large_theta": 0.04735401459854015
+   },
+   {
+    "g": [
+     13,
+     14
+    ],
+    "n_dr3": 34666,
+    "n_mock": 817,
+    "p_dr3": 0.013067558991519068,
+    "p_mock_unweighted": 0.019583843329253364,
+    "f2_median_dr3": -0.041220568120479584,
+    "f2_median_mock": 0.22547731469337132,
+    "f2_p99_dr3": 13.582619762420615,
+    "f2_p99_mock": 15.25553071424528,
+    "p_dr3_small_theta": 0.009692494086424738,
+    "p_dr3_large_theta": 0.016442623896613398
+   },
+   {
+    "g": [
+     14,
+     16
+    ],
+    "n_dr3": 33591,
+    "n_mock": 777,
+    "p_dr3": 0.0047631806138549015,
+    "p_mock_unweighted": 0.002574002574002574,
+    "f2_median_dr3": 0.21953031420707703,
+    "f2_median_mock": 0.851773057715947,
+    "f2_p99_dr3": 8.856489944458001,
+    "f2_p99_mock": 8.163865767742474,
+    "p_dr3_small_theta": 0.00244120273891039,
+    "p_dr3_large_theta": 0.00708502024291498
+   }
+  ],
+  "evolved": [
+   {
+    "log_theta_uas": [
+     -1.0,
+     0.5
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     0.5,
+     1.0
+    ],
+    "n_dr3": 1,
+    "n_mock": 1,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     1.0,
+     1.5
+    ],
+    "n_dr3": 4366,
+    "n_mock": 303,
+    "p_dr3": 0.04466330737517178,
+    "p_mock_unweighted": 0.026402640264026403,
+    "p_mock_default": 0.009794708659087667,
+    "f2_median_dr3": 3.8561803102493286,
+    "f2_median_mock": 3.350640148976002
+   },
+   {
+    "log_theta_uas": [
+     1.5,
+     2.0
+    ],
+    "n_dr3": 3747,
+    "n_mock": 1830,
+    "p_dr3": 0.06351748065118762,
+    "p_mock_unweighted": 0.015300546448087432,
+    "p_mock_default": 0.016375411361632407,
+    "f2_median_dr3": 4.322279453277588,
+    "f2_median_mock": 2.123620379148912
+   },
+   {
+    "log_theta_uas": [
+     2.0,
+     2.5
+    ],
+    "n_dr3": 64,
+    "n_mock": 69,
+    "p_dr3": 0.015625,
+    "p_mock_unweighted": 0.07246376811594203,
+    "p_mock_default": 0.27898088547311756,
+    "f2_median_dr3": 4.689992904663086,
+    "f2_median_mock": 3.602316592060899
+   },
+   {
+    "log_theta_uas": [
+     2.5,
+     4.0
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   }
+  ],
+  "evolved_by_G": [
+   {
+    "g": [
+     8,
+     10
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN,
+    "f2_p99_dr3": NaN,
+    "f2_p99_mock": NaN
+   },
+   {
+    "g": [
+     10,
+     11
+    ],
+    "n_dr3": 2089,
+    "n_mock": 1766,
+    "p_dr3": 0.05792245093346099,
+    "p_mock_unweighted": 0.015855039637599093,
+    "f2_median_dr3": 4.4694929122924805,
+    "f2_median_mock": 2.02749526557917,
+    "f2_p99_dr3": 18.83376296997066,
+    "f2_p99_mock": 12.617884484642452,
+    "p_dr3_small_theta": 0.06800766283524905,
+    "p_dr3_large_theta": 0.04784688995215311
+   },
+   {
+    "g": [
+     11,
+     12
+    ],
+    "n_dr3": 2532,
+    "n_mock": 151,
+    "p_dr3": 0.09439178515007898,
+    "p_mock_unweighted": 0.013245033112582781,
+    "f2_median_dr3": 4.348113298416138,
+    "f2_median_mock": 4.380968980270622,
+    "f2_p99_dr3": 21.261090736389164,
+    "f2_p99_mock": 12.100032316458158,
+    "p_dr3_small_theta": 0.10505529225908374,
+    "p_dr3_large_theta": 0.08372827804107424
+   },
+   {
+    "g": [
+     12,
+     13
+    ],
+    "n_dr3": 3557,
+    "n_mock": 294,
+    "p_dr3": 0.020804048355355636,
+    "p_mock_unweighted": 0.03741496598639456,
+    "f2_median_dr3": 3.7419443130493164,
+    "f2_median_mock": 3.3855758564685505,
+    "f2_p99_dr3": 13.977521934509282,
+    "f2_p99_mock": 14.642060646498006,
+    "p_dr3_small_theta": 0.01968503937007874,
+    "p_dr3_large_theta": 0.021922428330522766
+   },
+   {
+    "g": [
+     13,
+     14
+    ],
+    "n_dr3": 3168,
+    "n_mock": 201,
+    "p_dr3": 0.004419191919191919,
+    "p_mock_unweighted": 0.0,
+    "f2_median_dr3": -0.2495104819536209,
+    "f2_median_mock": -0.5091149909928608,
+    "f2_p99_dr3": 7.228117537498468,
+    "f2_p99_mock": 10.60300068995441,
+    "p_dr3_small_theta": 0.006313131313131313,
+    "p_dr3_large_theta": 0.0025252525252525255
+   },
+   {
+    "g": [
+     14,
+     16
+    ],
+    "n_dr3": 916,
+    "n_mock": 65,
+    "p_dr3": 0.001091703056768559,
+    "p_mock_unweighted": 0.0,
+    "f2_median_dr3": -0.03757455572485924,
+    "f2_median_mock": -0.4513519177461085,
+    "f2_p99_dr3": 5.376977610588076,
+    "f2_p99_mock": NaN,
+    "p_dr3_small_theta": 0.0,
+    "p_dr3_large_theta": 0.002183406113537118
+   }
+  ]
+ },
+ "accelerations": {
+  "dwarf": [
+   {
+    "log_theta_uas": [
+     -1.0,
+     0.5
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     0.5,
+     1.0
+    ],
+    "n_dr3": 5188,
+    "n_mock": 25,
+    "p_dr3": 0.19911333847340015,
+    "p_mock_unweighted": 0.48,
+    "p_mock_default": 0.24943194485957323,
+    "f2_median_dr3": 7.7141354,
+    "f2_median_mock": 10.678644560684914
+   },
+   {
+    "log_theta_uas": [
+     1.0,
+     1.5
+    ],
+    "n_dr3": 76102,
+    "n_mock": 1518,
+    "p_dr3": 0.3478357993219626,
+    "p_mock_unweighted": 0.25889328063241107,
+    "p_mock_default": 0.27509303889804343,
+    "f2_median_dr3": 9.694247,
+    "f2_median_mock": 7.5777709811325344
+   },
+   {
+    "log_theta_uas": [
+     1.5,
+     2.0
+    ],
+    "n_dr3": 5121,
+    "n_mock": 834,
+    "p_dr3": 0.5487209529388791,
+    "p_mock_unweighted": 0.26019184652278177,
+    "p_mock_default": 0.27702604309655987,
+    "f2_median_dr3": 12.778279,
+    "f2_median_mock": 7.126812466451819
+   },
+   {
+    "log_theta_uas": [
+     2.0,
+     2.5
+    ],
+    "n_dr3": 7,
+    "n_mock": 6,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     2.5,
+     4.0
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   }
+  ],
+  "dwarf_by_G": [
+   {
+    "g": [
+     8,
+     10
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN,
+    "f2_p99_dr3": NaN,
+    "f2_p99_mock": NaN
+   },
+   {
+    "g": [
+     10,
+     11
+    ],
+    "n_dr3": 10419,
+    "n_mock": 1790,
+    "p_dr3": 0.4676072559746617,
+    "p_mock_unweighted": 0.253072625698324,
+    "f2_median_dr3": 11.564516,
+    "f2_median_mock": 7.147267694314456,
+    "f2_p99_dr3": 24.243614739999998,
+    "f2_p99_mock": 23.93645099297669,
+    "p_dr3_small_theta": 0.44922249952006144,
+    "p_dr3_large_theta": 0.48598848368522074
+   },
+   {
+    "g": [
+     11,
+     12
+    ],
+    "n_dr3": 23556,
+    "n_mock": 193,
+    "p_dr3": 0.46472236372898623,
+    "p_mock_unweighted": 0.2694300518134715,
+    "f2_median_dr3": 11.483378,
+    "f2_median_mock": 8.340268110418002,
+    "f2_p99_dr3": 23.973765300000007,
+    "f2_p99_mock": 22.798554791845635,
+    "p_dr3_small_theta": 0.44634063508235694,
+    "p_dr3_large_theta": 0.4831040923756156
+   },
+   {
+    "g": [
+     12,
+     13
+    ],
+    "n_dr3": 52443,
+    "n_mock": 433,
+    "p_dr3": 0.27650973437827736,
+    "p_mock_unweighted": 0.3140877598152425,
+    "f2_median_dr3": 8.625973,
+    "f2_median_mock": 8.504488052114255,
+    "f2_p99_dr3": 23.539929600000008,
+    "f2_p99_mock": 24.170862249686827,
+    "p_dr3_small_theta": 0.23790091911063652,
+    "p_dr3_large_theta": 0.31511707726336663
+   },
+   {
+    "g": [
+     13,
+     14
+    ],
+    "n_dr3": 92532,
+    "n_mock": 748,
+    "p_dr3": 0.1190615138546665,
+    "p_mock_unweighted": 0.12967914438502673,
+    "f2_median_dr3": 3.1768786,
+    "f2_median_mock": 3.743490492944738,
+    "f2_p99_dr3": 21.805497390000003,
+    "f2_p99_mock": 21.91609579429484,
+    "p_dr3_small_theta": 0.08055591579129383,
+    "p_dr3_large_theta": 0.15756711191803915
+   },
+   {
+    "g": [
+     14,
+     16
+    ],
+    "n_dr3": 95252,
+    "n_mock": 928,
+    "p_dr3": 0.07519002225675052,
+    "p_mock_unweighted": 0.10237068965517242,
+    "f2_median_dr3": 2.95793555,
+    "f2_median_mock": 3.2163538986210742,
+    "f2_p99_dr3": 20.489438240000013,
+    "f2_p99_mock": 21.670391763077067,
+    "p_dr3_small_theta": 0.03873934405576786,
+    "p_dr3_large_theta": 0.11164070045773317
+   }
+  ],
+  "evolved": [
+   {
+    "log_theta_uas": [
+     -1.0,
+     0.5
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     0.5,
+     1.0
+    ],
+    "n_dr3": 1,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   },
+   {
+    "log_theta_uas": [
+     1.0,
+     1.5
+    ],
+    "n_dr3": 10546,
+    "n_mock": 278,
+    "p_dr3": 0.2641759908970226,
+    "p_mock_unweighted": 0.11870503597122302,
+    "p_mock_default": 0.13330713002917463,
+    "f2_median_dr3": 8.959405,
+    "f2_median_mock": 5.806238193185349
+   },
+   {
+    "log_theta_uas": [
+     1.5,
+     2.0
+    ],
+    "n_dr3": 10330,
+    "n_mock": 1978,
+    "p_dr3": 0.37560503388189737,
+    "p_mock_unweighted": 0.12234580384226491,
+    "p_mock_default": 0.11197958563490634,
+    "f2_median_dr3": 10.5986505,
+    "f2_median_mock": 4.48836107963872
+   },
+   {
+    "log_theta_uas": [
+     2.0,
+     2.5
+    ],
+    "n_dr3": 170,
+    "n_mock": 86,
+    "p_dr3": 0.2823529411764706,
+    "p_mock_unweighted": 0.1511627906976744,
+    "p_mock_default": 0.21255379611493955,
+    "f2_median_dr3": 9.9515645,
+    "f2_median_mock": 7.436546510147818
+   },
+   {
+    "log_theta_uas": [
+     2.5,
+     4.0
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "p_mock_default": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN
+   }
+  ],
+  "evolved_by_G": [
+   {
+    "g": [
+     8,
+     10
+    ],
+    "n_dr3": 0,
+    "n_mock": 0,
+    "p_dr3": NaN,
+    "p_mock_unweighted": NaN,
+    "f2_median_dr3": NaN,
+    "f2_median_mock": NaN,
+    "f2_p99_dr3": NaN,
+    "f2_p99_mock": NaN
+   },
+   {
+    "g": [
+     10,
+     11
+    ],
+    "n_dr3": 5528,
+    "n_mock": 1927,
+    "p_dr3": 0.3833212735166425,
+    "p_mock_unweighted": 0.12350804359107422,
+    "f2_median_dr3": 10.7606185,
+    "f2_median_mock": 4.445607956119003,
+    "f2_p99_dr3": 23.0136112,
+    "f2_p99_mock": 21.820240542343218,
+    "p_dr3_small_theta": 0.4178726483357453,
+    "p_dr3_large_theta": 0.34876989869753977
+   },
+   {
+    "g": [
+     11,
+     12
+    ],
+    "n_dr3": 6575,
+    "n_mock": 131,
+    "p_dr3": 0.41368821292775665,
+    "p_mock_unweighted": 0.11450381679389313,
+    "f2_median_dr3": 10.964784,
+    "f2_median_mock": 6.56525294050698,
+    "f2_p99_dr3": 22.174444800000003,
+    "f2_p99_mock": 19.67670214726392,
+    "p_dr3_small_theta": 0.4079707940371159,
+    "p_dr3_large_theta": 0.4194038929440389
+   },
+   {
+    "g": [
+     12,
+     13
+    ],
+    "n_dr3": 8944,
+    "n_mock": 286,
+    "p_dr3": 0.20963774597495527,
+    "p_mock_unweighted": 0.1258741258741259,
+    "f2_median_dr3": 8.4165675,
+    "f2_median_mock": 6.192059449486463,
+    "f2_p99_dr3": 21.52721625,
+    "f2_p99_mock": 22.065865942849832,
+    "p_dr3_small_theta": 0.21399821109123435,
+    "p_dr3_large_theta": 0.20527728085867622
+   },
+   {
+    "g": [
+     13,
+     14
+    ],
+    "n_dr3": 8826,
+    "n_mock": 250,
+    "p_dr3": 0.05393156582823476,
+    "p_mock_unweighted": 0.036,
+    "f2_median_dr3": 2.5975622,
+    "f2_median_mock": 1.997840294408249,
+    "f2_p99_dr3": 19.25382775,
+    "f2_p99_mock": 16.480948698338594,
+    "p_dr3_small_theta": 0.045547246770904146,
+    "p_dr3_large_theta": 0.06231588488556537
+   },
+   {
+    "g": [
+     14,
+     16
+    ],
+    "n_dr3": 2448,
+    "n_mock": 61,
+    "p_dr3": 0.024101307189542485,
+    "p_mock_unweighted": 0.04918032786885246,
+    "f2_median_dr3": 2.25573215,
+    "f2_median_mock": 1.7357401851504937,
+    "f2_p99_dr3": 15.134399850000086,
+    "f2_p99_mock": NaN,
+    "p_dr3_small_theta": 0.017973856209150325,
+    "p_dr3_large_theta": 0.03022875816993464
+   }
+  ]
+ }
+}
