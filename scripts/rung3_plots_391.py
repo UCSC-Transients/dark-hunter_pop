@@ -77,11 +77,13 @@ def _get(z, pfx, comp, key):
 class Kind:
     """One sample (orbits or accelerations): real arrays, mock components (luminous, WD, spurious) with weights."""
 
-    def __init__(self, z, pfx, obs):
+    def __init__(self, z, pfx, obs, drop=()):
         self.obs = obs
         self.real = {k: _get(z, pfx, "real", k) for k in obs}
         self.comp = {}
         for c in ("lum", "wd"):
+            if c in drop:  # #587: e.g. v3's luminous + spurious part only
+                continue
             self.comp[c] = ({k: _get(z, pfx, c, k) for k in obs}, np.asarray(z[f"{pfx}_{c}_w"], float))
         if f"{pfx}_spur_w" in z.files:
             self.comp["spurious"] = (self.real, np.asarray(z[f"{pfx}_spur_w"], float))
@@ -91,7 +93,7 @@ class Kind:
         for c, (vals, w) in self.comp.items():
             m = np.ones(w.size, bool) if sel is None else sel[c]
             idx = np.flatnonzero(m)
-            if boot is not None and c != "spurious":
+            if boot is not None and c != "spurious" and idx.size:
                 idx = idx[boot[c](idx.size)]
             xs = [_x(vals[k][idx], lg) for k, lg in zip(cols, logs)]
             h = hdd(xs, edges, w[idx])
@@ -123,16 +125,18 @@ def boot_chi2(kind, cols, edges, logs, k, sel=None, rsel=None, seed=0):
     rng = np.random.default_rng(seed)
     vals = []
     for _ in range(N_BOOT):
-        b = {c: (lambda n, r=rng: r.integers(0, n, n)) for c in ("lum", "wd")}
+        b = {c: (lambda n, r=rng: r.integers(0, n, n)) for c in ("lum", "wd") if c in kind.comp}
         mu, var, _ = kind.mock_hist(cols, edges, logs, sel=sel, boot=b)
         vals.append(chi2(k, mu, var)[0])
     return float(np.std(vals))
 
 
-def plot_1d(kind, key, label, log, edges, out, style, dpi, sel=None, rsel=None, title=""):
-    plt = pl.require_pyplot()
+def plot_1d(kind, key, label, log, edges, out, style, dpi, sel=None, rsel=None, title="", draw=True):
     k = kind.real_hist([key], [edges], [log], rsel)
     mu, var, parts = kind.mock_hist([key], [edges], [log], sel)
+    if not draw:  # #587 --rank-only
+        return chi2(k, mu, var)
+    plt = pl.require_pyplot()
     c = 0.5 * (edges[1:] + edges[:-1])
     fig, (ax, ar) = plt.subplots(2, 1, figsize=(7.5, 7.0), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
     band = np.sqrt(var + mu)
@@ -157,18 +161,20 @@ def plot_1d(kind, key, label, log, edges, out, style, dpi, sel=None, rsel=None, 
     return chi2(k, mu, var)
 
 
-def plot_2d(kind, ka, kb, la, lb, ea, eb, out, style, dpi, title):
+def plot_2d(kind, ka, kb, la, lb, ea, eb, out, style, dpi, title, draw=True, mock_label="mock (lum + WD + spurious)"):
+    k = kind.real_hist([ka, kb], [ea, eb], [la[1], lb[1]])
+    mu, var, _ = kind.mock_hist([ka, kb], [ea, eb], [la[1], lb[1]])
+    if not draw:  # #587 --rank-only
+        return chi2(k, mu, var)
     plt = pl.require_pyplot()
     from matplotlib.colors import LogNorm, TwoSlopeNorm
 
-    k = kind.real_hist([ka, kb], [ea, eb], [la[1], lb[1]])
-    mu, var, _ = kind.mock_hist([ka, kb], [ea, eb], [la[1], lb[1]])
     vmax = max(np.nanmax(k), np.nanmax(mu), 1.0)
     vmin = max(min(np.min(k[k > 0]) if np.any(k > 0) else 1.0, np.min(mu[mu > 0]) if np.any(mu > 0) else 1.0), 0.3)
     with np.errstate(divide="ignore", invalid="ignore"):
         res = np.where((mu > 0) | (k > 0), (k - mu) / np.sqrt(np.maximum(mu, MU_FLOOR) + var), np.nan)
     fig, axs = plt.subplots(1, 3, figsize=(16.5, 5.2))
-    for ax, data, ttl in ((axs[0], k, "DR3"), (axs[1], mu, "mock (lum + WD + spurious)")):
+    for ax, data, ttl in ((axs[0], k, "DR3"), (axs[1], mu, mock_label)):
         m = ax.pcolormesh(ea, eb, np.where(data > 0, data, np.nan).T, norm=LogNorm(vmin=vmin, vmax=vmax), cmap="viridis")
         fig.colorbar(m, ax=ax, label="count")
         pl.apply_axes_style(ax, style, xlabel=(r"$\log_{10}$ " if la[1] else "") + la[0], ylabel=(r"$\log_{10}$ " if lb[1] else "") + lb[0], title=ttl)
@@ -186,6 +192,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dump", type=Path, required=True)
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--summary", type=Path, default=None, help="fit summary.json, for the README header")
+    ap.add_argument("--drop", nargs="*", default=[], choices=["lum", "wd"], help="#587: mock components left out (e.g. wd)")
+    ap.add_argument("--edges-in", type=Path, default=None, help="#587: bin edges (edges.json of another run) for like-for-like χ²")
+    ap.add_argument("--rank-only", action="store_true", help="#587: ranking.json and edges.json only, no figures")
+    ap.add_argument("--title", default="Rung 3 v3: DR3 against the weighted mock (luminous + WD + spurious)")
+    ap.add_argument("--intro", default=None, help="README/index intro sentence (default: the v3 one)")
+    ap.add_argument("--boot-2d", action="store_true", help="#587: bootstrap MC errors for the 2-D χ² too")
     args = ap.parse_args(argv)
     cfg = load_config()
     style, dpi = cfg.plotting, int(cfg.diagnostics.figure_dpi) if hasattr(cfg.diagnostics, "figure_dpi") else 120
@@ -193,15 +205,20 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out_dir
     out.mkdir(parents=True, exist_ok=True)
     rank, figs = [], []
+    draw = not args.rank_only
+    e_in = json.loads(args.edges_in.read_text()) if args.edges_in else None
+    e_out = {}
+    mock_label = "mock (" + " + ".join({"lum": "lum", "wd": "WD"}[c] for c in ("lum", "wd") if c not in args.drop) + " + spurious)"
     for kname, pfx, obs in (("orbits", "o", ORBIT_OBS), ("accelerations", "a", ACCEL_OBS)):
-        kind = Kind(z, pfx, obs)
+        kind = Kind(z, pfx, obs, drop=tuple(args.drop))
         mw = np.concatenate([w for _, (_, w) in kind.comp.items()])
         edges = {}
         for key, (lab, lg) in obs.items():
             mv = np.concatenate([vals[key] for _, (vals, _) in kind.comp.items()])
-            edges[key] = edges_for(kind.real[key], mv, mw, lg, NB_1D)
+            edges[key] = np.asarray(e_in[kname][key], float) if e_in else edges_for(kind.real[key], mv, mw, lg, NB_1D)
+            e_out.setdefault(kname, {})[key] = edges[key].tolist()
             fn = f"{kname}_1d_{key}.png"
-            c2, nb = plot_1d(kind, key, lab, lg, edges[key], out / fn, style, dpi, title=f"{kname}: {lab}")
+            c2, nb = plot_1d(kind, key, lab, lg, edges[key], out / fn, style, dpi, title=f"{kname}: {lab}", draw=draw)
             err = boot_chi2(kind, [key], [edges[key]], [lg], kind.real_hist([key], [edges[key]], [lg]))
             rank.append({"kind": kname, "distribution": key, "dims": 1, "split": "all", "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": err, "figure": fn})
             figs.append((kname, "1-D", fn, lab))
@@ -209,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             for lo, hi in zip(D_BINS[:-1], D_BINS[1:]):
                 sel, rsel = kind.dsel(lo, hi)
                 fn = f"{kname}_1d_{key}_d{lo:g}-{hi:g}.png"
-                c2, nb = plot_1d(kind, key, lab, lg, edges[key], out / fn, style, dpi, sel=sel, rsel=rsel, title=f"{kname}, d {lo:g}–{hi:g} kpc: {lab}")
+                c2, nb = plot_1d(kind, key, lab, lg, edges[key], out / fn, style, dpi, sel=sel, rsel=rsel, title=f"{kname}, d {lo:g}–{hi:g} kpc: {lab}", draw=draw)
                 k_ = kind.real_hist([key], [edges[key]], [lg], rsel)
                 err = boot_chi2(kind, [key], [edges[key]], [lg], k_, sel=sel)
                 rank.append({"kind": kname, "distribution": key, "dims": 1, "split": f"d{lo:g}-{hi:g}", "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": err, "figure": fn})
@@ -218,19 +235,25 @@ def main(argv: list[str] | None = None) -> int:
             ea = np.linspace(edges[ka][0], edges[ka][-1], NB_2D + 1)
             eb = np.linspace(edges[kb][0], edges[kb][-1], NB_2D + 1)
             fn = f"{kname}_2d_{ka}_{kb}.png"
-            c2, nb = plot_2d(kind, ka, kb, la, lb, ea, eb, out / fn, style, dpi, title=f"{kname}: {la[0]} vs {lb[0]}")
-            rank.append({"kind": kname, "distribution": f"{ka} x {kb}", "dims": 2, "split": "all", "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": None, "figure": fn})
+            c2, nb = plot_2d(kind, ka, kb, la, lb, ea, eb, out / fn, style, dpi, title=f"{kname}: {la[0]} vs {lb[0]}", draw=draw, mock_label=mock_label)
+            err2 = boot_chi2(kind, [ka, kb], [ea, eb], [la[1], lb[1]], kind.real_hist([ka, kb], [ea, eb], [la[1], lb[1]])) if args.boot_2d else None
+            rank.append({"kind": kname, "distribution": f"{ka} x {kb}", "dims": 2, "split": "all", "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": err2, "figure": fn})
             figs.append((kname, "2-D", fn, f"{la[0]} vs {lb[0]}"))
         print(f"{kname}: done", flush=True)
     rank.sort(key=lambda r: -r["chi2_dof"])
     (out / "ranking.json").write_text(json.dumps(rank, indent=1))
+    (out / "edges.json").write_text(json.dumps(e_out))
+    if args.rank_only:
+        print(f"ranking.json, edges.json -> {out} ({len(rank)} distributions, no figures)")
+        return 0
     head = ""
     if args.summary and args.summary.exists():
         r = json.loads(args.summary.read_text())["results"]["joint"]
         head = f"Fit: -lnL {r['nll']:.1f}; {r['n_near']}/{r['n_starts']} starts within 5; N_s pull {r['N_s_pull']:+.1f}; at bound {r['at_bound']}.\n\n"
-    md = ["# Rung 3 v3: DR3 against the weighted mock (luminous + WD + spurious)", "",
-          "Spec §12.39 (#570). Mock = luminous (gens 42–46) + WD (co_v1 gens 1000–1003, physics-derived rate) + spurious (real orbits × N_s π̂/Σπ̂). "
-          "1-D: DR3 with Poisson errors, mock total with an MC + Poisson band, components, ratio panel. 2-D: DR3 | mock | (k−μ)/√(μ+σ²_MC). "
+    intro = args.intro or ("Spec §12.39 (#570). Mock = luminous (gens 42–46) + WD (co_v1 gens 1000–1003, physics-derived rate) + spurious "
+                           "(real orbits × N_s π̂/Σπ̂). ")
+    md = [f"# {args.title}", "",
+          intro + "1-D: DR3 with Poisson errors, mock total with an MC + Poisson band, components, ratio panel. 2-D: DR3 | mock | (k−μ)/√(μ+σ²_MC). "
           "χ² = Σ (k−μ)²/(max(μ, 0.5)+σ²_MC) over bins with μ > 0 or k > 0; MC error from a 30-fold bootstrap of the mock draws.", "", head,
           "## Ranking (worst first, χ²/dof)", "", "| kind | distribution | split | χ²/dof | χ² ± MC | figure |", "|---|---|---|---:|---:|---|"]
     for r_ in rank:
@@ -247,15 +270,15 @@ def main(argv: list[str] | None = None) -> int:
                            for k_, t_, fn_, lab_ in figs if k_ == kname and t_ == typ)
             sections += f"<h2>{kname}: {html.escape(typ)}</h2><div class=\"grid\">{imgs}</div>"
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rung 3 v3 comparison</title><style>
+<title>{html.escape(args.title.split(":")[0])}</title><style>
 :root{{--bg:#fff;--fg:#111;--mut:#555;--line:#ddd}}
 @media (prefers-color-scheme: dark){{:root:not([data-theme="light"]){{--bg:#16181c;--fg:#eee;--mut:#aaa;--line:#333}}}}
 :root[data-theme="dark"]{{--bg:#16181c;--fg:#eee;--mut:#aaa;--line:#333}}
 body{{background:var(--bg);color:var(--fg);font-family:Georgia,serif;margin:0 auto;max-width:1400px;padding:16px}}
 table{{border-collapse:collapse;font-size:14px;display:block;overflow-x:auto}}td,th{{border-bottom:1px solid var(--line);padding:3px 8px;text-align:left}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}}img{{width:100%;background:#fff}}figcaption{{color:var(--mut);font-size:13px}}
-</style></head><body><h1>Rung 3 v3: DR3 vs weighted mock (luminous + WD + spurious)</h1>
-<p>Spec §12.39 (#570). {html.escape(head.strip())} χ² = Σ (k−μ)²/(μ+σ²<sub>MC</sub>); MC error from a 30-fold bootstrap of the mock draws.</p>
+</style></head><body><h1>{html.escape(args.title)}</h1>
+<p>{html.escape(intro)} {html.escape(head.strip())} χ² = Σ (k−μ)²/(μ+σ²<sub>MC</sub>); MC error from a 30-fold bootstrap of the mock draws.</p>
 <h2>Ranking (worst first)</h2><table><tr><th>kind</th><th>distribution</th><th>split</th><th>χ²/dof</th><th>χ² ± MC</th><th>figure</th></tr>{rows}</table>
 {sections}</body></html>"""
     (out / "index.html").write_text(page)

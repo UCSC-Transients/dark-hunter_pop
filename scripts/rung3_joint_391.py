@@ -116,6 +116,15 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=None):
                 a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"])
 
 
+def empty_co_block(n_casc: int) -> dict:
+    """#587: no compact-object generations (``--no-co``): a zero-length block with the keys :func:`co_block` returns,
+    so the luminous + spurious model runs without mixing in co_v1 draws simulated under another noise model."""
+    e, ei = np.zeros(0), np.zeros(0, np.int64)
+    eb = np.zeros(0, bool)
+    return dict(w=e, comp=ei, ob=ei, ab=ei, in_o=eb, in_a=eb, rows=ei, nonls=eb, shape_old=e, m2_true=e, p_true=e, e_true=e, m1_true=e,
+                t_sys=e, ecc_fit=e, casc=np.zeros((0, n_casc)), d_o=e, d_a=e, sys_mg0=e, sys_colour0=e, a0=e, sa0=e, plx=e, P=e, f2=e, g=e)
+
+
 def real_accel_obs(args, ns, parent):
     """Real published accelerations in the fit domain (same order as ns.ra_sid): CMD, ϖ/σ_ϖ, significance, F2, RUWE."""
     from astropy.coordinates import SkyCoord
@@ -189,8 +198,10 @@ def main(argv: list[str] | None = None) -> int:
     for a in ("--gate390", "--parent-dir", "--real-snapshot", "--real-input-columns", "--accel-snapshot", "--cache", "--artifact-dir", "--fit-config", "--fragment", "--out-dir"):
         ap.add_argument(a, type=Path, required=True)
     ap.add_argument("--artifacts", nargs="+", required=True)
-    ap.add_argument("--co-artifacts", type=Path, nargs="+", required=True)
-    ap.add_argument("--co-fragments", type=Path, nargs="+", required=True)
+    ap.add_argument("--co-artifacts", type=Path, nargs="+", default=None)
+    ap.add_argument("--co-fragments", type=Path, nargs="+", default=None)
+    ap.add_argument("--no-co", action="store_true", help="#587: luminous + spurious only (no compact-object generations)")
+    ap.add_argument("--eval-only", action="store_true", help="#587: no optimisation; evaluate at the start θ (--init-from + --fix)")
     ap.add_argument("--calibration", type=Path, default=Path("docs/gate391/rung3_modelfix2/spurious_calibration.json"))
     ap.add_argument("--n-starts", type=int, default=12)
     ap.add_argument("--seed", type=int, default=391)
@@ -200,12 +211,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fix-names", nargs="*", default=None)
     ap.add_argument("--init-from", type=Path, default=None)
     args = ap.parse_args(argv)
+    if not args.no_co and not (args.co_artifacts and args.co_fragments):
+        ap.error("--co-artifacts and --co-fragments are required unless --no-co")
     import yaml
 
     fc = yaml.safe_load(args.fit_config.read_text())["rung3"]
     jcfg = fc["joint"]
     # refit-5 plumbing: luminous setup + real samples (the "new" model with the §12.16 template)
-    a5 = argparse.Namespace(**vars(args), model="new", extrapolation=fc.get("spurious_extrapolation", "clamp"), new_gen=46,
+    a5 = argparse.Namespace(**vars(args), model="new", extrapolation=fc.get("spurious_extrapolation", "clamp"), new_gen=None,
                             control=None, lowmass_correction_off=False, below_envelope=None, cmd_conditioning=None, mc_variance=None,
                             mass_scale=None, m_break=None, allow_mixed=False, dump_from=None, wkeys=["noW"], init_key=None, theta_summary=None,
                             base_config=args.fit_config)
@@ -216,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         with h5py.File(args.artifact_dir / a_, "r") as h_:
             gcs.append(ps.ProposalConfig.model_validate_json(h_.attrs["proposal_config_json"]))
     a5.primary_model = ps.check_single_primary_model(gcs)  # luminous family only (spec §13.2)
+    a5.new_gen = max(int(g.generation) for g in gcs)  # #587: last luminous generation (was hard-coded 46)
     ns = r5.extend(a5, fc, r4.setup(a5, fc))
     cfg = ns.cfg
     parent = ps.load_parent_snapshot(args.parent_dir, cfg, ps.load_proposal_set_fragment(args.fragment).proposal)
@@ -245,7 +259,9 @@ def main(argv: list[str] | None = None) -> int:
         k_o = np.bincount(rob[rob >= 0], minlength=n_ob).astype(float)
         k_a = np.bincount(rab[rab >= 0], minlength=n_ab).astype(float)
         rep.append(f"A axis edges {aE.tolist()}: real C1 orbits per A bin {np.histogram(A_r_fit[rob >= 0], aE)[0].tolist()}")
-    co = co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=aE)
+    co = empty_co_block(ns.casc.shape[1]) if args.no_co else co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=aE)
+    if args.no_co:
+        rep.append("compact objects: none (--no-co, #587): luminous + spurious only")
     # F6 at base weights (luminous MdS17; compact objects at the configured starting rates)
     R0 = {"wd": np.exp(jcfg["co_rates"]["ln_R_wd"][0]), "dark": np.exp(jcfg["co_rates"]["ln_R_dark"][0])}
     w_dep = np.concatenate([lx["w0"], co["w"] * np.where(co["comp"] == 0, R0["wd"], R0["dark"])])
@@ -254,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     co_share = jr.depletion_log_factor(co["w"] * np.where(co["comp"] == 0, R0["wd"], R0["dark"]), co["nonls"], co["rows"], row_g, row_d,
                                        parent.usable, parent.row_weight, parent.scale_to_full, dcfg)[0]
     rep.append("F6 looks-single depletion P(looks single) per (G, d) cell: " + "; ".join(f"{k} {v['p_looks_single']:.3f}" for k, v in dsum.items()))
-    rep.append(f"   compact-object share of Λ_ns at the starting rates: max {np.max(co_share):.2e} (luminous max {np.max(lf6):.3f})")
+    rep.append(f"   compact-object share of Λ_ns at the starting rates: max {np.max(co_share) if np.size(co_share) else 0.0:.2e} (luminous max {np.max(lf6):.3f})")
     f_lum = np.exp(lx["f3_log_ratio"] + lf6[ns.prow])
     ns.W = {k: v * f_lum for k, v in ns.W.items()}
     w_co = co["w"] * np.exp(lf6[co["rows"]])
@@ -434,7 +450,13 @@ def main(argv: list[str] | None = None) -> int:
         rep.append(f"F2 inflation at the reference θ (start point): {int(np.sum(infl['o'] > 1))} orbit and {int(np.sum(infl['a'] > 1))} acceleration bins inflated")
     rep.append(f"N_s prior N({prior[0]:.0f}, {prior[1]:.0f}); ESS floor for variance inflation {ess_floor:g}; real C1 orbits {int(N_o)}, accelerations {int(k_a.sum())}")
     sols, best = [], None
-    for s_ in range(args.n_starts):
+    if args.eval_only:  # #587: evaluate at x0 (no optimisation)
+        from types import SimpleNamespace as _SN
+
+        best = _SN(x=x0.copy(), fun=float(nll(x0)))
+        sols.append((best.fun, x0.copy()))
+        rep.append(f"eval-only at the start θ: -lnL {best.fun:.2f}")
+    for s_ in range(0 if args.eval_only else args.n_starts):
         s0 = x0 if s_ == 0 else np.array([rng.uniform(max(lo, v - 1), min(hi, v + 1)) if j != i_ns else rng.uniform(0.5 * v, 1.5 * v)
                                           for j, (v, (lo, hi)) in enumerate(zip(x0, bounds))])
         s0 = np.clip(s0, [b[0] for b in bounds], [b[1] for b in bounds])
@@ -452,8 +474,10 @@ def main(argv: list[str] | None = None) -> int:
     h = 1e-3 * np.maximum(1.0, np.abs(th))
     H = np.zeros((n_par, n_par))
     f0 = nll(th)
-    for i in range(n_par):
-        for j in range(i, n_par):
+    fixed_names = {x.split("=")[0] for x in fixes}
+    free = [i for i in range(n_par) if names[i] not in fixed_names]  # #587: Hessian over the free parameters only
+    for i in (free if not args.eval_only else []):
+        for j in (k for k in free if k >= i):
             def ff(di, dj):
                 xx = th.copy()
                 xx[i] += di
@@ -461,11 +485,13 @@ def main(argv: list[str] | None = None) -> int:
                 return nll(xx)
             H[i, j] = H[j, i] = ((ff(h[i], 0) - 2 * f0 + ff(-h[i], 0)) / h[i] ** 2 if i == j else
                                  (ff(h[i], h[j]) - ff(h[i], -h[j]) - ff(-h[i], h[j]) + ff(-h[i], -h[j])) / (4 * h[i] * h[j]))
-    try:
-        dg = np.diag(np.linalg.inv(H))
-        err = np.sqrt(np.where(dg > 0, dg, np.nan))
-    except np.linalg.LinAlgError:
-        err = np.full(n_par, np.nan)
+    err = np.full(n_par, np.nan)
+    if free and not args.eval_only:
+        try:
+            dg = np.diag(np.linalg.inv(H[np.ix_(free, free)]))
+            err[free] = np.sqrt(np.where(dg > 0, dg, np.nan))
+        except np.linalg.LinAlgError:
+            pass
     w, mu_o, v_o, mu_a, v_a = expected(th)
     s = th[i_ns] * T + floor_o
     Rw, Rd = np.exp(th[i_rw]), np.exp(th[i_rd])
