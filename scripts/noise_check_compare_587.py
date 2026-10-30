@@ -76,10 +76,13 @@ def count(mask_r, mask_m, w):
             "pull": (k - mu) / np.sqrt(max(mu, 0.5) + mc**2), "shape_ratio": (k / K) / (mu / M) if mu > 0 and M > 0 else float("nan")}
 
 
-def metrics(kind, kname, thr):
-    """Noise-sensitive statistics for one sample of one run; thresholds ``thr`` are fixed from DR3 (same for every run)."""
-    r = kind.real
+def metrics(kind, kname, thr, d_min=0.0):
+    """Noise-sensitive statistics for one sample of one run; thresholds ``thr`` are fixed from DR3 (same for every run).
+    ``d_min``: keep systems at distance ≥ d_min kpc only (both sides), e.g. to leave out cells a run cannot sample."""
+    r = {k: v[kind.real["d"] >= d_min] for k, v in kind.real.items()}
     m, w = mock_arrays(kind)
+    keep = m["d"] >= d_min
+    m, w = {k: v[keep] for k, v in m.items()}, w[keep]
     out = {}
     with np.errstate(invalid="ignore", divide="ignore"):
         for gl, gh in ((5, 13), (13, 16), (16, 19.5)):
@@ -221,6 +224,7 @@ def main(argv=None) -> int:
     # noise metrics
     allm = {}
     figs = []
+    d03 = {}
     for kname, pfx, obs in (("orbits", "o", rp.ORBIT_OBS), ("accelerations", "a", rp.ACCEL_OBS)):
         kinds = []
         for r in runs:
@@ -229,6 +233,24 @@ def main(argv=None) -> int:
         real = kinds[0][1].real
         thr = {"plxsnr_hi": float(np.nanpercentile(real["plxsnr"], 90))}
         allm[kname] = {"thresholds": thr, "runs": {nm: metrics(kd, kname, thr) for nm, kd in kinds}}
+        allm[f"{kname}, d >= 0.3 kpc"] = {"thresholds": thr, "runs": {nm: metrics(kd, kname, thr, d_min=0.3) for nm, kd in kinds}}
+        # Kish ESS of the luminous orbit / acceleration weights per distance bin and the largest single weight
+        allm[kname]["ess_by_distance"] = {nm: {f"d{lo:g}-{hi:g}": (lambda ww: {"ess": float(ww.sum() ** 2 / (ww**2).sum()) if ww.size and (ww**2).sum() > 0 else 0.0,
+                                                                              "max_w_share": float(ww.max() / ww.sum()) if ww.size and ww.sum() > 0 else float("nan")})(
+                                                 kd.comp["lum"][1][(kd.comp["lum"][0]["d"] >= lo) & (kd.comp["lum"][0]["d"] < hi)])
+                                               for lo, hi in zip(rp.D_BINS[:-1], rp.D_BINS[1:])} for nm, kd in kinds}
+        # 2-D χ²/dof of the noise-sensitive pairs restricted to d >= 0.3 kpc (cells every run samples), bootstrap MC error
+        for ka, kb in PAIRS[kname]:
+            la, lb = obs[ka], obs[kb]
+            ea = np.linspace(edges[kname][ka][0], edges[kname][ka][-1], rp.NB_2D + 1)
+            eb = np.linspace(edges[kname][kb][0], edges[kname][kb][-1], rp.NB_2D + 1)
+            for nm, kd in kinds:
+                sel = {cn: v["d"] >= 0.3 for cn, (v, _) in kd.comp.items()}
+                kk = kd.real_hist([ka, kb], [ea, eb], [la[1], lb[1]], kd.real["d"] >= 0.3)
+                mu, var, _ = kd.mock_hist([ka, kb], [ea, eb], [la[1], lb[1]], sel)
+                c2, nb = rp.chi2(kk, mu, var)
+                err = rp.boot_chi2(kd, [ka, kb], [ea, eb], [la[1], lb[1]], kk, sel=sel)
+                d03.setdefault(f"{kname}: {ka} x {kb}", {})[nm] = {"chi2_dof": c2 / max(nb, 1), "mc_err_dof": err / max(nb, 1), "dof": nb}
         for ka, kb in PAIRS[kname]:
             fn = f"{kname}_2d_{ka}_{kb}_compare.png"
             side_by_side_2d(kinds, kname, ka, kb, edges[kname], out / fn, style, dpi)
@@ -244,6 +266,11 @@ def main(argv=None) -> int:
     for kname, blk in allm.items():
         mdm += [f"## {kname} (ϖ/σ_ϖ threshold = DR3 90th percentile {blk['thresholds']['plxsnr_hi']:.1f})", "",
                 "| statistic | DR3 | " + " | ".join(f"{n} mock | {n} DR3/mock (pull) [shape]" for n in names) + " |", "|---|---:|" + "---:|---:|" * len(names)]
+        if "ess_by_distance" in blk:
+            mdm += ["Luminous-weight Kish ESS per distance bin (largest single-draw share of the bin's weight):", ""]
+            for n in names:
+                mdm.append(f"- {n}: " + "; ".join(f"{k} ESS {v['ess']:.0f} (max {v['max_w_share']:.2f})" for k, v in blk["ess_by_distance"][n].items()))
+            mdm.append("")
         for stat in blk["runs"][names[0]]:
             v0 = blk["runs"][names[0]][stat]
             if "pull" in v0:
@@ -258,6 +285,11 @@ def main(argv=None) -> int:
         mdm.append("")
     (out / "noise_metrics.md").write_text("\n".join(mdm) + "\n")
     (out / "figures.json").write_text(json.dumps(figs))
+    (out / "chi2_2d_d_ge_0p3.json").write_text(json.dumps(d03, indent=1))
+    t = ["χ²/dof ± bootstrap MC error per dof, noise-sensitive 2-D pairs, d ≥ 0.3 kpc only (same edges):", "",
+         "| pair | " + " | ".join(names) + " |", "|---|" + "---:|" * len(names)]
+    t += [f"| {pk} | " + " | ".join(cell(v.get(n)) for n in names) + " |" for pk, v in d03.items()]
+    (out / "chi2_2d_d_ge_0p3.md").write_text("\n".join(t) + "\n")
     print(f"wrote {len(figs)} comparison figures, before_after.*, noise_metrics.* -> {out}")
     return 0
 
