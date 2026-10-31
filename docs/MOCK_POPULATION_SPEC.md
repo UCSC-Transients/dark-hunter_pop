@@ -2690,8 +2690,36 @@ prefix.
 - e2 at G < 10 from the population;
 - a quantile map for the AstroSpectroSB1 F2.
 
-**Version.** `noise_model_version` appends `+e2` and `+st1`. Both are OFF by default, and `decided_settings.yaml` still guards
-generation launches on `colour_v2.1+tr1`.
+**Iteration 3 (Ryan, 2026-10-31; #599).** One last calibration-only step, post hoc on gens 47–50 (EPOCH_MODEL_SPEC §8.16 (v)):
+the AstroSpectroSB1 σ offsets are shrunk by λ_SB1, the same selection argument as λ for Orbital, calibrated jointly with
+λ_Orb on the pooled σ_a0/σ_ϖ by G and the short-period share by type; δ(G) and the F2 quantile map are re-solved. Pass
+criteria are population-by-type only. Known limitations: the Orbital-evolved high-F2 tail (×2.8 short), G < 10 readiness
+(the exclusion stays), and the BP−RP < 0.6 routing excess (RV template T_eff ceiling). If it passes, e2 + st1 are adopted
+and the re-simulation queue restarts under the new version; draws of earlier versions are never mixed in. **Outcome: FAIL (2026-10-31).** The
+pooled σ_a0/σ_ϖ and the a0/σ_a0 edge trade one-for-one in λ_SB1, so e2 + st1 stay OFF and the queue is not restarted
+(EPOCH_MODEL_SPEC §8.16).
+
+**ADOPTED 2026-10-31 (Ryan; #599): iteration 2.** e2 + st1 are on with the iteration-2 parameters. Known limitations are
+listed in EPOCH_MODEL_SPEC §8.16:
+- pooled σ_a0/σ_ϖ about 0.03 dex low at G 10–13, to be re-checked after the joint refit with the #589 eccentricity-shape fix;
+- the Orbital-evolved high-F2 tail is about 2.8× short;
+- the G < 10 exclusion is kept;
+- the BP−RP < 0.6 routing excess.
+
+**Version.** `noise_model_version` is `colour_v2.1+tr1+e2+st1`, and `decided_settings.yaml` guards generation launches on it
+(`min_guarded_generation: 53`). The primary-model version carries the noise label, so draws of earlier versions are never mixed
+in: gens 47–50 and co_v1 1000–1003 are colour_v2.1+tr1 or older. The unrun colour_v2.1+tr1 fragments 51, 52, 1004 and 1005 are
+superseded.
+
+**Re-simulation queue (Ryan 2026-10-31; `scripts/jobs/resim_queue_599.sh`).** One heavy job at a time, all guards, in this order:
+1. the two §12.16 spurious re-injection samples and the π̂ refit;
+2. gens 53 / 54 / 55 / 56, the gen-42 / 43 / 44 / 45 recipes (as gens 47–50 were), draw_index from 10,000,000 /
+   10,500,000 / 11,000,000 / 11,500,000 (500,000 reserved each);
+3. gen 57, the nearby gen-46 recipe (as the unrun gen 51), from 12,000,000;
+4. compact-object gen 1006, the WD-focused recipe of the unrun gen 1005, from 101,610,000 (reserved to 102,009,999);
+5. then PAUSE.
+
+The luminous top-up (gen-52 recipe) and the dark compact-object recipe (gen 1004) wait for a joint-refit check.
 
 **G < 10.** Whether the G < 9 exclusion (§12.36) and the G < 10 domain edge can be lifted is assessed in
 `docs/gate_noise_colour/st1/README.md`.

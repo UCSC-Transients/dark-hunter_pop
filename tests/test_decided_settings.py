@@ -48,7 +48,7 @@ def test_settings_file_loads_and_every_entry_has_a_ref() -> None:
 @pytest.mark.unit
 def test_guarded_launch_fragments_carry_the_decided_settings() -> None:
     frags = _guarded_launch_fragments()
-    assert POP / "proposal_set_single47.yaml" in frags and POP / "proposal_set_co_v1_wd1005.yaml" in frags
+    assert POP / "proposal_set_single53.yaml" in frags and POP / "proposal_set_co_v1_wd1006.yaml" in frags  # #599
     cfg = load_config(Path("config/config.yaml"))
     for f in frags:
         dev = ds.check_launch(f, config=cfg, parent_dir=BJ_PARENT)

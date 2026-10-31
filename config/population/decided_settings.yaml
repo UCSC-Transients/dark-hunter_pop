@@ -6,9 +6,10 @@
 #         launch_args (parent snapshot directory name), fit_config (rung-3 fit config YAML).
 # Not under config/fragments/.
 schema_version: 1
-min_guarded_generation: 47  # #583: first generation under colour_v2.1+tr1
-# Superseded n2d_s1232 compact-object generations (spec §12.40); they may never be relaunched under this guard.
-exempt_generations: [1000, 1001, 1002, 1003]
+min_guarded_generation: 53  # #599: first generation under colour_v2.1+tr1+e2+st1 (#583 gens 47-50 were colour_v2.1+tr1)
+# Superseded compact-object generations: 1000-1003 n2d_s1232 (spec §12.40); 1004/1005 colour_v2.1+tr1 fragments, never run,
+# superseded by the +e2+st1 adoption (#599; gen 1006 re-uses the 1005 recipe). They may never be relaunched under this guard.
+exempt_generations: [1000, 1001, 1002, 1003, 1004, 1005]
 settings:
   # --- launch fragment: generation-time decisions --------------------------------------------------------------
   - {scope: launch_fragment, key: proposal.flux.evolved_rows_centre, equals: evolved_relation_deblended,
@@ -30,8 +31,8 @@ settings:
   - {scope: launch_fragment, key: proposal.resolved_companions.sha256,
      equals: 8810cdd13eefc0564fb17e4e306163a4fdb91d9a6b31c02d60399fe647bc3565, ref: "spec §12.25 snapshot"}
   - {scope: launch_fragment, key: proposal.epoch_model, equals: dr3_config, ref: "#400 E1 (Ryan 2026-10-03)"}
-  - {scope: launch_fragment, key: proposal.noise_model, equals: "colour_v2.1+tr1",
-     ref: "#583: colour_v2.1+tr1 adopted (Ryan 2026-10-28; EPOCH_MODEL_SPEC §8.13/§8.14)"}
+  - {scope: launch_fragment, key: proposal.noise_model, equals: "colour_v2.1+tr1+e2+st1",
+     ref: "#599: e2+st1 adopted on colour_v2.1+tr1 (Ryan 2026-10-31; EPOCH_MODEL_SPEC §8.13/§8.14/§8.16)"}
   - {scope: launch_fragment, key: proposal.eccentricity.shape, equals: mds17_bounded, ref: "#409/#410"}
   - {scope: launch_fragment, key: proposal.ruwe_min, equals: 1.4, ref: "Halbwachs et al. 2023 §1.2 cascade input"}
   - {scope: launch_fragment, key: proposal.skip_acceleration, equals: false, ref: "acceleration-first cascade (#399)"}
@@ -59,6 +60,10 @@ settings:
   - {scope: pipeline_config, key: dr3.epoch_model.noise_colour.break_g, equals: 13.0, ref: "#579: DR3 G = 13 break kept (note after §8.5)"}
   - {scope: pipeline_config, key: dr3.epoch_model.noise_colour.keep_n2d, equals: true, ref: "#579 (§8.13)"}
   - {scope: pipeline_config, key: dr3.epoch_model.transit_recal.enabled, equals: true, ref: "#583 (Ryan 2026-10-28; §8.14)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.bright_stated_refit.enabled, equals: true, ref: "#599 (Ryan 2026-10-31; §8.16)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.bright_stated_refit.version, equals: e2, ref: "#599 (§8.16)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.solution_type_model.enabled, equals: true, ref: "#599 (Ryan 2026-10-31; §8.16, §12.41)"}
+  - {scope: pipeline_config, key: dr3.epoch_model.solution_type_model.version, equals: st1, ref: "#599 (§8.16)"}
   # --- launch args ---------------------------------------------------------------------------------------------
   - {scope: launch_args, key: parent_snapshot, equals: 20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj,
      ref: "spec §12.33 looks-single catalog, G < 20, BJ, parallax floor 0.2 mas (MP-Q1/Q4)"}

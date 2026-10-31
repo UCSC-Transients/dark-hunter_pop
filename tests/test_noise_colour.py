@@ -34,8 +34,9 @@ def _colour(**kw: Any) -> em.NoiseColourConfig:
 def _cfg(colour: em.NoiseColourConfig | None = None) -> em.EpochModelConfig:
     sec = load_config().dr3.epoch_model
     assert sec is not None
-    # the production config carries the adopted colour model and tr1 (#583); unit tests start from the bare N2d model
-    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=colour, transit_recal=None)
+    # the production config carries the adopted colour model, tr1 (#583) and e2 + st1 (#599); unit tests start from the bare N2d model
+    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=colour, transit_recal=None,
+                               bright_stated_refit=None, solution_type_model=None)
 
 
 @pytest.mark.unit
@@ -43,7 +44,7 @@ def test_production_label_and_colour_off_is_default() -> None:
     sec = load_config().dr3.epoch_model
     assert sec is not None
     assert ps.DEFAULT_NOISE_MODEL == "n2d_s1232"
-    assert em.noise_model_version(sec) == "colour_v2.1+tr1"  # adopted 2026-10-28 (#583)
+    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st1"  # colour_v2.1+tr1 adopted 2026-10-28 (#583); e2+st1 2026-10-31 (#599)
     assert em.noise_model_version(_cfg()) == "n2d_s1232"
     assert em.noise_model_version(_cfg(_colour())) == "colour_test"
     assert em.noise_model_version(_cfg(_colour_v2())) == "colour_v2_test"
@@ -271,7 +272,8 @@ def test_transit_recal_keep_scale_rows_and_version() -> None:
 def test_configured_transit_recal_is_adopted_and_loads() -> None:
     sec = load_config().dr3.epoch_model
     assert sec is not None and sec.transit_recal is not None and sec.transit_recal.enabled is True  # #583
-    off = sec.model_copy(update={"noise_colour": None, "transit_recal": sec.transit_recal.model_copy(update={"enabled": False})})
+    off = sec.model_copy(update={"noise_colour": None, "transit_recal": sec.transit_recal.model_copy(update={"enabled": False}),
+                                 "bright_stated_refit": None, "solution_type_model": None})  # #599: e2 + st1 adopted
     assert em.noise_model_version(off) == "n2d_s1232"
     sec = off
     on = sec.model_copy(update={"transit_recal": sec.transit_recal.model_copy(update={"enabled": True})})
