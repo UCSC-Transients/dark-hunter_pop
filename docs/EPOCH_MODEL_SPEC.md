@@ -805,7 +805,8 @@ meant to be adopted together with colour_v2 as one version.
 
 ### 8.15 Bright per-source noise scale `ss1` and an optional empirical σ_a0 scale `sa1` (#595; Ryan, 2026-10-30)
 
-> **Status:** implemented, **OFF by default**; adoption is Ryan's decision. Neither term is in the `decided_settings.yaml`
+> **Status:** implemented, **OFF by default**; validation (2026-10-30) recommends **not** adopting ss1 and finds sa1
+> unnecessary (see Result below); adoption remains Ryan's decision. Neither term is in the `decided_settings.yaml`
 > launch guard (it still requires `colour_v2.1+tr1`), so no generation can use them until that is changed.
 
 **Why** (#589, #590, #593; `docs/gate391/diag_v21tr1/README.md`).
@@ -839,6 +840,16 @@ meant to be adopted together with colour_v2 as one version.
 - It is OFF by default. `noise_model_version` appends `+sa1` when it is on.
 - Calibration: same-orbit log σ_a0 residual scatter net of grid and ss1 (`scripts/calibrate_source_scale_595.py`; values in
   `docs/gate_noise_colour/ss1/README.md`).
+
+**Result (2026-10-30; `docs/gate_noise_colour/ss1/README.md`): ss1 NOT recommended, sa1 not needed; both stay OFF.**
+- **What the "per-source" spread really is.** It is mostly the Orbital vs AstroSpectroSB1 split. On the same orbits at G < 13:
+  - Orbital: DR3 − mock = +0.06 dex in σ_a0 and +1.5 in F2;
+  - AstroSpectroSB1: −0.10 dex in σ_a0 and −1.4 in F2.
+  - Split by type, Orbital σ_a0 has no residual beyond the #593 grid spread.
+- **ss1 validation results.**
+  - Population: it raises bright P(F2 > 12) only partway (G 10–11 dwarfs 0.040 → 0.075 vs DR3 0.128) and overshoots at G 12–13.
+  - Single stars: it degrades the σ_ϖ envelope jump (+23.0% → +20.7% vs DR3 +24.6%).
+- **Next step proposed:** a solution-type-aware bright model, i.e. e(G) refit on Orbital-only targets plus AstroSpectroSB1 routing with type offsets. See the README.
 
 **Validation** (`docs/gate_noise_colour/ss1/README.md`).
 - A fresh #390 re-injection with ss1, measuring:

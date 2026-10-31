@@ -1,0 +1,391 @@
+{
+ "issue": [
+  454,
+  572
+ ],
+ "noise_model_version": "colour_v2.1+tr1+ss1",
+ "epoch_model": {
+  "enabled": true,
+  "gap_table": "config/gaia_gaps/dr3_astrometry_gaps_edr3.csv",
+  "gap_table_sha256": "e3bb06ba3a2cffd93bdf8336152b95d7cbd7ee6f192277bd70f6cea293777161",
+  "gap_source": "ESA Gaia (E)DR3 astrometry gap table; extends Lindegren et al. (2021) Table 1",
+  "apply_gaps": true,
+  "agis_window_obmt_rev": [
+   1192.13,
+   5230.09
+  ],
+  "obmt_reference_rev": 1717.6256,
+  "obmt_reference_jd_tcb": 2457023.75,
+  "obmt_rev_per_day": 4.0,
+  "transit_split_day": 0.01,
+  "transit_loss": {
+   "model": "continuous",
+   "continuous": {
+    "g_clip": [
+     6.0,
+     19.0
+    ],
+    "g_ref": 14.0,
+    "g_scale": 4.0,
+    "coef_g": [
+     -0.014901,
+     -0.012067,
+     -0.004129,
+     0.001194,
+     -0.010059
+    ],
+    "sky_lmax": 2,
+    "coef_sky": [
+     -0.005009,
+     -0.002109,
+     0.017786,
+     0.000976,
+     -0.011094,
+     0.000506,
+     -0.00345,
+     0.019254
+    ]
+   },
+   "g_edges": [
+    3.0,
+    11.0,
+    13.0,
+    15.0,
+    16.0,
+    17.0,
+    17.5,
+    18.0,
+    18.5,
+    19.0
+   ],
+   "prob": [
+    0.038,
+    0.028,
+    0.034,
+    0.035,
+    0.044,
+    0.053,
+    0.052,
+    0.06,
+    0.073
+   ],
+   "density_slope_per_dex": 0.0,
+   "density_ref_per_deg2": 31622.8
+  },
+  "calibration_snapshot": "20261003T063811Z_epoch_counts_400",
+  "excess_noise": {
+   "enabled": false,
+   "g_max": 13.0,
+   "sigma_max_mas": 0.04
+  },
+  "clustered_loss": {
+   "enabled": false,
+   "g_start": 14.5,
+   "g_full": 16.5,
+   "frac_max": 0.5,
+   "tau_day": 2.0
+  },
+  "bright_excess_noise": {
+   "enabled": true,
+   "g_max": 13.0,
+   "knots_g": [
+    8.494034,
+    9.602653,
+    10.576412,
+    11.27975,
+    11.780147,
+    12.275054,
+    12.772286
+   ],
+   "knots_r2": [
+    0.007,
+    0.349,
+    0.426,
+    0.479,
+    0.415,
+    0.385,
+    0.331
+   ],
+   "renormalize_ruwe": true
+  },
+  "ruwe_u0": {
+   "enabled": true,
+   "table": "config/epoch_model/dr3_ruwe_u0_mock.csv",
+   "table_sha256": "ff4973fe16687b180bcd08eea74c36e144d3363d8ca086dd738e895fa615c8cb",
+   "provenance": "scripts/validate_epoch_model_v2_400.py u0 + scripts/calibrate_epoch_model_400.py u0-table"
+  },
+  "visibility_period_loss": {
+   "enabled": true,
+   "g_clip": [
+    6.0,
+    19.0
+   ],
+   "g_ref": 14.0,
+   "g_scale": 4.0,
+   "c0": -5.3455,
+   "c1": 0.9257,
+   "c2": 0.9149,
+   "c_beta": -1.797,
+   "c_b": 2.5814,
+   "e0": -1.2107,
+   "d0": -4.2201,
+   "d1": 0.6912,
+   "visibility_gap_day": 4.0,
+   "b_feature": "exp",
+   "b_scale_deg": 10.0,
+   "provenance": "#432 V2: grid-conditioned cell fit on 5/6-parameter stars, output/gate432/vp_tail_fit_gridcell_56p_G_beta_b.json"
+  },
+  "noise_colour": {
+   "enabled": true,
+   "version": "colour_v2.1",
+   "colour_clip": [
+    0.2,
+    2.6
+   ],
+   "colour_ref": 1.2,
+   "a_knots_g": [
+    8.0,
+    9.75,
+    10.25,
+    10.75,
+    11.25,
+    11.625,
+    11.875,
+    12.125,
+    12.375,
+    12.625,
+    12.875
+   ],
+   "a_coef": [
+    0.0157,
+    -0.1263,
+    -0.1593,
+    -0.2627,
+    -0.0584,
+    -0.1444,
+    -0.217,
+    -0.2848,
+    -0.2884,
+    -0.2507,
+    -0.1165
+   ],
+   "a_coef_err": [
+    0.0595,
+    0.0567,
+    0.0282,
+    0.024,
+    0.0188,
+    0.0192,
+    0.0126,
+    0.0123,
+    0.0139,
+    0.0108,
+    0.0112
+   ],
+   "b_knots_g": [
+    10.75,
+    12.25,
+    12.875
+   ],
+   "b_coef": [
+    -0.0675,
+    -0.0173,
+    -0.0294
+   ],
+   "b_coef_err": [
+    0.037,
+    0.0215,
+    0.022
+   ],
+   "q_coef": 0.2392,
+   "q_coef_err": 0.0392,
+   "stated_scale_knots_g": [
+    9.887,
+    11.028,
+    11.808,
+    12.262,
+    12.744
+   ],
+   "stated_scale": [
+    0.9178,
+    0.9219,
+    0.8766,
+    0.7712,
+    0.8429
+   ],
+   "break_g": 13.0,
+   "keep_n2d": true,
+   "colour_clip_faint": [
+    0.0,
+    3.5
+   ],
+   "a_knots_g_faint": [
+    13.125,
+    13.375,
+    13.75,
+    14.25,
+    14.75,
+    15.25,
+    15.75,
+    16.25,
+    16.75,
+    17.25,
+    17.75,
+    18.25,
+    18.75
+   ],
+   "a_coef_faint": [
+    -0.1066,
+    -0.0777,
+    -0.0166,
+    0.0031,
+    -0.0139,
+    -0.0148,
+    -0.012,
+    -0.038,
+    -0.0549,
+    -0.0514,
+    -0.0238,
+    -0.0386,
+    -0.0526
+   ],
+   "a_coef_faint_err": [
+    0.0084,
+    0.0084,
+    0.0064,
+    0.0056,
+    0.0051,
+    0.0048,
+    0.0049,
+    0.0048,
+    0.0048,
+    0.0048,
+    0.0046,
+    0.0048,
+    0.005
+   ],
+   "b_knots_g_faint": [
+    13.25,
+    14.0,
+    16.0,
+    18.5
+   ],
+   "b_coef_faint": [
+    0.0347,
+    0.0449,
+    0.0289,
+    0.0226
+   ],
+   "b_coef_faint_err": [
+    0.0153,
+    0.0091,
+    0.0068,
+    0.0069
+   ],
+   "q_coef_faint": 0.0055,
+   "q_coef_faint_err": 0.0044,
+   "stated_scale_knots_g_faint": [
+    13.256,
+    13.727,
+    14.39,
+    15.388,
+    16.257,
+    19.0
+   ],
+   "stated_scale_faint": [
+    0.9006,
+    0.9731,
+    1.0033,
+    0.9973,
+    0.9591,
+    0.9591
+   ],
+   "u0_table": "config/epoch_model/dr3_ruwe_u0_colour_v2.csv",
+   "u0_table_sha256": "d302255d583037a02ded1d454031ae72e323991d81488fafd5ff73e92aced31a",
+   "provenance": "#581 refit in the tr1 frame: s from singles_v2tr1_r16, e from reinject_v2tr1, u0 from singles_v2tr1_r16 (exact rescaling); supersedes the #579 values"
+  },
+  "transit_recal": {
+   "enabled": true,
+   "version": "tr1",
+   "transit_keep_scale_knots_g": [
+    10.294,
+    11.62,
+    12.604,
+    13.586,
+    14.581,
+    15.5,
+    16.5,
+    17.5,
+    18.5
+   ],
+   "transit_keep_scale": [
+    1.0005,
+    0.985,
+    0.988,
+    0.988,
+    0.9932,
+    0.991,
+    0.9895,
+    0.9987,
+    1.0042
+   ],
+   "ccd_row_keep_knots_g": [
+    10.294,
+    11.62,
+    12.604,
+    13.586,
+    14.581,
+    15.5,
+    16.5,
+    17.5,
+    18.5
+   ],
+   "ccd_row_keep": [
+    0.9896,
+    0.9793,
+    0.982,
+    0.9827,
+    0.9821,
+    0.9818,
+    0.9834,
+    0.9827,
+    0.9823
+   ],
+   "provenance": "#581: calibrated on singles_v2_r16 (colour_v2 single stars, 995,344 realizations) vs DR3 same rows"
+  },
+  "source_noise_scale": {
+   "enabled": true,
+   "version": "ss1",
+   "break_g": 13.0,
+   "sigma_knots_g": [
+    10.0,
+    11.5,
+    12.5
+   ],
+   "sigma_log10": [
+    0.052,
+    0.0525,
+    0.0253
+   ],
+   "provenance": "#595: same-orbit F2 dispersion net of #593 grid spread; G 9-11 / 11-12 / 12-13 bins (bootstrap err 0.012 / 0.010 / 0.009)"
+  },
+  "source_sigma_a0_scale": {
+   "enabled": false,
+   "version": "sa1",
+   "break_g": 13.0,
+   "sigma_knots_g": [
+    10.0,
+    11.5,
+    12.5
+   ],
+   "sigma_log10": [
+    0.0887,
+    0.1414,
+    0.0341
+   ],
+   "provenance": "#595 step 2: same-orbit log sigma_a0 residual net of #593 grid spread and ss1; origin unknown"
+  },
+  "provenance": "#400 v2 (Ryan 2026-10-03 E1/E3/E4/E6/E7/N2); scripts/calibrate_epoch_model_400.py"
+ },
+ "n_realizations": 2
+}
