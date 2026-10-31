@@ -101,6 +101,8 @@ def _star(task: tuple[int, int, dict[str, float]]) -> list[dict[str, Any]]:
                 show_residuals=False, ruwe_min=_W["ruwe_min"] * k, skip_acceleration=False)
         vec = emod.rescale_cascade_ruwe(list(vec), k)
         vec = [float(x) for x in vec] + [0.0] * (23 - len(vec))
+        vec, nss_type = emod.apply_solution_type(vec, src, em, nrng)  # #597 st1 (no-op when off)
+        rec["nss_type"] = nss_type
         cr = classify_cascade_result(vec, m1_msun=1.0, m2_msun=0.0, flux_ratio=0.0, cuts=_W["cuts"], gaiamock=None)
         sol, orb_ok = cr.solution_type.value, bool(cr.accepted_orbital)
         acc_ok = published_acceleration(vec, _W["acc"])
@@ -161,6 +163,9 @@ def cmd_simulate(a: argparse.Namespace) -> None:
         em = em.model_copy(update={"source_noise_scale": em.source_noise_scale.model_copy(update={"enabled": True})})
     if a.enable_sigma_a0_scale:  # #595 sa1 (spec §8.15), empirical
         em = em.model_copy(update={"source_sigma_a0_scale": em.source_sigma_a0_scale.model_copy(update={"enabled": True})})
+    if a.enable_type_model:  # #597 e2 + st1 (spec §8.16)
+        em = em.model_copy(update={"bright_stated_refit": em.bright_stated_refit.model_copy(update={"enabled": True}),
+                                   "solution_type_model": em.solution_type_model.model_copy(update={"enabled": True})})
     par, ok, version = select_rows(Path(a.parent_dir), Path(a.fragment), cfg)
     g = np.asarray(par.columns["phot_g_mean_mag"], float)
     rng = np.random.default_rng(a.seed)
@@ -233,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
     p.add_argument("--enable-source-scale", action="store_true", help="switch dr3.epoch_model.source_noise_scale (ss1) on (#595)")
     p.add_argument("--enable-sigma-a0-scale", action="store_true", help="switch dr3.epoch_model.source_sigma_a0_scale (sa1) on (#595)")
+    p.add_argument("--enable-type-model", action="store_true", help="switch dr3.epoch_model.bright_stated_refit (e2) and solution_type_model (st1) on (#597)")
     p.set_defaults(func=cmd_simulate)
     a = ap.parse_args(argv)
     a.func(a)

@@ -387,6 +387,51 @@ class SourceScaleConfig:
 
 
 @dataclass(frozen=True)
+class BrightStatedRefitConfig:
+    """#597 e2 (spec §8.16): ratio r(G) on the stated per-CCD error and on u0 at G < ``break_g``."""
+
+    version: str
+    break_g: float
+    knots_g: tuple[float, ...]
+    ratio: tuple[float, ...]
+
+    def r(self, g_mag: float) -> float:
+        if not g_mag < self.break_g:
+            return 1.0
+        return float(np.interp(g_mag, self.knots_g, self.ratio))
+
+
+@dataclass(frozen=True)
+class SolutionTypeConfig:
+    """#597 st1 (spec §8.16): AstroSpectroSB1 routing of orbital-branch fits and type-dependent solution properties."""
+
+    version: str
+    break_g: float
+    grvs_poly: tuple[float, ...]
+    colour_clip: tuple[float, float]
+    grvs_knots: tuple[float, ...]
+    terms: tuple[str, ...]
+    beta: tuple[float, ...]
+    knots_g: tuple[float, ...]
+    offsets: Mapping[str, tuple[float, ...]]
+
+    def p_asb1(self, g_mag: float, bp_rp: float, period_days: float, ecc: float, k1_kms: float) -> float:
+        c = float(np.clip(bp_rp if (bp_rp is not None and np.isfinite(bp_rp)) else 1.0, *self.colour_clip))
+        grvs = g_mag - float(np.polyval(self.grvs_poly, c))
+        x = [1.0, grvs] + [max(0.0, grvs - k) for k in self.grvs_knots]
+        feat = {"logK1": float(np.log10(max(k1_kms, 1e-3))), "bp_rp": c, "bp_rp2": c * c,
+                "logP": float(np.log10(period_days)), "e": float(ecc)}
+        x += [feat[t] for t in self.terms]
+        z = float(np.dot(self.beta, x))
+        return float(1.0 / (1.0 + np.exp(-z)))
+
+    def offset(self, key: str, g_mag: float) -> float:
+        if not g_mag < self.break_g:
+            return 0.0 if not key.endswith("kappa") else 1.0
+        return float(np.interp(g_mag, self.knots_g, self.offsets[key]))
+
+
+@dataclass(frozen=True)
 class TransitRecalConfig:
     """#581 (spec §8.14): p_keep x kappa_T(G); each CCD row kept with probability rho(G) after the prediction."""
 
@@ -465,6 +510,8 @@ class EpochModelConfig:
     transit_recal: TransitRecalConfig | None = None
     source_noise_scale: SourceScaleConfig | None = None  # #595 ss1 (spec §8.15)
     source_sigma_a0_scale: SourceScaleConfig | None = None  # #595 sa1 (spec §8.15), empirical, OFF by default
+    bright_stated_refit: BrightStatedRefitConfig | None = None  # #597 e2 (spec §8.16)
+    solution_type_model: SolutionTypeConfig | None = None  # #597 st1 (spec §8.16)
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -543,8 +590,33 @@ def epoch_model_config_from_mapping(
         transit_recal=_recal_from(section.get("transit_recal")),
         source_noise_scale=_source_scale_from(section.get("source_noise_scale")),
         source_sigma_a0_scale=_source_scale_from(section.get("source_sigma_a0_scale")),
+        bright_stated_refit=_stated_refit_from(section.get("bright_stated_refit")),
+        solution_type_model=_solution_type_from(section.get("solution_type_model")),
         provenance=str(section.get("provenance", "")),
     )
+
+
+def _stated_refit_from(m: Mapping[str, Any] | None) -> BrightStatedRefitConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return BrightStatedRefitConfig(version=str(m["version"]), break_g=float(m.get("break_g", 13.0)),
+                                   knots_g=tuple(float(x) for x in m["knots_g"]), ratio=tuple(float(x) for x in m["ratio"]))
+
+
+SOLUTION_TYPE_OFFSET_KEYS: Final[tuple[str, ...]] = (
+    "orbital_dlog_sigma_a0", "orbital_dlog_sigma_plx", "orbital_dlog_sigma_e", "orbital_dlog_sigma_p", "asb1_dlog_sigma_a0",
+    "asb1_dlog_sigma_plx", "asb1_dlog_sigma_e", "asb1_dlog_sigma_p", "asb1_f2_kappa", "asb1_f2_alpha")
+
+
+def _solution_type_from(m: Mapping[str, Any] | None) -> SolutionTypeConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return SolutionTypeConfig(version=str(m["version"]), break_g=float(m.get("break_g", 13.0)),
+                              grvs_poly=tuple(float(x) for x in m["grvs_poly"]),
+                              colour_clip=(float(m.get("colour_clip", [0.2, 3.5])[0]), float(m.get("colour_clip", [0.2, 3.5])[1])),
+                              grvs_knots=tuple(float(x) for x in m.get("grvs_knots", ())), terms=tuple(str(t) for t in m.get("terms", ())),
+                              beta=tuple(float(x) for x in m["beta"]), knots_g=tuple(float(x) for x in m["knots_g"]),
+                              offsets={k: tuple(float(x) for x in m[k]) for k in SOLUTION_TYPE_OFFSET_KEYS})
 
 
 def _source_scale_from(m: Mapping[str, Any] | None) -> SourceScaleConfig | None:
@@ -1133,7 +1205,7 @@ def noise_model_version(config: Any) -> str:
     recal = getattr(config, "transit_recal", None)
     if recal is not None and getattr(recal, "enabled", True):  # #581 (spec §8.14): epoch recalibration joins the label
         base = f"{base}+{recal.version}"
-    for key in ("source_noise_scale", "source_sigma_a0_scale"):  # #595 (spec §8.15): ss1 / sa1 join the label
+    for key in ("source_noise_scale", "source_sigma_a0_scale", "bright_stated_refit", "solution_type_model"):  # #595 / #597 tags
         term = getattr(config, key, None)
         if term is not None and getattr(term, "enabled", True):
             base = f"{base}+{term.version}"
@@ -1177,6 +1249,42 @@ def colour_actual_scale(source: SourceEpochContext, config: EpochModelConfig) ->
     if not config.enabled or config.noise_colour is None:
         return 1.0
     return config.noise_colour.actual_scale(source.g_mag, np.nan if source.bp_rp is None else source.bp_rp)  # NaN -> pivot (#585)
+
+
+#: #597 (spec §8.16): slots of the orbital cascade vector the solution-type model modifies
+CASCADE_SLOTS: Final[dict[str, int]] = {"plx": 0, "sigma_plx": 1, "period": 10, "sigma_period": 11, "ecc": 14, "sigma_ecc": 15, "inc_deg": 16,
+                                         "a0": 17, "sigma_a0": 18, "f2": 21}
+
+
+def predicted_k1_kms(a0_mas: float, plx_mas: float, period_days: float, ecc: float, inc_deg: float) -> float:
+    """K1 predicted from an astrometric orbit as if the photocentre orbit were the primary's (spec §8.16; same formula
+    as the DR3 side of the routing calibration): 29.78 km/s (a0/plx) sin i / (P_yr sqrt(1 - e^2))."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return float(29.78 * (a0_mas / plx_mas) * abs(np.sin(np.radians(inc_deg))) / ((period_days / 365.25) * np.sqrt(max(1e-6, 1.0 - ecc * ecc))))
+
+
+def apply_solution_type(cascade: list[float], source: SourceEpochContext, config: EpochModelConfig,
+                        noise_rng: np.random.Generator) -> tuple[list[float], str | None]:
+    """#597 st1 (spec §8.16): route an orbital-branch fit to AstroSpectroSB1 or Orbital and apply the type's calibrated
+    solution properties. Non-orbital branches and a disabled model return ``(cascade, None)`` unchanged. The routing
+    draw comes from a child Generator spawned off ``noise_rng``."""
+    st = config.solution_type_model if config.enabled else None
+    if st is None or not cascade or float(cascade[0]) in CASCADE_NON_ORBITAL_FLAGS or len(cascade) <= CASCADE_SLOTS["f2"]:
+        return cascade, None
+    c = [float(x) for x in cascade]
+    S = CASCADE_SLOTS
+    k1 = predicted_k1_kms(c[S["a0"]], c[S["plx"]], c[S["period"]], c[S["ecc"]], c[S["inc_deg"]])
+    bp = np.nan if source.bp_rp is None else float(source.bp_rp)
+    p = st.p_asb1(source.g_mag, bp, c[S["period"]], c[S["ecc"]], k1) if c[S["period"]] > 0 else 0.0
+    u = float(noise_rng.spawn(1)[0].random())
+    typ = "AstroSpectroSB1" if u < p else "Orbital"
+    pre = "asb1" if typ == "AstroSpectroSB1" else "orbital"
+    g = source.g_mag
+    for slot, key in (("sigma_a0", "dlog_sigma_a0"), ("sigma_plx", "dlog_sigma_plx"), ("sigma_ecc", "dlog_sigma_e"), ("sigma_period", "dlog_sigma_p")):
+        c[S[slot]] = c[S[slot]] * 10.0 ** st.offset(f"{pre}_{key}", g)
+    if typ == "AstroSpectroSB1" and g < st.break_g:
+        c[S["f2"]] = st.offset("asb1_f2_alpha", g) + st.offset("asb1_f2_kappa", g) * c[S["f2"]]
+    return c, typ
 
 
 def source_noise_factor(source: SourceEpochContext, config: EpochModelConfig, noise_rng: np.random.Generator) -> float:
@@ -1225,6 +1333,10 @@ def per_ccd_noise(
     if nc is not None:
         err = err * nc.stated_factor(g_mag)
         k = nc.u0(g_mag, bp_rp if (bp_rp is not None and np.isfinite(bp_rp)) else nc.colour_ref)  # #585: pivot colour
+    if config.enabled and config.bright_stated_refit is not None:  # #597 e2 (spec §8.16): stated error and u0 x r(G)
+        r = config.bright_stated_refit.r(g_mag)
+        err = err * r
+        k = k * r
     return obs, err, k
 
 
@@ -1243,6 +1355,8 @@ class CascadeRun:
     #: #595 (spec §8.15): the per-source factors drawn for this run (1 when the terms are off)
     source_scale: float = 1.0
     sigma_a0_scale: float = 1.0
+    #: #597 (spec §8.16): routed DR3 solution type of an orbital-branch fit ("Orbital" / "AstroSpectroSB1"); None when off
+    nss_type: str | None = None
 
 
 def run_cascade(
@@ -1299,10 +1413,11 @@ def run_cascade(
         f_a = source_sigma_a0_factor(source, config, noise_rng)
         if cascade and float(cascade[0]) not in CASCADE_NON_ORBITAL_FLAGS and len(cascade) > CASCADE_SIGMA_A0_INDEX:
             cascade[CASCADE_SIGMA_A0_INDEX] = float(cascade[CASCADE_SIGMA_A0_INDEX]) * f_a
+    cascade, nss_type = apply_solution_type(cascade, source, config, noise_rng)  # #597 st1; no-op when off
     epochs = None
     if keep_epochs:
         epochs = tuple(np.asarray(a, dtype=np.float64) for a in (t, psi, pf, obs, err))
     return CascadeRun(
         cascade=rescale_cascade_ruwe(list(cascade), k), n_obs=int(t.size), n_transits=n_tr,
-        n_visibility_periods=n_vis, ruwe_scale=k, epochs=epochs, source_scale=s_src, sigma_a0_scale=f_a,
+        n_visibility_periods=n_vis, ruwe_scale=k, epochs=epochs, source_scale=s_src, sigma_a0_scale=f_a, nss_type=nss_type,
     )

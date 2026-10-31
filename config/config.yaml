@@ -1065,6 +1065,40 @@ dr3:
       sigma_knots_g: [10.0, 11.5, 12.5]
       sigma_log10: [0.0887, 0.1414, 0.0341]
       provenance: "#595 step 2: same-orbit log sigma_a0 residual net of #593 grid spread and ss1; origin unknown"
+    # #597 (EPOCH_MODEL_SPEC §8.16; Ryan 2026-10-30): bright stated-error refit e2. Stated per-CCD error AND u0 x r(G) at
+    # G < 13 (sigmas and RUWE unchanged; chi^2 / F2 move), calibrated so the #390 same-orbit mock F2 median of DR3-Orbital
+    # orbits equals DR3's (scripts/calibrate_type_offsets_597.py, docs/gate_noise_colour/st1/offsets.json). Adds "+e2". OFF.
+    bright_stated_refit:
+      enabled: false
+      version: e2
+      break_g: 13.0
+      knots_g: [9.5, 10.5, 11.5, 12.5]
+      ratio: [0.904559, 0.86811, 0.915043, 0.973968]
+      provenance: "#597: DR3-Orbital F2 medians, #390 same orbits; r err 0.036 / 0.018 / 0.026 / 0.009"
+    # #597 (§8.16; MOCK_POPULATION_SPEC §12.41, option (a) of §12.36): AstroSpectroSB1 routing of orbital-branch fits and
+    # type-dependent solution properties. Routing: logistic on DR3 C1 orbits (scripts/calibrate_type_routing_597.py,
+    # docs/gate_noise_colour/st1/routing.json); offsets: #390 same orbits by DR3 type after e2. Adds "+st1". OFF.
+    solution_type_model:
+      enabled: false
+      version: st1
+      break_g: 13.0
+      grvs_poly: [-0.00388039, -0.0705883, 0.834474, 0.0541438]  # G - G_RVS = poly(clip(BP-RP)), numpy.polyval order
+      colour_clip: [0.2, 3.5]
+      grvs_knots: [8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 13]
+      terms: ["logK1", "bp_rp", "bp_rp2", "e", "logP"]
+      beta: [-5.61629, 0.357276, -0.313738, -0.0421952, -0.423339, -0.0555064, -0.513271, -0.461431, -80.5445, -4.84673, -0.900432, 2.26632, 5.07474, -1.89345, -1.0055, -0.419721]
+      knots_g: [9.5, 10.5, 11.5, 12.5]
+      orbital_dlog_sigma_a0: [0.0784031, 0.076545, 0.0984073, 0.0577984]
+      orbital_dlog_sigma_plx: [0.0328712, 0.0756457, 0.0491738, 0.0589542]
+      orbital_dlog_sigma_e: [0.0669839, 0.0834347, 0.0549067, 0.0597954]
+      orbital_dlog_sigma_p: [0.0141833, 0.0828425, 0.0785033, 0.0688228]
+      asb1_dlog_sigma_a0: [-0.11933, -0.0993863, -0.129598, -0.0509333]
+      asb1_dlog_sigma_plx: [-0.0363565, -0.00329085, -0.0227517, 0.0109264]
+      asb1_dlog_sigma_e: [-0.208637, -0.113438, -0.0799669, -0.0254882]
+      asb1_dlog_sigma_p: [-0.142496, -0.0787933, -0.0673706, 0.0100153]
+      asb1_f2_kappa: [0.561547, 0.502695, 0.571308, 0.494683]
+      asb1_f2_alpha: [-1.7665, -0.277665, -1.94398, 0.321285]
+      provenance: "#597: routing on 125,251 DR3 C1 orbits; offsets on #390 same orbits split by DR3 type (after e2)"
     # #579 noise model colour_v2 (EPOCH_MODEL_SPEC §8.13; Ryan 2026-10-27), supersedes colour_v1 (§8.12): N2d is KEPT and
     # the DR3 G = 13 bright/faint processing break is preserved (note after §8.5). Actual per-CCD noise (gaiamock + N2d)
     # x s(G, BP-RP), ln s = a(G) + b(G) c + q c^2, c = clip(BP-RP) - 1.2, separate parameters for G < 13 (fields
