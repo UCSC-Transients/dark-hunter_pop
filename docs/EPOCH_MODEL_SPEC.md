@@ -916,6 +916,10 @@ selection reason as λ for Orbital (the same-orbit AstroSpectroSB1 sample is wha
   - type fractions, the edge, and F2 by type (median and tail) not materially worse than iteration 2;
   - pooled #390 F2 not materially worse than iteration 2 (median 5.29, F2 > 3 0.789, 90th percentile 12.2; DR3
     4.90 / 0.742 / 11.5).
+- **Outcome (2026-10-31): FAIL, not adopted.** The joint fit gives λ_SB1 = 0.4 and λ_Orb = 0.6. The pooled ratio passes
+  (0.068 / 0.062 / 0.072), but the AstroSpectroSB1 and pooled edge drop by 0.04–0.07 dex. The λ_SB1 scan shows the
+  ratio and the edge trade one-for-one, so no λ_SB1 meets both criteria (`docs/gate_noise_colour/st1/README.md`). The
+  config keeps the iteration-2 values, and e2 + st1 stay OFF.
 - **Known limitations (recorded, not fixed by iteration 3):** the Orbital-evolved high-F2 tail at G 10–12 is about 2.8×
   short (0.090 vs 0.249); G < 10 is not ready (type fraction and F2 at G 6–10), so the exclusion stays; at BP−RP < 0.6 the
   routing gives too many AstroSpectroSB1 (0.33 vs 0.23; the DR3 RV template T_eff ceiling is not modelled).

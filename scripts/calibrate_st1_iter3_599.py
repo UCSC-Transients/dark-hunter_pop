@@ -42,6 +42,7 @@ def main(argv=None) -> int:
     ap.add_argument("--n-rep", type=int, default=3)
     ap.add_argument("--offsets", type=Path, default=Path("docs/gate_noise_colour/st1/offsets.json"))
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--scan", action="store_true", help="trade-off scan over lambda_SB1 at the configured lambda_Orb (delta re-solved per point)")
     a = ap.parse_args(argv)
     cfg = load_config()
     sec = cfg.dr3.epoch_model
@@ -129,8 +130,12 @@ def main(argv=None) -> int:
         return outs
 
     def metrics(o, lam_orb):
-        res = {"ratio": {}, "orb_z99": {}, "sp": {}, "sp_err": {}, "frac": {}}
+        res = {"ratio": {}, "orb_z99": {}, "sp": {}, "sp_err": {}, "frac": {}, "asb1_z99": {}, "pool_z99": {}, "asb1_ratio": {}, "orb_ratio": {}}
         for gb in GB[1:]:
+            res["asb1_z99"][gb] = float(np.mean([np.nanpercentile(x["z"][x["acc"] & x["isA"] & ing(gb) & np.isfinite(x["z"])], 99) for x in o]))
+            res["pool_z99"][gb] = float(np.mean([np.nanpercentile(x["z"][x["acc"] & ing(gb) & np.isfinite(x["z"])], 99) for x in o]))
+            res["asb1_ratio"][gb] = float(np.mean([np.median(x["lr"][x["acc"] & x["isA"] & ing(gb)]) for x in o]))
+            res["orb_ratio"][gb] = float(np.mean([np.median(x["lr"][x["acc"] & ~x["isA"] & ing(gb)]) for x in o]))
             res["ratio"][gb] = float(np.mean([np.median(x["lr"][x["acc"] & ing(gb)]) for x in o]))
             zz = [np.nanpercentile(x["z"][x["acc"] & ~x["isA"] & ing(gb) & np.isfinite(x["z"])], 99) for x in o]
             res["orb_z99"][gb] = float(np.mean(zz))
@@ -160,7 +165,8 @@ def main(argv=None) -> int:
         return {"J": round(m["J"], 2), "terms": {k: round(v, 2) for k, v in m["terms"].items()},
                 "ratio": [round(m["ratio"][gb], 4) for gb in GB[1:]], "sp": {k: round(v, 4) for k, v in m["sp"].items()},
                 "sp_err": {k: round(v, 4) for k, v in m["sp_err"].items()}, "orb_z99": [round(m["orb_z99"][gb], 4) for gb in GB[1:]],
-                "frac": [round(m["frac"][gb], 3) for gb in GB]}
+                "frac": [round(m["frac"][gb], 3) for gb in GB],
+                **{k: [round(m[k][gb], 4) for gb in GB[1:]] for k in ("asb1_z99", "pool_z99", "asb1_ratio", "orb_ratio")}}
 
     base_qmap = {"mock": [list(x) for x in stc.asb1_f2_qmap_mock], "dr3": [list(x) for x in stc.asb1_f2_qmap_dr3]}
     lam_orb0 = float(np.median(np.asarray(stc.orbital_dlog_sigma_a0) / np.asarray(same_off["orbital_sigma_a0"])))
@@ -169,6 +175,32 @@ def main(argv=None) -> int:
                    "frac": [dr3["frac"][gb] for gb in GB], "orb_z99": [dr3["orb_z99"][gb] for gb in GB[1:]]},
            "iteration2": fmt(metrics(run(it2), lam_orb0)), "scopes": {}}
     print("iteration 2 (configured):", out["iteration2"], flush=True)
+    for tn, tr in (("Orbital", ~rA), ("AstroSpectroSB1", rA), ("pooled", np.ones(rA.size, bool))):
+        out["dr3"][f"z99_{tn}"] = [float(np.nanpercentile(rz[rsel & tr & inr(gb) & np.isfinite(rz)], 99)) for gb in GB[1:]]
+        out["dr3"][f"ratio_{tn}"] = [float(np.median(rratio[rsel & tr & inr(gb)])) for gb in GB[1:]]
+    if a.scan:
+        cur = {"scope": "all", "lam_orb": lam_orb0, "lam_sb1": 1.0, "delta": list(stc.routing_delta), "qmap": base_qmap}
+        same_sb1 = np.asarray(same_off["asb1_sigma_a0"])
+        lam_cfg = float(np.median(np.asarray(stc.asb1_dlog_sigma_a0) / same_sb1))
+        out["scan"] = {"lam_orb": lam_orb0, "configured_lam_sb1": lam_cfg, "rows": []}
+        for scope in ("all", "a0plx", "plx_only"):
+            SCOPES["plx_only"] = ("sigma_plx",)
+            for ls in GRID:
+                st = {**cur, "scope": scope, "lam_sb1": float(ls), "delta": list(stc.routing_delta)}
+                for j, gb in enumerate(GB):
+                    lo_, hi_ = -3.0, 3.0
+                    for _ in range(16):
+                        mid = 0.5 * (lo_ + hi_)
+                        st["delta"][j] = mid
+                        fr = float(np.mean([x["isA"][x["acc"] & ing(gb)].mean() for x in run(st)]))
+                        lo_, hi_ = (lo_, mid) if fr > dr3["frac"][gb] else (mid, hi_)
+                    st["delta"][j] = 0.5 * (lo_ + hi_)
+                row = {"scope": scope, "lam_sb1": float(ls), **fmt(metrics(run(st), lam_orb0))}
+                out["scan"]["rows"].append(row)
+                print(row, flush=True)
+        a.out.parent.mkdir(parents=True, exist_ok=True)
+        a.out.write_text(json.dumps(out, indent=1, default=float))
+        return 0
     for scope in SCOPES:
         st = {**it2, "scope": scope, "delta": list(it2["delta"]), "qmap": base_qmap}
         log = []

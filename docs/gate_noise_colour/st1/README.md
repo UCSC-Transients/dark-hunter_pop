@@ -1,6 +1,56 @@
 # Solution-type-aware bright model: e2 + st1 (#597; EPOCH_MODEL_SPEC §8.16, MOCK_POPULATION_SPEC §12.41)
 
-**Verdict (2026-10-31): STOP — not adopted, and the queue is not restarted.** Iteration 2 fixes the headline problems: type fractions, the pooled a0/σ_a0 edge, the bright high-F2 tail and σ_ϖ. Several checks are still mixed or slightly worse, so under Ryan's rule ("if anything fails or is ambiguous, stop") the model stays OFF. See "Remaining issues".
+## Iteration 3 (#599, 2026-10-31): FAIL, not adopted, queue not restarted
+
+Calibration only (post hoc on gens 47–50). Files: [iter3.json](iter3.json) (joint fit), [iter3_scan.json](iter3_scan.json) (λ_SB1 trade-off scan), [population_st1_iter3.json](population_st1_iter3.json) (population validation at the fitted values). Script: `scripts/calibrate_st1_iter3_599.py` (`--scan` for the trade-off). The config keeps the iteration-2 values; nothing was switched on.
+
+**Joint fit.** λ_SB1 = 0.4. The scope "all four σ offsets" is marginally preferred over "σ_a0 + σ_ϖ" (objective 28.3 vs 28.4). λ_Orb stays 0.6.
+
+**Population validation at λ_SB1 = 0.4** (G 10–11 / 11–12 / 12–13; DR3 / iteration 2 / iteration 3):
+
+| metric | DR3 | iteration 2 | iteration 3 |
+|---|---|---|---|
+| pooled log σ_a0/σ_ϖ | 0.058 / 0.067 / 0.088 | 0.035 / 0.038 / 0.057 | **0.068 / 0.062 / 0.072** (pass) |
+| pooled edge log z p99 | 1.447 / 1.432 / 1.385 | 1.439 / 1.441 / 1.388 | **1.375 / 1.379 / 1.345** (fail) |
+| AstroSpectroSB1 edge log z p99 | 1.463 / 1.450 / 1.411 | 1.453 / 1.457 / 1.412 | **1.390 / 1.397 / 1.372** (fail) |
+| AstroSpectroSB1 short-P share, G < 13, default weights | 0.025 | 0.046 | 0.038 (mock ± ~0.035, Kish ESS) |
+| overall short-P share, G < 13, default weights | 0.017 | 0.024 | 0.021 |
+| type fraction | 0.629 / 0.574 / 0.342 | 0.626 / 0.571 / 0.337 | 0.621 / 0.589 / 0.348 |
+
+F2 by type (median and P(F2 > 12)) and the type fractions are essentially unchanged from iteration 2.
+
+**Why it fails.** The λ_SB1 scan (λ_Orb = 0.6; δ(G) re-solved at each point) shows the pooled σ_a0/σ_ϖ and the AstroSpectroSB1 edge trade one-for-one. Shrinking the AstroSpectroSB1 σ_a0 offset raises σ_a0, which raises the ratio and lowers z = (a0/σ_a0)/√(RUWE² − 1) by the same amount.
+
+| λ_SB1 | pooled ratio dev from DR3 | AstroSpectroSB1 edge dev from DR3 |
+|---|---|---|
+| 1.0 (iteration 2) | −0.023 / −0.029 / −0.033 | −0.011 / +0.014 / −0.007 |
+| 0.7 | −0.005 / −0.020 / −0.025 | −0.043 / −0.018 / −0.024 |
+| 0.6 | −0.001 / −0.015 / −0.023 | −0.054 / −0.029 / −0.030 |
+| 0.4 | +0.009 / −0.003 / −0.016 | −0.074 / −0.050 / −0.042 |
+
+Two scope variants do not help:
+- Shrinking σ_ϖ alone leaves both metrics where they are.
+- Scope "all" vs "a0+ϖ" makes no difference.
+
+No λ_SB1 meets both "ratio within 0.02 dex" and "edge not materially worse than iteration 2".
+
+The pooled ratio deficit at λ_SB1 ≈ 0.7 is mostly **Orbital**: ratio 0.07 vs DR3 0.10. The Orbital edge is also low (1.29 vs 1.33), and λ_Orb cannot raise both at once. The likely cause is structural, in the a0 or RUWE distribution of mock Orbital draws, not a σ-offset scale.
+
+None of the λ values brings the AstroSpectroSB1 short-P share below 0.032, although every value is within the large default-weight errors.
+
+The fresh #390 re-injection and the single-star control were **not run**: the population criteria already fail. λ_SB1 changes only orbital-branch σ offsets, so single stars are unaffected by construction.
+
+**Known limitations (unchanged):**
+- the Orbital-evolved high-F2 tail is ×2.8 short (0.089 vs 0.249);
+- G < 10 is not ready, so the exclusion stays;
+- BP−RP < 0.6 routing excess (RV template T_eff ceiling).
+
+**Options for Ryan:**
+- (a) Adopt iteration 2 as is, accepting the pooled ratio about 0.03 dex low. The edge, the type fractions and F2 by type are good there.
+- (b) Adopt a compromise λ_SB1 ≈ 0.7. This fails the 0.02 ratio criterion at G 12–13 by 0.005 and costs about 0.02–0.04 dex of AstroSpectroSB1 edge.
+- (c) Address the Orbital σ_a0/σ_ϖ–edge tension structurally, which is not a calibration-only change.
+
+**Iteration 3 (#599): FAIL, see below.** Iteration-2 verdict (2026-10-31): STOP — not adopted, and the queue is not restarted.** Iteration 2 fixes the headline problems: type fractions, the pooled a0/σ_a0 edge, the bright high-F2 tail and σ_ϖ. Several checks are still mixed or slightly worse, so under Ryan's rule ("if anything fails or is ambiguous, stop") the model stays OFF. See "Remaining issues".
 
 ## What was built (all OFF by default; `+e2` / `+st1` version tags)
 - **e2: refit of the bright stated-error scale.**
