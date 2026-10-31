@@ -861,7 +861,17 @@ meant to be adopted together with colour_v2 as one version.
 
 ### 8.16 Bright stated-error refit `e2` and solution-type model `st1` (#597; Ryan, 2026-10-30)
 
-> **Status:** implemented, OFF by default (adoption is Ryan's decision). Population side: MOCK_POPULATION_SPEC §12.41.
+> **Status: ADOPTED 2026-10-31 (Ryan; #599), iteration 2 parameters** (λ_SB1 = 1.0, λ_Orb = 0.6, iteration-2 δ(G) and F2
+> quantile map, e2 r(G) as in iteration 2). `noise_model_version` is `colour_v2.1+tr1+e2+st1`; `decided_settings.yaml` guards
+> launches on it. Iteration 3 (below) failed and is not used. Population side: MOCK_POPULATION_SPEC §12.41.
+>
+> **Known limitations at adoption:**
+> - the pooled log σ_a0/σ_ϖ at G 10–13 is about 0.03 dex low (0.035 / 0.038 / 0.057 vs DR3 0.058 / 0.067 / 0.088). This is the
+>   ratio-vs-edge tension of iteration 3, likely structural in the Orbital a0 / RUWE distribution. Re-check it after the
+>   joint refit, which adds the reweight-only M1-dependent eccentricity-shape fix of #589;
+> - the Orbital-evolved high-F2 tail at G 10–12 is about 2.8× short (0.09 vs 0.25);
+> - G < 10 is not ready, so the exclusion stays;
+> - at BP−RP < 0.6 the routing gives too many AstroSpectroSB1 (0.33 vs 0.23; the RV template T_eff ceiling is not modelled).
 
 **`bright_stated_refit` (tag `e2`).**
 - A factor r(G) multiplies the stated per-CCD error at G < 13, and u0 is divided by r(G). It is piecewise linear over the knots, constant outside them, and 1 at G ≥ 13, keyed on observed G.
