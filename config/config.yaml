@@ -1045,6 +1045,26 @@ dr3:
       ccd_row_keep_knots_g: [10.294, 11.620, 12.604, 13.586, 14.581, 15.500, 16.500, 17.500, 18.500]
       ccd_row_keep: [0.9896, 0.9793, 0.9820, 0.9827, 0.9821, 0.9818, 0.9834, 0.9827, 0.9823]
       provenance: "#581: calibrated on singles_v2_r16 (colour_v2 single stars, 995,344 realizations) vs DR3 same rows"
+    # #595 (EPOCH_MODEL_SPEC §8.15; Ryan 2026-10-30): bright per-source lognormal factor on the TRUE per-CCD noise
+    # (stated errors unchanged), sigma(log10 s) by observed system G, 0 at G >= 13 (no interpolation across the break).
+    # Calibrated post hoc on the #390 same-orbit set net of the #593 grid-point spread (scripts/calibrate_source_scale_595.py,
+    # docs/gate_noise_colour/ss1/calibration.json). Adds "+ss1" to the noise version. OFF until Ryan adopts it.
+    source_noise_scale:
+      enabled: false
+      version: ss1
+      break_g: 13.0
+      sigma_knots_g: [10.0, 11.5, 12.5]
+      sigma_log10: [0.052, 0.0525, 0.0253]
+      provenance: "#595: same-orbit F2 dispersion net of #593 grid spread; G 9-11 / 11-12 / 12-13 bins (bootstrap err 0.012 / 0.010 / 0.009)"
+    # #595 (§8.15): EMPIRICAL per-source scale on the reported sigma_a0 of orbital solutions, G < 13 only. ORIGIN UNKNOWN:
+    # the bright same-orbit log sigma_a0 scatter left net of the grid spread and of ss1. Adds "+sa1". OFF by default.
+    source_sigma_a0_scale:
+      enabled: false
+      version: sa1
+      break_g: 13.0
+      sigma_knots_g: [10.0, 11.5, 12.5]
+      sigma_log10: [0.0887, 0.1414, 0.0341]
+      provenance: "#595 step 2: same-orbit log sigma_a0 residual net of #593 grid spread and ss1; origin unknown"
     # #579 noise model colour_v2 (EPOCH_MODEL_SPEC §8.13; Ryan 2026-10-27), supersedes colour_v1 (§8.12): N2d is KEPT and
     # the DR3 G = 13 bright/faint processing break is preserved (note after §8.5). Actual per-CCD noise (gaiamock + N2d)
     # x s(G, BP-RP), ln s = a(G) + b(G) c + q c^2, c = clip(BP-RP) - 1.2, separate parameters for G < 13 (fields

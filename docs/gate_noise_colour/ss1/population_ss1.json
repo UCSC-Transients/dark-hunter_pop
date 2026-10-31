@@ -1,0 +1,180 @@
+{
+ "sigma_knots": [
+  [
+   10.0,
+   11.5,
+   12.5
+  ],
+  [
+   0.052,
+   0.0525,
+   0.0253
+  ]
+ ],
+ "orbits": {
+  "G10-11 dwarf": {
+   "n_dr3": 5468,
+   "p_dr3": 0.12783467446964156,
+   "n_mock_before": 2761,
+   "unweighted": {
+    "p_before": 0.04020282506338283,
+    "p_after": 0.0751699591424132,
+    "accepted_after_over_before": 0.9949655921767476,
+    "ess_before": 2761.0
+   },
+   "default": {
+    "p_before": 0.01805194376832314,
+    "p_after": 0.04192645348812191,
+    "accepted_after_over_before": 1.0228015671906852,
+    "ess_before": 3.9048485176453913
+   }
+  },
+  "G10-11 evolved": {
+   "n_dr3": 2089,
+   "p_dr3": 0.05792245093346099,
+   "n_mock_before": 1766,
+   "unweighted": {
+    "p_before": 0.015855039637599093,
+    "p_after": 0.033479210694647724,
+    "accepted_after_over_before": 1.0062853907134768,
+    "ess_before": 1766.0
+   },
+   "default": {
+    "p_before": 0.019725866668973573,
+    "p_after": 0.029225047116308682,
+    "accepted_after_over_before": 1.0221620139547638,
+    "ess_before": 100.1874777795433
+   }
+  },
+  "G11-12 dwarf": {
+   "n_dr3": 11092,
+   "p_dr3": 0.1419040750090155,
+   "n_mock_before": 331,
+   "unweighted": {
+    "p_before": 0.08459214501510574,
+    "p_after": 0.1205622743005211,
+    "accepted_after_over_before": 1.0126888217522658,
+    "ess_before": 331.0
+   },
+   "default": {
+    "p_before": 0.10683781409248484,
+    "p_after": 0.11766275483757786,
+    "accepted_after_over_before": 1.0152130862817665,
+    "ess_before": 51.634831858995376
+   }
+  },
+  "G11-12 evolved": {
+   "n_dr3": 2532,
+   "p_dr3": 0.09439178515007898,
+   "n_mock_before": 151,
+   "unweighted": {
+    "p_before": 0.013245033112582781,
+    "p_after": 0.06648517431196514,
+    "accepted_after_over_before": 1.0059602649006623,
+    "ess_before": 151.0
+   },
+   "default": {
+    "p_before": 0.02402242230582841,
+    "p_after": 0.0862980685648518,
+    "accepted_after_over_before": 0.8805665853513535,
+    "ess_before": 8.164508235492782
+   }
+  },
+  "G12-13 dwarf": {
+   "n_dr3": 21919,
+   "p_dr3": 0.03982845932752407,
+   "n_mock_before": 617,
+   "unweighted": {
+    "p_before": 0.059967585089141004,
+    "p_after": 0.08131606921386576,
+    "accepted_after_over_before": 0.9905996758508915,
+    "ess_before": 617.0
+   },
+   "default": {
+    "p_before": 0.042300468614298224,
+    "p_after": 0.0632470313028656,
+    "accepted_after_over_before": 1.0735786237425315,
+    "ess_before": 111.16137753619232
+   }
+  },
+  "G12-13 evolved": {
+   "n_dr3": 3557,
+   "p_dr3": 0.020804048355355636,
+   "n_mock_before": 294,
+   "unweighted": {
+    "p_before": 0.03741496598639456,
+    "p_after": 0.044301205078729734,
+    "accepted_after_over_before": 0.9901360544217688,
+    "ess_before": 294.0
+   },
+   "default": {
+    "p_before": 0.009292251495261047,
+    "p_after": 0.020787738361619096,
+    "accepted_after_over_before": 0.9518218082112193,
+    "ess_before": 26.853361969886354
+   }
+  }
+ },
+ "accelerations": {
+  "G10-11 dwarf": {
+   "n_dr3": 10419,
+   "p_dr3": 0.4676072559746617,
+   "n_mock": 1790,
+   "p_before_unweighted": 0.253072625698324,
+   "p_after_unweighted": 0.28486033519553067,
+   "median_f2_dr3": 11.564516,
+   "median_f2_before": 7.147267694314456,
+   "median_f2_after": 7.66652941325827
+  },
+  "G10-11 evolved": {
+   "n_dr3": 5528,
+   "p_dr3": 0.3833212735166425,
+   "n_mock": 1927,
+   "p_before_unweighted": 0.12350804359107422,
+   "p_after_unweighted": 0.16190970420342504,
+   "median_f2_dr3": 10.7606185,
+   "median_f2_before": 4.445607956119003,
+   "median_f2_after": 4.808557924534077
+  },
+  "G11-12 dwarf": {
+   "n_dr3": 23556,
+   "p_dr3": 0.46472236372898623,
+   "n_mock": 193,
+   "p_before_unweighted": 0.2694300518134715,
+   "p_after_unweighted": 0.31243523316062183,
+   "median_f2_dr3": 11.483378,
+   "median_f2_before": 8.340268110418002,
+   "median_f2_after": 8.417342155427033
+  },
+  "G11-12 evolved": {
+   "n_dr3": 6575,
+   "p_dr3": 0.41368821292775665,
+   "n_mock": 131,
+   "p_before_unweighted": 0.11450381679389313,
+   "p_after_unweighted": 0.17175572519083968,
+   "median_f2_dr3": 10.964784,
+   "median_f2_before": 6.56525294050698,
+   "median_f2_after": 6.557401791647078
+  },
+  "G12-13 dwarf": {
+   "n_dr3": 52443,
+   "p_dr3": 0.27650973437827736,
+   "n_mock": 433,
+   "p_before_unweighted": 0.3140877598152425,
+   "p_after_unweighted": 0.3101616628175519,
+   "median_f2_dr3": 8.625973,
+   "median_f2_before": 8.504488052114255,
+   "median_f2_after": 8.587383731282284
+  },
+  "G12-13 evolved": {
+   "n_dr3": 8944,
+   "p_dr3": 0.20963774597495527,
+   "n_mock": 286,
+   "p_before_unweighted": 0.1258741258741259,
+   "p_after_unweighted": 0.15524475524475526,
+   "median_f2_dr3": 8.4165675,
+   "median_f2_before": 6.192059449486463,
+   "median_f2_after": 6.282874918615246
+  }
+ }
+}

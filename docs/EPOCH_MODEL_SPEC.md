@@ -803,6 +803,62 @@ meant to be adopted together with colour_v2 as one version.
   - F2 median: 5.07 / 0.25 against 4.91 / 0.23 (DR3 4.90 / 0.16), inside the e bootstrap error.
   - Orbit envelope step: 1.07 in both.
 
+### 8.15 Bright per-source noise scale `ss1` and an optional empirical σ_a0 scale `sa1` (#595; Ryan, 2026-10-30)
+
+> **Status:** implemented, **OFF by default**; validation (2026-10-30) recommends **not** adopting ss1 and finds sa1
+> unnecessary (see Result below); adoption remains Ryan's decision. Neither term is in the `decided_settings.yaml`
+> launch guard (it still requires `colour_v2.1+tr1`), so no generation can use them until that is changed.
+
+**Why** (#589, #590, #593; `docs/gate391/diag_v21tr1/README.md`).
+- For the same #390 orbits, DR3 scatters about the colour_v2.1+tr1 mock mean by more than the mock's own realization noise.
+- Net of the GOST grid-point spread (#593, which removes the whole faint-side excess), what remains at G < 13 is:
+  - F2: 2.7–3.6;
+  - log σ_ϖ: about 0.06 dex;
+  - log σ_a0 and log z: about 0.11 dex;
+  - ½ log(RUWE² − 1): about 0.04 dex.
+- The F2 medians match, and e(G) fixes them.
+- What is missing is a per-source spread. It is not a jitter tied to angular radius: within a G bin there is no θ★ dependence (#590).
+
+**Term 1, `source_noise_scale` (version tag `ss1`).**
+- **The model.** Each simulated source (each cascade call) draws s = 10^(σ_s(G) z), z ~ N(0, 1).
+  - s multiplies the **true** per-CCD noise: gaiamock's realistic epoch errors and the N2d excess, on top of the colour factor of §8.13.
+  - The stated per-CCD errors are unchanged, so F2, the Halbwachs inflation c and every reported σ rise with s, and RUWE's noise part rises with s.
+- **Where σ_s comes from.** σ_s is keyed on the observed system G. Knots apply only on the bright side, constant outside them; σ_s = 0 at G ≥ `break_g` = 13, never interpolated across 13.
+- **The random draw.** z comes from a child Generator spawned from the per-CCD noise Generator, so no existing stream moves.
+- **Calibration** (`scripts/calibrate_source_scale_595.py`, `docs/gate_noise_colour/ss1/calibration.json`).
+  - Post hoc on the #390 same-orbit set: χ²/ν → s²χ²/ν, σ → sσ, RUWE² → RUWE² + s² − 1, one s per realization.
+  - σ_s per G bin is the value at which the extra DR3−mock F2 scatter, net of the #593 grid spread, vanishes. Errors come from a 100-fold orbit bootstrap.
+  - Result: σ(log10 s) = 0.052 ± 0.012 (G 9–11), 0.055 ± 0.010 (11–12), 0.024 ± 0.009 (12–13), 0 at G ≥ 13.
+  - A colour split at the median BP−RP is not supported by BIC, so the term is G-only.
+  - Knots at G 10.0 / 11.5 / 12.5 carry these values.
+- **Version.** `noise_model_version` appends `+ss1`, for example `colour_v2.1+tr1+ss1`. Fragments and primary-model versions carry it, so ss1 draws never mix with others (§8.12 rule).
+
+**Term 2, `source_sigma_a0_scale` (version tag `sa1`).**
+- This is the bright σ_a0 / a0/σ_a0 per-orbit scatter that remains net of the grid spread **and** of ss1. **Its origin is unknown.**
+- Each cascade's reported σ_a0 (cascade column 18) is multiplied by 10^(σ_a(G) z) after the fit, at G < 13 only. z comes from its own spawned child Generator.
+- The cascade's internal routing is unchanged. Downstream cuts and the a0/σ_a0 statistic see the scaled value.
+- It is OFF by default. `noise_model_version` appends `+sa1` when it is on.
+- Calibration: same-orbit log σ_a0 residual scatter net of grid and ss1 (`scripts/calibrate_source_scale_595.py`; values in
+  `docs/gate_noise_colour/ss1/README.md`).
+
+**Result (2026-10-30; `docs/gate_noise_colour/ss1/README.md`): ss1 NOT recommended, sa1 not needed; both stay OFF.**
+- **What the "per-source" spread really is.** It is mostly the Orbital vs AstroSpectroSB1 split. On the same orbits at G < 13:
+  - Orbital: DR3 − mock = +0.06 dex in σ_a0 and +1.5 in F2;
+  - AstroSpectroSB1: −0.10 dex in σ_a0 and −1.4 in F2.
+  - Split by type, Orbital σ_a0 has no residual beyond the #593 grid spread.
+- **ss1 validation results.**
+  - Population: it raises bright P(F2 > 12) only partway (G 10–11 dwarfs 0.040 → 0.075 vs DR3 0.128) and overshoots at G 12–13.
+  - Single stars: it degrades the σ_ϖ envelope jump (+23.0% → +20.7% vs DR3 +24.6%).
+- **Next step proposed:** a solution-type-aware bright model, i.e. e(G) refit on Orbital-only targets plus AstroSpectroSB1 routing with type offsets. See the README.
+
+**Validation** (`docs/gate_noise_colour/ss1/README.md`).
+- A fresh #390 re-injection with ss1, measuring:
+  - F2 medians (e(G) is refit only if they move), 95th/99th percentiles and P(F2 > 12) by G and by dwarf/evolved class;
+  - σ_ϖ ratios;
+  - RUWE.
+- The single-star control: σ_ϖ envelope, the G = 13 jump and falloff, RUWE.
+- Gens 47–50, approximated post hoc: bright P(F2 > 12) by class at G 10–12.
+
 ## References
 
 - Boubert, D., Everall, A. & Holl, B. 2020, "Completeness of the Gaia-verse I"

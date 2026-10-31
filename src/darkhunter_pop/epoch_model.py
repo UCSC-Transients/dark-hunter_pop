@@ -366,6 +366,27 @@ class NoiseColourConfig:
 
 
 @dataclass(frozen=True)
+class SourceScaleConfig:
+    """#595 (spec §8.15): per-source lognormal factor 10^(sigma(G) z); sigma piecewise linear in observed G over the
+    bright-side knots (constant outside), 0 at G >= ``break_g`` (never interpolated across the break)."""
+
+    version: str
+    break_g: float
+    knots_g: tuple[float, ...]
+    sigma_log10: tuple[float, ...]
+
+    def sigma(self, g_mag: float) -> float:
+        if not g_mag < self.break_g:
+            return 0.0
+        return float(np.interp(g_mag, self.knots_g, self.sigma_log10))
+
+    def draw(self, g_mag: float, rng: np.random.Generator) -> float:
+        """One factor for one source; consumes one normal from ``rng`` even when sigma = 0 (stream stays aligned)."""
+        z = float(rng.standard_normal())
+        return float(10.0 ** (self.sigma(g_mag) * z))
+
+
+@dataclass(frozen=True)
 class TransitRecalConfig:
     """#581 (spec §8.14): p_keep x kappa_T(G); each CCD row kept with probability rho(G) after the prediction."""
 
@@ -442,6 +463,8 @@ class EpochModelConfig:
     vp_loss: VisibilityPeriodLossConfig | None = None
     noise_colour: NoiseColourConfig | None = None
     transit_recal: TransitRecalConfig | None = None
+    source_noise_scale: SourceScaleConfig | None = None  # #595 ss1 (spec §8.15)
+    source_sigma_a0_scale: SourceScaleConfig | None = None  # #595 sa1 (spec §8.15), empirical, OFF by default
     provenance: str = ""
     extras: Mapping[str, Any] = field(default_factory=dict)
 
@@ -518,8 +541,17 @@ def epoch_model_config_from_mapping(
         vp_loss=_vp_from(section.get("visibility_period_loss")),
         noise_colour=_colour_from(section.get("noise_colour"), root),
         transit_recal=_recal_from(section.get("transit_recal")),
+        source_noise_scale=_source_scale_from(section.get("source_noise_scale")),
+        source_sigma_a0_scale=_source_scale_from(section.get("source_sigma_a0_scale")),
         provenance=str(section.get("provenance", "")),
     )
+
+
+def _source_scale_from(m: Mapping[str, Any] | None) -> SourceScaleConfig | None:
+    if m is None or not m.get("enabled", False):
+        return None
+    return SourceScaleConfig(version=str(m["version"]), break_g=float(m.get("break_g", 13.0)),
+                             knots_g=tuple(float(x) for x in m["sigma_knots_g"]), sigma_log10=tuple(float(x) for x in m["sigma_log10"]))
 
 
 def _recal_from(m: Mapping[str, Any] | None) -> TransitRecalConfig | None:
@@ -1044,6 +1076,9 @@ PER_CCD_NOISE_RNG_TAG: Final[int] = 3982
 #: at 22. Flag 0 (too few visibility periods) has none.
 CASCADE_RUWE_INDEX: Final[dict[float, int]] = {-1.0: 1, -7.0: 8, -9.0: 12}
 CASCADE_RUWE_INDEX_ORBITAL: Final[int] = 22
+#: #595: flags of the non-orbital branches and the sigma_a0 slot of the orbital cascade vector
+CASCADE_NON_ORBITAL_FLAGS: Final[frozenset[float]] = frozenset({0.0, -1.0, -7.0, -9.0})
+CASCADE_SIGMA_A0_INDEX: Final[int] = 18
 
 
 def excess_noise_r2(g_mag: float, noise: PerCcdExcessNoiseConfig) -> float:
@@ -1098,6 +1133,10 @@ def noise_model_version(config: Any) -> str:
     recal = getattr(config, "transit_recal", None)
     if recal is not None and getattr(recal, "enabled", True):  # #581 (spec §8.14): epoch recalibration joins the label
         base = f"{base}+{recal.version}"
+    for key in ("source_noise_scale", "source_sigma_a0_scale"):  # #595 (spec §8.15): ss1 / sa1 join the label
+        term = getattr(config, key, None)
+        if term is not None and getattr(term, "enabled", True):
+            base = f"{base}+{term.version}"
     return base
 
 
@@ -1140,6 +1179,22 @@ def colour_actual_scale(source: SourceEpochContext, config: EpochModelConfig) ->
     return config.noise_colour.actual_scale(source.g_mag, np.nan if source.bp_rp is None else source.bp_rp)  # NaN -> pivot (#585)
 
 
+def source_noise_factor(source: SourceEpochContext, config: EpochModelConfig, noise_rng: np.random.Generator) -> float:
+    """#595 ss1 (spec §8.15): the per-source factor on the true per-CCD noise, drawn from a child Generator spawned off
+    ``noise_rng`` (its own stream does not move); 1 when the term is off."""
+    if not config.enabled or config.source_noise_scale is None:
+        return 1.0
+    return config.source_noise_scale.draw(source.g_mag, noise_rng.spawn(1)[0])
+
+
+def source_sigma_a0_factor(source: SourceEpochContext, config: EpochModelConfig, noise_rng: np.random.Generator) -> float:
+    """#595 sa1 (spec §8.15; empirical, origin unknown): the per-source factor on the reported sigma_a0, from its own
+    spawned child Generator; 1 when the term is off."""
+    if not config.enabled or config.source_sigma_a0_scale is None:
+        return 1.0
+    return config.source_sigma_a0_scale.draw(source.g_mag, noise_rng.spawn(1)[0])
+
+
 def per_ccd_noise(
     obs: NDArray[np.float64],
     err: NDArray[np.float64],
@@ -1147,13 +1202,15 @@ def per_ccd_noise(
     bp_rp: float,
     config: EpochModelConfig,
     rng: np.random.Generator,
+    source_scale: float = 1.0,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
     """Apply the configured per-CCD noise model to gaiamock's ``(obs, err)``; return ``(obs, err, k)``.
 
     ``k`` is the RUWE scale (RUWE = UWE / k). With the colour term off this is exactly the §8.8 model: N2d white noise
     from ``rng`` and ``k = u0(G)``. With it on (spec §8.12; the predict call must have run inside
     :func:`actual_noise_scale` with ``s(G, C)``): the N2d excess is scaled by ``s``, the stated error by ``e(G)``, and
-    ``k = u0(G, C)``. ``bp_rp`` is the observed system colour.
+    ``k = u0(G, C)``. ``bp_rp`` is the observed system colour. ``source_scale`` (#595 ss1, spec §8.15) multiplies the
+    N2d excess like the rest of the true noise (the gaiamock part is scaled inside :func:`actual_noise_scale`).
     """
     obs = np.asarray(obs, dtype=np.float64)
     err = np.asarray(err, dtype=np.float64)
@@ -1162,7 +1219,7 @@ def per_ccd_noise(
     if config.enabled and config.excess_noise is not None and (nc is None or nc.keep_n2d):
         # §8.12 (colour_v1): s replaces N2d. §8.13 (colour_v2): N2d stays, and s multiplies it like all actual noise
         extra, k = per_ccd_excess_noise(err, g_mag, config.excess_noise, rng)
-        obs = obs + (extra if nc is None else nc.actual_scale(g_mag, bp_rp) * extra)
+        obs = obs + source_scale * (extra if nc is None else nc.actual_scale(g_mag, bp_rp) * extra)
     if config.enabled and config.ruwe_u0 is not None:
         k = ruwe_scale_u0(g_mag, config)
     if nc is not None:
@@ -1183,6 +1240,9 @@ class CascadeRun:
     #: ``(t_ast_yr, psi, plx_factor, obs, err)`` exactly as handed to ``fit_full_astrometric_cascade``
     #: (noise included); only with ``keep_epochs=True`` (spec §13.3 cascade covariance), else None.
     epochs: tuple[NDArray[np.float64], ...] | None = None
+    #: #595 (spec §8.15): the per-source factors drawn for this run (1 when the terms are off)
+    source_scale: float = 1.0
+    sigma_a0_scale: float = 1.0
 
 
 def run_cascade(
@@ -1218,12 +1278,14 @@ def run_cascade(
     a bare gaiamock call.
     """
     s = colour_actual_scale(source, config)
-    with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd), actual_noise_scale(gaiamock, s):
+    # #595 (spec §8.15): per-source factors from child Generators spawned off the noise Generator (no stream moves)
+    s_src = source_noise_factor(source, config, noise_rng)
+    with gost_epoch_model(gaiamock, config, source, epoch_rng, gaps_jd=gaps_jd), actual_noise_scale(gaiamock, s * s_src):
         t, psi, pf, obs, err = predict()
     t, psi, pf, obs, err = thin_ccd_rows((t, psi, pf, obs, err), source.g_mag, config, epoch_rng)  # #581; after GOST thinning
     t = np.asarray(t, dtype=np.float64)
     bp_rp = np.nan if source.bp_rp is None else float(source.bp_rp)
-    obs, err, k = per_ccd_noise(obs, err, source.g_mag, bp_rp, config, noise_rng)
+    obs, err, k = per_ccd_noise(obs, err, source.g_mag, bp_rp, config, noise_rng, source_scale=s_src)
     n_vis = n_visibility_periods_from_days(t * 365.25, visibility_gap_day)
     n_tr = int(fov_transit_ids(t * 365.25, config.transit_split_day).max() + 1) if t.size else 0
     cascade = gaiamock.fit_full_astrometric_cascade(
@@ -1231,10 +1293,16 @@ def run_cascade(
         verbose=False, show_residuals=False, ruwe_min=ruwe_min * k,
         skip_acceleration=skip_acceleration,
     )
+    cascade = list(cascade)
+    f_a = 1.0
+    if config.enabled and config.source_sigma_a0_scale is not None:  # #595 sa1 (spec §8.15): empirical, origin unknown
+        f_a = source_sigma_a0_factor(source, config, noise_rng)
+        if cascade and float(cascade[0]) not in CASCADE_NON_ORBITAL_FLAGS and len(cascade) > CASCADE_SIGMA_A0_INDEX:
+            cascade[CASCADE_SIGMA_A0_INDEX] = float(cascade[CASCADE_SIGMA_A0_INDEX]) * f_a
     epochs = None
     if keep_epochs:
         epochs = tuple(np.asarray(a, dtype=np.float64) for a in (t, psi, pf, obs, err))
     return CascadeRun(
         cascade=rescale_cascade_ruwe(list(cascade), k), n_obs=int(t.size), n_transits=n_tr,
-        n_visibility_periods=n_vis, ruwe_scale=k, epochs=epochs,
+        n_visibility_periods=n_vis, ruwe_scale=k, epochs=epochs, source_scale=s_src, sigma_a0_scale=f_a,
     )

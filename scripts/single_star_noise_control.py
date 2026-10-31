@@ -67,20 +67,21 @@ def _star(task: tuple[int, int, dict[str, float]]) -> list[dict[str, Any]]:
     src = emod.source_context(v["ra"], v["dec"], v["g"], bp_rp=v["bp_rp"])
     seeds = mock_global_rng_seeds(_W["base_seed"], STREAM, idx)
     erng = emod.epoch_model_rng(_W["base_seed"], STREAM, idx)
+    nrng = emod.epoch_model_rng(_W["base_seed"], STREAM, idx, tag=emod.PER_CCD_NOISE_RNG_TAG)
+    s_src = emod.source_noise_factor(src, em, nrng)  # #595 ss1 (1 when off; nrng's own stream does not move)
     with seeded_global_rng(seeds, _W["c_funcs"]), emod.gost_epoch_model(
         gm, em, src, erng, gaps_jd=_W["gaps"]
-    ), emod.actual_noise_scale(gm, emod.colour_actual_scale(src, em)):
+    ), emod.actual_noise_scale(gm, emod.colour_actual_scale(src, em) * s_src):
         t, psi, pf, obs, err = gm.predict_astrometry_single_source(
             ra=v["ra"], dec=v["dec"], parallax=v["plx_true"], pmra=v["pmra"], pmdec=v["pmdec"],
             phot_g_mean_mag=v["g"], data_release="dr3")
     t, psi, pf, obs, err = emod.thin_ccd_rows((t, psi, pf, obs, err), v["g"], em, erng)  # #581 (spec §8.14)
     obs, err, k = emod.per_ccd_noise(
-        np.asarray(obs, float), np.asarray(err, float), v["g"], v["bp_rp"], em,
-        emod.epoch_model_rng(_W["base_seed"], STREAM, idx, tag=emod.PER_CCD_NOISE_RNG_TAG))
+        np.asarray(obs, float), np.asarray(err, float), v["g"], v["bp_rp"], em, nrng, source_scale=s_src)
     t = np.asarray(t, float)
     n_vis = emod.n_visibility_periods_from_days(t * 365.25, 4.0)
     n_tr = int(emod.fov_transit_ids(t * 365.25, em.transit_split_day).max() + 1) if t.size else 0
-    rec: dict[str, Any] = {"idx": idx, "source_id": sid, "n_obs": int(t.size), "n_transits": n_tr, "n_vis": n_vis}
+    rec: dict[str, Any] = {"idx": idx, "source_id": sid, "n_obs": int(t.size), "n_transits": n_tr, "n_vis": n_vis, "source_scale": s_src}
     if t.size > 6:
         res = gm.fit_5par_solution_only(t, psi, pf, obs, err)
         uwe, nu = float(res[10]), int(t.size) - 5
@@ -156,6 +157,10 @@ def cmd_simulate(a: argparse.Namespace) -> None:
         em = em.model_copy(update={"noise_colour": em.noise_colour.model_copy(update={"enabled": True})})
     if a.enable_recal:  # §8.14 transit / CCD-row recalibration
         em = em.model_copy(update={"transit_recal": em.transit_recal.model_copy(update={"enabled": True})})
+    if a.enable_source_scale:  # #595 ss1 (spec §8.15)
+        em = em.model_copy(update={"source_noise_scale": em.source_noise_scale.model_copy(update={"enabled": True})})
+    if a.enable_sigma_a0_scale:  # #595 sa1 (spec §8.15), empirical
+        em = em.model_copy(update={"source_sigma_a0_scale": em.source_sigma_a0_scale.model_copy(update={"enabled": True})})
     par, ok, version = select_rows(Path(a.parent_dir), Path(a.fragment), cfg)
     g = np.asarray(par.columns["phot_g_mean_mag"], float)
     rng = np.random.default_rng(a.seed)
@@ -226,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--realizations", type=int, default=1, help="noise realizations per row (< REAL_STRIDE)")
     p.add_argument("--enable-colour", action="store_true", help="switch dr3.epoch_model.noise_colour on")
     p.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
+    p.add_argument("--enable-source-scale", action="store_true", help="switch dr3.epoch_model.source_noise_scale (ss1) on (#595)")
+    p.add_argument("--enable-sigma-a0-scale", action="store_true", help="switch dr3.epoch_model.source_sigma_a0_scale (sa1) on (#595)")
     p.set_defaults(func=cmd_simulate)
     a = ap.parse_args(argv)
     a.func(a)
