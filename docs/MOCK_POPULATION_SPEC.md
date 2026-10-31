@@ -2449,7 +2449,7 @@ A system both detected spectroscopically and accepted astrometrically is publish
 
 **Evidence.** At G < 9, DR3 SB1-only solutions (3.3% per star, 1.8% with P 30–830 d) exceed the mock's surplus of astrometric orbits (0.76% per star). A K/σ_RV routing model, calibrated on DR3 epoch-RV noise, fits G < 9 but fails at G 9–12 (`docs/gate391/v2_single/rv_routing_calibration.json`).
 
-**Open item (option a), DEFERRED (Ryan, 2026-10-23) until an end-to-end pipeline exists.** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
+**Open item (option a), DEFERRED (Ryan, 2026-10-23) until an end-to-end pipeline exists; the astrometric-orbit part is taken up in §12.41 (#597, 2026-10-30).** Model the DR3 SB1 input selection explicitly: rv_renormalised_gof > 4, rv_chisq_pvalue < 0.01, the template Teff range 3,875–8,125 K, and the orbit-solution success rate. Calibrate on the parent's own epoch-RV statistics (`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`), then restore G < 9.
 
 ### 12.37 Joint luminous + compact-object refit with the #554 fixes (Ryan, 2026-10-25; §5 ladder change)
 
@@ -2657,6 +2657,44 @@ prefix.
 - **Decided-settings guard.** `min_guarded_generation` is 47. Gens 1000–1003 are exempt, as superseded `n2d_s1232`
   draws.
 - **No refit until Ryan instructs it.**
+
+### 12.41 Solution-type-aware bright model: AstroSpectroSB1 routing (option (a) of §12.36) (Ryan, 2026-10-30; #597)
+
+**Why.** DR3's bright C1 orbits are two populations with different solution properties (#595,
+`docs/gate_noise_colour/ss1/README.md`).
+- At G 10–12, about 60% are AstroSpectroSB1. Their median F2 is 3.4 and P(F2 > 12) is 0.03; for Orbital solutions the median is 8.7 and P(F2 > 12) is 0.25–0.30.
+- On the same orbits, DR3 − mock is −0.10 dex in σ_a0 and −1.4 in F2 for AstroSpectroSB1, against +0.06 dex and +1.5 for Orbital.
+- The mock fits astrometry only, so it cannot reproduce either type. This is the "SB1 input selection" that §12.36 option (a) deferred, restricted here to the astrometric orbits. The SB1-only chain at G < 9 stays as §12.36 describes.
+
+**Model.** Statistical, never per star; every number is in config. Parameters are in EPOCH_MODEL_SPEC §8.16.
+1. **Routing.**
+   - Each mock draw whose cascade reaches the orbital fit is labelled AstroSpectroSB1 with probability P(ASB1 | x), otherwise Orbital.
+   - x contains only quantities defined identically on both sides:
+     - predicted G_RVS = G − p(BP−RP);
+     - BP−RP;
+     - log P and e;
+     - predicted K1 = 29.78 (a0/ϖ) sin i / (P_yr √(1−e²)) km/s from the astrometric orbit.
+   - P is a logistic model with a hinge basis in G_RVS, with terms chosen by BIC on DR3 C1 orbits (`scripts/calibrate_type_routing_597.py`).
+2. **Type-dependent solution properties** (calibrated distributions by G, not a physical RV fit). Applied to the cascade vector before the orbital-solution cuts:
+   - a log offset per type on σ_a0, σ_ϖ, σ_e and σ_P;
+   - for AstroSpectroSB1, an affine map of F2 (median and inter-quartile range matched).
+   - All are measured on the #390 same-orbit set split by DR3 type, after item 3 (`scripts/calibrate_type_offsets_597.py`).
+   - **Why not the physical version.** An RV constraint on P, e and T_p would need simulated RVS epochs, an RV noise model and the DR3 combined-fit weighting. None of these exists in the pipeline, and the F2 of the combined fit is not an astrometric quantity. The empirical form is calibrated where it is used.
+3. **Bright e(G).** The stated-error scale at G < 13 is refit so that the mock F2 median of DR3-Orbital orbits equals DR3's (EPOCH_MODEL_SPEC §8.16). The G = 13 break is kept.
+
+**Comparison.** With the model on, the rung-3 likelihood and plots can be split by type, using mock-routed vs DR3 types. Until the artifacts carry the routed type, gens 47–50 are evaluated post hoc: the type is drawn from the stored cascade, the offsets are applied, and the cuts are re-applied. Routing among the 5/7/9-parameter outcomes is not changed.
+
+**Iteration 2 (Ryan, 2026-10-31).** Four calibrated changes, described in EPOCH_MODEL_SPEC §8.16:
+- a G-dependent routing intercept so the post-cut type fractions match DR3;
+- the Orbital σ_a0 offset set jointly with the edge (λ = 0.6; the Orbital-is-what's-left selection);
+- e2 at G < 10 from the population;
+- a quantile map for the AstroSpectroSB1 F2.
+
+**Version.** `noise_model_version` appends `+e2` and `+st1`. Both are OFF by default, and `decided_settings.yaml` still guards
+generation launches on `colour_v2.1+tr1`.
+
+**G < 10.** Whether the G < 9 exclusion (§12.36) and the G < 10 domain edge can be lifted is assessed in
+`docs/gate_noise_colour/st1/README.md`.
 
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 

@@ -68,7 +68,8 @@ def _inject(task: tuple[dict[str, float], int, float, list[int]]) -> list[dict[s
                                   ruwe_min=_W["ruwe_min"], skip_acceleration=False, gaps_jd=_W["gaps"])
             rec = it.parse_cascade_result(run.cascade, n_visibility_periods=run.n_visibility_periods, n_obs=run.n_obs, cuts=_W["cuts"])
             rec.update(sim_n_visibility_periods=run.n_visibility_periods, sim_n_obs=run.n_obs, sim_n_transits=run.n_transits, ruwe_scale=run.ruwe_scale,
-                       source_scale=run.source_scale, sigma_a0_scale=run.sigma_a0_scale)
+                       source_scale=run.source_scale, sigma_a0_scale=run.sigma_a0_scale,
+                       nss_type=run.nss_type)
         except Exception as exc:  # noqa: BLE001 - recorded, never dropped
             rec = {"error": repr(exc)}
         rec.update(source_id=int(sid), realization=int(r), bp_rp=bp_rp, cpu_s=time.process_time() - c0)
@@ -87,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--enable-recal", action="store_true", help="switch dr3.epoch_model.transit_recal on (#581)")
     ap.add_argument("--enable-source-scale", action="store_true", help="switch dr3.epoch_model.source_noise_scale (ss1) on (#595)")
     ap.add_argument("--enable-sigma-a0-scale", action="store_true", help="switch dr3.epoch_model.source_sigma_a0_scale (sa1) on (#595)")
+    ap.add_argument("--enable-type-model", action="store_true", help="switch dr3.epoch_model.bright_stated_refit (e2) and solution_type_model (st1) on (#597)")
     ap.add_argument("--stated-scale", type=float, nargs="*", default=None, help="override noise_colour.stated_scale")
     ap.add_argument("--n-realizations", type=int, default=2)
     ap.add_argument("--workers", type=int, default=6)
@@ -110,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         em = em.model_copy(update={"source_noise_scale": em.source_noise_scale.model_copy(update={"enabled": True})})
     if a.enable_sigma_a0_scale:  # #595 sa1 (spec §8.15), empirical
         em = em.model_copy(update={"source_sigma_a0_scale": em.source_sigma_a0_scale.model_copy(update={"enabled": True})})
+    if a.enable_type_model:  # #597 e2 + st1 (spec §8.16)
+        em = em.model_copy(update={"bright_stated_refit": em.bright_stated_refit.model_copy(update={"enabled": True}),
+                                   "solution_type_model": em.solution_type_model.model_copy(update={"enabled": True})})
     nmv = noise_model_version(em)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

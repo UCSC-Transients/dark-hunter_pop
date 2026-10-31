@@ -2746,6 +2746,90 @@ class EpochTransitRecalConfig(BaseModel):
         return self
 
 
+class EpochBrightStatedRefitConfig(BaseModel):
+    """#597 (docs/EPOCH_MODEL_SPEC.md §8.16): ratio r(G) on the stated per-CCD error (and u0 / r) at G < ``break_g`` (sigmas and
+    RUWE unchanged; chi^2 / F2 move). Piecewise linear over the knots, constant outside, 1 at G >= break_g."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    version: str = "e2"
+    break_g: float = 13.0
+    knots_g: list[float] = Field(..., min_length=1)
+    ratio: list[float] = Field(..., min_length=1)
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochBrightStatedRefitConfig:
+        if len(self.knots_g) != len(self.ratio) or any(b <= a for a, b in zip(self.knots_g[:-1], self.knots_g[1:])):
+            raise ValueError("bright_stated_refit knots must increase and carry one ratio each")
+        if max(self.knots_g) >= self.break_g or any(not (0.3 < r < 3.0) for r in self.ratio):
+            raise ValueError("bright_stated_refit knots must lie below break_g and ratios in (0.3, 3)")
+        return self
+
+
+SOLUTION_TYPE_TERMS: tuple[str, ...] = ("logK1", "bp_rp", "bp_rp2", "logP", "e")
+
+
+class EpochSolutionTypeConfig(BaseModel):
+    """#597 (docs/EPOCH_MODEL_SPEC.md §8.16; MOCK_POPULATION_SPEC §12.41): AstroSpectroSB1 routing of orbital-branch fits
+    and type-dependent solution properties. logit P(ASB1) = beta . [1, grvs, hinge(grvs - knot)..., terms...];
+    grvs = G - poly(clip(BP-RP)). Offsets are piecewise linear in G over ``knots_g`` (constant outside), 0 at G >= break_g."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    version: str = "st1"
+    break_g: float = 13.0
+    grvs_poly: list[float] = Field(..., min_length=1)
+    colour_clip: list[float] = Field(default_factory=lambda: [0.2, 3.5], min_length=2, max_length=2)
+    grvs_knots: list[float] = Field(default_factory=list)
+    terms: list[str] = Field(default_factory=list)
+    beta: list[float] = Field(..., min_length=2)
+    knots_g: list[float] = Field(..., min_length=1)
+    orbital_dlog_sigma_a0: list[float]
+    orbital_dlog_sigma_plx: list[float]
+    orbital_dlog_sigma_e: list[float]
+    orbital_dlog_sigma_p: list[float]
+    asb1_dlog_sigma_a0: list[float]
+    asb1_dlog_sigma_plx: list[float]
+    asb1_dlog_sigma_e: list[float]
+    asb1_dlog_sigma_p: list[float]
+    asb1_f2_kappa: list[float]
+    asb1_f2_alpha: list[float]
+    #: #597 iteration 2: additive logit intercept delta(G) (piecewise linear over its knots, constant outside) so the
+    #: post-cut type fractions match DR3; empty = none
+    routing_delta_knots_g: list[float] = Field(default_factory=list)
+    routing_delta: list[float] = Field(default_factory=list)
+    #: #597 iteration 2: AstroSpectroSB1 F2 quantile map per G bin (bin upper edges; the last bin ends at break_g):
+    #: F2' = interp(F2, mock quantiles, DR3 quantiles), slope 1 beyond the end quantiles. Replaces the affine map when set.
+    asb1_f2_qmap_g_edges: list[float] = Field(default_factory=list)
+    asb1_f2_qmap_mock: list[list[float]] = Field(default_factory=list)
+    asb1_f2_qmap_dr3: list[list[float]] = Field(default_factory=list)
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochSolutionTypeConfig:
+        if len(self.routing_delta_knots_g) != len(self.routing_delta):
+            raise ValueError("solution_type_model routing_delta needs one value per knot")
+        nq = len(self.asb1_f2_qmap_g_edges)
+        if nq and (len(self.asb1_f2_qmap_mock) != nq + 1 or len(self.asb1_f2_qmap_dr3) != nq + 1
+                   or any(len(m) != len(d) or any(b < a for a, b in zip(m[:-1], m[1:])) for m, d in zip(self.asb1_f2_qmap_mock, self.asb1_f2_qmap_dr3))):
+            raise ValueError("asb1_f2_qmap needs len(edges) + 1 non-decreasing quantile vectors of equal length on both sides")
+        if any(t not in SOLUTION_TYPE_TERMS for t in self.terms):
+            raise ValueError(f"solution_type_model terms must be in {SOLUTION_TYPE_TERMS}")
+        if len(self.beta) != 2 + len(self.grvs_knots) + len(self.terms):
+            raise ValueError("solution_type_model beta needs 2 + len(grvs_knots) + len(terms) entries")
+        n = len(self.knots_g)
+        for k in ("orbital_dlog_sigma_a0", "orbital_dlog_sigma_plx", "orbital_dlog_sigma_e", "orbital_dlog_sigma_p", "asb1_dlog_sigma_a0",
+                  "asb1_dlog_sigma_plx", "asb1_dlog_sigma_e", "asb1_dlog_sigma_p", "asb1_f2_kappa", "asb1_f2_alpha"):
+            if len(getattr(self, k)) != n:
+                raise ValueError(f"solution_type_model.{k} needs one value per knot")
+        if any(b <= a for a, b in zip(self.knots_g[:-1], self.knots_g[1:])) or max(self.knots_g) >= self.break_g:
+            raise ValueError("solution_type_model knots must increase and lie below break_g")
+        return self
+
+
 class EpochSourceScaleConfig(BaseModel):
     """#595 (docs/EPOCH_MODEL_SPEC.md §8.15): a per-source lognormal factor 10^(sigma(G) z), z ~ N(0, 1), bright side only.
 
@@ -2908,6 +2992,8 @@ class EpochModelPathConfig(BaseModel):
     transit_recal: EpochTransitRecalConfig | None = None
     source_noise_scale: EpochSourceScaleConfig | None = None  # #595 ss1 (§8.15)
     source_sigma_a0_scale: EpochSourceScaleConfig | None = None  # #595 sa1 (§8.15), empirical
+    bright_stated_refit: EpochBrightStatedRefitConfig | None = None  # #597 e2 (§8.16)
+    solution_type_model: EpochSolutionTypeConfig | None = None  # #597 st1 (§8.16)
     provenance: str = ""
 
     @model_validator(mode="after")
