@@ -1067,9 +1067,9 @@ dr3:
       provenance: "#595 step 2: same-orbit log sigma_a0 residual net of #593 grid spread and ss1; origin unknown"
     # #597 (EPOCH_MODEL_SPEC §8.16; Ryan 2026-10-30): bright stated-error refit e2. Stated per-CCD error x r(G) and u0 / r(G) at
     # G < 13 (sigmas and RUWE unchanged; chi^2 / F2 move), calibrated so the #390 same-orbit mock F2 median of DR3-Orbital
-    # orbits equals DR3's (scripts/calibrate_type_offsets_597.py, docs/gate_noise_colour/st1/offsets.json). Adds "+e2". OFF.
+    # orbits equals DR3's (scripts/calibrate_type_offsets_597.py, docs/gate_noise_colour/st1/offsets.json). Adds "+e2". ADOPTED 2026-10-31 (#599).
     bright_stated_refit:
-      enabled: false
+      enabled: true  # ADOPTED 2026-10-31 (Ryan; #599, EPOCH_MODEL_SPEC §8.16; iteration 2)
       version: e2
       break_g: 13.0
       knots_g: [9.5, 10.5, 11.5, 12.5]
@@ -1077,9 +1077,9 @@ dr3:
       provenance: "#597: DR3-Orbital F2 medians, #390 same orbits; r err 0.036 / 0.018 / 0.026 / 0.009"
     # #597 (§8.16; MOCK_POPULATION_SPEC §12.41, option (a) of §12.36): AstroSpectroSB1 routing of orbital-branch fits and
     # type-dependent solution properties. Routing: logistic on DR3 C1 orbits (scripts/calibrate_type_routing_597.py,
-    # docs/gate_noise_colour/st1/routing.json); offsets: #390 same orbits by DR3 type after e2. Adds "+st1". OFF.
+    # docs/gate_noise_colour/st1/routing.json); offsets: #390 same orbits by DR3 type after e2. Adds "+st1". ADOPTED 2026-10-31 (#599, iteration 2).
     solution_type_model:
-      enabled: false
+      enabled: true  # ADOPTED 2026-10-31 (Ryan; #599, EPOCH_MODEL_SPEC §8.16; iteration 2)
       version: st1
       break_g: 13.0
       grvs_poly: [-0.00388039, -0.0705883, 0.834474, 0.0541438]  # G - G_RVS = poly(clip(BP-RP)), numpy.polyval order
