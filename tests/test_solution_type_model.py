@@ -44,7 +44,7 @@ def test_e2_scales_stated_error_and_u0_together() -> None:
     o1, e1, k1 = em.per_ccd_noise(obs, err, 10.5, 1.0, off, np.random.default_rng(1))
     o2, e2, k2 = em.per_ccd_noise(obs, err, 10.5, 1.0, on, np.random.default_rng(1))
     r = on.bright_stated_refit.r(10.5)
-    assert r < 1.0 and np.allclose(o1, o2) and np.allclose(e2, r * e1) and k2 == pytest.approx(r * k1)
+    assert r < 1.0 and np.allclose(o1, o2) and np.allclose(e2, r * e1) and k2 == pytest.approx(k1 / r)  # UWE ~ 1/r, so u0 / r keeps RUWE
     _, e3, k3 = em.per_ccd_noise(obs, err, 14.0, 1.0, on, np.random.default_rng(1))
     _, e4, k4 = em.per_ccd_noise(obs, err, 14.0, 1.0, off, np.random.default_rng(1))
     assert np.allclose(e3, e4) and k3 == k4  # no change at G >= 13 (break)

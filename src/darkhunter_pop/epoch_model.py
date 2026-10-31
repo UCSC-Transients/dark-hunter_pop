@@ -1333,10 +1333,10 @@ def per_ccd_noise(
     if nc is not None:
         err = err * nc.stated_factor(g_mag)
         k = nc.u0(g_mag, bp_rp if (bp_rp is not None and np.isfinite(bp_rp)) else nc.colour_ref)  # #585: pivot colour
-    if config.enabled and config.bright_stated_refit is not None:  # #597 e2 (spec §8.16): stated error and u0 x r(G)
-        r = config.bright_stated_refit.r(g_mag)
+    if config.enabled and config.bright_stated_refit is not None:  # #597 e2 (spec §8.16): stated error x r(G), u0 / r(G)
+        r = config.bright_stated_refit.r(g_mag)  # UWE scales as 1/r, so u0 / r keeps RUWE = UWE / u0 unchanged
         err = err * r
-        k = k * r
+        k = k / r
     return obs, err, k
 
 

@@ -864,7 +864,7 @@ meant to be adopted together with colour_v2 as one version.
 > **Status:** implemented, OFF by default (adoption is Ryan's decision). Population side: MOCK_POPULATION_SPEC §12.41.
 
 **`bright_stated_refit` (tag `e2`).**
-- A factor r(G) multiplies the stated per-CCD error **and** u0 at G < 13. It is piecewise linear over the knots, constant outside them, and 1 at G ≥ 13, keyed on observed G.
+- A factor r(G) multiplies the stated per-CCD error at G < 13, and u0 is divided by r(G). It is piecewise linear over the knots, constant outside them, and 1 at G ≥ 13, keyed on observed G.
 - Because the Halbwachs inflation c scales as 1/r, every reported σ is unchanged, and UWE/u0 keeps RUWE unchanged. Only χ², and so F2 and the c-dependent cuts, move.
 - **Calibration:** on the #390 same-orbit set, r per G bin is the value at which the mock F2 median of DR3-**Orbital** orbits equals DR3's. The result is r = 0.905 / 0.868 / 0.915 / 0.974 (± 0.036 / 0.018 / 0.026 / 0.009) at G < 10 / 10–11 / 11–12 / 12–13, with knots at 9.5 / 10.5 / 11.5 / 12.5. Before the refit the mock F2 median was 4.2–6.0 against DR3 Orbital's 8.5–8.8 at G < 12.
 

@@ -1065,8 +1065,8 @@ dr3:
       sigma_knots_g: [10.0, 11.5, 12.5]
       sigma_log10: [0.0887, 0.1414, 0.0341]
       provenance: "#595 step 2: same-orbit log sigma_a0 residual net of #593 grid spread and ss1; origin unknown"
-    # #597 (EPOCH_MODEL_SPEC §8.16; Ryan 2026-10-30): bright stated-error refit e2. Stated per-CCD error AND u0 x r(G) at
-    # G < 13 (sigmas and RUWE unchanged; chi^2 / F2 move), calibrated so the #390 same-orbit mock F2 median of DR3-Orbital
+    # #597 (EPOCH_MODEL_SPEC §8.16; Ryan 2026-10-30): bright stated-error refit e2. Stated per-CCD error x r(G) and u0 / r(G) at
+    # (sigmas and RUWE unchanged; chi^2 / F2 move), calibrated so the #390 same-orbit mock F2 median of DR3-Orbital
     # orbits equals DR3's (scripts/calibrate_type_offsets_597.py, docs/gate_noise_colour/st1/offsets.json). Adds "+e2". OFF.
     bright_stated_refit:
       enabled: false

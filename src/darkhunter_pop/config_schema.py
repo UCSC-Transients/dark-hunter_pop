@@ -2747,7 +2747,7 @@ class EpochTransitRecalConfig(BaseModel):
 
 
 class EpochBrightStatedRefitConfig(BaseModel):
-    """#597 (docs/EPOCH_MODEL_SPEC.md §8.16): ratio r(G) on the stated per-CCD error AND on u0 at G < ``break_g`` (sigmas and
+    """#597 (docs/EPOCH_MODEL_SPEC.md §8.16): ratio r(G) on the stated per-CCD error (and u0 / r) at G < ``break_g`` (sigmas and
     RUWE unchanged; chi^2 / F2 move). Piecewise linear over the knots, constant outside, 1 at G >= break_g."""
 
     model_config = ConfigDict(extra="forbid")
