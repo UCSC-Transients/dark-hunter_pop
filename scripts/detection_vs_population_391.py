@@ -45,6 +45,7 @@ GEN_ARTIFACTS = ("restart_gen23_tune.h5", "restart_gen24_full.h5", "restart_gen2
 FEATURES = ("log10 a0", "log10 P", "e", "G", "d", "|beta|", "|cos i|")
 SCALES = np.array([0.1, 0.1, 0.1, 0.5, 0.15, 20.0, 0.1])
 MOCK_ID_OFFSET = 10**15  # keeps cross-check seeds disjoint from DR3 source_ids used for re-injection
+MOCK_ID_WINDOW = 10**9  # #601: mock seed ids are draw_index + k * MOCK_ID_OFFSET with draw_index < MOCK_ID_WINDOW
 _W: dict[str, Any] = {}
 
 
@@ -153,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--artifact-dir", type=Path, default=Path("output/proposal_set"))
     ap.add_argument("--cache", type=Path, default=Path("output/proposal_set/weights_gen23_27.npz"))
+    ap.add_argument("--artifacts", type=Path, nargs="+", default=None,
+                    help="#601 (spec §12.16): generation artifacts of the current version (gens 53-56) read directly; "
+                         "replaces --artifact-dir/--cache; --fragment must be one of them (version guard)")
     ap.add_argument("--parent-dir", type=Path, required=True)
     ap.add_argument("--real-snapshot", type=Path, required=True)
     ap.add_argument("--real-input-columns", type=Path, required=True)
@@ -194,28 +198,42 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rep: list[str] = [f"#391 detection vs population test: {D_LO:g}-{D_HI:g} kpc, G {G_LO:g}-{G_HI:g}, C1 (P <= 830 d) on both sides", ""]
 
-    # ================= mock truth (gens 23-27, cache order) =================
     keys = ("m1_msun", "m2_msun", "flux_ratio", "period_days", "eccentricity", "parallax_mas", "phot_g_mean_mag",
             "ra_deg", "dec_deg", "parent_row", "inc_deg", "Omega_rad", "omega_rad", "Tp_days", "pmra_masyr", "pmdec_masyr",
             "draw_index")
-    parts = [ps.read_proposal_artifact(args.artifact_dir / a) for a in GEN_ARTIFACTS]
-    t = {k: np.concatenate([np.asarray(p[0][k]) for p in parts]) for k in keys}
-    z = np.load(args.cache, allow_pickle=True)
-    if not np.array_equal(t["period_days"], np.asarray(z["period_days"])):
-        raise SystemExit("artifact order differs from the weight cache")
-    casc = np.asarray(z["cascade"], float)
-    acc = np.asarray(z["accepted"], bool)
-    W = {"noW": np.asarray(z["w_noW"], float), "cmdW": np.asarray(z["w_cmdW"], float)}
+    pc = parent.columns
+    if args.artifacts:
+        # ================= mock truth: current-version generations read directly (#601, spec §12.16) =================
+        ps.check_noise_model(prop, em.epoch_model_config_from_mapping(cfg.active_dr().epoch_model))
+        need = ps.primary_model_version(prop)
+        if ps.is_compact_object_version(need):
+            raise SystemExit("the spurious calibration uses luminous generations only (spec §13.2)")
+        tt, oo = ps.load_generation_draws(args.artifacts, require_primary_model=need)
+        t = {k: tt[k] for k in keys + ("sys_bp_rp", "sys_mg0")}
+        casc = np.asarray(oo["cascade"], float)
+        acc = np.asarray(oo["accepted_orbital"], bool)
+        m_bprp = np.asarray(t["sys_bp_rp"], float)  # system observables (spec §12.33)
+        m_beta = np.abs(sky_beta(np.asarray(t["ra_deg"], float), np.asarray(t["dec_deg"], float)))
+        m_mg0 = np.asarray(t["sys_mg0"], float)
+        mock_label = f"gens {', '.join(p.stem for p in args.artifacts)} ({need})"
+    else:
+        # ================= mock truth (gens 23-27, cache order; legacy) =================
+        parts = [ps.read_proposal_artifact(args.artifact_dir / a) for a in GEN_ARTIFACTS]
+        t = {k: np.concatenate([np.asarray(p[0][k]) for p in parts]) for k in keys}
+        z = np.load(args.cache, allow_pickle=True)
+        if not np.array_equal(t["period_days"], np.asarray(z["period_days"])):
+            raise SystemExit("artifact order differs from the weight cache")
+        casc = np.asarray(z["cascade"], float)
+        acc = np.asarray(z["accepted"], bool)
+        lrow = t["parent_row"].astype(np.int64)
+        m_bprp = np.asarray(pc["bp_rp"], float)[lrow]
+        m_beta = np.abs(sky_beta(np.asarray(pc["ra"], float), np.asarray(pc["dec"], float))[lrow])
+        m_mg0 = np.asarray(parent_row_cmd(parent, cfg, gcfg).mg0, float)[lrow]
+        mock_label = "gens 23-27"
     m_a0 = np.abs(np.asarray(gm.get_a0_mas(t["period_days"], t["m1_msun"], t["m2_msun"], t["parallax_mas"], t["flux_ratio"]), float))
     m_d = 1.0 / t["parallax_mas"]
-    row = t["parent_row"].astype(np.int64)
-    pc = parent.columns
-    p_beta = sky_beta(np.asarray(pc["ra"], float), np.asarray(pc["dec"], float))
-    m_beta = np.abs(p_beta[row])
     m_P_rec = casc[:, 10]
     m_acc_c1 = acc & (m_P_rec <= P_MAX)
-    pcmd = parent_row_cmd(parent, cfg, gcfg)
-    m_mg0 = np.asarray(pcmd.mg0, float)[row]
     m_q = t["m2_msun"] / t["m1_msun"]
     with np.errstate(divide="ignore", invalid="ignore"):
         m_fm_true = astrometric_mass_function(m_a0, t["parallax_mas"], t["period_days"])
@@ -226,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         & np.all(np.isfinite(mfeat), axis=1) & (m_a0 > 0)
     bidx = np.flatnonzero(box)
     tree = cKDTree(mfeat[bidx] / SCALES)
-    rep.append(f"mock draws (gens 23-27): {acc.size}; in the padded true-space box: {bidx.size} ({acc[bidx].sum()} accepted)")
+    rep.append(f"mock draws ({mock_label}): {acc.size}; in the padded true-space box: {bidx.size} ({acc[bidx].sum()} accepted)")
 
     # ================= real bin =================
     pg = np.asarray(pc["phot_g_mean_mag"], float)
@@ -257,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
     rb = np.flatnonzero(inbin)
     r_sid = np.asarray(rt["source_id"], np.int64)
     r_type = np.asarray(rt["nss_solution_type"]).astype(str)
+    if np.any(((r_sid >= MOCK_ID_OFFSET) & (r_sid < MOCK_ID_OFFSET + MOCK_ID_WINDOW))
+              | ((r_sid >= 2 * MOCK_ID_OFFSET) & (r_sid < 2 * MOCK_ID_OFFSET + MOCK_ID_WINDOW))):
+        raise SystemExit("a real source_id falls in a mock seed-id window (#601)")
     from astropy.coordinates import SkyCoord
     import astropy.units as u
 
@@ -326,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                       "Omega_rad": float(t["Omega_rad"][gidx]), "inc_rad": float(np.radians(t["inc_deg"][gidx])),
                       "omega_rad": float(t["omega_rad"][gidx]), "a0_mas": float(m_a0[gidx]),
                       "g_mag": float(t["phot_g_mean_mag"][gidx]), "seed_id": int(t["draw_index"][gidx]) + MOCK_ID_OFFSET,
-                      "bp_rp": float(np.asarray(pc["bp_rp"], float)[row[gidx]])})
+                      "bp_rp": float(m_bprp[gidx])})
     tasks += [(xr, 0) for xr in xrows if (xr["seed_id"], 0) not in done]
     # symmetric rung 1 on the mock: the mock's own *accepted* orbits matched to the re-injected real systems on
     # recovered quantities (1 nearest each), re-injected at their *fitted* orbit (A, B, F, G -> Campbell; period,
@@ -349,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
                       "eccentricity": float(casc[gidx, 14]), "Omega_rad": float(fOm[gidx]), "inc_rad": float(finc[gidx]),
                       "omega_rad": float(fom[gidx]), "a0_mas": float(fa0[gidx]), "g_mag": float(t["phot_g_mean_mag"][gidx]),
                       "seed_id": int(t["draw_index"][gidx]) + 2 * MOCK_ID_OFFSET,
-                      "bp_rp": float(np.asarray(pc["bp_rp"], float)[row[gidx]])})
+                      "bp_rp": float(m_bprp[gidx])})
     tasks += [(sr, r) for sr in srows for r in range(args.n_real) if (sr["seed_id"], r) not in done]
     base_seed = int(cfg.selection_function_astrometric.mock_population.random_seed)
     emc = dataclasses.replace(em.epoch_model_config_from_mapping(cfg.active_dr().epoch_model), enabled=True)
