@@ -2402,6 +2402,14 @@ The truth M1 is that draw. There is no deblending. The row's photometry is never
 - Above the turnoff only RUWE < 1.25 and `non_single_star = 0` apply.
 - Effect: the cut removes 15% of rows (it removed 32% over the full ridge). The uncut domain is 73% of usable rows. Its unresolved-binary contamination is 7.4% of model systems brightened ≥ 0.4 mag, against 10.8% in the cut domain before the cut.
 
+**Sample separation (Ryan, 2026-10-20): never mix primary models.**
+- Every generation has a primary-model version, derived from its proposal config and recorded in new artifacts:
+  - `row_system_v1` for gens ≤ 39 (deblended row photometry);
+  - `looks_single_v2:ruwe…:dm…:c<lo>-<hi>:g…` for the single-catalog model, with the single-cut parameters in the string.
+- So gen 40 (C0 0.85–2.0), gen 41 (0.35–2.75) and gen 42 (1.05–2.75) are three distinct versions. None of them can be combined with each other or with gens ≤ 39.
+- Cache builders and refit scripts refuse mixed versions. An explicit `--allow-mixed` flag gives labelled diagnostic output only.
+- New-model reports and outputs go under `docs/gate391/v2_single/` and `output/proposal_set/v2_single/`.
+
 **Carried over.** The epoch model, cascade, spurious template, resolved companions, MIST correction, §12.32 noise, the §12.31 vbroad model, and the decided-settings guard (updated).
 
 ### 12.34 Bright spectroscopic routing (Ryan, 2026-10-21)
