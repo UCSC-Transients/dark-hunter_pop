@@ -793,6 +793,35 @@ def check_single_primary_model(gen_cfgs: Sequence[ProposalConfig], *, allow_mixe
     return "MIXED(" + " + ".join(versions) + ")"
 
 
+def load_generation_draws(
+    paths: Sequence[str | Path], *, require_primary_model: str,
+) -> tuple[dict[str, NDArray[Any]], dict[str, NDArray[Any]]]:
+    """Concatenate ``(truth, outcome)`` of several generation artifacts of ONE primary-model version (spec §12.16, #601).
+
+    Every artifact's ``primary_model`` attribute must equal ``require_primary_model`` (which carries the noise label,
+    EPOCH_MODEL_SPEC §8.12), so draws of other versions are never mixed in; draw_index must be unique across files.
+    """
+    if not paths:
+        raise ValueError("no generation artifacts given")
+    truths, outs = [], []
+    for p in paths:
+        truth, outcome, attrs = read_proposal_artifact(p)
+        got = str(attrs.get("primary_model", ""))
+        if got != require_primary_model:
+            raise ValueError(f"{p}: primary_model {got!r} != required {require_primary_model!r} "
+                             "(spec §12.16/§12.33: draws of other versions are never mixed in)")
+        truths.append(truth)
+        outs.append(outcome)
+    tk = set.intersection(*(set(t) for t in truths))
+    ok = set.intersection(*(set(o) for o in outs))
+    truth = {k: np.concatenate([np.asarray(t[k]) for t in truths]) for k in sorted(tk)}
+    outcome = {k: np.concatenate([np.asarray(o[k]) for o in outs]) for k in sorted(ok)}
+    di = np.asarray(truth["draw_index"], np.int64)
+    if np.unique(di).size != di.size:
+        raise ValueError("draw_index is not unique across the generation artifacts")
+    return truth, outcome
+
+
 def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
     """Short SHA256 of the proposal section (keys the artifact; target is reweight-only)."""
     d = fragment.proposal.model_dump(mode="json")
