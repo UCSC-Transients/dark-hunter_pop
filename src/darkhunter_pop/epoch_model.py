@@ -414,6 +414,30 @@ class SolutionTypeConfig:
     beta: tuple[float, ...]
     knots_g: tuple[float, ...]
     offsets: Mapping[str, tuple[float, ...]]
+    routing_delta_knots_g: tuple[float, ...] = ()
+    routing_delta: tuple[float, ...] = ()
+    qmap_g_edges: tuple[float, ...] = ()
+    qmap_mock: tuple[tuple[float, ...], ...] = ()
+    qmap_dr3: tuple[tuple[float, ...], ...] = ()
+
+    def delta(self, g_mag: float) -> float:
+        if not self.routing_delta_knots_g:
+            return 0.0
+        return float(np.interp(g_mag, self.routing_delta_knots_g, self.routing_delta))
+
+    def map_f2_asb1(self, f2: float, g_mag: float) -> float:
+        """AstroSpectroSB1 F2: quantile map when configured (slope 1 beyond the end quantiles), else the affine map."""
+        if not g_mag < self.break_g:
+            return f2
+        if self.qmap_g_edges:
+            j = int(np.searchsorted(self.qmap_g_edges, g_mag, side="right"))
+            m, d = np.asarray(self.qmap_mock[j]), np.asarray(self.qmap_dr3[j])
+            if f2 < m[0]:
+                return float(d[0] + (f2 - m[0]))
+            if f2 > m[-1]:
+                return float(d[-1] + (f2 - m[-1]))
+            return float(np.interp(f2, m, d))
+        return self.offset("asb1_f2_alpha", g_mag) + self.offset("asb1_f2_kappa", g_mag) * f2
 
     def p_asb1(self, g_mag: float, bp_rp: float, period_days: float, ecc: float, k1_kms: float) -> float:
         c = float(np.clip(bp_rp if (bp_rp is not None and np.isfinite(bp_rp)) else 1.0, *self.colour_clip))
@@ -422,7 +446,7 @@ class SolutionTypeConfig:
         feat = {"logK1": float(np.log10(max(k1_kms, 1e-3))), "bp_rp": c, "bp_rp2": c * c,
                 "logP": float(np.log10(period_days)), "e": float(ecc)}
         x += [feat[t] for t in self.terms]
-        z = float(np.dot(self.beta, x))
+        z = float(np.dot(self.beta, x)) + self.delta(g_mag)
         return float(1.0 / (1.0 + np.exp(-z)))
 
     def offset(self, key: str, g_mag: float) -> float:
@@ -616,7 +640,12 @@ def _solution_type_from(m: Mapping[str, Any] | None) -> SolutionTypeConfig | Non
                               colour_clip=(float(m.get("colour_clip", [0.2, 3.5])[0]), float(m.get("colour_clip", [0.2, 3.5])[1])),
                               grvs_knots=tuple(float(x) for x in m.get("grvs_knots", ())), terms=tuple(str(t) for t in m.get("terms", ())),
                               beta=tuple(float(x) for x in m["beta"]), knots_g=tuple(float(x) for x in m["knots_g"]),
-                              offsets={k: tuple(float(x) for x in m[k]) for k in SOLUTION_TYPE_OFFSET_KEYS})
+                              offsets={k: tuple(float(x) for x in m[k]) for k in SOLUTION_TYPE_OFFSET_KEYS},
+                              routing_delta_knots_g=tuple(float(x) for x in m.get("routing_delta_knots_g", ())),
+                              routing_delta=tuple(float(x) for x in m.get("routing_delta", ())),
+                              qmap_g_edges=tuple(float(x) for x in m.get("asb1_f2_qmap_g_edges", ())),
+                              qmap_mock=tuple(tuple(float(x) for x in q) for q in m.get("asb1_f2_qmap_mock", ())),
+                              qmap_dr3=tuple(tuple(float(x) for x in q) for q in m.get("asb1_f2_qmap_dr3", ())))
 
 
 def _source_scale_from(m: Mapping[str, Any] | None) -> SourceScaleConfig | None:
@@ -1283,7 +1312,7 @@ def apply_solution_type(cascade: list[float], source: SourceEpochContext, config
     for slot, key in (("sigma_a0", "dlog_sigma_a0"), ("sigma_plx", "dlog_sigma_plx"), ("sigma_ecc", "dlog_sigma_e"), ("sigma_period", "dlog_sigma_p")):
         c[S[slot]] = c[S[slot]] * 10.0 ** st.offset(f"{pre}_{key}", g)
     if typ == "AstroSpectroSB1" and g < st.break_g:
-        c[S["f2"]] = st.offset("asb1_f2_alpha", g) + st.offset("asb1_f2_kappa", g) * c[S["f2"]]
+        c[S["f2"]] = st.map_f2_asb1(c[S["f2"]], g)
     return c, typ
 
 

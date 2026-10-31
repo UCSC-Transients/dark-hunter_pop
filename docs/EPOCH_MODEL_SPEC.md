@@ -880,6 +880,18 @@ meant to be adopted together with colour_v2 as one version.
   - routing on 125,251 DR3 C1 orbits (`docs/gate_noise_colour/st1/routing.json`);
   - offsets on the #390 same orbits by DR3 type, after e2 (`docs/gate_noise_colour/st1/offsets.json`). For example, at G 10–11: AstroSpectroSB1 σ_a0 −0.099 dex, σ_e −0.11, σ_P −0.08, F2 κ = 0.50; Orbital σ_a0 +0.077, σ_ϖ +0.076.
 
+**Iteration 2 (Ryan, 2026-10-31; `scripts/calibrate_st1_iter_597.py`, `docs/gate_noise_colour/st1/iter2.json`).**
+The first validation failed: type fractions were 0.08–0.11 too high after the cuts, the Orbital edge was low, F2 overshot at
+G < 10, and the AstroSpectroSB1 F2 tail was too thin. All four fixes are calibrated on gens 47–50 post hoc against DR3 C1
+orbits by type.
+- **(i) Routing intercept.** δ(G) at knots 9.5 / 10.5 / 11.5 / 12.5 is added to the logit: −0.09 / −0.50 / −0.38 / −0.68. With it, the post-cut AstroSpectroSB1 fractions match DR3 per G bin. At matched G, P(ASB1) also matches against log P (0.78 / 0.55 / 0.44 / 0.43 vs 0.71 / 0.57 / 0.45 / 0.42) and log K1. Against colour it is within 0.04, except BP−RP < 0.6 (template T_eff ceiling).
+- **(ii) Orbital σ_a0 offset, set jointly with the a0/σ_a0 edge.**
+  - It is λ times the same-orbit value. λ = 0.6 minimises the combined deviation of the Orbital population edge (99th percentile of log z at G 10–13) and the same-orbit σ_a0 residual.
+  - The σ_ϖ, σ_e and σ_P offsets stay as measured.
+  - The same-orbit Orbital sample is the DR3 orbits that did **not** get an SB1 solution, i.e. what is left after DR3's own routing. Their larger σ_a0 is partly a selection effect, and the shared observables reproduce DR3's routing only statistically (45–70% per-orbit agreement). Applying the full per-orbit offset to every mock Orbital draw therefore overshoots the population, and the edge sets λ < 1.
+- **(iii) e2 at G < 10.** The knot at G 9.5 is taken from the population Orbital F2 median at G 9–10: r = 0.956. The same-orbit value was 0.905 from 42 realizations. The G < 10 exclusion of the fit stays.
+- **(iv) AstroSpectroSB1 F2 quantile map** per G bin (< 10 / 10–11 / 11–12 / 12–13), matched at the 1–99% quantiles with slope 1 beyond them. It replaces the affine map, which had compressed the tail.
+
 **Validation** (`docs/gate_noise_colour/st1/README.md`):
 - by type, gens 47–50 post hoc and a fresh #390 re-injection: type fractions against G, P, K1 and colour; F2, σ_ϖ and σ_a0 by type; the a0/σ_a0–RUWE edge by type; the bright high-F2 tail by type and class; short-P bright counts;
 - the single-star control;

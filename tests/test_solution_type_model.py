@@ -70,7 +70,7 @@ def test_apply_solution_type_offsets_and_stream() -> None:
         assert out[18] == pytest.approx(0.05 * 10 ** st.offset(f"{pre}_dlog_sigma_a0", 10.5))
         assert out[1] == pytest.approx(0.02 * 10 ** st.offset(f"{pre}_dlog_sigma_plx", 10.5))
         if typ == "AstroSpectroSB1":
-            assert out[21] == pytest.approx(st.offset("asb1_f2_alpha", 10.5) + st.offset("asb1_f2_kappa", 10.5) * 10.0)
+            assert out[21] == pytest.approx(st.map_f2_asb1(10.0, 10.5))
         else:
             assert out[21] == 10.0
     assert types == {"Orbital", "AstroSpectroSB1"}
@@ -94,3 +94,13 @@ def test_schema_guards() -> None:
     bad["beta"] = bad["beta"][:-1]
     with pytest.raises(ValueError):
         type(sec.solution_type_model).model_validate(bad)
+
+
+def test_quantile_map_keeps_tail_and_intercept() -> None:
+    st = em.epoch_model_config_from_mapping(_on()).solution_type_model
+    assert st.qmap_g_edges  # iteration 2 configured
+    m, d = st.qmap_mock[1], st.qmap_dr3[1]
+    assert st.map_f2_asb1(m[4], 10.5) == pytest.approx(d[4])  # median maps onto the DR3 median
+    assert st.map_f2_asb1(m[-1] + 5.0, 10.5) == pytest.approx(d[-1] + 5.0)  # slope 1 beyond the 99th percentile
+    assert st.map_f2_asb1(7.0, 14.0) == 7.0  # nothing at G >= 13
+    assert st.delta(10.5) != 0.0

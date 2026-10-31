@@ -2797,10 +2797,25 @@ class EpochSolutionTypeConfig(BaseModel):
     asb1_dlog_sigma_p: list[float]
     asb1_f2_kappa: list[float]
     asb1_f2_alpha: list[float]
+    #: #597 iteration 2: additive logit intercept delta(G) (piecewise linear over its knots, constant outside) so the
+    #: post-cut type fractions match DR3; empty = none
+    routing_delta_knots_g: list[float] = Field(default_factory=list)
+    routing_delta: list[float] = Field(default_factory=list)
+    #: #597 iteration 2: AstroSpectroSB1 F2 quantile map per G bin (bin upper edges; the last bin ends at break_g):
+    #: F2' = interp(F2, mock quantiles, DR3 quantiles), slope 1 beyond the end quantiles. Replaces the affine map when set.
+    asb1_f2_qmap_g_edges: list[float] = Field(default_factory=list)
+    asb1_f2_qmap_mock: list[list[float]] = Field(default_factory=list)
+    asb1_f2_qmap_dr3: list[list[float]] = Field(default_factory=list)
     provenance: str = ""
 
     @model_validator(mode="after")
     def _check(self) -> EpochSolutionTypeConfig:
+        if len(self.routing_delta_knots_g) != len(self.routing_delta):
+            raise ValueError("solution_type_model routing_delta needs one value per knot")
+        nq = len(self.asb1_f2_qmap_g_edges)
+        if nq and (len(self.asb1_f2_qmap_mock) != nq + 1 or len(self.asb1_f2_qmap_dr3) != nq + 1
+                   or any(len(m) != len(d) or any(b < a for a, b in zip(m[:-1], m[1:])) for m, d in zip(self.asb1_f2_qmap_mock, self.asb1_f2_qmap_dr3))):
+            raise ValueError("asb1_f2_qmap needs len(edges) + 1 non-decreasing quantile vectors of equal length on both sides")
         if any(t not in SOLUTION_TYPE_TERMS for t in self.terms):
             raise ValueError(f"solution_type_model terms must be in {SOLUTION_TYPE_TERMS}")
         if len(self.beta) != 2 + len(self.grvs_knots) + len(self.terms):

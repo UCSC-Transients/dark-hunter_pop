@@ -2684,6 +2684,12 @@ prefix.
 
 **Comparison.** With the model on, the rung-3 likelihood and plots can be split by type, using mock-routed vs DR3 types. Until the artifacts carry the routed type, gens 47–50 are evaluated post hoc: the type is drawn from the stored cascade, the offsets are applied, and the cuts are re-applied. Routing among the 5/7/9-parameter outcomes is not changed.
 
+**Iteration 2 (Ryan, 2026-10-31).** Four calibrated changes, described in EPOCH_MODEL_SPEC §8.16:
+- a G-dependent routing intercept so the post-cut type fractions match DR3;
+- the Orbital σ_a0 offset set jointly with the edge (λ = 0.6; the Orbital-is-what's-left selection);
+- e2 at G < 10 from the population;
+- a quantile map for the AstroSpectroSB1 F2.
+
 **Version.** `noise_model_version` appends `+e2` and `+st1`. Both are OFF by default, and `decided_settings.yaml` still guards
 generation launches on `colour_v2.1+tr1`.
 

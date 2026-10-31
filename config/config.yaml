@@ -1073,7 +1073,7 @@ dr3:
       version: e2
       break_g: 13.0
       knots_g: [9.5, 10.5, 11.5, 12.5]
-      ratio: [0.904559, 0.86811, 0.915043, 0.973968]
+      ratio: [0.955727, 0.86811, 0.915043, 0.973968]  # #597 iter 2: G < 10 knot from the population Orbital F2 median (same-orbit value 0.905 rested on 42 realizations)
       provenance: "#597: DR3-Orbital F2 medians, #390 same orbits; r err 0.036 / 0.018 / 0.026 / 0.009"
     # #597 (§8.16; MOCK_POPULATION_SPEC §12.41, option (a) of §12.36): AstroSpectroSB1 routing of orbital-branch fits and
     # type-dependent solution properties. Routing: logistic on DR3 C1 orbits (scripts/calibrate_type_routing_597.py,
@@ -1088,7 +1088,7 @@ dr3:
       terms: ["logK1", "bp_rp", "bp_rp2", "e", "logP"]
       beta: [-5.61629, 0.357276, -0.313738, -0.0421952, -0.423339, -0.0555064, -0.513271, -0.461431, -80.5445, -4.84673, -0.900432, 2.26632, 5.07474, -1.89345, -1.0055, -0.419721]
       knots_g: [9.5, 10.5, 11.5, 12.5]
-      orbital_dlog_sigma_a0: [0.0784031, 0.076545, 0.0984073, 0.0577984]
+      orbital_dlog_sigma_a0: [0.0470419, 0.045927, 0.0590444, 0.034679]  # #597 iter 2: lambda = 0.6 x same-orbit, joint with the Orbital edge
       orbital_dlog_sigma_plx: [0.0328712, 0.0756457, 0.0491738, 0.0589542]
       orbital_dlog_sigma_e: [0.0669839, 0.0834347, 0.0549067, 0.0597954]
       orbital_dlog_sigma_p: [0.0141833, 0.0828425, 0.0785033, 0.0688228]
@@ -1098,7 +1098,12 @@ dr3:
       asb1_dlog_sigma_p: [-0.142496, -0.0787933, -0.0673706, 0.0100153]
       asb1_f2_kappa: [0.561547, 0.502695, 0.571308, 0.494683]
       asb1_f2_alpha: [-1.7665, -0.277665, -1.94398, 0.321285]
-      provenance: "#597: routing on 125,251 DR3 C1 orbits; offsets on #390 same orbits split by DR3 type (after e2)"
+      routing_delta_knots_g: [9.5, 10.5, 11.5, 12.5]  # #597 iter 2: post-cut type fractions matched per G bin
+      routing_delta: [-0.0877254, -0.504602, -0.380056, -0.676607]
+      asb1_f2_qmap_g_edges: [10, 11, 12]  # #597 iter 2: AstroSpectroSB1 F2 quantile map (1..99%), replaces the affine map
+      asb1_f2_qmap_mock: [[-1.54604, 0.627488, 1.72108, 3.56035, 5.99322, 9.13071, 12.8134, 15.3233, 20.6073], [-0.141226, 1.70685, 2.65943, 4.4196, 6.61802, 9.31128, 12.559, 14.9603, 20.4101], [0.480879, 2.33341, 3.59925, 5.16323, 7.46628, 10.7753, 13.7822, 15.9722, 19.5445], [-1.04531, 0.424652, 1.42145, 3.00248, 4.8471, 7.3751, 10.6197, 12.8871, 17.6261]]
+      asb1_f2_qmap_dr3: [[-1.7965, -0.435498, 0.213119, 1.48546, 2.7698, 3.98085, 5.25951, 6.31067, 12.8036], [-0.2924, 0.744796, 1.29267, 2.30582, 3.43796, 4.99013, 7.70437, 10.974, 19.1413], [-0.586855, 0.553374, 1.16831, 2.245, 3.46698, 5.07255, 7.42021, 9.77199, 16.3062], [-0.691422, 0.384422, 0.944087, 1.90338, 2.95, 4.07789, 5.29063, 6.23049, 11.5233]]
+      provenance: "#597: routing on 125,251 DR3 C1 orbits; offsets on #390 same orbits split by DR3 type (after e2); iteration 2 (delta, lambda, quantile map) on gens 47-50 post hoc (docs/gate_noise_colour/st1/iter2.json)"
     # #579 noise model colour_v2 (EPOCH_MODEL_SPEC §8.13; Ryan 2026-10-27), supersedes colour_v1 (§8.12): N2d is KEPT and
     # the DR3 G = 13 bright/faint processing break is preserved (note after §8.5). Actual per-CCD noise (gaiamock + N2d)
     # x s(G, BP-RP), ln s = a(G) + b(G) c + q c^2, c = clip(BP-RP) - 1.2, separate parameters for G < 13 (fields
