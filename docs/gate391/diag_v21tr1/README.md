@@ -86,3 +86,47 @@ The statistic is z = (a0/σ_a0)/√(RUWE² − 1); its 99th percentile is the ed
   3. P-dependent twin fraction: reweight-only.
   4. Short-P e-shape: reweight-only.
   5. Cuts and spurious orbits: not supported.
+
+## 4. Scan-pattern control (#593; Ryan approved a small run on 2026-10-30): [gridpoint/](gridpoint/)
+
+gaiamock_mod takes each star's scan pattern from the nearest of 3,072 healpix-16 grid points (~3.7°). Some of the "same
+orbit" DR3−mock difference is therefore a pattern difference, not missing physics.
+
+- **Run:** 200 #390 orbits (100 at G < 13, 100 at G ≥ 13) re-injected at the 3 nearest neighbouring grid points, 2 realizations each, under colour_v2.1+tr1.
+  - That is 1,200 cascades in 39 min, 3.6 CPU-h, 0.2 GB.
+  - Script: `scripts/reinject_gridpoints_593.py`; analysis: `scripts/diag_gridpoint_593.py`.
+  - 170 orbits have 4 grid points with both realizations accepted.
+- **Method:** the grid-point spread σ_grid (spread of the per-grid-point means beyond the realization noise) is subtracted in
+  quadrature from the same-orbit extra scatter. Subtracting all of σ_grid is an upper bound on the pattern mismatch, since a star lies at most half a grid spacing from its grid point; half of it is shown as well.
+
+| quantity | G | σ_within | σ_grid | extra (#589/#590) | left (− σ_grid²) | left (− ½σ_grid²) |
+|---|---|---:|---:|---:|---:|---:|
+| log σ_a0 | < 13 | 0.053 | 0.071 | 0.132 | **0.112** | 0.122 |
+| log σ_a0 | ≥ 13 | 0.067 | 0.064 | 0.046 | 0.000 | 0.006 |
+| log σ_ϖ | < 13 | 0.033 | 0.047 | 0.077 | **0.061** | 0.069 |
+| log σ_ϖ | ≥ 13 | 0.036 | 0.048 | 0.047 | 0.000 | 0.032 |
+| ½ log(RUWE² − 1) | < 13 | 0.011 | 0.028 | 0.053 | **0.044** | 0.049 |
+| ½ log(RUWE² − 1) | ≥ 13 | 0.012 | 0.027 | 0.039 | 0.029 | 0.034 |
+| log z | < 13 | 0.054 | 0.065 | 0.125 | **0.107** | 0.117 |
+| log z | ≥ 13 | 0.066 | 0.047 | 0.041 | 0.000 | 0.023 |
+| F2 | 9–11 | 1.6 | 2.0 | 3.37 | **2.7** | 3.1 |
+| F2 | 11–12 | 2.5 | 0.8 | 3.70 | **3.6** | 3.7 |
+| F2 | 12–13 | 2.0 | 1.6 | 2.58 | 2.0 | 2.3 |
+| F2 | 13–15 | 2.1 | 1.7 | 1.53 | 0.0 | — |
+
+The "extra" column is the full-sample value; [gridpoint.json](gridpoint/gridpoint.json) also gives the value on the subset. The
+F2 subsets per G bin are small (about 20 orbits), so the F2 grid term is uncertain by about ±1.
+
+**Faint stars (G ≥ 13):** the grid-point pattern explains all of the extra σ_a0, σ_ϖ and z scatter. Only about 0.03 dex
+remains in the RUWE term, and nothing is needed there.
+
+**Bright stars (G < 13):** most of the extra scatter remains, so both terms are still needed.
+- **Per-source error scale (G < 13):** about 0.11 dex in σ_a0 and z, 0.06 dex in σ_ϖ and 0.04 dex in ½ log(RUWE² − 1).
+  - σ_a0 retains more than σ_ϖ, so the scale should act on the formal orbit errors with an extra Thiele–Innes/geometry part, not only as a common σ_ϖ scale.
+  - A common component of about 0.06 dex, with about 0.09 dex more on σ_a0, reproduces the table.
+- **F2 heavy tail at G 10–12:** the remaining per-orbit F2 scatter is 2.7–3.6. That converts to a per-source true-noise scale of
+  σ(log10 s) ≈ 0.04 (G 9–11), 0.055 (11–12) and 0.03 (12–13), using F2 ≈ √(9ν/2)·(2/3)·ln(10)·log10 s with ν ≈ 390. Nothing is
+  needed at G ≥ 13.
+- The F2-implied s (about 0.05 dex) matches the common σ_ϖ component (0.06 dex), so a single per-source true-noise scale s(G)
+  explains F2 and σ_ϖ together. The remaining σ_a0/z part (about 0.09 dex) is an orbit-geometry term at bright G. It is
+  consistent with the same-orbit geometry excess rising with A and toward bright G (#576), and its physical origin is still open.
