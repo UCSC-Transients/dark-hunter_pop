@@ -2690,6 +2690,13 @@ prefix.
 - e2 at G < 10 from the population;
 - a quantile map for the AstroSpectroSB1 F2.
 
+**Iteration 3 (Ryan, 2026-10-31; #599).** One last calibration-only step, post hoc on gens 47–50 (EPOCH_MODEL_SPEC §8.16 (v)):
+the AstroSpectroSB1 σ offsets are shrunk by λ_SB1, the same selection argument as λ for Orbital, calibrated jointly with
+λ_Orb on the pooled σ_a0/σ_ϖ by G and the short-period share by type; δ(G) and the F2 quantile map are re-solved. Pass
+criteria are population-by-type only. Known limitations: the Orbital-evolved high-F2 tail (×2.8 short), G < 10 readiness
+(the exclusion stays), and the BP−RP < 0.6 routing excess (RV template T_eff ceiling). If it passes, e2 + st1 are adopted
+and the re-simulation queue restarts under the new version; draws of earlier versions are never mixed in.
+
 **Version.** `noise_model_version` appends `+e2` and `+st1`. Both are OFF by default, and `decided_settings.yaml` still guards
 generation launches on `colour_v2.1+tr1`.
 

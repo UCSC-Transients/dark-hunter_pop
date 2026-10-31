@@ -892,6 +892,34 @@ orbits by type.
 - **(iii) e2 at G < 10.** The knot at G 9.5 is taken from the population Orbital F2 median at G 9–10: r = 0.956. The same-orbit value was 0.905 from 42 realizations. The G < 10 exclusion of the fit stays.
 - **(iv) AstroSpectroSB1 F2 quantile map** per G bin (< 10 / 10–11 / 11–12 / 12–13), matched at the 1–99% quantiles with slope 1 beyond them. It replaces the affine map, which had compressed the tail.
 
+**Iteration 3 (Ryan, 2026-10-31; #599; `scripts/calibrate_st1_iter3_599.py`, `docs/gate_noise_colour/st1/iter3.json`).**
+Calibration only, post hoc on gens 47–50 (colour_v2.1+tr1); no generation is re-simulated. Iteration 2 left the pooled
+log σ_a0/σ_ϖ about 0.03 dex low in both types at G 10–13 and the AstroSpectroSB1 short-period (P < 100 d) share at 0.046
+against DR3's 0.025. Both point to AstroSpectroSB1 σ offsets that are too strong for the population, for the same
+selection reason as λ for Orbital (the same-orbit AstroSpectroSB1 sample is what DR3's own routing picked).
+- **(v) λ_SB1.** The AstroSpectroSB1 σ offsets become λ_SB1 times the same-orbit values. Scope: σ_a0 and σ_ϖ, or all four
+  (σ_a0, σ_ϖ, σ_e, σ_P); both are evaluated and the one with the lower objective is adopted and reported.
+- **Joint objective** over (λ_Orb, λ_SB1) on a 0.1 grid:
+  - Σ_G [(m − m_DR3)/0.01]² for the pooled (both types) median log σ_a0/σ_ϖ at G 10–11 / 11–12 / 12–13 (unweighted mock;
+    DR3 0.058 / 0.067 / 0.088);
+  - Σ_type [(s − s_DR3)/σ_s]² for the short-period share at G < 13 by type (default-target weights; σ_s combines the
+    DR3 binomial error and the mock error with the Kish ESS);
+  - the iteration-2 Orbital terms: the Orbital edge (99th percentile of log z at G 10–13, scale 0.02) and the same-orbit
+    σ_a0 residual (1 − λ_Orb) Δ_same (scale 0.02).
+- After each grid pass the AstroSpectroSB1 F2 quantile map (iv) and the routing intercept δ(G) (i) are re-solved so the
+  post-cut type fractions still match; two passes. e2 (r(G)) is unchanged. The G < 10 exclusion stays.
+- **Pass criteria (Ryan, 2026-10-31), population by type only.** The same-orbit-by-DR3-type criterion is dropped, since
+  per-orbit routing agreement is inherently 45–70%.
+  - single stars: no regression (σ_ϖ envelope level; G = 13 jump ≈ +23% against DR3 +24.6%);
+  - pooled log σ_a0/σ_ϖ within about 0.02 dex of DR3 at G 10–13;
+  - short-period shares by type within errors;
+  - type fractions, the edge, and F2 by type (median and tail) not materially worse than iteration 2;
+  - pooled #390 F2 not materially worse than iteration 2 (median 5.29, F2 > 3 0.789, 90th percentile 12.2; DR3
+    4.90 / 0.742 / 11.5).
+- **Known limitations (recorded, not fixed by iteration 3):** the Orbital-evolved high-F2 tail at G 10–12 is about 2.8×
+  short (0.090 vs 0.249); G < 10 is not ready (type fraction and F2 at G 6–10), so the exclusion stays; at BP−RP < 0.6 the
+  routing gives too many AstroSpectroSB1 (0.33 vs 0.23; the DR3 RV template T_eff ceiling is not modelled).
+
 **Validation** (`docs/gate_noise_colour/st1/README.md`):
 - by type, gens 47–50 post hoc and a fresh #390 re-injection: type fractions against G, P, K1 and colour; F2, σ_ϖ and σ_a0 by type; the a0/σ_a0–RUWE edge by type; the bright high-F2 tail by type and class; short-P bright counts;
 - the single-star control;
