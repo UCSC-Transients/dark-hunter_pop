@@ -859,6 +859,32 @@ meant to be adopted together with colour_v2 as one version.
 - The single-star control: σ_ϖ envelope, the G = 13 jump and falloff, RUWE.
 - Gens 47–50, approximated post hoc: bright P(F2 > 12) by class at G 10–12.
 
+### 8.16 Bright stated-error refit `e2` and solution-type model `st1` (#597; Ryan, 2026-10-30)
+
+> **Status:** implemented, OFF by default (adoption is Ryan's decision). Population side: MOCK_POPULATION_SPEC §12.41.
+
+**`bright_stated_refit` (tag `e2`).**
+- A factor r(G) multiplies the stated per-CCD error **and** u0 at G < 13. It is piecewise linear over the knots, constant outside them, and 1 at G ≥ 13, keyed on observed G.
+- Because the Halbwachs inflation c scales as 1/r, every reported σ is unchanged, and UWE/u0 keeps RUWE unchanged. Only χ², and so F2 and the c-dependent cuts, move.
+- **Calibration:** on the #390 same-orbit set, r per G bin is the value at which the mock F2 median of DR3-**Orbital** orbits equals DR3's. The result is r = 0.905 / 0.868 / 0.915 / 0.974 (± 0.036 / 0.018 / 0.026 / 0.009) at G < 10 / 10–11 / 11–12 / 12–13, with knots at 9.5 / 10.5 / 11.5 / 12.5. Before the refit the mock F2 median was 4.2–6.0 against DR3 Orbital's 8.5–8.8 at G < 12.
+
+**`solution_type_model` (tag `st1`).**
+- After the cascade, an orbital-branch fit gets a type:
+  - AstroSpectroSB1 with probability P(ASB1 | x), the §12.41 logistic: G_RVS hinge basis plus log K1, BP−RP, (BP−RP)², e and log P;
+  - the draw comes from a child of the noise Generator, so no stream moves.
+- The cascade vector is then modified, with all offsets interpolated over the knots, constant outside them, and 0 at G ≥ 13:
+  - σ_ϖ (slot 1), σ_P (11), σ_e (15) and σ_a0 (18) are multiplied by 10^δ_type(G);
+  - for AstroSpectroSB1, F2 (slot 21) becomes α(G) + κ(G) F2.
+- `CascadeRun.nss_type` records the type. Downstream cuts see the modified vector.
+- **Calibration:**
+  - routing on 125,251 DR3 C1 orbits (`docs/gate_noise_colour/st1/routing.json`);
+  - offsets on the #390 same orbits by DR3 type, after e2 (`docs/gate_noise_colour/st1/offsets.json`). For example, at G 10–11: AstroSpectroSB1 σ_a0 −0.099 dex, σ_e −0.11, σ_P −0.08, F2 κ = 0.50; Orbital σ_a0 +0.077, σ_ϖ +0.076.
+
+**Validation** (`docs/gate_noise_colour/st1/README.md`):
+- by type, gens 47–50 post hoc and a fresh #390 re-injection: type fractions against G, P, K1 and colour; F2, σ_ϖ and σ_a0 by type; the a0/σ_a0–RUWE edge by type; the bright high-F2 tail by type and class; short-P bright counts;
+- the single-star control;
+- G < 10.
+
 ## References
 
 - Boubert, D., Everall, A. & Holl, B. 2020, "Completeness of the Gaia-verse I"
