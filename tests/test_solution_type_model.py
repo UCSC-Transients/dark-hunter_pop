@@ -22,15 +22,23 @@ def _on():
                                   "solution_type_model": sec.solution_type_model.model_copy(update={"enabled": True})})
 
 
+def _off():
+    sec = _sec()
+    return sec.model_copy(update={"bright_stated_refit": sec.bright_stated_refit.model_copy(update={"enabled": False}),
+                                  "solution_type_model": sec.solution_type_model.model_copy(update={"enabled": False})})
+
+
 def _orbital_vec(g_like: float = 0.0) -> list[float]:
     v = [0.0] * 23
     v[0], v[1], v[10], v[11], v[14], v[15], v[16], v[17], v[18], v[21], v[22] = 2.0, 0.02, 300.0, 3.0, 0.3, 0.05, 60.0, 1.0, 0.05, 10.0, 3.0
     return v
 
 
-def test_off_by_default_and_labels() -> None:
+def test_adopted_and_labels() -> None:
     sec = _sec()
-    assert sec.bright_stated_refit.enabled is False and sec.solution_type_model.enabled is False
+    assert sec.bright_stated_refit.enabled is True and sec.solution_type_model.enabled is True  # adopted 2026-10-31 (#599)
+    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st1"
+    sec = _off()
     assert em.noise_model_version(sec) == "colour_v2.1+tr1"
     assert em.noise_model_version(_on()) == "colour_v2.1+tr1+e2+st1"
     cfg = em.epoch_model_config_from_mapping(sec)
@@ -38,7 +46,7 @@ def test_off_by_default_and_labels() -> None:
 
 
 def test_e2_scales_stated_error_and_u0_together() -> None:
-    off = em.epoch_model_config_from_mapping(_sec())
+    off = em.epoch_model_config_from_mapping(_off())
     on = em.epoch_model_config_from_mapping(_on())
     obs, err = np.zeros(50), np.full(50, 0.1)
     o1, e1, k1 = em.per_ccd_noise(obs, err, 10.5, 1.0, off, np.random.default_rng(1))
@@ -77,7 +85,7 @@ def test_apply_solution_type_offsets_and_stream() -> None:
     assert rng.random() == em.epoch_model_rng(1, 2, tag=em.PER_CCD_NOISE_RNG_TAG).random()  # spawned children only
     nonorb = [-7.0] + [1.0] * 12
     assert em.apply_solution_type(nonorb, src, cfg, rng) == (nonorb, None)
-    off = em.epoch_model_config_from_mapping(_sec())
+    off = em.epoch_model_config_from_mapping(_off())
     assert em.apply_solution_type(_orbital_vec(), src, off, rng) == (_orbital_vec(), None)
 
 

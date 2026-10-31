@@ -20,7 +20,7 @@ def _ss(version: str = "ss_test") -> em.SourceScaleConfig:
 
 def _cfg(**kw) -> em.EpochModelConfig:
     sec = load_config().dr3.epoch_model
-    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=None, transit_recal=None, **kw)
+    return dataclasses.replace(em.epoch_model_config_from_mapping(sec), enabled=True, noise_colour=None, transit_recal=None, bright_stated_refit=None, solution_type_model=None, **kw)
 
 
 def test_sigma_bright_only_no_interpolation_across_break() -> None:
@@ -62,6 +62,7 @@ def test_per_ccd_noise_scales_the_n2d_excess_only() -> None:
 
 def test_version_labels_and_config_off_by_default() -> None:
     sec = load_config().dr3.epoch_model
+    sec = sec.model_copy(update={"bright_stated_refit": None, "solution_type_model": None})  # #599: e2 + st1 adopted; labels checked without them
     assert sec.source_noise_scale is not None and sec.source_noise_scale.enabled is False
     assert sec.source_sigma_a0_scale is not None and sec.source_sigma_a0_scale.enabled is False
     assert em.noise_model_version(sec) == "colour_v2.1+tr1"
