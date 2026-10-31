@@ -53,7 +53,8 @@ def load(path: Path) -> dict:
 
     with h5py.File(D / "output/gate390/published_orbits.h5", "r") as f:
         P = f["published"]
-        sid, g, f2d, spd, rud = (P[k][()] for k in ("source_id", "g_mag", "goodness_of_fit", "parallax_error", "ruwe"))
+        sid, g, f2d, spd, rud, sig_d = (P[k][()] for k in ("source_id", "g_mag", "goodness_of_fit", "parallax_error", "ruwe", "significance"))
+        P_ti = {k: P[k][()] for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes")}
     ix = {int(s): i for i, s in enumerate(sid)}
     by: dict = {}
     for line in path.read_text().splitlines():
@@ -63,7 +64,12 @@ def load(path: Path) -> dict:
     pr = [(ix[s], v[0], v[1]) for s, v in by.items() if 0 in v and 1 in v]
     i = np.array([p[0] for p in pr])
     m = lambda k, j: np.array([p[j][k] for p in pr], float)  # noqa: E731
-    return {"g": g[i], "f2_d": f2d[i], "splx_d": spd[i], "ruwe_d": rud[i], "bp_rp": m("bp_rp", 1),
+    A_, B_, F_, G_ = (P_ti[k][i] for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes"))
+    u = 0.5 * (A_**2 + B_**2 + F_**2 + G_**2)
+    v = A_ * G_ - B_ * F_
+    a0d = np.sqrt(u + np.sqrt(np.clip(u**2 - v**2, 0, None)))
+    return {"sa0_d": a0d / sig_d[i], "a0_d": a0d, "a0": np.stack([m("a0_mas", 1), m("a0_mas", 2)]), "sa0": np.stack([m("sigma_a0_mas", 1), m("sigma_a0_mas", 2)]),
+            "g": g[i], "f2_d": f2d[i], "splx_d": spd[i], "ruwe_d": rud[i], "bp_rp": m("bp_rp", 1),
             "f2": np.stack([m("goodness_of_fit", 1), m("goodness_of_fit", 2)]), "nu": np.stack([m("n_obs", 1) - 12, m("n_obs", 2) - 12]),
             "splx": np.stack([m("parallax_error", 1), m("parallax_error", 2)]), "ruwe": np.stack([m("ruwe", 1), m("ruwe", 2)])}
 
@@ -85,6 +91,22 @@ def stats_at(d, sel, sigma, rng, n_rep, grid_f2, grid_lsplx):
     return {"T_f2": float(np.mean(tf)), "T_log_splx": float(np.mean(tp)), "f2_p95_mock": float(np.mean(p95)), "f2_p99_mock": float(np.mean(p99)),
             "p_f2_gt12_mock": float(np.mean(p12)), "f2_p95_dr3": float(np.percentile(fd, 95)), "f2_p99_dr3": float(np.percentile(fd, 99)),
             "p_f2_gt12_dr3": float(np.mean(fd > 12)), "n": int(sel.sum())}
+
+
+def residual_sa0(d, sel, sigma, rng, n_rep, grid_sa0, grid_z):
+    """Step 2: extra per-orbit scatter of log σ_a0 and log z left net of the grid spread and of s (σ_s = ``sigma``)."""
+    ta, tz = [], []
+    for _ in range(n_rep):
+        s = 10 ** (sigma * rng.standard_normal((2, sel.sum())))
+        sa = np.log10(d["sa0"][:, sel] * s)
+        ru2 = d["ruwe"][:, sel] ** 2 + s * s - 1.0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            z = np.log10(d["a0"][:, sel]) - sa - 0.5 * np.log10(ru2 - 1.0)
+            zd = np.log10(d["a0_d"][sel] / d["sa0_d"][sel]) - 0.5 * np.log10(d["ruwe_d"][sel] ** 2 - 1.0)
+        ta.append(MADV(np.log10(d["sa0_d"][sel]) - sa.mean(0)) - 0.75 * MADV(sa[0] - sa[1]) - grid_sa0**2)
+        tz.append(MADV(zd - z.mean(0)) - 0.75 * MADV(z[0] - z[1]) - grid_z**2)
+    f = lambda t: float(np.sqrt(max(np.mean(t), 0.0)))  # noqa: E731
+    return {"log_sigma_a0_left": f(ta), "log_z_left": f(tz), "T_log_sigma_a0": float(np.mean(ta)), "T_log_z": float(np.mean(tz))}
 
 
 def solve(d, sel, rng, n_rep, grid_f2, grid_lsplx, hi=0.15):
@@ -135,10 +157,30 @@ def main(argv=None) -> int:
         col = {}
         for cn, cs in (("blue", sel & (d["bp_rp"] < med)), ("red", sel & (d["bp_rp"] >= med))):
             col[cn] = solve(d, cs, rng, a.n_rep, gf, gl)
-        res["bins"][name] = {"sigma_log10_s": sig, "sigma_log10_s_boot_err": float(np.std(boots)), "before": before, "after": after,
+        gs_ = gp["log_sigma_a0"]["G<13" if hi <= 13 else "G>=13"]["sigma_grid"]
+        gz_ = gp["log_z"]["G<13" if hi <= 13 else "G>=13"]["sigma_grid"]
+        step2 = {"without_s": residual_sa0(d, sel, 0.0, rng, 1, gs_, gz_), "with_s": residual_sa0(d, sel, sig, rng, a.n_rep, gs_, gz_)}
+        res["bins"][name] = {"step2_sigma_a0_residual": step2, "sigma_log10_s": sig, "sigma_log10_s_boot_err": float(np.std(boots)), "before": before, "after": after,
                              "colour_split_median_bp_rp": med, "colour_split_sigma": col,
                              "colour_split_difference_over_err": abs(col["blue"] - col["red"]) / (np.sqrt(2) * max(float(np.std(boots)), 1e-6))}
         print(name, json.dumps(res["bins"][name], default=float)[:600], flush=True)
+    # step 2 pooled over G < 13 with the adopted knots
+    knots_g, knots_s = [10.0, 11.5, 12.5], [res["bins"][b]["sigma_log10_s"] for b in ("G9-11", "G11-12", "G12-13")]
+    sel = d["g"] < 13
+    sig_row = np.interp(d["g"], knots_g, knots_s)
+    ta, tz = [], []
+    gs_, gz_ = gp["log_sigma_a0"]["G<13"]["sigma_grid"], gp["log_z"]["G<13"]["sigma_grid"]
+    for _ in range(a.n_rep):
+        sc = 10 ** (sig_row[sel] * rng.standard_normal((2, sel.sum())))
+        sa = np.log10(d["sa0"][:, sel] * sc)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            z = np.log10(d["a0"][:, sel]) - sa - 0.5 * np.log10(d["ruwe"][:, sel] ** 2 + sc * sc - 2.0)
+            zd = np.log10(d["a0_d"][sel] / d["sa0_d"][sel]) - 0.5 * np.log10(d["ruwe_d"][sel] ** 2 - 1.0)
+        ta.append(MADV(np.log10(d["sa0_d"][sel]) - sa.mean(0)) - 0.75 * MADV(sa[0] - sa[1]) - gs_**2)
+        tz.append(MADV(zd - z.mean(0)) - 0.75 * MADV(z[0] - z[1]) - gz_**2)
+    res["knots"] = {"g": knots_g, "sigma_log10_s": knots_s}
+    res["step2_pooled_G_lt_13"] = {"log_sigma_a0_left": float(np.sqrt(max(np.mean(ta), 0))), "log_z_left": float(np.sqrt(max(np.mean(tz), 0)))}
+    print("step2 pooled", res["step2_pooled_G_lt_13"])
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(res, indent=1, default=float))
     return 0

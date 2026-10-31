@@ -2746,6 +2746,35 @@ class EpochTransitRecalConfig(BaseModel):
         return self
 
 
+class EpochSourceScaleConfig(BaseModel):
+    """#595 (docs/EPOCH_MODEL_SPEC.md §8.15): a per-source lognormal factor 10^(sigma(G) z), z ~ N(0, 1), bright side only.
+
+    ``source_noise_scale`` (tag ``ss1``) multiplies the TRUE per-CCD noise (stated errors unchanged);
+    ``source_sigma_a0_scale`` (tag ``sa1``, empirical, origin unknown) multiplies the reported sigma_a0 of an orbital
+    solution after the fit. sigma is piecewise linear in the observed system G over the knots (constant outside) for
+    G < ``break_g`` and 0 at G >= ``break_g`` (never interpolated across the G = 13 break)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    version: str
+    break_g: float = 13.0
+    sigma_knots_g: list[float] = Field(..., min_length=1)
+    sigma_log10: list[float] = Field(..., min_length=1)
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> EpochSourceScaleConfig:
+        kn = self.sigma_knots_g
+        if len(kn) != len(self.sigma_log10) or any(b <= a for a, b in zip(kn[:-1], kn[1:])):
+            raise ValueError("source scale knots must increase and carry one sigma each")
+        if any(not (0.0 <= x < 0.5) for x in self.sigma_log10):
+            raise ValueError("sigma_log10 must be in [0, 0.5)")
+        if max(kn) >= self.break_g:
+            raise ValueError("source scale knots must lie below break_g (bright side only)")
+        return self
+
+
 class EpochNoiseColourConfig(BaseModel):
     """Noise model v3 (#572, #454; docs/EPOCH_MODEL_SPEC.md §8.12): actual per-CCD noise x s(G, BP-RP), stated
     per-CCD error x e(G), RUWE = UWE / u0(G, BP-RP). Disabled = the §8.8 / §12.32 model (``n2d_s1232``)."""
@@ -2877,6 +2906,8 @@ class EpochModelPathConfig(BaseModel):
     visibility_period_loss: EpochVisibilityPeriodLossConfig | None = None
     noise_colour: EpochNoiseColourConfig | None = None
     transit_recal: EpochTransitRecalConfig | None = None
+    source_noise_scale: EpochSourceScaleConfig | None = None  # #595 ss1 (§8.15)
+    source_sigma_a0_scale: EpochSourceScaleConfig | None = None  # #595 sa1 (§8.15), empirical
     provenance: str = ""
 
     @model_validator(mode="after")
