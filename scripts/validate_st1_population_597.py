@@ -44,7 +44,23 @@ def p_asb1(st, g, bp_rp, period, ecc, k1):
     cols = [np.ones(g.size), grvs] + [np.maximum(0.0, grvs - k) for k in st.grvs_knots]
     feat = {"logK1": np.log10(np.clip(k1, 1e-3, None)), "bp_rp": c, "bp_rp2": c * c, "logP": np.log10(period), "e": ecc}
     cols += [feat[t] for t in st.terms]
-    return 1.0 / (1.0 + np.exp(-(np.column_stack(cols) @ np.asarray(st.beta))))
+    delta = np.interp(g, st.routing_delta_knots_g, st.routing_delta) if st.routing_delta_knots_g else 0.0  # #597 iteration 2
+    return 1.0 / (1.0 + np.exp(-(np.column_stack(cols) @ np.asarray(st.beta) + delta)))
+
+
+def map_f2_asb1(st, f2, g):
+    """Vectorized ``SolutionTypeConfig.map_f2_asb1`` (quantile map when configured, else affine)."""
+    out = np.array(f2, float)
+    bright = g < st.break_g
+    if not st.qmap_g_edges:
+        return np.where(bright, np.interp(g, st.knots_g, st.offsets["asb1_f2_alpha"]) + np.interp(g, st.knots_g, st.offsets["asb1_f2_kappa"]) * f2, f2)
+    j = np.searchsorted(st.qmap_g_edges, g, side="right")
+    for k in range(len(st.qmap_mock)):
+        b = bright & (j == k)
+        m, d = np.asarray(st.qmap_mock[k]), np.asarray(st.qmap_dr3[k])
+        x = f2[b]
+        out[b] = np.where(x < m[0], d[0] + x - m[0], np.where(x > m[-1], d[-1] + x - m[-1], np.interp(x, m, d)))
+    return out
 
 
 def k1_of(a0, plx, period, ecc, inc_deg):
@@ -114,7 +130,7 @@ def main(argv=None) -> int:
         sa0 = cas[:, 18] * 10 ** d["dlog_sigma_a0"]
         splx = cas[:, 1] * 10 ** d["dlog_sigma_plx"]
         se = cas[:, 15] * 10 ** d["dlog_sigma_e"]
-        f2 = np.where(isA, off["asb1_f2_alpha"] + off["asb1_f2_kappa"] * f2_e2, f2_e2)
+        f2 = np.where(isA, map_f2_asb1(st, f2_e2, g), f2_e2)
         with np.errstate(invalid="ignore", divide="ignore"):
             a0s, plxs = cas[:, 17] / sa0, cas[:, 0] / splx
             ok = cand & (a0s > cuts.a0_over_err_min) & (f2 < cuts.goodness_of_fit_f2_max) & (plxs > cuts.parallax_over_error_times_period_min_days / P) \
@@ -211,6 +227,37 @@ def main(argv=None) -> int:
     br = rsel & (pub["g_mag"] < 13)
     sp["dr3"] = float(np.mean(pub["period"][br] < 100))
     res["short_p_bright_share"] = sp
+    # pooled (both types) at G 10-13: edge, sigma_a0/sigma_plx and F2 tail, before / after / DR3
+    pooled = {}
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z0m = np.log10((cas[:, 17] / cas[:, 18]) / np.sqrt(np.clip(cas[:, 22] ** 2 - 1, 1e-9, None)))
+    for lo, hi in ((10, 11), (11, 12), (12, 13)):
+        br = rsel & (pub["g_mag"] >= lo) & (pub["g_mag"] < hi)
+        b0 = acc0 & (g >= lo) & (g < hi)
+        row = {"dr3": {"log_z_p50": float(np.nanpercentile(rz[br], 50)), "log_z_p99": float(np.nanpercentile(rz[br][np.isfinite(rz[br])], 99)),
+                       "log_sa0_over_splx": float(np.median(np.log10(rsa0[br] / pub["parallax_error"][br]))), "p_f2_gt12": float(np.mean(pub["goodness_of_fit"][br] > 12)),
+                       "short_p_share": float(np.mean(pub["period"][br] < 100))},
+               "before": {"log_z_p50": float(np.nanpercentile(z0m[b0], 50)), "log_z_p99": float(np.nanpercentile(z0m[b0][np.isfinite(z0m[b0])], 99)),
+                          "log_sa0_over_splx": float(np.median(np.log10(cas[b0, 18] / cas[b0, 1]))), "p_f2_gt12": float(np.mean(cas[b0, 21] > 12)),
+                          "short_p_share": float(np.mean(P[b0] < 100))}}
+        aft = []
+        for rp in reps:
+            bm = rp["acc"] & (g >= lo) & (g < hi)
+            zz = rp["z"][bm]
+            aft.append({"log_z_p50": float(np.nanpercentile(zz, 50)), "log_z_p99": float(np.nanpercentile(zz[np.isfinite(zz)], 99)),
+                        "log_sa0_over_splx": float(np.median(np.log10(rp["sa0"][bm] / rp["splx"][bm]))), "p_f2_gt12": float(np.mean(rp["f2"][bm] > 12)),
+                        "short_p_share": float(np.mean(P[bm] < 100))})
+        row["after"] = {k: float(np.mean([x[k] for x in aft])) for k in aft[0]}
+        pooled[f"G{lo}-{hi}"] = row
+    res["pooled_G10_13"] = pooled
+    # short-P share at G < 13 by type
+    spt = {}
+    for tname, tm_fn, tr in (("Orbital", lambda rp: ~rp["isA"], ~rA), ("AstroSpectroSB1", lambda rp: rp["isA"], rA)):
+        br = rsel & tr & (pub["g_mag"] < 13)
+        spt[tname] = {"dr3": float(np.mean(pub["period"][br] < 100)),
+                      "mock_after_unweighted": float(np.mean([np.mean(P[rp["acc"] & tm_fn(rp) & (g < 13)] < 100) for rp in reps])),
+                      "mock_after_default": float(np.mean([M["w"][rp["acc"] & tm_fn(rp) & (g < 13) & (P < 100)].sum() / M["w"][rp["acc"] & tm_fn(rp) & (g < 13)].sum() for rp in reps]))}
+    res["short_p_share_by_type"] = spt
     # accepted totals per G (after / before), to see what the routing does to counts
     res["accepted_after_over_before_by_G"] = {f"G{lo}-{hi}": float(np.mean([(rp["acc"] & (g >= lo) & (g < hi)).sum() for rp in reps]) / max((acc0 & (g >= lo) & (g < hi)).sum(), 1))
                                               for lo, hi in zip(G_EDGES[:-1], G_EDGES[1:])}
