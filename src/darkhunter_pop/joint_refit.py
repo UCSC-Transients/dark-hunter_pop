@@ -376,3 +376,81 @@ def wd_physics_log_density(
     with np.errstate(invalid="ignore"):
         out = np.logaddexp(l_ni, l_mt)
     return np.where(np.isnan(out), -np.inf, out)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# #603 (spec §12.42): rung 3 v4 reweight-only population terms and the post-hoc routed solution type
+# ------------------------------------------------------------------------------------------------------------------
+
+
+class V4TermsConfig(BaseModel):
+    """§12.42 terms: M1-dependent e-shape, P-dependent twin fraction, low-mass close-binary frequency (config numbers)."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    short_p_centre: float = Field(..., description="log10 P (d) centre c_s of S(log P) = 1/(1+exp((log P - c_s)/w_s))")
+    short_p_width: float = Field(..., gt=0)
+    ecc_m1_pivot_msun: float = Field(..., gt=0, description="M_e: b_k(M1) = b_k (M1/M_e)^beta_e")
+    cb_m1_pivot_msun: float = Field(..., gt=0, description="M_cb: close-binary factor exp(kappa S min(0, ln(M1/M_cb)))")
+
+
+def short_period_weight(log_p: ArrayLike, cfg: V4TermsConfig) -> FloatArray:
+    """S(log P): 1 well below ``short_p_centre``, 0 well above (logistic of width ``short_p_width``)."""
+    z = (np.asarray(log_p, float) - cfg.short_p_centre) / cfg.short_p_width
+    return 1.0 / (1.0 + np.exp(np.clip(z, -60.0, 60.0)))
+
+
+def ecc_shape_m1_log_ratio(a_k: ArrayLike, b_k: ArrayLike, l1x: ArrayLike, inside: ArrayLike, m1: ArrayLike, beta_e: float,
+                           cfg: V4TermsConfig) -> FloatArray:
+    """Δ ln w of the Beta(a_k, b_k) e-shape when b_k → b_k (M1/M_e)^β_e (normalised; 0 outside the Beta support).
+
+    ``l1x`` is ln(1 − e/e_max) of each draw and ``a_k``/``b_k`` its log-P range's shapes."""
+    from scipy.special import betaln
+
+    a, b = np.asarray(a_k, float), np.asarray(b_k, float)
+    b2 = b * (np.asarray(m1, float) / cfg.ecc_m1_pivot_msun) ** float(beta_e)
+    d = (b2 - b) * np.asarray(l1x, float) - betaln(a, b2) + betaln(a, b)
+    return np.where(np.asarray(inside, bool), d, 0.0)
+
+
+def twin_short_p_log_ratio(twin: ArrayLike, s_p: ArrayLike, base_nontwin: ArrayLike, base_twin: ArrayLike, ln_f_twin: float,
+                           d_short: float) -> FloatArray:
+    """Δ ln w for ln F_twin → ln F_twin + d_short S(log P), with the per-draw q normalisation re-evaluated.
+
+    ``base_nontwin``/``base_twin`` are Σ_g P(q_g) exp(dγ_q ln q_g) over the non-twin / twin q grid of each draw (the
+    two parts of the existing normaliser), so the companion frequency per (M1, P) is unchanged."""
+    s = np.asarray(s_p, float)
+    a, b = np.asarray(base_nontwin, float), np.asarray(base_twin, float)
+    old = np.log(a + math.exp(ln_f_twin) * b)
+    new = np.log(a + np.exp(ln_f_twin + d_short * s) * b)
+    return d_short * s * np.asarray(twin, bool) - new + old
+
+
+def close_binary_log_factor(m1: ArrayLike, s_p: ArrayLike, kappa: float, cfg: V4TermsConfig) -> FloatArray:
+    """κ S(log P) min(0, ln(M1/M_cb)): a close-binary frequency tilt acting only below M_cb."""
+    return float(kappa) * np.asarray(s_p, float) * np.minimum(0.0, np.log(np.asarray(m1, float) / cfg.cb_m1_pivot_msun))
+
+
+def routed_asb1(g_mag: ArrayLike, bp_rp: ArrayLike, cascade: ArrayLike, generation: ArrayLike, draw_index: ArrayLike,
+                base_seed: int, st: Any) -> FloatArray:
+    """Post-hoc st1 type of stored orbital-branch draws: 1 AstroSpectroSB1, 0 Orbital, NaN for other branches.
+
+    Exact for draws simulated with ss1 and sa1 off: ``run_cascade``'s routing draw is the first child Generator of
+    ``epoch_model_rng(base_seed, PROPOSAL_RNG_STREAM_BASE + generation, draw_index, tag=PER_CCD_NOISE_RNG_TAG)``, and
+    P(ASB1 | x) reads the cascade's a0, ϖ, P, e and inclination, which the type offsets do not change."""
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.proposal_set import PROPOSAL_RNG_STREAM_BASE
+
+    c = np.asarray(cascade, float)
+    S = em.CASCADE_SLOTS
+    out = np.full(c.shape[0], np.nan)
+    g, bp = np.asarray(g_mag, float), np.asarray(bp_rp, float)
+    gen, di = np.asarray(generation, np.int64), np.asarray(draw_index, np.int64)
+    for i in range(c.shape[0]):
+        if float(c[i, 0]) in em.CASCADE_NON_ORBITAL_FLAGS or not c[i, S["period"]] > 0:
+            continue
+        k1 = em.predicted_k1_kms(c[i, S["a0"]], c[i, S["plx"]], c[i, S["period"]], c[i, S["ecc"]], c[i, S["inc_deg"]])
+        p = st.p_asb1(float(g[i]), float(bp[i]), c[i, S["period"]], c[i, S["ecc"]], k1)
+        rng = em.epoch_model_rng(int(base_seed), PROPOSAL_RNG_STREAM_BASE + int(gen[i]), int(di[i]), tag=em.PER_CCD_NOISE_RNG_TAG)
+        out[i] = 1.0 if float(rng.spawn(1)[0].random()) < p else 0.0
+    return out
