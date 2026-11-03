@@ -250,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fix-from", type=Path, default=None, help="summary.json whose theta supplies --fix-names")
     ap.add_argument("--fix-names", nargs="*", default=None)
     ap.add_argument("--init-from", type=Path, default=None)
+    ap.add_argument("--reference-from", type=Path, default=None,
+                    help="#603: summary.json whose θ is the reference for the fixed MC variance (default: the start θ); profiles pass the main fit's reference")
+    ap.add_argument("--profile", nargs="*", default=None,
+                    help="#603: NAME=v1,v2,... 1-D profile grids (one setup; each point re-optimised with --n-starts starts); writes profile.json only")
     args = ap.parse_args(argv)
     if not args.no_co and not (args.co_artifacts and args.co_fragments):
         ap.error("--co-artifacts and --co-fragments are required unless --no-co")
@@ -504,8 +508,20 @@ def main(argv: list[str] | None = None) -> int:
         x0 = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
     infl = {"o": None, "a": None}
     relvar = {"o": None, "a": None}
+    x_ref = x0.copy()
+    if args.reference_from is not None:  # #603: the reference θ of the fixed relative MC error, independent of the start point
+        src = json.loads(args.reference_from.read_text())["results"]
+        src = src.get("joint", src.get("noW"))
+        th_src = dict(zip(src["names"], src["theta"]))
+        x_d = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names]
+                       + [vp[n][0] for n in v4_names] + [prior[0]], float)
+        x_ref = np.clip(np.array([th_src.get(n, x_d[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
+        for item in fixes:  # profile/fixed values (e.g. ln_R_dark) apply to the reference too
+            nm_, val_ = item.split("=")
+            x_ref[names.index(nm_)] = prior[0] if val_ == "prior" else float(val_)
+        rep.append(f"reference θ for the fixed MC variance from {args.reference_from}")
     if jcfg.get("mc_variance_at", "current") == "reference_relative":
-        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        _, mo_r, vo_r, ma_r, va_r = expected(x_ref)
         with np.errstate(divide="ignore", invalid="ignore"):
             ro = np.where(mo_r > 0, vo_r / np.where(mo_r > 0, mo_r, 1.0) ** 2, 0.0)
             ra = np.where(ma_r > 0, va_r / np.where(ma_r > 0, ma_r, 1.0) ** 2, 0.0)
@@ -515,12 +531,43 @@ def main(argv: list[str] | None = None) -> int:
         rep.append(f"MC variance: relative error per bin fixed at the reference θ (F2 floor {ess_floor:g} applied there); "
                    f"median relative MC error of orbit bins {np.median(np.sqrt(ro[mo_r > 0])):.3f}")
     if jcfg.get("ess_inflation_at", "current") == "reference":
-        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        _, mo_r, vo_r, ma_r, va_r = expected(x_ref)
         with np.errstate(divide="ignore", invalid="ignore"):
             infl["o"] = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
             infl["a"] = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
         rep.append(f"F2 inflation at the reference θ (start point): {int(np.sum(infl['o'] > 1))} orbit and {int(np.sum(infl['a'] > 1))} acceleration bins inflated")
     rep.append(f"N_s prior N({prior[0]:.0f}, {prior[1]:.0f}); ESS floor for variance inflation {ess_floor:g}; real C1 orbits {int(N_o)}, accelerations {int(k_a.sum())}")
+    if args.profile:  # #603 (spec §12.42): 1-D profiles, every other parameter re-optimised at each grid point
+        prof = {"nll_ref_start": float(nll(x0)), "grids": {}}
+        rng_p = np.random.default_rng(args.seed + 1)
+        for item in args.profile:
+            nm_, vals_ = item.split("=")
+            j_ = names.index(nm_)
+            rows_ = []
+            for v_ in (prior[0] if x_ == "prior" else float(x_) for x_ in vals_.split(",")):
+                bnd = list(bounds)
+                bnd[j_] = (v_ - 1e-9, v_ + 1e-9)
+                lo_, hi_ = np.array([b[0] for b in bnd]), np.array([b[1] for b in bnd])
+                bestp = None
+                for s_ in range(args.n_starts):
+                    x_s = x0.copy()
+                    x_s[j_] = v_
+                    if s_ > 0:
+                        x_s = np.array([rng_p.uniform(max(lo, x - 0.5), min(hi, x + 0.5)) if j != i_ns else rng_p.uniform(0.8 * x, 1.2 * x)
+                                        for j, (x, (lo, hi)) in enumerate(zip(x_s, bnd))])
+                    x_s = np.clip(x_s, lo_, hi_)
+                    r = minimize(nll, x_s, method="L-BFGS-B", bounds=bnd, options={"maxiter": 4000, "maxfun": 40000})
+                    r = minimize(nll, r.x, method="Powell", bounds=bnd, options={"maxiter": 30000, "xtol": 1e-4, "ftol": 1e-8})
+                    if bestp is None or r.fun < bestp.fun:
+                        bestp = r
+                rows_.append({"value": float(v_), "nll": float(bestp.fun), "theta": bestp.x.tolist()})
+                print(f"profile {nm_} = {v_:.4g}: -lnL {bestp.fun:.2f}", flush=True)
+            prof["grids"][nm_] = rows_
+        prof["names"] = list(names)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / "profile.json").write_text(json.dumps(prof, indent=1))
+        (args.out_dir / "report.txt").write_text("\n".join(rep) + "\n")
+        return 0
     sols, best = [], None
     if args.eval_only:  # #587: evaluate at x0 (no optimisation)
         from types import SimpleNamespace as _SN
