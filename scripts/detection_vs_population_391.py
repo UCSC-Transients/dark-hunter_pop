@@ -533,64 +533,67 @@ def main(argv: list[str] | None = None) -> int:
     fig.tight_layout()
     save_figure(fig, args.out_dir / "acceptance_mock_vs_reinjection.png", dpi=int(cfg.diagnostics.figure_dpi))
 
-    # ================= 3. population: accepted-count ratios in the bin =================
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mplx_rec = casc[:, 0]
-        m_d_rec_c = 1.0 / mplx_rec
-        m_fm_rec = astrometric_mass_function(casc[:, 17], mplx_rec, m_P_rec)
-    m_g = t["phot_g_mean_mag"]
-    m_in = m_acc_c1 & (m_d_rec_c >= D_LO) & (m_d_rec_c <= D_HI) & (m_g >= G_LO) & (m_g <= G_HI)
-    m_true_in = (m_d >= D_LO) & (m_d <= D_HI) & (m_g >= G_LO) & (m_g <= G_HI) & (t["period_days"] <= P_MAX)
-    nreal = rb.size
-    rep += ["", f"population: accepted orbits in the bin (observed d for both, mock recovered P <= 830 d): real {nreal}; "
-            + "; ".join(f"mock {k} {np.sum(w[m_in]):.0f} (ratio {np.sum(w[m_in]) / nreal:.2f}, ESS {ps.kish_ess(w[m_in]):.0f})" for k, w in W.items())]
-    dims = {"log10 P (d)": (np.log10(m_P_rec), np.log10(r_P), np.linspace(1.0, np.log10(P_MAX), 8)),
-            "log10 f_m (Msun)": (np.log10(m_fm_rec), np.log10(r_fm), np.linspace(-4, 0, 9)),
-            "dereddened M_G (mag; M1 proxy)": (m_mg0, r_mg0, np.linspace(-1, 7, 9))}
-    fig, axs = plt.subplots(2, 3, figsize=(17, 10))
-    rep.append("mock/real accepted-count ratio per bin (noW | cmdW) [real n]:")
-    for ax, (name, (mv, rv, edges)) in zip(axs[0], dims.items()):
-        rn = np.histogram(rv[rb][np.isfinite(rv[rb])], bins=edges)[0].astype(float)
-        cen = 0.5 * (edges[1:] + edges[:-1])
-        rr_ = {}
-        for j, (k, w) in enumerate(W.items()):
-            s = m_in & np.isfinite(mv)
-            mn = np.histogram(mv[s], bins=edges, weights=w[s])[0]
-            mn2 = np.histogram(mv[s], bins=edges, weights=w[s] ** 2)[0]
-            with np.errstate(divide="ignore", invalid="ignore"):
-                rr_[k] = mn / rn
-                st = series_style(j, style)
-                ax.errorbar(cen, mn / rn, yerr=np.sqrt(mn2) / rn, color=st["color"], ls=st["linestyle"], marker="o", lw=2, label=f"mock {k} / real")
-        ax.axhline(1, color="0.4", ls=":")
-        ax.set_ylim(0, 2)
-        apply_axes_style(ax, style, xlabel=name, ylabel="mock / real accepted counts")
-        ax.legend(fontsize=style.tick_label_fontsize)
-        rep.append(f"  {name}: " + " ".join(f"{c:.2f}:{a:.2f}|{b_:.2f}[{int(n)}]" for c, a, b_, n in zip(cen, rr_["noW"], rr_["cmdW"], rn)))
-    # mock true M1, q, P in the bin: accepted vs all (pre-detection), weighted noW
-    w0 = W["noW"]
-    tdims = {"true M1 (Msun)": (t["m1_msun"], np.linspace(0.3, 2.1, 10)),
-             "true q = M2/M1": (m_q, np.linspace(0, 1.2, 13)),
-             "true log10 P (d)": (np.log10(t["period_days"]), np.linspace(1.0, np.log10(P_MAX), 8))}
-    rep.append("mock (noW) true-parameter distributions in the bin (true d, G, P <= 830 d): pre-detection share | accepted share | acceptance:")
-    for ax, (name, (x, edges)) in zip(axs[1], tdims.items()):
-        pre = np.histogram(x[m_true_in], bins=edges, weights=w0[m_true_in])[0]
-        s = m_true_in & m_acc_c1
-        det = np.histogram(x[s], bins=edges, weights=w0[s])[0]
-        cen = 0.5 * (edges[1:] + edges[:-1])
-        for j, (lab, y) in enumerate((("pre-detection", pre / pre.sum()), ("accepted (C1)", det / det.sum()))):
-            st = series_style(j, style)
-            ax.step(cen, y, where="mid", color=st["color"], ls=st["linestyle"], lw=2, label=lab)
-        apply_axes_style(ax, style, xlabel=name, ylabel="weighted fraction (mock noW)")
-        ax.legend(fontsize=style.tick_label_fontsize)
+    if args.artifacts:  # #604: no mixture weights in --artifacts mode (no cache); section 3 is a diagnostic, not a calibration input
+        rep += ["", "population ratios (section 3): skipped in --artifacts mode (no deterministic-mixture weight cache)"]
+    else:
+        # ================= 3. population: accepted-count ratios in the bin =================
         with np.errstate(divide="ignore", invalid="ignore"):
-            rep.append(f"  {name}: " + " ".join(f"{c:.2f}:{a:.3f}|{b_:.3f}|{d_:.4f}" for c, a, b_, d_ in
-                                                zip(cen, pre / pre.sum(), det / det.sum(), det / pre)))
-    fig.suptitle("Population in the bin: mock / real accepted counts (top); mock true M1, q, P before and after detection (bottom)",
-                 fontsize=style.title_fontsize)
-    fig.tight_layout()
-    save_figure(fig, args.out_dir / "population_ratios.png", dpi=int(cfg.diagnostics.figure_dpi))
+            mplx_rec = casc[:, 0]
+            m_d_rec_c = 1.0 / mplx_rec
+            m_fm_rec = astrometric_mass_function(casc[:, 17], mplx_rec, m_P_rec)
+        m_g = t["phot_g_mean_mag"]
+        m_in = m_acc_c1 & (m_d_rec_c >= D_LO) & (m_d_rec_c <= D_HI) & (m_g >= G_LO) & (m_g <= G_HI)
+        m_true_in = (m_d >= D_LO) & (m_d <= D_HI) & (m_g >= G_LO) & (m_g <= G_HI) & (t["period_days"] <= P_MAX)
+        nreal = rb.size
+        rep += ["", f"population: accepted orbits in the bin (observed d for both, mock recovered P <= 830 d): real {nreal}; "
+                + "; ".join(f"mock {k} {np.sum(w[m_in]):.0f} (ratio {np.sum(w[m_in]) / nreal:.2f}, ESS {ps.kish_ess(w[m_in]):.0f})" for k, w in W.items())]
+        dims = {"log10 P (d)": (np.log10(m_P_rec), np.log10(r_P), np.linspace(1.0, np.log10(P_MAX), 8)),
+                "log10 f_m (Msun)": (np.log10(m_fm_rec), np.log10(r_fm), np.linspace(-4, 0, 9)),
+                "dereddened M_G (mag; M1 proxy)": (m_mg0, r_mg0, np.linspace(-1, 7, 9))}
+        fig, axs = plt.subplots(2, 3, figsize=(17, 10))
+        rep.append("mock/real accepted-count ratio per bin (noW | cmdW) [real n]:")
+        for ax, (name, (mv, rv, edges)) in zip(axs[0], dims.items()):
+            rn = np.histogram(rv[rb][np.isfinite(rv[rb])], bins=edges)[0].astype(float)
+            cen = 0.5 * (edges[1:] + edges[:-1])
+            rr_ = {}
+            for j, (k, w) in enumerate(W.items()):
+                s = m_in & np.isfinite(mv)
+                mn = np.histogram(mv[s], bins=edges, weights=w[s])[0]
+                mn2 = np.histogram(mv[s], bins=edges, weights=w[s] ** 2)[0]
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    rr_[k] = mn / rn
+                    st = series_style(j, style)
+                    ax.errorbar(cen, mn / rn, yerr=np.sqrt(mn2) / rn, color=st["color"], ls=st["linestyle"], marker="o", lw=2, label=f"mock {k} / real")
+            ax.axhline(1, color="0.4", ls=":")
+            ax.set_ylim(0, 2)
+            apply_axes_style(ax, style, xlabel=name, ylabel="mock / real accepted counts")
+            ax.legend(fontsize=style.tick_label_fontsize)
+            rep.append(f"  {name}: " + " ".join(f"{c:.2f}:{a:.2f}|{b_:.2f}[{int(n)}]" for c, a, b_, n in zip(cen, rr_["noW"], rr_["cmdW"], rn)))
+        # mock true M1, q, P in the bin: accepted vs all (pre-detection), weighted noW
+        w0 = W["noW"]
+        tdims = {"true M1 (Msun)": (t["m1_msun"], np.linspace(0.3, 2.1, 10)),
+                 "true q = M2/M1": (m_q, np.linspace(0, 1.2, 13)),
+                 "true log10 P (d)": (np.log10(t["period_days"]), np.linspace(1.0, np.log10(P_MAX), 8))}
+        rep.append("mock (noW) true-parameter distributions in the bin (true d, G, P <= 830 d): pre-detection share | accepted share | acceptance:")
+        for ax, (name, (x, edges)) in zip(axs[1], tdims.items()):
+            pre = np.histogram(x[m_true_in], bins=edges, weights=w0[m_true_in])[0]
+            s = m_true_in & m_acc_c1
+            det = np.histogram(x[s], bins=edges, weights=w0[s])[0]
+            cen = 0.5 * (edges[1:] + edges[:-1])
+            for j, (lab, y) in enumerate((("pre-detection", pre / pre.sum()), ("accepted (C1)", det / det.sum()))):
+                st = series_style(j, style)
+                ax.step(cen, y, where="mid", color=st["color"], ls=st["linestyle"], lw=2, label=lab)
+            apply_axes_style(ax, style, xlabel=name, ylabel="weighted fraction (mock noW)")
+            ax.legend(fontsize=style.tick_label_fontsize)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rep.append(f"  {name}: " + " ".join(f"{c:.2f}:{a:.3f}|{b_:.3f}|{d_:.4f}" for c, a, b_, d_ in
+                                                    zip(cen, pre / pre.sum(), det / det.sum(), det / pre)))
+        fig.suptitle("Population in the bin: mock / real accepted counts (top); mock true M1, q, P before and after detection (bottom)",
+                     fontsize=style.title_fontsize)
+        fig.tight_layout()
+        save_figure(fig, args.out_dir / "population_ratios.png", dpi=int(cfg.diagnostics.figure_dpi))
 
-    summary = {"n_real_bin": int(nreal), "k": args.k, "p_mock_all": float(p_mock.mean()),
+    summary = {"n_real_bin": int(rb.size), "k": args.k, "p_mock_all": float(p_mock.mean()),
                "p_mock_sub": float(p_mock_sub.mean()), "p_inj": [f_inj, lo_inj, hi_inj], "n_inj": n_inj,
                "paired_diff": float(diff.mean()), "paired_diff_sd": float(dboot.std()),
                "cross_check_rung1_path": list(map(float, fx)), "symmetric_rung1_mock": list(map(float, fsy)),
