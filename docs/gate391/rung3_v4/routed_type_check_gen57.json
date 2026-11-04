@@ -1,0 +1,148 @@
+{
+ "artifact": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st1/single_gen57.h5",
+ "n": 20,
+ "type_agree": 20,
+ "cascade_identical": 20,
+ "rows": [
+  {
+   "draw_index": 12000636,
+   "g": 10.571870357863624,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12008346,
+   "g": 10.237438733818548,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12024418,
+   "g": 10.351671606193902,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12024630,
+   "g": 10.58854553992284,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12024658,
+   "g": 10.881966527643328,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12026393,
+   "g": 10.706890295909128,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12031305,
+   "g": 10.417967591950331,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12034357,
+   "g": 9.876149874097145,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12035978,
+   "g": 14.114524399642928,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12044099,
+   "g": 10.393039862474621,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12066170,
+   "g": 10.257555680474207,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12068649,
+   "g": 14.281867411480986,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12074688,
+   "g": 15.206159905700904,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12074756,
+   "g": 10.619446132633694,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12079590,
+   "g": 10.285066332149082,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12081432,
+   "g": 10.368776420658895,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12127388,
+   "g": 10.385589395208129,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12158450,
+   "g": 10.723245958649668,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12162200,
+   "g": 10.742103647565326,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 12169819,
+   "g": 10.33914742097961,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  }
+ ]
+}

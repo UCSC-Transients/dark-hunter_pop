@@ -1,0 +1,24 @@
+| statistic | DR3 | v3 mock | v3 DR3/mock (pull) | v4 mock | v4 DR3/mock (pull) |
+|---|---:|---:|---:|---:|---:|
+| N(A > 0.5), d 0-0.3 | 600 | 1724 ± 499 | 0.35 (-2.2) | 1833 ± 830 | 0.33 (-1.5) |
+| N(P < 100 d, G < 13), d 0-0.3 | 661 | 517 ± 92 | 1.28 (+1.5) | 767 ± 433 | 0.86 (-0.2) |
+| N(A > 0.5), d 0.3-0.7 | 2516 | 1549 ± 287 | 1.62 (+3.3) | 2474 ± 866 | 1.02 (+0.0) |
+| N(P < 100 d, G < 13), d 0.3-0.7 | 16 | 6 ± 1 | 2.82 (+3.7) | 1 ± 0 | 24.61 (+18.2) |
+| N(A > 0.5), d 0.7-1.5 | 3288 | 3058 ± 669 | 1.08 (+0.3) | 5400 ± 1366 | 0.61 (-1.5) |
+| N(P < 100 d, G < 13), d 0.7-1.5 | 0 | 0 ± 0 | nan (+0.0) | 0 ± 0 | nan (+0.0) |
+| N(A > 0.5), d 1.5-6 | 849 | 887 ± 195 | 0.96 (-0.2) | 1315 ± 114 | 0.65 (-3.9) |
+| N(P < 100 d, G < 13), d 1.5-6 | 0 | 0 ± 0 | nan (+0.0) | 0 ± 0 | nan (+0.0) |
+| e median, G 10-13 | 0.321 | 0.393 | – | 0.303 | – |
+| N(e > 0.5), G 10-13 | 10931 | 18739 ± 2535 | 0.58 (-3.1) | 11575 ± 1204 | 0.94 (-0.5) |
+| e median, G 13-16 | 0.307 | 0.322 | – | 0.293 | – |
+| N(e > 0.5), G 13-16 | 13941 | 16541 ± 1430 | 0.84 (-1.8) | 18060 ± 1260 | 0.77 (-3.3) |
+| e median, G 16-19.5 | 0.307 | 0.227 | – | 0.235 | – |
+| N(e > 0.5), G 16-19.5 | 222 | 195 ± 21 | 1.14 (+1.1) | 179 ± 25 | 1.24 (+1.5) |
+| e median, G < 13 and log P 2.5-3 | 0.315 | 0.396 | – | 0.318 | – |
+
+Twin / single band occupancy per distance bin (0–0.2 / 0.2–0.5 / 0.5–1.0 kpc):
+
+- v3: DR3 0.32 / 0.33 / 0.46; mock 0.32 / 0.32 / 0.48
+- v4: DR3 0.32 / 0.33 / 0.46; mock 0.32 / 0.33 / 0.46
+
+Figures: [orbits_1d_A_d0-0.3_compare.png](orbits_1d_A_d0-0.3_compare.png), [orbits_1d_A_d0.3-0.7_compare.png](orbits_1d_A_d0.3-0.7_compare.png), [orbits_1d_A_d0.7-1.5_compare.png](orbits_1d_A_d0.7-1.5_compare.png), [orbits_1d_A_d1.5-6_compare.png](orbits_1d_A_d1.5-6_compare.png), [orbits_1d_e_G10-13_compare.png](orbits_1d_e_G10-13_compare.png), [orbits_1d_e_G13-16_compare.png](orbits_1d_e_G13-16_compare.png), [orbits_1d_e_G16-19.5_compare.png](orbits_1d_e_G16-19.5_compare.png), [orbits_1d_P_Glt13_dlt0.3_compare.png](orbits_1d_P_Glt13_dlt0.3_compare.png)

@@ -1,0 +1,78 @@
+{
+ "artifact": "/Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st1/co_gen1006.h5",
+ "n": 10,
+ "type_agree": 10,
+ "cascade_identical": 10,
+ "rows": [
+  {
+   "draw_index": 101612465,
+   "g": 16.106233392561897,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101630258,
+   "g": 10.37567087447534,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101664064,
+   "g": 12.76749439646403,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101682298,
+   "g": 12.93536680301995,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101688038,
+   "g": 18.063164111557043,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101762092,
+   "g": 14.163778373190473,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101767653,
+   "g": 8.651693057590489,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101781111,
+   "g": 10.28099649689462,
+   "run_cascade": "AstroSpectroSB1",
+   "reconstructed": 1.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 101798097,
+   "g": 14.63412267588865,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  },
+  {
+   "draw_index": 102006131,
+   "g": 10.684828322642113,
+   "run_cascade": "Orbital",
+   "reconstructed": 0.0,
+   "cascade_identical": true
+  }
+ ]
+}

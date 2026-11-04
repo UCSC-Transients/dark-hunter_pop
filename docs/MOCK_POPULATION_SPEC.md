@@ -2755,6 +2755,28 @@ Every number below is in that config.
 
 **Not run.** The gen-52 luminous top-up and the dark compact-object gen-1004 recipe stay paused; the result recommends whether to run them.
 
+**Result (2026-11-03; `docs/gate391/rung3_v4/`, README.md and index.html). Monte-Carlo limited; not a population measurement.**
+- **Spurious template (#601, #604).** π̂ now selects log10(ϖ/σ_ϖ): [−2.343, −1.494] ± [0.294, 0.367]. The new prior is Σπ̂ = 12,729 ± 2,006; it was 17,133 ± 1,790.
+- **Fit.**
+  - 4/12 starts within Δ(−lnL) < 5; −lnL 17,218.3. The profiles found points 2.4 lower, so the optimum was not reached.
+  - At bounds: f_He and Δln F_twin,sP; κ_cb is at +4.98.
+  - **N_s = 46.1k (pull +16.7).** Holding N_s at its prior costs Δ ≈ 1,265. Spurious makes up 0.66 / 1.07 of DR3 at 0.7–1.5 / > 1.5 kpc.
+  - A_ni = 1.10; WD supplies 11.1k C1 orbits.
+  - β_e = +0.03 ± 0.48. The twin profiles are flat (Δ ≲ 3).
+- **ESS.** Luminous orbits 668; WD orbits 16. In the target cells: G < 13 & log P < 2 is 2 (luminous) / 1 (WD); A > 0.5 is 2–16.
+- **Against v3, improved:**
+  - e by G (median 0.30 vs DR3 0.32 at G 10–13; v3 0.39);
+  - bright F2 levels;
+  - the a0/σ_a0–RUWE edge (DR3 fraction above the mock 99th percentile 0.008–0.024, v3 0.03–0.04);
+  - the ϖ/σ_ϖ tail at (BP−RP)₀ < 1.8 and log P 2–2.5;
+  - G × RUWE;
+  - the orbit total.
+- **Against v3, worse:** P × ϖ/σ_ϖ, colour × ϖ/σ_ϖ and G × P in low-ESS cells; short-P bright systems at d ≥ 0.3 kpc (mock ESS 2); large A at d > 0.7 kpc.
+- **Recommendation.**
+  - Run the gen-52 luminous top-up (A > 0.5, evolved / distant), extended by a nearby low-mass short-P component.
+  - Hold the dark gen-1004 (R_dark ≡ 0 at rung 3); prefer a second WD-focused generation.
+  - Re-check the π̂ covariate choice before the next refit.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
