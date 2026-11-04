@@ -1848,6 +1848,28 @@ For real system i, the number of re-detections is k_i ~ Binomial(3, A_mock(x_i) 
 - (ii) the linear-logit extrapolation of the fitted model;
 - (iii) π = 0 outside the range.
 
+**Matched mock sample redrawn under the current model (Ryan, 2026-10-31; #601).** The matched mock sample is redrawn from
+the gens 53–56 artifacts (colour_v2.1+tr1+e2+st1), so the template is calibrated entirely under the current model. Until now
+it came from gens 23–27 through `weights_gen23_27.npz`; that cache is gone and is **not** rebuilt.
+- **Source.** `scripts/detection_vs_population_391.py --artifacts …` and `scripts/calibrate_spurious_391.py --artifacts …`
+  read truth, `outcome/cascade` and `outcome/accepted_orbital` directly from the artifacts, through
+  `proposal_set.load_generation_draws`.
+- **Version guard.** Every artifact must carry the same `primary_model`, and it must equal `primary_model_version` of the
+  `--fragment` (gen 53). The fragment's `noise_model` must equal the configured `noise_model_version` (`check_noise_model`).
+  Draws of earlier versions (gens 47–50, 23–27, co_v1) are refused, and compact-object generations are never used.
+- **Same matching as the PR #455 and d < 0.5 kpc samples.** The bins are unchanged (0.7–1.5 kpc, G 13–16; d < 0.5 kpc,
+  all G). The real sample is re-drawn the same way (seed 391, 300 / 130 systems, 3 realizations), with the same kNN
+  features and scales (log a0, log P, e, G, d, |β|, |cos i|; k = 50), the same engine cross-check (2 nearest) and the
+  same symmetric rung 1 (1 nearest accepted mock orbit on recovered quantities, re-injected at its fitted orbit).
+- **Mock-side observables.** These now come from the artifact's own system columns, matching the system-observable
+  model of §12.33: BP−RP from `sys_bp_rp` (was the parent row's `bp_rp`), dereddened M_G from `sys_mg0` (was the parent
+  row's CMD), and |β| from the draw's (ra, dec). The real side is unchanged.
+- **Mock seed ids.** These are draw_index + 10^15 (engine cross-check) or + 2·10^15 (symmetric), and are matched back by
+  draw_index, not by position: the new draw_index starts at 10,000,000. The id windows are 10^9 wide, and the script
+  refuses a collision with a real source_id.
+- **Order.** The two samples and the π̂ refit run at the queue's PAUSE (after gens 53–57 and CO 1006), one heavy job at a
+  time, before the joint refit.
+
 ### 12.17 2-D CMD Malmquist closed-loop ledger (Ryan, 2026-10-10; tracking issue #471)
 
 The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decision, this ledger records whether it can change the §11.5 closed loop, how, and the current worst pull. The latest closed-loop run (`docs/gate418/`, small run, Combined19 real dust, σ(E)/E 0.085) has a worst |pull| of 7.6 with the 2-D weight (6.7 with none, 8.8 with 1-D). The "every pull ≤ 3" target is not met.

@@ -23,6 +23,7 @@ from scipy.optimize import minimize
 from scipy.special import expit, gammaln
 
 OFF = 2 * 10**15
+WIN = 10**9  # #601: mock seed ids are draw_index + 10**15 (cross-check) or + OFF (symmetric), draw_index < WIN
 CANDIDATES_BOTH = ("g_mag", "bp_rp", "distance_kpc", "log10_period", "eccentricity", "log10_a0_snr", "log10_parallax_snr")
 CANDIDATES_REAL_ONLY = ("goodness_of_fit", "harmonic_distance")
 
@@ -33,10 +34,10 @@ def load_samples(logs):
         for line in Path(path).read_text().splitlines():
             r = json.loads(line)
             sid = int(r["source_id"])
-            if 10**15 <= sid < OFF + 10**7 and not (OFF <= sid < OFF + 10**7):
+            if 10**15 <= sid < 10**15 + WIN:
                 continue  # engine cross-check draws
             ok = bool(r["accepted"]) and r["period"] is not None and np.isfinite(r["period"]) and r["period"] <= 830.4
-            d = sym if OFF <= sid < OFF + 10**7 else real
+            d = sym if OFF <= sid < OFF + WIN else real
             k, n, t = d.get(sid, (0, 0, tag))
             d[sid] = (k + int(ok), n + 1, tag)
     return real, sym
@@ -46,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--log", action="append", required=True, help="tag=path of a re-injection JSONL (e.g. far=..., near=...)")
     ap.add_argument("--old-cache", type=Path, default=Path("output/proposal_set/weights_gen23_27.npz"))
+    ap.add_argument("--artifacts", type=Path, nargs="+", default=None,
+                    help="#601 (spec §12.16): current-version generation artifacts (gens 53-56), replaces --old-cache; "
+                         "--fragment must be one of them (version guard)")
     ap.add_argument("--gate390", type=Path, required=True)
     ap.add_argument("--parent-dir", type=Path, required=True)
     ap.add_argument("--real-snapshot", type=Path, required=True)
@@ -98,12 +102,23 @@ def main(argv: list[str] | None = None) -> int:
     nr = np.array([real[s][1] for s in rs], float)
     tag_r = np.array([real[s][2] for s in rs])
     # mock covariates (fitted cascade values of the re-injected mock accepted orbits)
-    z = np.load(args.old_cache, allow_pickle=True)
-    c = np.asarray(z["cascade"], float)
     ms = sorted(sym)
-    di = np.array([s - OFF for s in ms])
-    prow = np.asarray(z["parent_row"], np.int64)[di]
-    Xm = {"g_mag": np.asarray(z["phot_g_mean_mag"], float)[di], "bp_rp": np.asarray(pc["bp_rp"], float)[prow],
+    if args.artifacts:  # #601: current-version generations, matched by draw_index (version guard)
+        from darkhunter_pop import epoch_model as em
+
+        ps.check_noise_model(prop, em.epoch_model_config_from_mapping(cfg.active_dr().epoch_model))
+        tt, oo = ps.load_generation_draws(args.artifacts, require_primary_model=ps.primary_model_version(prop))
+        pos_d = {int(d): i for i, d in enumerate(np.asarray(tt["draw_index"], np.int64))}
+        di = np.array([pos_d[s - OFF] for s in ms], np.int64)
+        c = np.asarray(oo["cascade"], float)
+        m_g, m_bprp = np.asarray(tt["phot_g_mean_mag"], float)[di], np.asarray(tt["sys_bp_rp"], float)[di]
+    else:  # legacy gens 23-27 cache (draw_index == cache position)
+        z = np.load(args.old_cache, allow_pickle=True)
+        c = np.asarray(z["cascade"], float)
+        di = np.array([s - OFF for s in ms])
+        prow = np.asarray(z["parent_row"], np.int64)[di]
+        m_g, m_bprp = np.asarray(z["phot_g_mean_mag"], float)[di], np.asarray(pc["bp_rp"], float)[prow]
+    Xm = {"g_mag": m_g, "bp_rp": m_bprp,
           "distance_kpc": 1.0 / c[di, 0], "log10_period": np.log10(c[di, 10]), "eccentricity": c[di, 14],
           "log10_a0_snr": np.log10(c[di, 17] / c[di, 18]), "log10_parallax_snr": np.log10(c[di, 0] / c[di, 1])}
     km = np.array([sym[s][0] for s in ms], float)

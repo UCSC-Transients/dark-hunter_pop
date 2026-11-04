@@ -7,18 +7,21 @@
 # start_generation.sh (nice, BLAS pinned, CPU-h budget, absolute wall-clock stop, mem_guard); the small spurious steps run
 # through run_heavy.sh (nice, mem_guard). Stops if free disk < MIN_FREE_GB. Each finished step appends one line to
 # $OUT/queue.log ("STEP <name> OK ..."), which the operator reports.
-# Usage: resim_queue_599.sh [first_step]   (steps: spur_far spur_near spur_fit g53 g54 g55 g56 g57 g1006)
+# Usage: resim_queue_599.sh [first_step]   (steps: g53 g54 g55 g56 g57 g1006 spur_far spur_near spur_fit)
+# #601 (Ryan 2026-10-31): the spurious steps run after the generations (they need gens 53-56), before the joint refit.
 set -u
 HERE=${0:A:h}; REPO=${REPO:-${HERE:h:h}}; cd $REPO
 D=/Users/rfoley/darkhunter/pop/dark-hunter_pop
 PAR=$D/data/dr3/gaia_snapshots/20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj
-OLD=/Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees/proposal-restart-391/output/proposal_set
 OUT=${OUT:-$D/output/proposal_set/v21tr1_e2st1}; mkdir -p $OUT/spur
 export LOG_DIR=$OUT REPO
+# #601 (spec §12.16): the spurious samples' matched mock comes from gens 53-56 of this version (version guard in the scripts)
+NEWGENS=($OUT/single_gen53.h5 $OUT/single_gen54.h5 $OUT/single_gen55.h5 $OUT/single_gen56.h5)
+FR53=config/population/proposal_set_single53.yaml
 H=$HERE/run_heavy.sh; G=$HERE/start_generation.sh; Q=$OUT/queue.log
 MIN_FREE_GB=${MIN_FREE_GB:-10}; W=${WORKERS:-8}
-STEPS=(spur_far spur_near spur_fit g53 g54 g55 g56 g57 g1006)
-FIRST=${1:-spur_far}
+STEPS=(g53 g54 g55 g56 g57 g1006 spur_far spur_near spur_fit)
+FIRST=${1:-g53}
 REAL=(--real-snapshot $D/data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/query.ecsv
       --real-input-columns $D/data/dr3/gaia_snapshots/20261003T182211Z_nss_orbit_input_columns)
 log() { echo "$1 $(date '+%F %T') (git $(git rev-parse --short HEAD))" >> $Q; }
@@ -46,20 +49,20 @@ for s in $STEPS; do
   case $s in
     spur_far)
       disk_ok; log "START spur_far"
-      $H spur_far scripts/detection_vs_population_391.py --artifact-dir $OLD --cache $OLD/weights_gen23_27.npz \
+      $H spur_far scripts/detection_vs_population_391.py --artifacts $NEWGENS --fragment $FR53 \
         --parent-dir $PAR $REAL --gate390 $D/output/gate390 --n-inject 300 --n-real 3 --workers $W \
         --inject-log $OUT/spur/far.jsonl --out-dir $OUT/spur/far || { fail "spur_far"; }
       log "STEP spur_far OK";;
     spur_near)
       disk_ok; log "START spur_near"
-      $H spur_near scripts/detection_vs_population_391.py --artifact-dir $OLD --cache $OLD/weights_gen23_27.npz \
+      $H spur_near scripts/detection_vs_population_391.py --artifacts $NEWGENS --fragment $FR53 \
         --parent-dir $PAR $REAL --gate390 $D/output/gate390 --n-inject 130 --n-real 3 --workers $W \
         --d-range 0.0 0.5 --g-range 0.0 30.0 --inject-log $OUT/spur/near.jsonl --out-dir $OUT/spur/near || { fail "spur_near"; }
       log "STEP spur_near OK";;
     spur_fit)
       log "START spur_fit"
       $H spur_fit scripts/calibrate_spurious_391.py --log far=$OUT/spur/far.jsonl --log near=$OUT/spur/near.jsonl \
-        --old-cache $OLD/weights_gen23_27.npz --gate390 $D/output/gate390 --parent-dir $PAR \
+        --artifacts $NEWGENS --fragment $FR53 --gate390 $D/output/gate390 --parent-dir $PAR \
         --real-snapshot $D/data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/query.ecsv \
         --out $OUT/spur/spurious_calibration || { fail "spur_fit"; }
       log "STEP spur_fit OK";;
@@ -71,4 +74,4 @@ for s in $STEPS; do
     g1006) gen co_gen1006 config/population/proposal_set_co_v1_wd1006.yaml 101610000 90 10;;  # WD-focused (gen-1005 recipe)
   esac
 done
-log "PAUSE after co_gen1006 (Ryan 2026-10-31): gen-52 top-up and dark CO gen-1004 recipes wait for a joint-refit check; queue stopped"
+log "PAUSE after spur_fit (Ryan 2026-10-31): gen-52 top-up and dark CO gen-1004 recipes wait for a joint-refit check; queue stopped"
