@@ -25,7 +25,7 @@ dry() {  # dry <name> <fragment> <offset>: 50 draws into the scratch dir, all th
   disk_ok; log "START $1"
   rm -f $OUT/dry607/$1.h5 $OUT/dry607/$1.partial.jsonl
   $H $1 scripts/run_proposal_pilot.py --parent-dir $PAR --fragment $2 --draw-index-offset $3 --out $OUT/dry607/$1.h5 \
-    --workers 2 --n-draws 50 --progress-every 10 || { fail "$1"; }
+    --workers 2 --nice 0 --n-draws 50 --progress-every 10 || { fail "$1"; }
   [ -f $OUT/dry607/$1.h5 ] || { fail "$1"; }
   log "STEP $1 OK"
 }
