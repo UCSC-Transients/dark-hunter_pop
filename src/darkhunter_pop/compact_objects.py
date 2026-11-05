@@ -162,8 +162,34 @@ def log_q_co_m2(component: ArrayLike, m2_msun: ArrayLike, cfg: ps.ProposalConfig
     out = np.full(lm2.size, -np.inf)
     for name, c in (("wd", co.wd), ("dark", co.dark)):
         sel = comp == COMPONENT_CODES[name]
-        out[sel] = math.log(c.weight) + _log_uniform_logpdf(lm2[sel], math.log10(c.m2_min_msun), math.log10(c.m2_max_msun))
+        lu = _log_uniform_logpdf(lm2[sel], math.log10(c.m2_min_msun), math.log10(c.m2_max_msun))
+        if name == "wd" and co.wd_m2_tabulated is not None:  # #607: mixture with the tabulated component
+            tb = co.wd_m2_tabulated
+            with np.errstate(divide="ignore"):
+                lu = np.logaddexp(math.log(1.0 - tb.weight) + lu, math.log(tb.weight) + _log_tabulated_logpdf(lm2[sel], tb))
+        out[sel] = math.log(c.weight) + lu
     return out
+
+
+def _log_tabulated_logpdf(x: FloatArray, tb: ps.WDM2TabulatedConfig) -> FloatArray:
+    """log of the normalised piecewise-constant density per dex (−inf outside the edges)."""
+    e, d = tb.normalised()
+    j = np.searchsorted(e, x, side="right") - 1
+    inside = (j >= 0) & (j < d.size) | (x == e[-1])
+    j = np.clip(j, 0, d.size - 1)
+    return np.where(inside, np.log(d[j]), -np.inf)
+
+
+def sample_tabulated_log10(tb: ps.WDM2TabulatedConfig, rng: np.random.Generator, n: int) -> FloatArray:
+    """n draws of log10 M2 from the piecewise-constant table: a bin by its probability, then uniform inside it."""
+    e, d = tb.normalised()
+    pb = d * np.diff(e)
+    j = rng.choice(d.size, size=n, p=pb / pb.sum())
+    return e[j] + rng.uniform(size=n) * np.diff(e)[j]
+
+
+#: Spawn slot of the #607 tabulated WD M2 stream (the main stream stays as in generation 1000).
+CO_WD_M2_TABULATED_RNG_SLOT: int = 22
 
 
 #: Spawn slot of the matched cooling-age stream (#552 re-centring; the main stream stays as in generation 1000).
@@ -248,6 +274,10 @@ def sample_co_proposal(
     lo = np.where(is_wd, math.log10(co.wd.m2_min_msun), math.log10(co.dark.m2_min_msun))
     hi = np.where(is_wd, math.log10(co.wd.m2_max_msun), math.log10(co.dark.m2_max_msun))
     m2 = 10.0 ** rng.uniform(lo, hi)
+    if co.wd_m2_tabulated is not None:  # #607: own RNG slot, the main stream is unchanged
+        rng_t = np.random.default_rng(np.random.SeedSequence(cfg.base_seed, spawn_key=(stream, CO_WD_M2_TABULATED_RNG_SLOT)))
+        pick_t = is_wd & (rng_t.uniform(size=n) < co.wd_m2_tabulated.weight)
+        m2 = np.where(pick_t, 10.0 ** sample_tabulated_log10(co.wd_m2_tabulated, rng_t, n), m2)
     a_lo, a_hi = co.wd_log10_cooling_age_gyr
     t_cool = np.where(is_wd, 10.0 ** rng.uniform(a_lo, a_hi, size=n), np.nan)
     if co.wd_cooling_age_matched is not None and co.wd_cooling_age_matched.age_source == "draw":
