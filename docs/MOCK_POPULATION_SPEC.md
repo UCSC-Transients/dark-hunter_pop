@@ -2746,6 +2746,59 @@ The luminous top-up (gen-52 recipe) and the dark compact-object recipe (gen 1004
 **G < 10.** Whether the G < 9 exclusion (§12.36) and the G < 10 domain edge can be lifted is assessed in
 `docs/gate_noise_colour/st1/README.md`.
 
+### 12.42 Rung 3 v4: joint refit on the `colour_v2.1+tr1+e2+st1` draws with three diagnosis-driven population terms (Ryan, 2026-11-02; #603)
+
+Script `scripts/rung3_joint_391.py` (v4 options), config `config/population/rung3_joint_v4.yaml` (not under `config/fragments/`).
+Every number below is in that config.
+
+**Data and version guard.**
+- Luminous gens 53–57 (gens 42–46 recipes, §12.41 queue), one deterministic mixture (weight cache `weights_gen53_57.npz`).
+- Compact objects: co_v1 gen 1006 (WD-focused, gen-1005 recipe), its own mixture; WD component only. R_dark ≡ 0 (§5: dark rates belong to rung 5).
+- Both families must carry the noise label `colour_v2.1+tr1+e2+st1` in their primary-model version (`joint.required_noise_model`); the fit refuses any other artifact or cache. Older draws are never mixed in.
+- Spurious: the §12.16 template recalibrated on gens 53–56 (#601), with its own N_s prior N(Σπ̂, σ_cal Σπ̂).
+
+**Carried over from §12.39 unchanged.** μ_b = μ_lum,b(θ) + μ_WD,b(θ_WD) + N_s T_b; the §12.39 physics-derived WD rate (free ln A_ni, ln R_mt, f_He); the A axis [0, 0.5, 5]; the §12.37 F2–F6 fixes with F1 as the A axis; the relative MC error per bin fixed at the reference θ (`mc_variance_at: reference_relative`) with the F2 floor applied there; ln f_evo on the primary phase; G < 10 excluded.
+- Reference θ: the §12.37 v1 fit (as for v3), with the new terms at their null values (0). It is the start point of start 0 and fixes the relative MC error, so the optimiser cannot buy likelihood in ESS-starved modes.
+
+**New reweight-only population terms (#589, #591).** All act on stored truth (M1, q, P, e); nothing is re-simulated. S(log P) = 1/(1 + exp((log P − c_s)/w_s)) with c_s = 2.0 and w_s = 0.1 (P ≈ 100 d).
+1. **M1-dependent eccentricity shape (`beta_e_m1`).** In each log P range k the Beta shape becomes b_k(M1) = b_k (M1/M_e)^β_e with M_e = 1.0 M⊙. The Beta density stays normalised, so the companion frequency is unchanged. β_e > 0 makes higher-M1 primaries less eccentric. Basis: the bright mock is too eccentric at the v3 θ (median e 0.42 vs DR3 0.29–0.32 at log P 2.5–3) because MdS17's η steepens with M1 (bright median M1 1.06, faint 0.83). Bounds [−3, 3].
+2. **P-dependent twin fraction (`dln_F_twin_sP`).** ln F_twin(log P) = ln F_twin + Δ_sP S(log P). The q normalisation per draw (MdS17 q ≥ 0.3 → 1) is re-evaluated at each draw's own F_twin, so the frequency per (M1, P) is unchanged. Basis: twins (q ≥ 0.95) are 40 % of the short-P target weight but 3 % of accepted short-P bright systems. Bounds [−4, 2].
+3. **Low-mass close-binary term (`kappa_cb`).** A frequency factor exp(κ_cb S(log P) min(0, ln(M1/M_cb))) with M_cb = 1.0 M⊙: it changes only the close-binary frequency of primaries below M_cb (κ_cb < 0 raises it toward low M1). Basis: the short-P bright shortfall sits in red K/M dwarfs (DR3/mock 2.0–3.2 at (BP−RP)₀ > 0.8). Bounds [−5, 5].
+
+**Bin grid.** The v3 grid plus a log P edge at 2.0 (the S(log P) centre), so the bins resolve the two short-P terms (§12.14 bin rule). Fixed in config before any fit.
+
+**Routed solution type for the comparison (not in the likelihood).** The artifacts do not store the st1 type. It is reconstructed exactly from stored quantities: the routing draw is the first child Generator of the draw's noise Generator `epoch_model_rng(base_seed, stream, draw_index, tag=PER_CCD_NOISE_RNG_TAG)` (ss1 and sa1 are off), and P(ASB1 | x) uses the stored cascade's a0, ϖ, P, e and inclination, the system G and BP−RP. The reconstruction is checked against `run_cascade` on a sample of draws before use.
+
+**Fit and profiles.** ≥ 12 starts. Profiles: 1-D grids along dγ_q, ln F_twin, Δ_sP and N_s (each point re-optimised over the rest, 3 starts from the best fit).
+
+**Reported.** Convergence (start offsets); every parameter with its Hessian error and bound flag; R_wd (A_ni, R_mt, f_He); N_s and its pull; ESS by component (luminous orbits / accelerations, WD orbits / accelerations) and in key cells (d < 0.3 kpc; G < 13; log P < 2 at G < 13; A > 0.5 by distance); the profiles.
+
+**Plots** (`docs/gate391/rung3_v4/`, README.md and index.html, relative links). The §12.39 set (every 1-D and 2-D, distance splits, χ²/dof ranking with 30-fold bootstrap MC errors, 2-D included), plus orbit 1-D distributions split by solution type (mock routed vs DR3 Orbital / AstroSpectroSB1), and a side-by-side against v3 for: F2 vs G and M_G (bright tail), ϖ/σ_ϖ vs colour and P, the a0/σ_a0–RUWE edge, short-P bright systems, RUWE, A by distance, twin occupancy and e by G.
+
+**Not run.** The gen-52 luminous top-up and the dark compact-object gen-1004 recipe stay paused; the result recommends whether to run them.
+
+**Result (2026-11-03; `docs/gate391/rung3_v4/`, README.md and index.html). Monte-Carlo limited; not a population measurement.**
+- **Spurious template (#601, #604).** π̂ now selects log10(ϖ/σ_ϖ): [−2.343, −1.494] ± [0.294, 0.367]. The new prior is Σπ̂ = 12,729 ± 2,006; it was 17,133 ± 1,790.
+- **Fit.**
+  - 4/12 starts within Δ(−lnL) < 5; −lnL 17,218.3. The profiles found points 2.4 lower, so the optimum was not reached.
+  - At bounds: f_He and Δln F_twin,sP; κ_cb is at +4.98.
+  - **N_s = 46.1k (pull +16.7).** Holding N_s at its prior costs Δ ≈ 1,265. Spurious makes up 0.66 / 1.07 of DR3 at 0.7–1.5 / > 1.5 kpc.
+  - A_ni = 1.10; WD supplies 11.1k C1 orbits.
+  - β_e = +0.03 ± 0.48. The twin profiles are flat (Δ ≲ 3).
+- **ESS.** Luminous orbits 668; WD orbits 16. In the target cells: G < 13 & log P < 2 is 2 (luminous) / 1 (WD); A > 0.5 is 2–16.
+- **Against v3, improved:**
+  - e by G (median 0.30 vs DR3 0.32 at G 10–13; v3 0.39);
+  - bright F2 levels;
+  - the a0/σ_a0–RUWE edge (DR3 fraction above the mock 99th percentile 0.008–0.024, v3 0.03–0.04);
+  - the ϖ/σ_ϖ tail at (BP−RP)₀ < 1.8 and log P 2–2.5;
+  - G × RUWE;
+  - the orbit total.
+- **Against v3, worse:** P × ϖ/σ_ϖ, colour × ϖ/σ_ϖ and G × P in low-ESS cells; short-P bright systems at d ≥ 0.3 kpc (mock ESS 2); large A at d > 0.7 kpc.
+- **Recommendation.**
+  - Run the gen-52 luminous top-up (A > 0.5, evolved / distant), extended by a nearby low-mass short-P component.
+  - Hold the dark gen-1004 (R_dark ≡ 0 at rung 3); prefer a second WD-focused generation.
+  - Re-check the π̂ covariate choice before the next refit.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes

@@ -74,7 +74,38 @@ def luminous_extras(args, ns, parent, jcfg, rep):
     nonls = jr.nonsingle_flags(st, np.asarray(zc["cascade"], float), np.asarray(zc["accepted"], bool), np.asarray(zc["published_acceleration"], bool),
                                t["sys_mg0"], t["sys_colour0"], t["sys_evolved"], ridge, dcfg)
     out.update(w0=w0, nonls=nonls, rows_all=t["parent_row"])
+    if jcfg.get("routed_type"):  # #603 (spec §12.42): post-hoc st1 type of the fit draws (comparison only)
+        tk = ("draw_index", "generation", "sys_bp_rp", "phot_g_mean_mag")
+        tt = {k: np.concatenate([np.asarray(p[0][k]) for p in parts])[rel] for k in tk}
+        base_seed = int(ps.ProposalConfig.model_validate_json(parts[0][2]["proposal_config_json"]).base_seed)
+        cr = np.asarray(zc["cascade"], float)[rel]
+        acc_rel = np.asarray(zc["accepted"], bool)[rel] | np.asarray(zc["published_acceleration"], bool)[rel]
+        typ = np.full(rel.size, np.nan)
+        j_ = np.flatnonzero(np.asarray(zc["accepted"], bool)[rel])
+        typ[j_] = jr.routed_asb1(tt["phot_g_mean_mag"][j_], tt["sys_bp_rp"][j_], cr[j_], tt["generation"][j_], tt["draw_index"][j_],
+                                 base_seed, _st_config())
+        out["asb1"] = typ
+        rep.append(f"routed type (post hoc, §12.42): {int(np.nansum(typ))} AstroSpectroSB1 of {j_.size} accepted luminous orbits ({int(acc_rel.sum())} fit draws)")
     return out
+
+
+def _st_config():
+    """The configured st1 solution-type model (EPOCH_MODEL_SPEC §8.16)."""
+    import dataclasses
+
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.config_loader import load_config
+
+    emc = dataclasses.replace(em.epoch_model_config_from_mapping(load_config().active_dr().epoch_model), enabled=True)
+    if emc.solution_type_model is None:
+        raise SystemExit("routed_type needs the st1 solution_type_model in config")
+    return emc.solution_type_model
+
+
+def check_noise_label(version: str, required: str, what: str) -> None:
+    """#603 (spec §12.42): every artifact of the fit carries the required noise label; older versions are refused."""
+    if f"noise_{required}" not in str(version).split(":"):
+        raise SystemExit(f"{what}: primary-model version {version!r} does not carry noise_{required}; refusing to mix versions")
 
 
 def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=None):
@@ -107,13 +138,21 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=None):
     rep.append(f"compact objects: {comp.size} draws (gens {[g.generation for g in gens]}); C1 orbits WD {int((in_o & (comp == 0)).sum())}, dark {int((in_o & (comp == 1)).sum())}; "
                f"accelerations WD {int((in_a & (comp == 0)).sum())}, dark {int((in_a & (comp == 1)).sum())}")
     casc = np.asarray(o["cascade"], float)
+    if jcfg.get("required_noise_model"):  # #603 version guard
+        for a_, p_ in zip(args.co_artifacts, parts):
+            check_noise_label(p_[2]["primary_model"], jcfg["required_noise_model"], str(a_))
+    co_typ = np.full(comp.size, np.nan)
+    if jcfg.get("routed_type"):
+        j_ = np.flatnonzero(in_o)
+        co_typ[j_] = jr.routed_asb1(np.asarray(t["phot_g_mean_mag"], float)[j_], np.asarray(t["sys_bp_rp"], float)[j_], casc[j_],
+                                    np.asarray(t["generation"])[j_], np.asarray(t["draw_index"])[j_], int(gens[0].base_seed), _st_config())
     shape_old = cob.co_shape_log_density(t, frags[0].target_co)  # #567: divided out when the WD target is replaced
     return dict(w=w, comp=comp, ob=ob, ab=ab, in_o=in_o, in_a=in_a, rows=np.asarray(t["parent_row"], np.int64), nonls=nonls,
                 shape_old=shape_old, m2_true=np.asarray(t["m2_msun"], float), p_true=np.asarray(t["period_days"], float),
                 e_true=np.asarray(t["eccentricity"], float), m1_true=np.asarray(t["m1_msun"], float),
                 t_sys=10.0 ** np.asarray(t["iso_log_age"], float) / 1e9, ecc_fit=casc[:, 14], casc=casc,
                 d_o=obs["d_orbit"], d_a=obs["d_accel"], sys_mg0=np.asarray(t["sys_mg0"], float), sys_colour0=np.asarray(t["sys_colour0"], float),
-                a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"])
+                a0=casc[:, 17], sa0=casc[:, 18], plx=casc[:, 0], P=casc[:, 10], f2=casc[:, 21], g=obs["g"], asb1=co_typ)
 
 
 def empty_co_block(n_casc: int) -> dict:
@@ -122,7 +161,7 @@ def empty_co_block(n_casc: int) -> dict:
     e, ei = np.zeros(0), np.zeros(0, np.int64)
     eb = np.zeros(0, bool)
     return dict(w=e, comp=ei, ob=ei, ab=ei, in_o=eb, in_a=eb, rows=ei, nonls=eb, shape_old=e, m2_true=e, p_true=e, e_true=e, m1_true=e,
-                t_sys=e, ecc_fit=e, casc=np.zeros((0, n_casc)), d_o=e, d_a=e, sys_mg0=e, sys_colour0=e, a0=e, sa0=e, plx=e, P=e, f2=e, g=e)
+                t_sys=e, ecc_fit=e, casc=np.zeros((0, n_casc)), d_o=e, d_a=e, sys_mg0=e, sys_colour0=e, a0=e, sa0=e, plx=e, P=e, f2=e, g=e, asb1=e)
 
 
 def real_accel_obs(args, ns, parent):
@@ -190,7 +229,8 @@ def real_cmd(args, ns, parent):
         rr, rlo, rhi = np.where(plx > 0, 1000 / plx, np.nan), np.where(plx > 0, 1000 / (plx + eplx), np.nan), np.where(plx - eplx > 0, 1000 / (plx - eplx), np.nan)
     gal = SkyCoord(ra=col("ra")[idx] * u.deg, dec=col("dec")[idx] * u.deg).galactic
     c = cmd_for_rows(g, bprp, gal.l.deg, gal.b.deg, rr, rlo, rhi, cfg, gcfg)
-    return np.asarray(c.colour0, float), np.asarray(c.mg0, float)
+    typ = (np.asarray(rt["nss_solution_type"]).astype(str)[idx] == "AstroSpectroSB1").astype(float)  # #603: DR3 type
+    return np.asarray(c.colour0, float), np.asarray(c.mg0, float), typ
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -210,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fix-from", type=Path, default=None, help="summary.json whose theta supplies --fix-names")
     ap.add_argument("--fix-names", nargs="*", default=None)
     ap.add_argument("--init-from", type=Path, default=None)
+    ap.add_argument("--reference-from", type=Path, default=None,
+                    help="#603: summary.json whose θ is the reference for the fixed MC variance (default: the start θ); profiles pass the main fit's reference")
+    ap.add_argument("--profile", nargs="*", default=None,
+                    help="#603: NAME=v1,v2,... 1-D profile grids (one setup; each point re-optimised with --n-starts starts); writes profile.json only")
     args = ap.parse_args(argv)
     if not args.no_co and not (args.co_artifacts and args.co_fragments):
         ap.error("--co-artifacts and --co-fragments are required unless --no-co")
@@ -229,6 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         with h5py.File(args.artifact_dir / a_, "r") as h_:
             gcs.append(ps.ProposalConfig.model_validate_json(h_.attrs["proposal_config_json"]))
     a5.primary_model = ps.check_single_primary_model(gcs)  # luminous family only (spec §13.2)
+    if jcfg.get("required_noise_model"):  # #603 (spec §12.42): only the adopted noise/epoch model's draws
+        check_noise_label(a5.primary_model, jcfg["required_noise_model"], "luminous artifacts")
+        zc_ = np.load(args.cache, allow_pickle=True)
+        check_noise_label(str(zc_["primary_model"]), jcfg["required_noise_model"], f"weight cache {args.cache}")
+        if sorted(int(g) for g in zc_["gens"]) != sorted(int(g.generation) for g in gcs):
+            raise SystemExit(f"weight cache generations {list(zc_['gens'])} != artifacts' {[g.generation for g in gcs]}")
     a5.new_gen = max(int(g.generation) for g in gcs)  # #587: last luminous generation (was hard-coded 46)
     ns = r5.extend(a5, fc, r4.setup(a5, fc))
     cfg = ns.cfg
@@ -304,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     # F4 twin band: real counts per distance bin (C1 orbits), mock masks, spurious share from π̂
     tb = jr.TwinBandConfig(**jcfg["twin_band"])
     ridge = lx["ridge"]
-    rc0, rmg = real_cmd(args, ns, parent)
+    rc0, rmg, r_asb1 = real_cmd(args, ns, parent)
     r_tw, r_si = jr.twin_band_masks(rc0, rmg, ridge, tb)
     de = np.asarray(tb.distance_edges_kpc, float)
     rdb = np.searchsorted(de, ns.ro_cols[1], side="right") - 1
@@ -327,7 +377,10 @@ def main(argv: list[str] | None = None) -> int:
     if wdp_on:
         wd_on = False  # §12.39 replaces the §12.38 target
     wd_names = ("beta_wd", "f_mt", "f_he", "alpha_ni") if wd_on else (("ln_R_mt", "f_he") if wdp_on else ())
-    names = r5.POP + ("ln_f_evo", "ln_R_wd", "ln_R_dark") + wd_names + ("N_s",)
+    v4c = jr.V4TermsConfig(**jcfg["v4_terms"]) if jcfg.get("v4_terms") else None  # #603 (spec §12.42)
+    v4_on = v4c is not None and v4c.enabled
+    v4_names = ("beta_e_m1", "dln_F_twin_sP", "kappa_cb") if v4_on else ()
+    names = r5.POP + ("ln_f_evo", "ln_R_wd", "ln_R_dark") + wd_names + v4_names + ("N_s",)
     i_fe, i_rw, i_rd, i_ns = (names.index(n) for n in ("ln_f_evo", "ln_R_wd", "ln_R_dark", "N_s"))
     # #567: the WD draws that enter any bin or term; their target is re-evaluated at each θ
     wd_rel = np.flatnonzero((co["comp"] == 0) & (co["in_o"] | co["in_a"]))
@@ -357,8 +410,29 @@ def main(argv: list[str] | None = None) -> int:
         t[:13] = th[:13]
         return t
 
+    if v4_on:  # θ-independent pieces of the §12.42 terms (truth M1 on the MdS17-law mass scale, true log P, q grid)
+        lp_ = ns.lm_parts
+        m1_v4 = np.asarray(ns.m1_law, float)
+        s_p = jr.short_period_weight(lp_["lp_true"], v4c)
+        ind = {n: names.index(n) for n in v4_names}
+        twin_q = np.asarray(lp_["twin_g"], bool)
+        rep.append(f"v4 terms {v4c.model_dump()}: S(log P) > 0.5 for {np.mean(s_p > 0.5):.3f} of fit draws; M1 < M_cb for {np.mean(m1_v4 < v4c.cb_m1_pivot_msun):.3f}")
+
+    def v4_log(th):
+        """#603: Δ ln w of the M1-dependent e-shape, P-dependent twin fraction and low-mass close-binary terms."""
+        if not v4_on:
+            return 0.0
+        dq, lnT = th[5], th[6]
+        a, b = np.asarray(th[7:10]), np.asarray(th[10:13])
+        k = lp_["rng_k"]
+        out = jr.ecc_shape_m1_log_ratio(a[k], b[k], lp_["l1x"], lp_["inside"], m1_v4, th[ind["beta_e_m1"]], v4c)
+        if th[ind["dln_F_twin_sP"]] != 0.0:
+            gq = np.exp(dq * lp_["lq_g"])
+            out = out + jr.twin_short_p_log_ratio(lp_["twin"], s_p, lp_["Pq"] @ (gq * ~twin_q), lp_["Pq"] @ (gq * twin_q), lnT, th[ind["dln_F_twin_sP"]])
+        return out + jr.close_binary_log_factor(m1_v4, s_p, th[ind["kappa_cb"]], v4c)
+
     def lum_w(th):
-        return ns.W["noW"] * np.exp(ns.log_mod(full(th)) + th[i_fe] * evo_mod)
+        return ns.W["noW"] * np.exp(ns.log_mod(full(th)) + th[i_fe] * evo_mod + v4_log(th))
 
     wob, wab = co["ob"][wd_rel], co["ab"][wd_rel]
 
@@ -409,9 +483,11 @@ def main(argv: list[str] | None = None) -> int:
     par = fc["parameters"]
     cr = jcfg["co_rates"]
     wp = jcfg.get("wd_params", {}) if (wd_on or wdp_on) else {}
-    x0 = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names] + [prior[0]], float)
+    vp = jcfg.get("v4_params", {}) if v4_on else {}
+    x0 = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names]
+                  + [vp[n][0] for n in v4_names] + [prior[0]], float)
     bounds = ([(par[n][1], par[n][2]) for n in r5.POP] + [(-3.0, 3.0), (cr["ln_R_wd"][1], cr["ln_R_wd"][2]), (cr["ln_R_dark"][1], cr["ln_R_dark"][2])]
-              + [(wp[n][1], wp[n][2]) for n in wd_names] + [(0.0, max(5 * prior[0], 1.0))])
+              + [(wp[n][1], wp[n][2]) for n in wd_names] + [(vp[n][1], vp[n][2]) for n in v4_names] + [(0.0, max(5 * prior[0], 1.0))])
     fixes = list(args.fix or [])
     if args.fix_from is not None:
         src = json.loads(args.fix_from.read_text())["results"]
@@ -432,8 +508,20 @@ def main(argv: list[str] | None = None) -> int:
         x0 = np.clip(np.array([th_src.get(n, x0[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
     infl = {"o": None, "a": None}
     relvar = {"o": None, "a": None}
+    x_ref = x0.copy()
+    if args.reference_from is not None:  # #603: the reference θ of the fixed relative MC error, independent of the start point
+        src = json.loads(args.reference_from.read_text())["results"]
+        src = src.get("joint", src.get("noW"))
+        th_src = dict(zip(src["names"], src["theta"]))
+        x_d = np.array([par[n][0] for n in r5.POP] + [0.0, cr["ln_R_wd"][0], cr["ln_R_dark"][0]] + [wp[n][0] for n in wd_names]
+                       + [vp[n][0] for n in v4_names] + [prior[0]], float)
+        x_ref = np.clip(np.array([th_src.get(n, x_d[j]) for j, n in enumerate(names)], float), [b[0] for b in bounds], [b[1] for b in bounds])
+        for item in fixes:  # profile/fixed values (e.g. ln_R_dark) apply to the reference too
+            nm_, val_ = item.split("=")
+            x_ref[names.index(nm_)] = prior[0] if val_ == "prior" else float(val_)
+        rep.append(f"reference θ for the fixed MC variance from {args.reference_from}")
     if jcfg.get("mc_variance_at", "current") == "reference_relative":
-        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        _, mo_r, vo_r, ma_r, va_r = expected(x_ref)
         with np.errstate(divide="ignore", invalid="ignore"):
             ro = np.where(mo_r > 0, vo_r / np.where(mo_r > 0, mo_r, 1.0) ** 2, 0.0)
             ra = np.where(ma_r > 0, va_r / np.where(ma_r > 0, ma_r, 1.0) ** 2, 0.0)
@@ -443,12 +531,43 @@ def main(argv: list[str] | None = None) -> int:
         rep.append(f"MC variance: relative error per bin fixed at the reference θ (F2 floor {ess_floor:g} applied there); "
                    f"median relative MC error of orbit bins {np.median(np.sqrt(ro[mo_r > 0])):.3f}")
     if jcfg.get("ess_inflation_at", "current") == "reference":
-        _, mo_r, vo_r, ma_r, va_r = expected(x0)
+        _, mo_r, vo_r, ma_r, va_r = expected(x_ref)
         with np.errstate(divide="ignore", invalid="ignore"):
             infl["o"] = np.where(vo_r > 0, np.maximum(1.0, ess_floor / np.maximum(mo_r**2 / np.where(vo_r > 0, vo_r, 1.0), 1e-300)), 1.0)
             infl["a"] = np.where(va_r > 0, np.maximum(1.0, ess_floor / np.maximum(ma_r**2 / np.where(va_r > 0, va_r, 1.0), 1e-300)), 1.0)
         rep.append(f"F2 inflation at the reference θ (start point): {int(np.sum(infl['o'] > 1))} orbit and {int(np.sum(infl['a'] > 1))} acceleration bins inflated")
     rep.append(f"N_s prior N({prior[0]:.0f}, {prior[1]:.0f}); ESS floor for variance inflation {ess_floor:g}; real C1 orbits {int(N_o)}, accelerations {int(k_a.sum())}")
+    if args.profile:  # #603 (spec §12.42): 1-D profiles, every other parameter re-optimised at each grid point
+        prof = {"nll_ref_start": float(nll(x0)), "grids": {}}
+        rng_p = np.random.default_rng(args.seed + 1)
+        for item in args.profile:
+            nm_, vals_ = item.split("=")
+            j_ = names.index(nm_)
+            rows_ = []
+            for v_ in (prior[0] if x_ == "prior" else float(x_) for x_ in vals_.split(",")):
+                bnd = list(bounds)
+                bnd[j_] = (v_ - 1e-9, v_ + 1e-9)
+                lo_, hi_ = np.array([b[0] for b in bnd]), np.array([b[1] for b in bnd])
+                bestp = None
+                for s_ in range(args.n_starts):
+                    x_s = x0.copy()
+                    x_s[j_] = v_
+                    if s_ > 0:
+                        x_s = np.array([rng_p.uniform(max(lo, x - 0.5), min(hi, x + 0.5)) if j != i_ns else rng_p.uniform(0.8 * x, 1.2 * x)
+                                        for j, (x, (lo, hi)) in enumerate(zip(x_s, bnd))])
+                    x_s = np.clip(x_s, lo_, hi_)
+                    r = minimize(nll, x_s, method="L-BFGS-B", bounds=bnd, options={"maxiter": 4000, "maxfun": 40000})
+                    r = minimize(nll, r.x, method="Powell", bounds=bnd, options={"maxiter": 30000, "xtol": 1e-4, "ftol": 1e-8})
+                    if bestp is None or r.fun < bestp.fun:
+                        bestp = r
+                rows_.append({"value": float(v_), "nll": float(bestp.fun), "theta": bestp.x.tolist()})
+                print(f"profile {nm_} = {v_:.4g}: -lnL {bestp.fun:.2f}", flush=True)
+            prof["grids"][nm_] = rows_
+        prof["names"] = list(names)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / "profile.json").write_text(json.dumps(prof, indent=1))
+        (args.out_dir / "report.txt").write_text("\n".join(rep) + "\n")
+        return 0
     sols, best = [], None
     if args.eval_only:  # #587: evaluate at x0 (no optimisation)
         from types import SimpleNamespace as _SN
@@ -607,6 +726,21 @@ def main(argv: list[str] | None = None) -> int:
                twin_band={"real_twin": kt.tolist(), "real_single": ks.tolist(), "mock_twin": mt.tolist(), "mock_single": ms.tolist()},
                ppc=ppc, f2=f2, depletion=dsum, accel_by_distance=accel_by_d, ess_orbits=float(ps.kish_ess(w[so_l])), n_big_low=int(np.sum(big & (ess_b < args.min_ess))), n_big=int(big.sum()))
     res.update(res_extra)
+    # #603 (spec §12.42): ESS by component and in key cells (orbits unless noted)
+    kess = ps.kish_ess
+    wdo_, wda_ = co["in_o"] & (co["comp"] == 0), co["in_a"] & (co["comp"] == 0)
+    g_l, d_l, lp_l = ns.o_cols[0], ns.o_cols[1], ns.o_cols[2]
+    cells = {"d<0.3": (d_l < 0.3, co["d_o"] < 0.3), "G<13": (g_l < 13, co["g"] < 13),
+             "G<13 & logP<2": ((g_l < 13) & (lp_l < 2), (co["g"] < 13) & (np.log10(co["P"]) < 2))}
+    for lo, hi in zip(dE[:-1], dE[1:]):
+        cells[f"A>0.5 d{lo:g}-{hi:g}"] = ((A_l > 0.5) & (d_l >= lo) & (d_l < hi), (A_c > 0.5) & (co["d_o"] >= lo) & (co["d_o"] < hi))
+    res["ess"] = {"lum_orbits": float(kess(w[so_l])), "lum_accels": float(kess(w[ab >= 0])),
+                  "wd_orbits": float(kess(wc[wdo_])), "wd_accels": float(kess(wc[wda_])),
+                  "cells": {k: {"lum": float(kess(w[so_l & ml_])), "wd": float(kess(wc[wdo_ & mc_])),
+                                "mock_lum": float(w[so_l & ml_].sum()), "mock_wd": float(wc[wdo_ & mc_].sum())} for k, (ml_, mc_) in cells.items()}}
+    res["bounds"] = {n: list(b) for n, b in zip(names, bounds)}
+    rep.append("    ESS: " + ", ".join(f"{k} {v:.0f}" for k, v in res["ess"].items() if k != "cells") + "; cells: "
+               + "; ".join(f"{k} lum {v['lum']:.0f} / WD {v['wd']:.0f}" for k, v in res["ess"]["cells"].items()))
     rep.append(f"    WD ESS at the fit: orbits {res['wd_ess_orbits']:.0f}, accelerations {res['wd_ess_accels']:.0f}")
     for k_ in ("A>0.5 d0-0.3", "A>0.5 d0.7-1.5", "all_C1 d0-0.3"):
         if k_ in comp_tab:
@@ -655,6 +789,7 @@ def main(argv: list[str] | None = None) -> int:
         "o_real_g": ns.ro_cols[0], "o_real_d": ns.ro_cols[1], "o_real_colour0": rc0, "o_real_mg0": rmg, "o_real_P": 10 ** ns.ro_cols[2], "o_real_e": ns.ro_cols[3],
         "o_real_A": A_r_fit, "o_real_a0snr": 10 ** ns.r_cov["log10_a0_snr"], "o_real_plxsnr": 10 ** ns.r_cov["log10_parallax_snr"], "o_real_f2": rx["goodness_of_fit"],
         "o_real_ruwe": rx["ruwe"] if "ruwe" in rx else np.full(rc0.size, np.nan), "o_spur_w": spur_w,
+        **({"o_lum_asb1": lx["asb1"][so_l], "o_wd_asb1": co["asb1"][wdo], "o_real_asb1": r_asb1} if "asb1" in lx else {}),
         "a_lum_w": w[sa_l], "a_lum_g": ns.a_cols[0][sa_l], "a_lum_d": ns.a_cols[1][sa_l], "a_lum_colour0": lx["sys_colour0"][sa_l], "a_lum_mg0": lx["sys_mg0"][sa_l],
         **{f"a_lum_{k}": v for k, v in al.items()},
         "a_wd_w": wc[wda], "a_wd_g": co["g"][wda], "a_wd_d": co["d_a"][wda], "a_wd_colour0": co["sys_colour0"][wda], "a_wd_mg0": co["sys_mg0"][wda],
