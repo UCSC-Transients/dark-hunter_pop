@@ -112,6 +112,9 @@ def setup(args, fc):
             "before_noW": (mixture_weights(z, before, False)[rel] / s_low) if before else np.zeros(rel.size),  # single-generation set (§12.25)
             "g28": mixture_weights(z, [args.new_gen], False)[rel] / s_low}
     ns.log_mod, ns.casc, ns.gen = log_mod, casc[rel], np.asarray(z["generation"])[rel]
+    # #603 (spec §12.42): the pieces the v4 population terms reuse (e-shape support, q-normaliser grid, true log P, q)
+    ns.lm_parts = dict(l1x=l1x, inside=inside, rng_k=rng_k, Pq=Pq, lq_g=lq_g, twin_g=twin_g, q=q, lp_true=lp_true,
+                       twin=q >= fc["twin_q_min"])
     cpu, gen_all = np.asarray(z["cpu_seconds"], float), np.asarray(z["generation"])
     ns.cpu_all, ns.cpu_28 = float(cpu.sum() / 3600), float(cpu[gen_all == args.new_gen].sum() / 3600)
     ns.cpu_before = ns.cpu_all - ns.cpu_28

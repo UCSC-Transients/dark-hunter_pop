@@ -87,6 +87,15 @@ class Kind:
             self.comp[c] = ({k: _get(z, pfx, c, k) for k in obs}, np.asarray(z[f"{pfx}_{c}_w"], float))
         if f"{pfx}_spur_w" in z.files:
             self.comp["spurious"] = (self.real, np.asarray(z[f"{pfx}_spur_w"], float))
+        # #603: routed (mock) / DR3 (real, also the spurious component) solution type, 1 = AstroSpectroSB1, 0 = Orbital
+        self.typ = None
+        if f"{pfx}_real_asb1" in z.files:
+            rt = np.asarray(z[f"{pfx}_real_asb1"], float)
+            self.typ = {c: (rt if c == "spurious" else np.asarray(z[f"{pfx}_{c}_asb1"], float)) for c in self.comp}
+            self.rtyp = rt
+
+    def tsel(self, v):
+        return {c: t_ == v for c, t_ in self.typ.items()}, self.rtyp == v
 
     def mock_hist(self, cols, edges, logs, sel=None, boot=None):
         mu, var, parts = 0.0, 0.0, {}
@@ -231,6 +240,14 @@ def main(argv: list[str] | None = None) -> int:
                 err = boot_chi2(kind, [key], [edges[key]], [lg], k_, sel=sel)
                 rank.append({"kind": kname, "distribution": key, "dims": 1, "split": f"d{lo:g}-{hi:g}", "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": err, "figure": fn})
                 figs.append((kname, f"1-D, d {lo:g}–{hi:g} kpc", fn, lab))
+            if kind.typ is not None:  # #603: by solution type (mock routed st1 vs DR3)
+                for tv, tname in ((0.0, "Orbital"), (1.0, "AstroSpectroSB1")):
+                    sel, rsel = kind.tsel(tv)
+                    fn = f"{kname}_1d_{key}_{tname}.png"
+                    c2, nb = plot_1d(kind, key, lab, lg, edges[key], out / fn, style, dpi, sel=sel, rsel=rsel, title=f"{kname}, {tname}: {lab}", draw=draw)
+                    err = boot_chi2(kind, [key], [edges[key]], [lg], kind.real_hist([key], [edges[key]], [lg], rsel), sel=sel)
+                    rank.append({"kind": kname, "distribution": key, "dims": 1, "split": tname, "chi2": c2, "dof": nb, "chi2_dof": c2 / max(nb, 1), "chi2_mc_err": err, "figure": fn})
+                    figs.append((kname, f"1-D, {tname}", fn, lab))
         for (ka, la), (kb, lb) in itertools.combinations(obs.items(), 2):
             ea = np.linspace(edges[ka][0], edges[ka][-1], NB_2D + 1)
             eb = np.linspace(edges[kb][0], edges[kb][-1], NB_2D + 1)
