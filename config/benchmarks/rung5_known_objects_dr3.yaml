@@ -1,0 +1,20 @@
+# R5-T7 (#624; docs/RUNG5_SPEC.md §5 gate 5a): known compact-object systems re-injected at their published DR3 solutions
+# through the adopted epoch/noise model, to compare their recovery rate with the rung-5 response. Comparison only: these
+# objects never enter a prior. Read by scripts/rung5_known_objects_5a.py.
+schema_version: 1
+data_release: dr3
+required_noise_model: colour_v2.1+tr1+e2+st1      # the inject step refuses another configured epoch-model label
+published_orbits: output/gate390/published_orbits.h5   # all 168,065 DR3 Orbital + AstroSpectroSB1 rows (#390)
+n_realizations: 50                               # per object; binomial error on the recovery fraction ~0.07 at p = 0.5
+c1_period_max_days: 830.4                        # recovered = accepted orbit with fitted P <= this (the C1 domain)
+groups:
+  known_truth_bh:                                # Gaia BH1, BH2 (clean DR3 orbits); masses in known_truth_gaia_bh.yaml
+    source: config/benchmarks/known_truth_gaia_bh.yaml
+    select: {dr3_expectation: clean_detection}
+  elbadry2024_ns_candidates:                     # El-Badry et al. (2024) Table 3 rows the paper labels good
+    source: config/selections/external/elbadry2024_table3.yaml
+    select: {state: good}
+not_injected:                                    # recorded so the gate report states why they are absent
+  - name: Gaia-BH3
+    source_id: 4318465066420528000
+    reason: "no DR3 NSS orbit (P ~ 11.6 yr > baseline); its long-period response is tested by the mock, not by injection"
