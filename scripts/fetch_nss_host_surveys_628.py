@@ -45,7 +45,7 @@ def host_ids(path: Path) -> np.ndarray:
         return np.unique(h["published"]["source_id"][()].astype(np.int64))
 
 
-def skyserver(sql: str, retries: int = 3) -> str:
+def skyserver(sql: str, retries: int = 8) -> str:
     url = SKYSERVER + "?" + urllib.parse.urlencode({"cmd": sql, "format": "csv"})
     for k in range(retries):
         try:
@@ -53,7 +53,7 @@ def skyserver(sql: str, retries: int = 3) -> str:
         except Exception:  # noqa: BLE001 - transient service errors are retried, then raised
             if k == retries - 1:
                 raise
-            time.sleep(5 * (k + 1))
+            time.sleep(min(120, 10 * 2**k))
     raise RuntimeError("unreachable")
 
 
@@ -84,14 +84,26 @@ def _finish(out: Path, tables: dict, meta: dict) -> None:
     print(f"wrote {out}: " + ", ".join(f"{k} {len(t)}" for k, t in tables.items()))
 
 
+def _cached(cache: Path, key: str, sql: str):
+    """SkyServer result for ``sql``, cached as ``cache/key.csv`` so an interrupted fetch resumes."""
+    f = cache / f"{key}.csv"
+    if not f.exists():
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(skyserver(sql))
+        tmp.rename(f)
+    return csv_table(f.read_text())
+
+
 def fetch_apogee(ids: np.ndarray, chunk: int, data_root: Path) -> None:
     from astropy.table import vstack
 
     date = dt.datetime.now(dt.timezone.utc)
+    cache = data_root / "dr3" / "external_catalogs" / f"_partial_apogee_dr17_chunk{chunk}_n{ids.size}"
+    cache.mkdir(parents=True, exist_ok=True)
     stars = []
     for lo in range(0, ids.size, chunk):
         lst = ",".join(str(int(s)) for s in ids[lo:lo + chunk])
-        t = csv_table(skyserver(f"SELECT {STAR_COLS} FROM apogeeStar WHERE gaiaedr3_source_id IN ({lst})"))
+        t = _cached(cache, f"star_{lo:07d}", f"SELECT {STAR_COLS} FROM apogeeStar WHERE gaiaedr3_source_id IN ({lst})")
         if t is not None:
             stars.append(t)
         if (lo // chunk) % 50 == 0:
@@ -101,13 +113,14 @@ def fetch_apogee(ids: np.ndarray, chunk: int, data_root: Path) -> None:
     visits = []
     for lo in range(0, len(apids), chunk):
         lst = ",".join(f"'{a}'" for a in apids[lo:lo + chunk])
-        t = csv_table(skyserver(f"SELECT {VISIT_COLS} FROM apogeeVisit AS v WHERE v.apogee_id IN ({lst})"))
+        t = _cached(cache, f"visit_{lo:07d}", f"SELECT {VISIT_COLS} FROM apogeeVisit AS v WHERE v.apogee_id IN ({lst})")
         if t is not None:
             visits.append(t)
     visit = vstack(visits)
     field = csv_table(skyserver("SELECT * FROM apogeeField"))
     out = _snapshot(data_root, "apogee_dr17", date)
-    _finish(out, {"apogee_star": star, "apogee_visit": visit, "apogee_field": field}, {
+    meta_extra = {"partial_cache": str(cache)}
+    _finish(out, {"apogee_star": star, "apogee_visit": visit, "apogee_field": field}, {**meta_extra,
         "issue": 628, "approved": "Ryan 2026-11-06", "source": "SDSS DR17 APOGEE (Abdurro'uf et al. 2022) via SkyServer SQL",
         "service": SKYSERVER, "query_date": date.isoformat(), "match": "apogeeStar.gaiaedr3_source_id IN (host source_ids)",
         "star_columns": STAR_COLS, "visit_columns": VISIT_COLS, "n_hosts_queried": int(ids.size),
