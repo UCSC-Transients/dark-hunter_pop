@@ -68,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         versions.add(str(attrs["primary_model"]))
         truths.append(t)
         outs.append(o)
+    ps.check_release_match(r4.data_release, sorted(versions), f"{args.rung4_config}")  # R5-T13 (#618)
     if versions != {ps.primary_model_version(gens[0])}:
         raise SystemExit(f"artifact primary models {sorted(versions)} != fragments' {ps.primary_model_version(gens[0])}")
     truth, outcome = _concat(truths), _concat(outs)
