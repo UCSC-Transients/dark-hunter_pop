@@ -326,7 +326,177 @@ Sizes: S ≤ 1 day, M 2–3 days, L ≥ 4 days of agent work. **H** = needs heav
 | R5-Q11 | Companion-nature ΔBIC evidence in the first result | **No**; WD vs dark from the forward-modelled WD light; ΔBIC later (#207, SED throughput) |
 | R5-Q12 | DR4 orbit source | **Both** (a) NSS and (b) epoch refit, compared on the overlap (ARCHITECTURE §6); (b) is the inference default once validated |
 
+## 11. Follow-up evidence layer: SED (GALEX UV) and RV (Ryan, 2026-11-06; supersedes R5-Q6) — DRAFT
+
+**Direction (Ryan, 2026-11-06).** Get through all the Gaia data as fast as possible, then **immediately** add SED fitting
+(especially GALEX UV) and RV fitting. Follow-up is the best way to measure (i) the true spurious-orbit rate in the mass
+range we care about (NS/BH, M2 ≳ 1 M⊙) and (ii) the WD contamination of that range. The Gaia-only first result (§9,
+R5-T11) is unchanged and stays on the critical path; this layer starts right after it, and its light parts are prepared
+in parallel now.
+
+### 11.1 What the layer measures
+
+| Question | Evidence | Where it enters |
+|---|---|---|
+| Is the companion a (hot) WD, a luminous star, or dark? | SED: `dark-hunter_sed` Path-2 `1star` / `wd` / `2star` fits with GALEX FUV/NUV + optical/IR; a UV-excess statistic | Per-object class evidence (§11.4a) |
+| Is the astrometric orbit real? | RV: Gaia DR3 RV statistics vs the K1 the astrometric orbit predicts; external survey RVs; our own spectra, fitted with The Joker; joint astrometry + RV (`rv_consistency`) | Spurious labels in the high-M2 range (§11.4c); per-object orbit likelihood |
+| How many WDs sit in the NS range? | Both: hot WDs show a UV excess; RV confirms the mass function | WD/NS contamination (§2.4) with measured, not only modelled, rates |
+
+### 11.2 SED channel
+
+**Existing interface (CLAUDE.md "dark-hunter_sed → pop").**
+- `phot_sed_adapter` reads `output/phot_sed/Gaia_DR3_<id>_<model>_summary.json` for `1star` (dark), `wd` (WD) and `2star`
+  (coeval luminous → `other`), recovers χ² from BIC, and tags each candidate `phot_sed` or `analytic_fallback`.
+  The WD leg is wired (#206 closed). **#207 is open**: no summary records the photometry-cleaning settings, so ΔBIC
+  sensitivity to bad points cannot be measured.
+- The console scripts (`darkhunter-sed-phot`, `-gather-phot`, `-batch`) are installed in pop's `.venv`.
+- `dark-hunter_sed/photometry_gather.py` already queries GALEX FUV/NUV, but per star, live from MAST, by a cone that keeps the
+  **first row** in the radius (no proper-motion propagation, no nearest-match or ambiguity check). For candidates that matter,
+  a wrong UV match is a false WD. Fix upstream (FL-Q8) or feed pop-side matched photometry.
+- Few Path-2 fits exist; throughput (uberMS SVI plus three dynesty runs per star) is the known blocker and is deferred to
+  ziggy.
+
+**Laptop-feasible scope.** Path-2 photometric fits only (no uberMS spectra), for the **candidate set**: real C1 orbits with
+posterior-median M2_app ≥ 1.0 M⊙, plus those with A > 0.5 and M2_app ≥ 0.6 M⊙ (FL-Q2). The size is measured by FL-T1 once
+R5-T2 gives M2_app for real rows (expected 10²–10³). FL-T5 measures the CPU cost per star on 5 stars before any batch. If
+the candidate set × three models fits in one 10-h laptop batch it runs here, behind the generation queue; otherwise the
+remainder waits for ziggy.
+
+**Hot-WD UV-excess discriminant.**
+- Statistic: the GALEX NUV (and FUV where detected) residual against the prediction for the primary alone (MIST
+  isochrone at the row's M1 / age / [Fe/H], extinction from the configured map with R_NUV, R_FUV), in units of the
+  combined error: Δ_UV = (m_obs − m_pred,1) / σ.
+- It is **one-sided**. A significant excess identifies a hot WD; no excess only excludes WDs younger than a detectability
+  age t_det(M_WD, primary, d, A_V). Most WD companions are old and UV-dark, so the class information comes from the
+  forward model of P(excess | WD, M_WD, t_cool, x), not from the absence of a detection.
+- The Path-2 ΔBIC (`wd` vs `1star`) is the per-object evidence for real candidates; Δ_UV is the cheap statistic computed
+  identically on mocks and real rows.
+- Known confounders, modelled or flagged: chromospheric UV of active M/K dwarfs; hot subdwarfs and blue stragglers;
+  extinction near the plane; GALEX non-linearity and saturation of bright sources (NUV ≲ 15).
+
+**GALEX catalogue choice (FL-Q1).**
+- Photometry for real rows: the Gaia archive cross-match `gaiadr3.galex_ais_best_neighbour` → `gaiadr3.galex_ais_dr3`
+  (already configured as `dr3.external_photometry_crossmatches[NUV]`, `enabled: false`). It gives epoch-propagated
+  best-neighbour matches. FUV needs one more column (`fuv_mag`, `fuv_mag_err`) in that entry.
+- Coverage and depth (needed by the forward model): GUVcat_AIS (Bianchi et al. 2017; unique AIS sources from GR6+7, with
+  the footprint), and GALEX GR5 AIS/MIS (Bianchi et al. 2011) where the deeper MIS exposures exist.
+  AIS covers most of the sky away from the Galactic plane and the Magellanic Clouds, to roughly NUV ≈ 20.8 and
+  FUV ≈ 19.9 (AB); MIS is about 2 mag deeper over a much smaller area.
+- Follow-up selection term for the forward model: SF_UV(x) = P(GALEX coverage | l, b) × P(detected | m_pred,UV, local
+  depth, background), with the coverage from the footprint and the detection curve measured from GUVcat vs Gaia
+  completeness per tile depth. This is a property of the sky and the predicted magnitudes, never of the class.
+
+**Mock side.** The mock needs predicted GALEX FUV/NUV for the primary (MIST bolometric corrections for GALEX) and for the
+WD companion (the Montreal synthetic photometry of the Bédard et al. 2020 sequences; FL-T2 checks that the snapshot carries
+GALEX columns and adds them if not). This is a reweight-free post-processing of stored truth: no re-simulation.
+
+### 11.3 RV channel
+
+**Existing interface.** `dark-hunter_rv` (The Joker) writes `Gaia_DR3_<id>_summary.json` (schema v1), ingested by
+`rv_adapter`; `rv_consistency` runs the χ²/dof gate and the joint astrometry + RV fit. 154 summaries are snapshotted under
+`data/dr3/rv_summaries/`. These are targeted candidates (our own follow-up), so their selection is the targeting rule
+(§11.4b).
+
+**Gaia DR3 RV statistics.** `rv_amplitude_robust`, `rv_chisq_pvalue`, `rv_renormalised_gof`, `rv_nb_transits`,
+`rv_template_teff` are published for bright RVS stars. A bright-parent + bright-host snapshot exists
+(`data/external_catalogs/20261022T181049Z_dr3_rv_stats_bright`, `scripts/fetch_rv_stats_391.py`); it has to be extended to the
+candidate set (download, FL-Q-data list).
+- Test: the astrometric orbit predicts K1 = 29.78 (a0/ϖ) sin i / (P_yr √(1 − e²)) km/s (exact for a dark companion; a
+  lower bound otherwise). Given the RVS transit times and the RV noise, it predicts the distribution of
+  rv_amplitude_robust and of rv_chisq_pvalue.
+  **Confirmed:** amplitude and variability consistent with K1. **Refuted:** no variability where K1 should be detected
+  with high probability (spurious orbit or wrong a0). **Uninformative:** K1 below the RV detectability.
+- This is the physical version of the st1 model that §12.41 deferred: RVS epochs on the same scanning law (a subset of
+  the astrometric transits) and an RV noise model σ_RV(G_RVS, T_eff) calibrated on looks-single bright parent rows in the
+  existing snapshot. Forward-modelled on mocks; a P-value threshold alone is not used (FL-Q6).
+
+**External surveys.** APOGEE DR17 (allVisit epochs), LAMOST (LRS and MRS epochs), GALAH DR4, and others as available.
+Multi-epoch RVs go through The Joker jointly with the astrometric orbit; single-epoch RVs contribute a systemic-velocity
+residual term. Survey footprints and targeting functions are the availability selection (`config/target_lists/derived/
+survey_sfs/`); every catalogue is snapshotted with a checksum, never read live.
+
+**DR4.** DR4 publishes epoch RVs for the RVS sample. For bright candidates the RV term then becomes an exact per-object
+likelihood in a joint epoch-astrometry + epoch-RV fit (ARCHITECTURE §6 "RV epochs"), on the same scanning law as the
+mock, so availability is uniform and fully forward-modelled. External surveys remain the route for fainter stars. The
+DR3 summary-statistic test is retired for DR4 rows.
+
+**Spurious determination.** In the high-M2 range, each candidate with informative RV is labelled RV-confirmed or
+RV-refuted. The labels:
+- extend the shared `spuriousness_model` training set (alongside the 293 published labels), with unlabelled candidates
+  **censored, not missing at random**: the censoring model is the RV-availability selection (§11.4b);
+- calibrate the §12.16 spurious template's normalisation **in the high-M2 cells** (a separate N_s prior there, from the
+  refuted fraction with its binomial error), replacing the extrapolation from the bulk π̂ fit.
+
+### 11.4 How follow-up evidence enters inference
+
+**(a) Per-object class evidence.** For a candidate with follow-up data D_i, its contribution to the likelihood gains the
+factor Σ_k λ_k(x_i | θ) p(D_i | k, x_i) instead of Σ_k λ_k(x_i | θ). p(D_i | k, x) are **likelihoods**, not
+posterior class weights (the population model supplies the class rates; using `companion_nature` posterior weights
+would count the prior twice). `companion_nature`'s ΔBIC / photometry channel is the source of p(D | WD), p(D | other),
+p(D | dark); the `phot_sed` vs `analytic_fallback` tag is carried per object. In the binned first-result likelihood
+this becomes a split of each observable bin by follow-up outcome (UV excess yes/no/unobserved; RV confirmed/refuted/
+uninformative/none), with the outcome probabilities per class from the mock.
+
+**(b) Follow-up selection function (replaces "SF_followup ≡ 1").**
+- **Availability** (GALEX coverage and detection, Gaia RVS coverage, survey footprints) depends only on observables
+  (sky, magnitudes, colour). Conditioning on it is ignorable for the mass function **provided** the outcome
+  probabilities are modelled per class. Default (FL-Q4): every object stays in the likelihood; the follow-up factor is
+  applied only where data exist; availability enters the mock as SF_FU(x) so that the mock's outcome split matches the
+  real one bin by bin.
+- **Our own targeted spectroscopy** (dark-hunter_rv targets) is selected on Gaia-derived quantities (M2_app, a0, the
+  target-list adoption dates). Its targeting rule must be recorded as a function of observables at adoption time
+  (`config/target_lists/derived/`), and is then forward-modelled exactly like a survey footprint. A target with no
+  recorded rule is used for validation only, never in the likelihood.
+- `selection_function_followup` (#351) is rebuilt on this definition; its synthetic catalog and twin are retired.
+
+**(c) Spurious calibration** in the mass range of interest: §11.3, via the shared model and the high-M2 N_s prior.
+
+**Forward-modelled on mocks vs applied to real candidates only.**
+
+| Forward-modelled on mocks (both sides identical) | Real candidates only |
+|---|---|
+| GALEX predicted FUV/NUV (primary + WD companion), coverage, detection, Δ_UV outcome per class | Path-2 SED fits and their ΔBIC; spectroscopic (uberMS) fits |
+| Gaia DR3 RV statistics under the RVS epoch and noise model; RV detectability of K1 | The Joker fits of real RV epochs; joint astrometry + RV fits |
+| Survey and targeting availability SF_FU(x) | Per-object confirmed/refuted labels |
+| Outcome probabilities p(outcome | class, x) per bin | The ΔBIC → class reliability, calibrated on Path-2 fits of synthetic photometry of a mock subset (ziggy) |
+
+### 11.5 Sequencing
+
+1. **Critical path unchanged:** Gaia-only first DR3 result (R5-T1…T11).
+2. **Now, in parallel (light, laptop, no downloads):**
+   - FL-T1 candidate-set definition from the mock-fixed thresholds (needs R5-T2 for real M2_app);
+   - FL-T2 GALEX predicted magnitudes on mock truth (MIST GALEX BCs, Bédard GALEX columns check);
+   - FL-T3 K1-vs-RV-statistics forward model and the σ_RV(G_RVS, T_eff) calibration on the existing bright RV-stats snapshot;
+   - FL-T4 targeting-rule audit of the 154 RV summaries against the adoption dates;
+   - FL-T5 the data-request list below, plus a 5-star Path-2 cost measurement (no new data: stars already with photometry).
+3. **Needs Ryan's approval to download** (listed, not fetched):
+   - Gaia archive TAP: `gaiadr3.galex_ais_best_neighbour` + `galex_ais_dr3` (FUV, NUV, errors, flags) for the candidate set and
+     for a looks-single control sample of the parent (small; one query each);
+   - GUVcat_AIS (Bianchi et al. 2017) cone extracts for the candidates + the AIS footprint/coverage map; GALEX GR5 MIS
+     (Bianchi et al. 2011) where MIS covers candidates;
+   - Gaia DR3 RV statistics for the candidate set (extends the existing bright snapshot);
+   - APOGEE DR17 allStar/allVisit, LAMOST LRS/MRS epoch tables, GALAH DR4 — candidate cross-matches only, plus their
+     footprint/targeting files for the survey selection.
+4. **Needs ziggy (deferred):** Path-2 fits beyond the laptop batch; uberMS spectra; the mock-subset ΔBIC calibration.
+5. **Immediately after the first result:** FL-T6 wire per-object evidence into `companion_nature` → `inference` (§11.4a);
+   FL-T7 high-M2 spurious calibration (§11.3); FL-T8 rebuild `selection_function_followup` (§11.4b); FL-T9 second DR3
+   result with the follow-up layer on, compared with the Gaia-only result.
+
+### 11.6 Open questions (recommended defaults in bold)
+
+| Q | Question | Recommended default |
+|---|---|---|
+| FL-Q1 | GALEX source | **Gaia-archive `galex_ais_best_neighbour` for photometry; GUVcat_AIS for coverage/depth; GR5 MIS where available** |
+| FL-Q2 | Candidate set for SED/RV | **M2_app ≥ 1.0 M⊙, or A > 0.5 with M2_app ≥ 0.6 M⊙** (all C1 orbits get the cheap GALEX match) |
+| FL-Q3 | Laptop Path-2 scope | **Candidate set only, if the measured cost fits one 10-h batch behind the generation queue; rest on ziggy** |
+| FL-Q4 | Follow-up selection formulation | **Keep every object; follow-up factor where data exist; availability forward-modelled; own targeting by recorded rules only** |
+| FL-Q5 | External RV surveys first | **APOGEE DR17, LAMOST LRS/MRS, GALAH DR4** |
+| FL-Q6 | Gaia DR3 RV-statistic test | **Forward-modelled (RVS epochs + σ_RV calibrated on looks-single bright rows)**, not a fixed p-value cut |
+| FL-Q7 | Where RV labels go | **Both: shared `spuriousness_model` (censored by RV availability) and a high-M2 N_s prior** |
+| FL-Q8 | dark-hunter_sed GALEX matching | **Upstream fix (epoch-propagated nearest match with an ambiguity flag); hand-merged in that repo**; until then pop supplies the Gaia-archive match |
+| FL-Q9 | DR4 epoch RVs | **Replace the DR3 summary-statistic test for bright candidates with a joint epoch-astrometry + epoch-RV fit** |
+
 ## References
 
 Andrews et al. (2022); Cummings et al. (2018); El-Badry et al. (2023a, 2024, 2026); Janssens et al. (2022);
-Kroupa (2001); Moe & Di Stefano (2017); Shahaf et al. (2023b); Tauris & Savonije (1999); Bédard et al. (2020).
+Kroupa (2001); Moe & Di Stefano (2017); Bianchi et al. (2011, 2017); Shahaf et al. (2023b); Tauris & Savonije (1999); Bédard et al. (2020).
