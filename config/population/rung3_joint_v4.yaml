@@ -282,6 +282,7 @@ rung3:
   label: "Rung 3 v4 (spec \xA712.42, #603): gens 53-57 + co 1006 (colour_v2.1+tr1+e2+st1),\
     \ luminous + WD + spurious, R_dark = 0, A axis, M1-dependent e-shape, P-dependent twins, low-mass close binaries"
   joint:
+    data_release: dr3              # R5-T13 (#618): spurious template, N_s prior, C1 ceiling and bins are DR3-specific
     required_noise_model: colour_v2.1+tr1+e2+st1   # #603 version guard: artifacts and cache must carry noise_<this>
     routed_type: true                               # #603: post-hoc st1 type of the fit draws (plots only, not the likelihood)
     v4_terms:                                       # #603 (spec §12.42)
