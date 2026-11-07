@@ -693,3 +693,56 @@ def test_draw_age_matching_bounds_wd_cooling_weights(monkeypatch: pytest.MonkeyP
     lq = a["log_q_co_cooling_age"][wd]
     ok = np.isfinite(lt)
     assert ok.mean() > 0.5 and np.max(lt[ok] - lq[ok]) <= math.log(1 / 0.7) + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# #607 (spec §12.43): target-tabulated WD M2 component
+# ---------------------------------------------------------------------------
+
+_TAB = dict(weight=0.7, log10_m2_edges=(-0.8239, -0.30103, -0.221849, -0.154902, 0.0, 0.146128),
+            density_per_dex=(0.05, 3.0, 6.0, 3.0, 1.0))
+
+
+def _with_table(cfg: ps.ProposalConfig) -> ps.ProposalConfig:
+    tb = ps.WDM2TabulatedConfig(**_TAB)
+    return cfg.model_copy(update={"compact_object": cfg.compact_object.model_copy(update={"wd_m2_tabulated": tb})})
+
+
+@pytest.mark.unit
+def test_wd_m2_table_validation() -> None:
+    with pytest.raises(ValueError):
+        ps.WDM2TabulatedConfig(**dict(_TAB, density_per_dex=(0.0, 3.0, 6.0, 3.0, 1.0)))  # full support required
+    with pytest.raises(ValueError):
+        ps.WDM2TabulatedConfig(**dict(_TAB, log10_m2_edges=(0.1, 0.0, 0.2, 0.3, 0.4, 0.5)))
+
+
+@pytest.mark.physics
+def test_wd_m2_table_mixture_normalizes_and_sampler_matches(frag: ps.ProposalSetFragment) -> None:
+    cfg = _with_table(frag.proposal)
+    lm = np.linspace(-1.5, 2.0, 400_001)
+    q = np.exp(cob.log_q_co_m2(np.zeros(lm.size), 10.0**lm, cfg))
+    assert np.trapz(q, lm) == pytest.approx(cfg.compact_object.wd.weight, abs=1e-4)
+    parent = _parent()
+    a = cob.sample_co_proposal(parent, cfg.model_copy(update={"n_draws": 20000}), draw_index_offset=100_000_000)
+    wd = a["co_component"] == 0
+    np.testing.assert_allclose(cob.log_q_co_total_for(a, parent, cfg.model_copy(update={"n_draws": 20000})), a["log_q_total"])
+    # the sampled log10 M2 histogram follows the mixture density
+    e = np.linspace(math.log10(0.15), math.log10(1.4), 11)
+    h = np.histogram(np.log10(a["m2_msun"][wd]), e)[0] / wd.sum() / np.diff(e)
+    c = 0.5 * (e[1:] + e[:-1])
+    qd = np.exp(cob.log_q_co_m2(np.zeros(c.size), 10.0**c, cfg)) / cfg.compact_object.wd.weight
+    fine = np.linspace(e[0], e[-1], 20001)
+    qf = np.exp(cob.log_q_co_m2(np.zeros(fine.size), 10.0**fine, cfg)) / cfg.compact_object.wd.weight
+    qbin = np.array([qf[(fine >= a_) & (fine < b_)].mean() for a_, b_ in zip(e[:-1], e[1:])])
+    assert np.allclose(h, qbin, rtol=0.1, atol=0.03), (h, qbin, qd)
+
+
+@pytest.mark.unit
+def test_wd_m2_table_leaves_main_stream_unchanged(frag: ps.ProposalSetFragment) -> None:
+    parent = _parent()
+    base = frag.proposal.model_copy(update={"n_draws": 2000})
+    a = cob.sample_co_proposal(parent, base, draw_index_offset=100_000_000)
+    b = cob.sample_co_proposal(parent, _with_table(base), draw_index_offset=100_000_000)
+    for k in ("parent_row", "co_component", "period_days", "eccentricity", "inc_deg", "Tp_days"):
+        np.testing.assert_array_equal(a[k], b[k])
+    assert np.array_equal(a["m2_msun"][a["co_component"] == 1], b["m2_msun"][b["co_component"] == 1])  # dark untouched

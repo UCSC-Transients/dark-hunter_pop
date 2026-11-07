@@ -524,6 +524,32 @@ class WDLightConfig(_Strict):
     min_age_yr: float = Field(..., gt=0.0)
 
 
+class WDM2TabulatedConfig(_Strict):
+    """#607 (spec §12.43): with probability ``weight`` a WD draw's M2 comes from a piecewise-constant density in
+    log10 M2 (``density_per_dex`` on ``log10_m2_edges``; normalised on load), otherwise from the WD log-uniform.
+    A sampling-efficiency component (tabulated from the §12.39 target); the weights stay exact."""
+
+    weight: float = Field(..., gt=0.0, lt=1.0)
+    log10_m2_edges: tuple[float, ...]
+    density_per_dex: tuple[float, ...]
+    provenance: str = ""
+
+    @model_validator(mode="after")
+    def _table(self) -> WDM2TabulatedConfig:
+        e = np.asarray(self.log10_m2_edges, float)
+        if e.size < 2 or np.any(np.diff(e) <= 0):
+            raise ValueError("log10_m2_edges must be strictly increasing (>= 2 edges)")
+        d = np.asarray(self.density_per_dex, float)
+        if d.size != e.size - 1 or np.any(d <= 0) or not np.all(np.isfinite(d)):
+            raise ValueError("density_per_dex needs one positive value per bin (full support)")
+        return self
+
+    def normalised(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        e = np.asarray(self.log10_m2_edges, float)
+        d = np.asarray(self.density_per_dex, float)
+        return e, d / float(np.sum(d * np.diff(e)))
+
+
 class CompactObjectProposalConfig(_Strict):
     """Rung-4 compact-object proposal (spec §13.2); replaces the luminous ``m2`` / ``flux`` / ``m2_p_shape``
     sampling for this generation. The parent, period, eccentricity, epoch model, cascade and §12.33
@@ -552,6 +578,8 @@ class CompactObjectProposalConfig(_Strict):
     covariance_jacobian_step: float = Field(..., gt=0.0)
     #: #552 re-centring: matched WD cooling-age component (None = log-uniform only, generation 1000).
     wd_cooling_age_matched: WDCoolingAgeMatchedConfig | None = None
+    #: #607 (spec §12.43): target-tabulated WD M2 component (None = log-uniform only, generations 1000-1006).
+    wd_m2_tabulated: WDM2TabulatedConfig | None = None
 
     @model_validator(mode="after")
     def _weights(self) -> CompactObjectProposalConfig:
@@ -562,6 +590,10 @@ class CompactObjectProposalConfig(_Strict):
             raise ValueError("wd_log10_cooling_age_gyr must be increasing")
         if self.wd.m2_max_msun > float(constants.M_CH.value):
             raise ValueError("the WD component cannot extend above M_Ch (constants.M_CH)")
+        if self.wd_m2_tabulated is not None:  # the table must lie inside the WD log-uniform support
+            e = self.wd_m2_tabulated.log10_m2_edges
+            if e[0] < math.log10(self.wd.m2_min_msun) - 1e-6 or e[-1] > math.log10(self.wd.m2_max_msun) + 1e-6:
+                raise ValueError("wd_m2_tabulated edges must lie inside [wd.m2_min_msun, wd.m2_max_msun]")
         return self
 
 
@@ -835,6 +867,8 @@ def fragment_fingerprint(fragment: ProposalSetFragment) -> str:
         d["parent"].pop("extra_targets", None)
     if d.get("noise_model") == DEFAULT_NOISE_MODEL:  # §8.12: older generations keep their fingerprints
         d.pop("noise_model", None)
+    if d.get("compact_object") is not None and d["compact_object"].get("wd_m2_tabulated") is None:  # #607: older CO keys
+        d["compact_object"].pop("wd_m2_tabulated", None)
     if d.get("compact_object") is None:  # spec §13: luminous generations keep their fingerprints
         d.pop("compact_object", None)
     elif d["compact_object"].get("wd_cooling_age_matched") is None:  # #552 re-centring: gen 1000 keeps its key
