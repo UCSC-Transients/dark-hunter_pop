@@ -326,7 +326,7 @@ Sizes: S ≤ 1 day, M 2–3 days, L ≥ 4 days of agent work. **H** = needs heav
 | R5-Q11 | Companion-nature ΔBIC evidence in the first result | **No**; WD vs dark from the forward-modelled WD light; ΔBIC later (#207, SED throughput) |
 | R5-Q12 | DR4 orbit source | **Both** (a) NSS and (b) epoch refit, compared on the overlap (ARCHITECTURE §6); (b) is the inference default once validated |
 
-## 11. Follow-up evidence layer: SED (GALEX UV) and RV (Ryan, 2026-11-06; supersedes R5-Q6) — DRAFT
+## 11. Follow-up evidence layer: SED (GALEX UV) and RV (Ryan, 2026-11-06; supersedes R5-Q6) — ACCEPTED 2026-11-06
 
 **Direction (Ryan, 2026-11-06).** Get through all the Gaia data as fast as possible, then **immediately** add SED fitting
 (especially GALEX UV) and RV fitting. Follow-up is the best way to measure (i) the true spurious-orbit rate in the mass
@@ -482,7 +482,7 @@ uninformative/none), with the outcome probabilities per class from the mock.
    FL-T7 high-M2 spurious calibration (§11.3); FL-T8 rebuild `selection_function_followup` (§11.4b); FL-T9 second DR3
    result with the follow-up layer on, compared with the Gaia-only result.
 
-### 11.6 Open questions (recommended defaults in bold)
+### 11.6 Questions FL-Q1–Q9: **decided by Ryan 2026-11-06** (the defaults in bold are adopted; the §11.5 downloads are approved)
 
 | Q | Question | Recommended default |
 |---|---|---|
