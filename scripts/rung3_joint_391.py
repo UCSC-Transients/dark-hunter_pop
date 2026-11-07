@@ -141,6 +141,8 @@ def co_block(args, parent, fc, jcfg, oe, ae, n_ob, n_ab, rep, aE=None):
     if jcfg.get("required_noise_model"):  # #603 version guard
         for a_, p_ in zip(args.co_artifacts, parts):
             check_noise_label(p_[2]["primary_model"], jcfg["required_noise_model"], str(a_))
+    if jcfg.get("data_release"):  # R5-T13 (#618)
+        ps.check_release_match(jcfg["data_release"], [str(p_[2]["primary_model"]) for p_ in parts], "compact-object artifacts")
     co_typ = np.full(comp.size, np.nan)
     if jcfg.get("routed_type"):
         j_ = np.flatnonzero(in_o)
@@ -273,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         with h5py.File(args.artifact_dir / a_, "r") as h_:
             gcs.append(ps.ProposalConfig.model_validate_json(h_.attrs["proposal_config_json"]))
     a5.primary_model = ps.check_single_primary_model(gcs)  # luminous family only (spec §13.2)
+    if jcfg.get("data_release"):  # R5-T13 (#618): the fit config's release must match the draws'
+        ps.check_release_match(jcfg["data_release"], [a5.primary_model], "luminous artifacts")
     if jcfg.get("required_noise_model"):  # #603 (spec §12.42): only the adopted noise/epoch model's draws
         check_noise_label(a5.primary_model, jcfg["required_noise_model"], "luminous artifacts")
         zc_ = np.load(args.cache, allow_pickle=True)

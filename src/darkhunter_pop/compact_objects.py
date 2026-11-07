@@ -572,6 +572,9 @@ class Rung4AnalysisConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: str = Field(..., pattern=r"^co_v[0-9]+$")
+    #: R5-T13 (#618): the Gaia data release this analysis config belongs to (ν, the C1 period ceiling and the table
+    #: axes are release-specific); scripts refuse artifacts of another release.
+    data_release: Literal["dr3", "dr4"]
     selection_table: SelectionTableConfig
     mass_recovery: MassRecoveryConfig
     contamination: Literal["declared_stub"]
