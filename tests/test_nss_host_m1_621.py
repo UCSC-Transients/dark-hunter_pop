@@ -31,3 +31,22 @@ def test_row_distances_bounds_and_nan() -> None:
     rr, rlo, rhi = mod.row_distances(np.array([14.0, 14.0, 14.0]), np.array([1.9, -0.2, 0.05]), np.array([0.1, 0.1, 0.2]), zp)
     assert rr[0] == pytest.approx(500.0) and rlo[0] == pytest.approx(1000 / 2.1) and rhi[0] == pytest.approx(1000 / 1.9)
     assert np.isnan(rr[1]) and np.isnan(rhi[2]) and np.isfinite(rr[2])
+
+
+@pytest.mark.unit
+def test_bj_distances_lookup_and_checksum(tmp_path: Path) -> None:
+    import hashlib
+
+    import yaml
+    from astropy.table import Table
+
+    t = Table({"source_id": np.array([5, 7], np.int64), "r_med_geo": [100.0, 200.0], "r_lo_geo": [90.0, 180.0],
+               "r_hi_geo": [110.0, 220.0]})
+    t.write(tmp_path / "table.ecsv", format="ascii.ecsv")
+    sha = hashlib.sha256((tmp_path / "table.ecsv").read_bytes()).hexdigest()
+    (tmp_path / "meta.yaml").write_text(yaml.safe_dump({"table_ecsv_sha256": sha}))
+    r, lo, hi = mod.bj_distances(tmp_path, np.array([7, 9, 5]))
+    assert r[0] == 200.0 and np.isnan(r[1]) and r[2] == 100.0 and lo[2] == 90.0 and hi[0] == 220.0
+    (tmp_path / "meta.yaml").write_text(yaml.safe_dump({"table_ecsv_sha256": "0" * 64}))
+    with pytest.raises(SystemExit, match="checksum"):
+        mod.bj_distances(tmp_path, np.array([5]))

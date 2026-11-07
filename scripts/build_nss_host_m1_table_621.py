@@ -8,11 +8,12 @@ distance, Babusiaux et al. 2018 law) and ``isochrone_mass`` ``model.fit``. The t
 both M2_app paths consume (``log_m1_mean``, ``log_m1_sigma``) plus ``m1_mean``, ``m1_sigma``, ``p_evolved``,
 ``log_age_mean``, ``feh_mean`` and ``ok`` / ``reason``.
 
-**Distance convention (decision for #621, default here):** the hosts have no Bailer-Jones distances on disk, so the
-row distance is the rung-3 real-side convention (``scripts/rung3_refit5_391.py`` ``cls_of``): 1000 / (ϖ + zp(G)) pc
-with bounds 1000 / (ϖ + zp ± σ_ϖ), where zp(G) is the median (truth − observed) parallax of usable parent rows with
-ϖ/σ_ϖ > 20 in G bins [0, 11, 13, 15, 17, 25]. Fetching Bailer-Jones distances for the hosts would be a download
-(Ryan's approval); ``--distance bj`` is not implemented until then.
+**Distance convention.** Default ``--distance bj``: the Bailer-Jones et al. (2021) geometric distance
+(``r_med_geo``, ``r_lo_geo``, ``r_hi_geo``), the same convention as the mock's looks-single parent (MP-Q4), from the #628
+host snapshot (``--bj-snapshot``; checksum verified against its meta.yaml). Hosts without a Bailer-Jones distance get
+no M1 (reason ``no_cmd``), as parent rows without one are not usable. ``--distance zp_parallax`` keeps the rung-3
+real-side convention (``scripts/rung3_refit5_391.py`` ``cls_of``: 1000 / (ϖ + zp(G)) pc with ±σ_ϖ bounds, zp(G) the
+median truth − observed parallax of usable parent rows with ϖ/σ_ϖ > 20 in G bins [0, 11, 13, 15, 17, 25]) for comparison.
 
 Heavy at full size (168k posteriors): run through ``scripts/jobs/run_heavy.sh``; ``--limit`` gives a smoke run.
 
@@ -20,8 +21,7 @@ Usage::
     scripts/jobs/run_heavy.sh nss_host_m1_621 scripts/build_nss_host_m1_table_621.py \\
         --published-orbits output/gate390/published_orbits.h5 \\
         --input-columns data/dr3/gaia_snapshots/20261003T182211Z_nss_orbit_input_columns \\
-        --parent-dir data/dr3/gaia_snapshots/20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj \\
-        --fragment config/population/proposal_set_single53.yaml --out output/rung5/nss_host_m1_dr3.h5
+        --bj-snapshot data/dr3/external_catalogs/20261107T052615Z_bj_distances_nss_hosts --out output/rung5/nss_host_m1_dr3.h5
 """
 
 from __future__ import annotations
@@ -60,15 +60,35 @@ def row_distances(g: np.ndarray, plx_obs: np.ndarray, eplx: np.ndarray, zp: np.n
     return rr, rlo, rhi
 
 
+def bj_distances(snapshot: Path, sid: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(r_med_geo, r_lo_geo, r_hi_geo) pc for ``sid`` from a #628 snapshot (sha256 checked); NaN where absent."""
+    import yaml
+    from astropy.table import Table
+
+    meta = yaml.safe_load((snapshot / "meta.yaml").read_text())
+    got = hashlib.sha256((snapshot / "table.ecsv").read_bytes()).hexdigest()
+    if got != meta["table_ecsv_sha256"]:
+        raise SystemExit(f"{snapshot}: table.ecsv checksum {got} != meta {meta['table_ecsv_sha256']}")
+    t = Table.read(snapshot / "table.ecsv", format="ascii.ecsv")
+    pos = {int(s): i for i, s in enumerate(np.asarray(t["source_id"], np.int64))}
+    idx = np.array([pos.get(int(s), -1) for s in sid])
+    out = []
+    for c in ("r_med_geo", "r_lo_geo", "r_hi_geo"):
+        v = np.ma.filled(np.ma.asarray(t[c], float), np.nan)
+        out.append(np.where(idx >= 0, v[np.clip(idx, 0, None)], np.nan))
+    return out[0], out[1], out[2]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--published-orbits", type=Path, required=True)
     ap.add_argument("--input-columns", type=Path, required=True, help="snapshot dir with columns.h5 (bp_rp, phot_g_mean_mag)")
-    ap.add_argument("--parent-dir", type=Path, required=True, help="looks-single parent snapshot (for zp(G))")
-    ap.add_argument("--fragment", type=Path, required=True, help="a proposal fragment of the adopted version (parent settings)")
+    ap.add_argument("--parent-dir", type=Path, default=None, help="looks-single parent snapshot (zp_parallax only)")
+    ap.add_argument("--fragment", type=Path, default=None, help="a proposal fragment of the adopted version (zp_parallax only)")
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     ap.add_argument("--giants-config", type=Path, default=Path("config/population/giants.yaml"))
-    ap.add_argument("--distance", choices=("zp_parallax",), default="zp_parallax")
+    ap.add_argument("--distance", choices=("bj", "zp_parallax"), default="bj")
+    ap.add_argument("--bj-snapshot", type=Path, default=None, help="#628 Bailer-Jones host snapshot dir (table.ecsv, meta.yaml)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args(argv)
@@ -84,7 +104,6 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.time()
     cfg = load_config(args.config)
     gcfg = load_giants_config(args.giants_config)
-    frag = ps.load_proposal_set_fragment(args.fragment)
     with h5py.File(args.published_orbits, "r") as h:
         p = h["published"]
         n = p["source_id"].shape[0] if args.limit is None else min(args.limit, p["source_id"].shape[0])
@@ -100,10 +119,18 @@ def main(argv: list[str] | None = None) -> int:
         g = h["phot_g_mean_mag"][()][idx].astype(float)
         bprp = h["bp_rp"][()][idx].astype(float)
 
-    parent = ps.load_parent_snapshot(args.parent_dir, cfg, frag.proposal)
-    zp = parallax_zero_point(parent)
-    del parent
-    rr, rlo, rhi = row_distances(g, plx, eplx, zp)
+    if args.distance == "bj":
+        if args.bj_snapshot is None:
+            raise SystemExit("--distance bj needs --bj-snapshot")
+        rr, rlo, rhi = bj_distances(args.bj_snapshot, sid)
+        zp = np.full(ZP_G_EDGES.size - 1, np.nan)
+    else:
+        if args.parent_dir is None or args.fragment is None:
+            raise SystemExit("--distance zp_parallax needs --parent-dir and --fragment")
+        parent = ps.load_parent_snapshot(args.parent_dir, cfg, ps.load_proposal_set_fragment(args.fragment).proposal)
+        zp = parallax_zero_point(parent)
+        del parent
+        rr, rlo, rhi = row_distances(g, plx, eplx, zp)
     gal = SkyCoord(ra=ra * u.deg, dec=dec * u.deg).galactic
     rc = cmd_for_rows(g, bprp, gal.l.deg, gal.b.deg, rr, rlo, rhi, cfg, gcfg)
     model = im.build_model(cfg.isochrone_mass, cfg.paths.data_root)
@@ -120,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         for k, v in (("mg0", rc.mg0), ("colour0", rc.colour0), ("sigma_mu", rc.sigma_mu), ("r_med_pc", rr)):
             h.create_dataset(k, data=np.asarray(v, float))
         h.attrs.update({
-            "issue": 621, "data_release": "dr3", "distance": args.distance, "zp_g_edges": ZP_G_EDGES, "zp_mas": zp,
+            "issue": 621, "data_release": "dr3", "distance": args.distance, "bj_snapshot": str(args.bj_snapshot), "zp_g_edges": ZP_G_EDGES, "zp_mas": zp,
             "isochrone_config_key": im.config_key(cfg.isochrone_mass),
             "isochrone_config_json": json.dumps(cfg.isochrone_mass.model_dump(mode="json"), sort_keys=True),
             "giants_extinction_json": json.dumps(gcfg.extinction.model_dump(mode="json"), sort_keys=True),
