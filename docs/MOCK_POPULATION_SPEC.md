@@ -1870,6 +1870,19 @@ it came from gens 23–27 through `weights_gen23_27.npz`; that cache is gone and
 - **Order.** The two samples and the π̂ refit run at the queue's PAUSE (after gens 53–57 and CO 1006), one heavy job at a
   time, before the joint refit.
 
+**Third re-injection sample and reselection (Ryan, 2026-11-05/06; #609, option (c) of `docs/gate391/spurious_pi_check/`).**
+The far and near samples overlap in log10 ϖ/σ_ϖ only on 1.61–2.10. The #601 slope comes from inside the far sample and is
+extrapolated into the near regime: V0 gives near π̂ 0.036, against the near sample's own rate of 0.086. A third sample
+closes the gaps.
+- **(i) Gap:** d 0.5–0.7 kpc, all G, 130 systems.
+- **(ii) Low-ϖ/σ_ϖ tail:** all real C1 orbits with log10 ϖ/σ_ϖ < 1.4 (`--log-plx-snr-max 1.4`), all d and G. That is 104 systems, all of them used; median G 14.2, d 0.66–2.66 kpc.
+  - The requested cell d > 1.5 kpc at G 16–19 holds **no** real C1 orbit in the fit domain, so the low-ϖ/σ_ϖ tail it was meant to reach is selected directly.
+- **Same protocol** as the far and near samples: 3 realizations, kNN matching, the engine cross-check and the symmetric rung 1.
+- **Matched mock:** luminous gens 53–59, all `colour_v2.1+tr1+e2+st1`; the version guard is as above.
+- **Reselection:** forward selection by ΔBIC (threshold unchanged) on all samples, far + near + gap + tail.
+  - The output goes to a new file, `spurious_calibration_4s`. The #601 calibration is kept.
+  - Reported: the selected model, its coefficients, and Σπ̂ (the N_s prior), against V0 and V9.
+
 ### 12.17 2-D CMD Malmquist closed-loop ledger (Ryan, 2026-10-10; tracking issue #471)
 
 The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decision, this ledger records whether it can change the §11.5 closed loop, how, and the current worst pull. The latest closed-loop run (`docs/gate418/`, small run, Combined19 real dust, σ(E)/E 0.085) has a worst |pull| of 7.6 with the 2-D weight (6.7 with none, 8.8 with 1-D). The "every pull ≤ 3" target is not met.
