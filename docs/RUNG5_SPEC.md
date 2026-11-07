@@ -1,6 +1,6 @@
 # RUNG5_SPEC.md — Rung 5: first DR3 WD / NS / BH companion mass functions (DRAFT, kickoff)
 
-Tracking issue **#610**. Status: **DRAFT for Ryan's review** (2026-11-06). Docs-first: nothing here is implemented.
+Tracking issue **#610**. Status: **accepted by Ryan 2026-11-06** (R5-Q1–Q12 decided as the recommended defaults; R5-Q6 superseded by the follow-up evidence layer). Docs-first: nothing here is implemented.
 Ladder context: `docs/MOCK_POPULATION_SPEC.md` §5 (rung 5 = real inference), §12.37–§12.42 (rung 3), §13 (rung 4);
 `docs/EPOCH_MODEL_SPEC.md` §8.12–§8.16 (adopted noise model `colour_v2.1+tr1+e2+st1`).
 
@@ -309,7 +309,7 @@ Sizes: S ≤ 1 day, M 2–3 days, L ≥ 4 days of agent work. **H** = needs heav
 - What can slip without blocking the first result: T6 (stage wiring), T8 (covariates: default mass-only), T10, T12.
 - What blocks it: rung-3 closure under the adopted version (the A > 0.5 PPC, N_s pull), and gen 1008.
 
-## 10. Open questions for Ryan (recommended defaults in bold)
+## 10. Questions R5-Q1–Q12: **decided by Ryan 2026-11-06** (the recommended defaults below are adopted; R5-Q6 is superseded)
 
 | Q | Question | Recommended default |
 |---|---|---|
@@ -318,7 +318,7 @@ Sizes: S ≤ 1 day, M 2–3 days, L ≥ 4 days of agent work. **H** = needs heav
 | R5-Q3 | Accelerations in the rung-5 likelihood | **Binned counts, no per-object mass**; dark components contribute predicted counts |
 | R5-Q4 | Luminous θ fixed at rung 3 or refit jointly | **Refit jointly** (profiled first pass, then free in dynesty) |
 | R5-Q5 | If the A > 0.5 PPC still fails at rung-3 closure | **Restrict the first result to the robust (AMRF class-III-like) region** and state it |
-| R5-Q6 | Follow-up SF | **Astrometric-only MF**; SF_followup ≡ 1, declared `disabled_path` |
+| R5-Q6 | Follow-up SF | ~~Astrometric-only MF; SF_followup ≡ 1~~ **Superseded (Ryan 2026-11-06)**: the Gaia-only first result keeps SF_followup ≡ 1, but the follow-up evidence layer (SED incl. GALEX UV, RV) is built immediately after it, with a forward-modelled follow-up selection function — see the follow-up evidence layer section (§11, separate PR) |
 | R5-Q7 | WD branch fractions (A_ni, R_mt, f_He) | **Fixed at the rung-3 fit**, varied in one sensitivity run |
 | R5-Q8 | Binned vs unbinned for the first result | **Binned** (contamination self-consistent, MC-robust); unbinned as the gate-5f cross-check |
 | R5-Q9 | Dark P/e law | **Rung-4 θ_CO** (log-uniform P, uniform e below e_max); kick-informed e as model comparison |
