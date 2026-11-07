@@ -2799,6 +2799,33 @@ Every number below is in that config.
   - Hold the dark gen-1004 (R_dark ≡ 0 at rung 3); prefer a second WD-focused generation.
   - Re-check the π̂ covariate choice before the next refit.
 
+### 12.43 Top-up generations after the v4 refit: gens 58, 59 and compact-object gen 1007 (Ryan, 2026-11-05; #607)
+
+**Why.** The §12.42 fit is Monte-Carlo limited. The A > 0.5 cells have luminous ESS 2–16; G < 13 with log P < 2 has ESS 2; WD orbits have ESS 16. All draws are `colour_v2.1+tr1+e2+st1`, with the same primary-model version as gens 53–57 and co_v1 gen 1006, so they join the same deterministic mixtures.
+
+**Luminous (10 h / 90 CPU-h in total, split in two):**
+- **Gen 58: the gen-52 recipe** (§12.40 b) under the current version.
+  - Parent targets: 0.25 distant high-M1 (G 9–16, ϖ 0.2–0.667 mas, M1 power 1) and 0.20 evolved / distant rows; the rest is the gen-42 base (defensive).
+  - Dark-companion share 0.3, so that A > 0.5 is reached.
+  - 5 h / 45 CPU-h; draw_index from 12,500,000 (reserved to 12,999,999).
+- **Gen 59: nearby low-mass short-period.**
+  - Parent target 0.50 nearby (ϖ ≥ 3.333 mas, d < 0.3 kpc, G 10–19.5, no M1 tilt). Nearby G ≥ 10 rows are dominated by M1 < 1 dwarfs; the proposal cannot cut on M1, and the base keeps every row.
+  - Period core log P 0.2–2.0 (weight 0.5), with the 0.2–8 defensive part kept.
+  - MdS17-shaped (q, P) component restricted to log P 0.2–2.3, so short-period twins are sampled.
+  - The rest is the gen-42 base.
+  - 5 h / 45 CPU-h; draw_index from 13,000,000 (reserved to 13,499,999).
+
+**Compact objects: gen 1007, WD-focused with a target-tabulated M2 component (10 h / 90 CPU-h; draw_index from 102,010,000, reserved to 102,409,999).**
+- **Diagnosis** (`scripts/wd_target_table_607.py` on gen 1006 at the v4 θ): 41 % of the WD fit draws have M2 < 0.5 M⊙, where the §12.39 target weight is about 0. The weight lies at M2 0.55–1.2 (0.55–0.6: 22 %), against 4–9 % of the draws per bin there. P (log P 3–4: 89 % of the weight vs 79 % of the draws), M1 and the system age are matched within a few per cent.
+- **New proposal option `compact_object.wd_m2_tabulated`.**
+  - With probability `weight`, a WD draw's M2 comes from a piecewise-constant density in log10 M2 (`log10_m2_edges`, `density_per_dex`); otherwise it is the log-uniform draw.
+  - log q_co_m2 for WD draws is the mixture of the two.
+  - The tabulated draws use their own RNG slot, so the main stream, and with it every older generation, is unchanged. Absent the option means the old behaviour.
+- **Table:** the weighted histogram of true M2 over gen-1006 WD fit draws (C1 orbits and accelerations), at the v4 θ of the §12.39 target, with a floor of 5 % of the uniform density per bin. It is a sampling-efficiency choice only; the weights stay exact.
+- **Weights:** tabulated 0.7, log-uniform 0.3 (defensive, the full 0.15–1.40). Otherwise the gen-1006 recipe.
+
+**Queue** `scripts/jobs/topup_queue_607.sh`: a 50-draw dry run of each fragment, then g58, g59, g1006→g1007, one at a time under `start_generation.sh` (nice, ≤ 8 workers, CPU-h, wall-clock and memory guards), a disk stop, prefix assembly, FAIL / QUEUE STOPPED lines, then PAUSE. No refit until Ryan instructs one.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
