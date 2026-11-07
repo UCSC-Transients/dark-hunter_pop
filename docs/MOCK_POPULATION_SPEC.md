@@ -613,7 +613,7 @@ SourceEpochContext(g_mag), epoch_model_rng(base_seed, stream, draw_index)):` in
 | 2 | **MdS17 at published parameters** (§2 values, luminous companions; compact mixture per MP-Q17) reweighted onto the proposal set | (a) six-panel shape: weighted mock vs real 168,065 Orbital + AstroSpectroSB1 on the `diagnostics.elbadry_six_panel_axes` axes, by eye, with ESS_b and N_accepted shown per panel and §3.6 flags; (b) solution-type mix: mock orbital : published-acceleration counts against DR3's published counts (ELBADRY2024 Q7 for the real denominator); (c) the expected total Λ_orbit vs 168,065, reported, not tuned; (d) by-eye cross-check against El-Badry et al. (2024) Fig. 5, whose mock is known to be too eccentric. Any quantitative statistic and threshold is MP-Q19 |
 | 3 | **Fit the full sample**: luminous-binary parameters (the MdS17 θ, MP-Q22) fit to the full NSS sample | Posterior-predictive six-panels and solution-type mix from posterior draws; §3.6 ESS_b ≥ N_b/threshold² in every bin used by the likelihood; PPC thresholds MP-Q22 |
 | 4 | **Compact-object injection–recovery (SBC)** | Rank statistics uniform (`sbc.py`), coverage of injected WD / NS / BH dN/dM, mock catalogs from the held-out partition (§3.8) |
-| 5 | **Real inference** | Rungs 1–4 green; MC-noise criterion met; dynesty multi-run agreement (ARCHITECTURE.md §4 `inference`) |
+| 5 | **Real inference** (kickoff spec: `docs/RUNG5_SPEC.md`, #610) | Rungs 1–4 green; MC-noise criterion met; dynesty multi-run agreement (ARCHITECTURE.md §4 `inference`); gates 5a–5g of `docs/RUNG5_SPEC.md` §5 |
 
 ## 6. Compute
 
