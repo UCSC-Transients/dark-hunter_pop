@@ -1,8 +1,10 @@
 #!/bin/zsh
 # #615 rung 3 v5 + coordinator queue (2026-11-06). Strictly one heavy job at a time via run_heavy.sh (nice, mem_guard).
 # Science steps stop the chain on failure; suite steps record PASS/FAIL and continue. Lines go to queue.log.
-# Order: cache53_59 -> v5 fit -> v5 profiles -> suites #617/#619/#622 -> gen 1008 (dry + gen) -> v5 plots + compare
-#        -> suite #623 -> suite #625 -> gate5a inject + report. HELD (not here): #621 M1 table, #620 real M2_app.
+# Order (revised 2026-11-06 evening, coordinator): cache53_59 -> v5 fit -> v5 profiles -> suites #617/#619/#622 -> gen 1008
+#        (dry + gen) -> v5 plots + compare -> suite #623 -> [#623 merged] #621 NSS-host M1 table (Bailer-Jones distances)
+#        -> [#622 merged] #620 real M2_app -> suites #625, #627 -> gate5a inject + report -> [#617 merged] R5-T1 bin
+#        freeze --dry-run on CO gens 1006-1008. A running fit (from the first chain) is waited for, never restarted.
 D=/Users/rfoley/darkhunter/pop/dark-hunter_pop; W=/Users/rfoley/darkhunter/pop/dark-hunter_pop-worktrees
 V5=$W/rung3-v5; cd $V5
 V=$D/output/proposal_set/v21tr1_e2st1; Q=$V/queue.log; C=config/population; G=docs/gate391/rung3_v5
@@ -17,6 +19,11 @@ suite() {  # suite <pr> <worktree>
   else log "SUITE PR $1 FAIL rc=$rc ($res); left open"; fi
 }
 export REPO=$V5 LOG_DIR=$O
+waitmerged() {  # waitmerged <pr>: up to 3 h
+  for i in {1..90}; do [ "$(gh pr view $1 --json state -q .state 2>/dev/null)" = MERGED ] && return 0; sleep 120; done; return 1
+}
+while pgrep -f "run_heavy.sh fit_v5" >/dev/null; do sleep 60; done  # the first chain's fit, if still running
+[ -f $O/fit/summary.json ] && ! grep -q "STEP v5 fit OK" $Q && log "STEP v5 fit OK (started by the first chain)"
 COMMON=(--fit-config $C/rung3_joint_v5.yaml --cache $V/weights_gen53_59.npz --artifact-dir $V
  --artifacts single_gen53.h5 single_gen54.h5 single_gen55.h5 single_gen56.h5 single_gen57.h5 single_gen58.h5 single_gen59.h5
  --co-artifacts $V/co_gen1006.h5 $V/co_gen1007.h5 --co-fragments $C/proposal_set_co_v1_wd1006.yaml $C/proposal_set_co_v1_wd1007.yaml
@@ -55,9 +62,35 @@ $H compare_v5 scripts/rung3_v4_compare_603.py --edges $NC/v3_rank/edges.json \
   --run "v4=$V4D/plot_dump.npz:docs/gate391/rung3_v4/v4_rank_v3edges:docs/gate391/rung3_v4/fit/summary.json" \
   --run "v5=$O/fit/plot_dump.npz:$G/v5_rank_v3edges:$O/fit/summary.json" --out-dir $G/compare || fail compare_v5
 log "STEP v5 plots OK"
+git -C $D/.worktrees/rung5-t2b fetch -q origin && git -C $D/.worktrees/rung5-t2b merge -q --ff-only origin/feat/rung5-t2b-host-m1 2>/dev/null
+log "suite 623 on head $(git -C $D/.worktrees/rung5-t2b rev-parse --short HEAD)"
 suite 623 $D/.worktrees/rung5-t2b
+if waitmerged 623; then
+  git -C $D pull -q --ff-only origin main || fail pull_main_623
+  REPO=$D LOG_DIR=$D/output/rung5 $H nss_host_m1_621 scripts/build_nss_host_m1_table_621.py --published-orbits output/gate390/published_orbits.h5 \
+    --input-columns data/dr3/gaia_snapshots/20261003T182211Z_nss_orbit_input_columns \
+    --bj-snapshot data/dr3/external_catalogs/20261107T052615Z_bj_distances_nss_hosts --out output/rung5/nss_host_m1_dr3.h5 || fail nss_host_m1_621
+  log "STEP nss_host_m1_621 OK"
+  if waitmerged 622; then
+    git -C $D pull -q --ff-only origin main || fail pull_main_622
+    REPO=$D LOG_DIR=$D/output/rung5 $H real_m2app_620 scripts/rung5_real_m2app.py --published-orbits output/gate390/published_orbits.h5 \
+      --m1-table output/rung5/nss_host_m1_dr3.h5 --out output/rung5/real_m2app_dr3.h5 || fail real_m2app_620
+    log "STEP real_m2app_620 OK"
+  else log "real_m2app_620 NOT run: #622 not merged within 3 h"; fi
+else log "nss_host_m1_621 / real_m2app_620 NOT run: #623 not merged within 3 h"; fi
 suite 625 $D/.worktrees/rung5-t7
+suite 627 $D/.worktrees/fl-t3
 REPO=$D/.worktrees/rung5-t7 LOG_DIR=$D/output/rung5 $H gate5a scripts/rung5_known_objects_5a.py inject --out $D/output/rung5/gate5a --workers 4 || fail gate5a
 REPO=$D/.worktrees/rung5-t7 LOG_DIR=$D/output/rung5 $H gate5a_report scripts/rung5_known_objects_5a.py report --out $D/output/rung5/gate5a || fail gate5a_report
 log "STEP gate5a OK"
-log "PAUSE after gate5a (#615 chain): held steps #621 M1 table and #620 real M2_app wait for the coordinator"
+log "STEP gate5a done"
+if waitmerged 617; then
+  git -C $D pull -q --ff-only origin main || fail pull_main_617
+  F=$W/topup-607/config/population
+  REPO=$D LOG_DIR=$D/output/rung5 $H bins_freeze_dry scripts/rung5_freeze_bins.py --dry-run \
+    --parent-dir $D/data/dr3/gaia_snapshots/20261019T160642Z_gaia_source_parent_K1000000_plx0p2_bj \
+    --artifact $V/co_gen1006.h5 $V/co_gen1007.h5 $V/co_gen1008.h5 \
+    --fragment $F/proposal_set_co_v1_wd1006.yaml $F/proposal_set_co_v1_wd1007.yaml $F/proposal_set_co_v1_dark1008.yaml \
+    --out-dir $D/output/rung5/bins_dr3_1006_1008 && log "STEP bins_freeze_dry OK" || log "FAIL bins_freeze_dry"
+else log "bins_freeze_dry NOT run: #617 not merged"; fi
+log "PAUSE after the #615 chain (2026-11-06 queue)"
