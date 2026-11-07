@@ -2826,6 +2826,27 @@ Every number below is in that config.
 
 **Queue** `scripts/jobs/topup_queue_607.sh`: a 50-draw dry run of each fragment, then g58, g59, g1006→g1007, one at a time under `start_generation.sh` (nice, ≤ 8 workers, CPU-h, wall-clock and memory guards), a disk stop, prefix assembly, FAIL / QUEUE STOPPED lines, then PAUSE. No refit until Ryan instructs one.
 
+### 12.44 Rung 3 v5: refit on gens 53–59 + compact-object gens 1006/1007, and the close / not-close criteria (Ryan, 2026-11-06; #615)
+
+**Model.** The §12.42 model, with these changes:
+- luminous gens 53–59: one deterministic mixture, cache `weights_gen53_59.npz`;
+- WD from co_v1 gens 1006 and 1007: one deterministic mixture across both, including gen 1007's tabulated M2 component (§12.43);
+- R_dark ≡ 0;
+- the §12.16 template and N_s prior reselected on four samples (far, near, gap, tail; #609).
+
+Unchanged: the A axis, F2–F6, the relative MC error fixed at the reference θ (the §12.37 v1 fit, as in v3/v4), and the three §12.42 terms. Start 0 is the v4 fit. 12 starts. Config `config/population/rung3_joint_v5.yaml`.
+
+**Profiles.** 1-D grids, one start from the fit each, at the same reference θ, along dγ_q, ln F_twin, Δln F_twin,sP, κ_cb and N_s.
+
+**Plots.** As v4, in `docs/gate391/rung3_v5/`. Side by side with v4 and v3 on the v3 edges.
+
+**Close criteria for rung 3** (fixed before the fit). Rung 3 closes when C1–C4 hold. C5 failures and the listed limitations are then documented as known limitations, not blockers.
+- **C1, convergence.** ≥ 6/12 starts within Δ(−lnL) < 5, and no profile point more than 3 below the fit.
+- **C2, spurious amplitude.** N_s pull against the reselected prior |pull| ≤ 3, and the spurious share ≤ 0.35 of DR3 in every distance bin (< 0.3 / 0.3–0.7 / 0.7–1.5 / > 1.5 kpc).
+- **C3, totals.** (luminous + WD + spurious)/DR3 within 0.85–1.15 for orbits in every distance bin and for accelerations overall.
+- **C4, MC adequacy.** Luminous orbit ESS ≥ 300 and WD orbit ESS ≥ 50. The key cells (G < 13 & log P < 2; A > 0.5 by distance) are reported, and any cell below ESS 10 is listed as a limitation.
+- **C5, shape (reported).** 1-D orbit χ²/dof (all, bootstrap error) for G, d, P, e, (BP−RP)₀ and M_G0. Noise-dominated observables (F2, RUWE, ϖ/σ_ϖ, a0/σ_a0, the AstroSpectroSB1 splits) are covered by the §8.16 known limitations.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
