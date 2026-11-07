@@ -38,6 +38,10 @@ VISIT_COLS = ("v.visit_id, v.apogee_id, v.telescope, v.field, v.plate, v.mjd, v.
               "v.vrel, v.vrelerr, v.xcorr_vhelio, v.xcorr_vrelerr, v.rv_chi2, v.ccfwhm")
 
 
+TEXT_COLS = {"apstar_id", "apogee_id", "telescope", "field", "survey", "file", "dateobs", "visit_id", "alt_id",
+             "target_id", "location_id"}
+
+
 def host_ids(path: Path) -> np.ndarray:
     import h5py
 
@@ -63,7 +67,10 @@ def csv_table(text: str):
     lines = [ln for ln in text.splitlines() if not ln.startswith("#")]
     if len(lines) <= 1:
         return None
-    return Table.read("\n".join(lines) + "\n", format="ascii.csv", fast_reader=False)
+    t = Table.read("\n".join(lines) + "\n", format="ascii.csv", fast_reader=False)
+    for c in TEXT_COLS & set(t.colnames):  # chunks can infer a text column as int (e.g. all-numeric field names)
+        t[c] = np.asarray(t[c]).astype(str)
+    return t
 
 
 def _snapshot(data_root: Path, name: str, date: dt.datetime) -> Path:
@@ -82,6 +89,20 @@ def _finish(out: Path, tables: dict, meta: dict) -> None:
     meta.update({"files_sha256": sums, "n_rows": {k: int(len(t)) for k, t in tables.items()}})
     (out / "meta.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))
     print(f"wrote {out}: " + ", ".join(f"{k} {len(t)}" for k, t in tables.items()))
+
+
+def _vstack(tables: list):
+    """vstack chunk tables, casting any column whose dtype kind differs between chunks to str."""
+    from astropy.table import vstack
+
+    cols = set().union(*(t.colnames for t in tables))
+    for c in cols:
+        kinds = {t[c].dtype.kind for t in tables if c in t.colnames}
+        if len(kinds) > 1:
+            for t in tables:
+                if c in t.colnames:
+                    t[c] = np.asarray(t[c]).astype(str)
+    return vstack(tables)
 
 
 def _cached(cache: Path, key: str, sql: str):
@@ -108,15 +129,16 @@ def fetch_apogee(ids: np.ndarray, chunk: int, data_root: Path) -> None:
             stars.append(t)
         if (lo // chunk) % 50 == 0:
             print(f"  stars: {lo + chunk}/{ids.size} ids, {sum(len(x) for x in stars)} rows", flush=True)
-    star = vstack(stars)
+    star = _vstack(stars)
     apids = sorted(set(str(x) for x in star["apogee_id"]))
     visits = []
-    for lo in range(0, len(apids), chunk):
-        lst = ",".join(f"'{a}'" for a in apids[lo:lo + chunk])
+    vchunk = max(1, chunk // 3)  # quoted apogee_ids make a longer URL than numeric source_ids (SkyServer 404s above ~8 kB)
+    for lo in range(0, len(apids), vchunk):
+        lst = ",".join(f"'{a}'" for a in apids[lo:lo + vchunk])
         t = _cached(cache, f"visit_{lo:07d}", f"SELECT {VISIT_COLS} FROM apogeeVisit AS v WHERE v.apogee_id IN ({lst})")
         if t is not None:
             visits.append(t)
-    visit = vstack(visits)
+    visit = _vstack(visits)
     field = csv_table(skyserver("SELECT * FROM apogeeField"))
     out = _snapshot(data_root, "apogee_dr17", date)
     meta_extra = {"partial_cache": str(cache)}
