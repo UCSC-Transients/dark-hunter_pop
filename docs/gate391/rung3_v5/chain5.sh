@@ -7,9 +7,13 @@ log() { echo "$1 $(date '+%F %T')" >> $Q; }
 fail() { log "FAIL $1"; log "QUEUE STOPPED at step $1 (chain5)"; exit 1; }
 merged() { [ "$(gh pr view $1 --json state -q .state 2>/dev/null)" = MERGED ]; }
 waitmerged() { for i in {1..$2}; do merged $1 && return 0; sleep 120; done; return 1; }
-suite() {  # suite <pr> <worktree> <logname>
-  REPO=$2 LOG_DIR=$SP $H $3 -m pytest -m "unit or physics or api" -q -p no:cacheprovider
-  local rc=$? res=$(grep -E "passed|failed" $SP/$3.log | tail -1)
+suite() {  # suite <pr> <worktree> <logname>; restart-safe (adopts a running suite, skips a finished one)
+  local rc
+  if pgrep -f "run_heavy.sh $3 " >/dev/null; then while pgrep -f "run_heavy.sh $3 " >/dev/null; do sleep 30; done
+    grep -q "^exit 0" $SP/$3.log; rc=$?
+  elif grep -q "^exit " $SP/$3.log 2>/dev/null && grep -q "SUITE PR $1 .*$(date -r $SP/$3.log '+%F')" $Q; then return 0
+  else REPO=$2 LOG_DIR=$SP $H $3 -m pytest -m "unit or physics or api" -q -p no:cacheprovider; rc=$?; fi
+  local res=$(grep -E "passed|failed" $SP/$3.log | tail -1)
   if [ $rc -eq 0 ]; then gh pr merge $1 --auto --merge >/dev/null 2>&1; log "SUITE PR $1 PASS ($res); auto-merge on"; return 0
   else log "SUITE PR $1 FAIL rc=$rc ($res); left open"; return 1; fi
 }
@@ -35,11 +39,13 @@ grep -q "STEP export_lum_v5 OK" $Q || { $H export_lum_v5 scripts/rung3_joint_391
   --reference-from docs/gate391/joint561/fit/summary.json --fix ln_R_dark=-50 --out-dir output/v5/eval_export \
   --export-lum-weights $D/output/rung5/lum_weights_v5.npz || fail export_lum_v5
 log "STEP export_lum_v5 OK (output/rung5/lum_weights_v5.npz; pihat_4s_dr3.npz exported earlier)"; }
-grep -q "^exit 0" $SP/suite_636b.log 2>/dev/null || suite 636 $V5 suite_636b   # the Nov-7 pass predates the #646 commits
+suite 636 $V5 suite_636b   # the Nov-7 pass predates the #646 commits
 # 3. #645
 W645=$D/.worktrees/rung5-t11; [ -d $W645 ] || W645=$(git -C $D worktree list | grep "\[feat/rung5-t11-fit\]" | awk '{print $1}')
 gh pr update-branch 645 >/dev/null 2>&1; sleep 20; git -C $W645 fetch -q origin && git -C $W645 merge -q --ff-only origin/feat/rung5-t11-fit 2>/dev/null
 suite 645 $W645 suite_645
+gh pr update-branch 650 >/dev/null 2>&1; sleep 20; git -C $D/.worktrees/fix648 fetch -q origin && git -C $D/.worktrees/fix648 merge -q --ff-only origin/fix/gate5a-colours-648 2>/dev/null
+suite 650 $D/.worktrees/fix648 suite_650   # #648 fix (BP-RP to gate-5a injections), coordinator 2026-11-08
 waitmerged 645 180 || { log "chain5: #645 not merged in 6 h; R5-T11 steps not run"; exit 1; }
 waitmerged 636 360 || { log "chain5: HOLD - #636 not merged (B1/B2 read rung3_joint_v5.yaml from main only)"; exit 1; }
 git -C $D pull -q --ff-only origin main || fail pull_main
@@ -61,4 +67,10 @@ log "STEP r5_fit OK"
 $H r5_gate5b scripts/rung5_fit_dr3.py closed-loop --inputs output/rung5/inputs_dr3_holdout.h5 --fit-inputs output/rung5/inputs_dr3_train.h5 \
   --theta-ref output/rung5/fit_dr3/rung5_fit.json --out output/rung5/gate5b --n-real 20 || fail r5_gate5b
 log "STEP r5_gate5b OK"
+if waitmerged 650 90; then
+  git -C $D pull -q --ff-only origin main || fail pull_main_650
+  $H gate5a_colour scripts/rung5_known_objects_5a.py inject --out output/rung5/gate5a_colour --workers 4 || fail gate5a_colour
+  PYTHONPATH=src nice -n 10 .venv/bin/python scripts/rung5_known_objects_5a.py report --out output/rung5/gate5a_colour > output/rung5/gate5a_colour_report.log 2>&1 || fail gate5a_colour_report
+  log "STEP gate5a_colour OK"
+else log "gate5a_colour NOT run: #650 not merged"; fi
 log "PAUSE after chain5"
