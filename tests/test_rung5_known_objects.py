@@ -47,3 +47,22 @@ def test_summarize_counts_c1_and_errors() -> None:
     assert s["acceleration"][0] == pytest.approx(0.25)
     s2 = mod.summarize(recs, 830.4, lambda r: False)[1]
     assert s2["acceleration"][0] == 0.0
+
+
+@pytest.mark.unit
+def test_target_colours_lookup(tmp_path: Path) -> None:
+    import h5py
+    import numpy as np
+
+    p = tmp_path / "columns.h5"
+    with h5py.File(p, "w") as h:
+        h["source_id"] = np.array([11, 22, 33], np.int64)
+        h["bp_rp"] = np.array([0.87, np.nan, 1.6])
+    c = mod.target_colours(p, [22, 11, 44])
+    assert c[11] == pytest.approx(0.87)
+    assert np.isnan(c[22]) and np.isnan(c[44])
+
+
+@pytest.mark.unit
+def test_config_names_colour_source() -> None:
+    assert CFG["colour_columns"].endswith("nss_orbit_input_columns/columns.h5")
