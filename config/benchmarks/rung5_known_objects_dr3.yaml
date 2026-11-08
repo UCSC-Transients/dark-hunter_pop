@@ -5,6 +5,7 @@ schema_version: 1
 data_release: dr3
 required_noise_model: colour_v2.1+tr1+e2+st1      # the inject step refuses another configured epoch-model label
 published_orbits: output/gate390/published_orbits.h5   # all 168,065 DR3 Orbital + AstroSpectroSB1 rows (#390)
+colour_columns: data/dr3/gaia_snapshots/20261003T182211Z_nss_orbit_input_columns/columns.h5  # #648: per-target DR3 BP-RP
 n_realizations: 50                               # per object; binomial error on the recovery fraction ~0.07 at p = 0.5
 c1_period_max_days: 830.4                        # recovered = accepted orbit with fitted P <= this (the C1 domain)
 groups:

@@ -101,6 +101,18 @@ def _published_rows(path: Path, sids: Sequence[int]) -> dict[int, dict[str, Any]
     return rows
 
 
+def target_colours(columns_h5: Path, sids: Sequence[int]) -> dict[int, float]:
+    """#648: each target's DR3 BP−RP from the ``nss_orbit_input_columns`` snapshot (NaN where DR3 has none; the epoch
+    model then applies its documented no-colour rule, EPOCH_MODEL_SPEC §8.13)."""
+    import h5py
+
+    with h5py.File(columns_h5, "r") as h:
+        cs = h["source_id"][()].astype(np.int64)
+        br = h["bp_rp"][()].astype(float)
+    pos = {int(x): i for i, x in enumerate(cs)}
+    return {int(s): (float(br[pos[int(s)]]) if int(s) in pos else float("nan")) for s in sids}
+
+
 def cmd_plan(cfg: Mapping[str, Any], out: Path) -> int:
     from darkhunter_pop import injection_test as it
     from darkhunter_pop.gaiamock_vendor import import_gaiamock_mod
@@ -108,6 +120,7 @@ def cmd_plan(cfg: Mapping[str, Any], out: Path) -> int:
     targets = load_targets(cfg)
     rows = _published_rows(Path(cfg["published_orbits"]), [t["source_id"] for t in targets])
     gm = import_gaiamock_mod()
+    colours = target_colours(Path(cfg["colour_columns"]), [t["source_id"] for t in targets])
     plan, missing = [], []
     for t in targets:
         row = rows.get(t["source_id"])
@@ -115,13 +128,15 @@ def cmd_plan(cfg: Mapping[str, Any], out: Path) -> int:
             missing.append({**t, "reason": "not in published_orbits (no DR3 Orbital/AstroSpectroSB1 solution)"})
             continue
         truth = it.published_truth_from_row(row, gm)
-        plan.append({**t, "nss_solution_type": truth.nss_solution_type,
+        plan.append({**t, "nss_solution_type": truth.nss_solution_type, "bp_rp": colours[t["source_id"]],
                      "truth": {k: float(v) for k, v in truth.values.items()}})
     out.mkdir(parents=True, exist_ok=True)
     (out / "plan.json").write_text(json.dumps({"config": str(CONFIG), "targets": plan, "missing": missing,
                                                "not_injected": cfg.get("not_injected", [])}, indent=1))
     groups = {g: sum(1 for p in plan if p["group"] == g) for g in cfg["groups"]}
-    print(f"plan: {len(plan)} targets {groups}; missing {len(missing)}; not injected {len(cfg.get('not_injected', []))}")
+    n_nan = sum(1 for p in plan if not np.isfinite(p["bp_rp"]))
+    print(f"plan: {len(plan)} targets {groups}; missing {len(missing)}; not injected {len(cfg.get('not_injected', []))}; "
+          f"targets without a DR3 BP−RP {n_nan}")
     return 0
 
 
@@ -143,7 +158,12 @@ def cmd_inject(cfg: Mapping[str, Any], out: Path, workers: int, limit: int) -> i
     if label != cfg["required_noise_model"]:
         raise SystemExit(f"configured noise model {label!r} != required {cfg['required_noise_model']!r}")
     plan = json.loads((out / "plan.json").read_text())["targets"]
+    if any("bp_rp" not in t for t in plan):
+        raise SystemExit(f"{out / 'plan.json'} predates #648 (no bp_rp per target): re-run the plan step into a new --out")
     log = out / "inject.jsonl"
+    meta_p = out / "inject_meta.json"
+    if log.exists() and (not meta_p.exists() or json.loads(meta_p.read_text()).get("colour_source") != "dr3_bp_rp"):
+        raise SystemExit(f"{log} was written without the #648 colours: use a new --out")
     done = set()
     if log.exists():
         done = {(int(r["source_id"]), int(r["realization"])) for r in map(json.loads, log.read_text().splitlines())}
@@ -152,12 +172,12 @@ def cmd_inject(cfg: Mapping[str, Any], out: Path, workers: int, limit: int) -> i
         todo = [r for r in range(int(cfg["n_realizations"])) if (t["source_id"], r) not in done]
         if todo:
             v = {k: t["truth"][k] for k in rn.TRUTH_KEYS}
-            tasks.append((v, t["source_id"], float("nan"), todo))
+            tasks.append((v, t["source_id"], float(t["bp_rp"]), todo))
     tasks = tasks[:limit] if limit else tasks
     pop = pc.selection_function_astrometric.mock_population
     initargs = (int(pop.random_seed), pc.dr3.selection_function_astrometric.orbital_solution_cuts.model_dump_json(),
                 em.model_dump_json(), float(pop.ruwe_min))
-    (out / "inject_meta.json").write_text(json.dumps({"issue": 624, "noise_model_version": label,
+    (out / "inject_meta.json").write_text(json.dumps({"issue": [624, 648], "colour_source": "dr3_bp_rp", "noise_model_version": label,
                                                       "n_realizations": cfg["n_realizations"]}, indent=1))
     print(f"{len(tasks)} targets ({label}), workers={workers}", flush=True)
     t0 = time.time()
