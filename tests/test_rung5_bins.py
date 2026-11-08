@@ -16,12 +16,15 @@ def cfg() -> r5.Rung5BinsConfig:
 
 
 @pytest.mark.unit
-def test_shipped_config_is_dr3_and_unfrozen(cfg: r5.Rung5BinsConfig) -> None:
+def test_shipped_config_is_dr3_and_frozen(cfg: r5.Rung5BinsConfig) -> None:
+    """#639: the shipped config carries the R5-T1 freeze on co_v1 gens 1006-1008 (mock draws only)."""
     assert cfg.data_release == "dr3"
     assert cfg.true_m2_edges_msun["wd"][-1] == pytest.approx(1.4)
     assert cfg.true_m2_edges_msun["dark"][0] == pytest.approx(1.0)
+    r5.assert_frozen(cfg)
+    assert cfg.derived is not None and cfg.derived.real_data_read is False
     with pytest.raises(ValueError, match="not frozen"):
-        r5.assert_frozen(cfg)
+        r5.assert_frozen(cfg.model_copy(update={"derived": None}))
 
 
 @pytest.mark.unit
