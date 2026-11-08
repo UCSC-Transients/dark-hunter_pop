@@ -172,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--d-range", type=float, nargs=2, default=(D_LO, D_HI), help="bin in ZP-corrected 1/parallax (kpc)")
     ap.add_argument("--g-range", type=float, nargs=2, default=(G_LO, G_HI))
+    ap.add_argument("--log-plx-snr-max", type=float, default=None,
+                    help="#609: keep only real systems with log10(parallax/parallax_error) below this (third §12.16 sample)")
     args = ap.parse_args(argv)
     (D_LO, D_HI), (G_LO, G_HI) = args.d_range, args.g_range
 
@@ -270,6 +272,9 @@ def main(argv: list[str] | None = None) -> int:
     r_beta = np.abs(sky_beta(col("ra"), col("dec")))
     r_cosi = np.abs(np.cos(np.asarray(gm.get_Campbell_elements(col("A"), col("B"), col("F"), col("G"))[3], float)))
     inbin = (r_d >= D_LO) & (r_d <= D_HI) & (r_g >= G_LO) & (r_g <= G_HI) & (r_P <= P_MAX)
+    if args.log_plx_snr_max is not None:  # #609: the low-ϖ/σ_ϖ tail (uncorrected parallax over its error, as in the π covariate)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inbin &= np.log10(col("parallax") / col("parallax_error")) < args.log_plx_snr_max
     rfeat = np.column_stack([np.log10(r_a0), np.log10(r_P), r_e, r_g, r_d, r_beta, r_cosi])
     inbin &= np.all(np.isfinite(rfeat), axis=1)
     rb = np.flatnonzero(inbin)
