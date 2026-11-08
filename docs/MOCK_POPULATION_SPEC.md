@@ -3057,6 +3057,35 @@ Phase-1 choices, **answered by Ryan 2026-10-24 (all accepted; resolved, not open
 - **Point-wise: 13 of 14 bin-level checks pass.** The one outside is 3–5 M⊙ at 68 %, which **over**-covers at 0.765 (+8.5 points, 2.3σ of its MC error). The deviations are consistent with noise.
 - **WD (not in the gate):** bias passes; 68 % coverage 0.60–0.71 (3 of 4 bins within); 95 % coverage 0.89–0.95 (3 of 4 within; χ² p = 0.0002). The WD light (f = 0 is assumed) remains the open WD issue.
 
+### 13.13 Student-t ν on the adopted noise version, and catastrophic recoveries (#637; 2026-11-07)
+
+**Re-fit.** `scripts/calibrate_student_t_564.py --diagnostics` on the held-out partition of co_v1 gens 1006–1008
+(noise `colour_v2.1+tr1+e2+st1`; 714 accepted C1 orbits; `docs/gate4b_564/student_t_1006_1008_diag.json`).
+
+| a0/σ_a0 | n | plain-t ν (68 % profile) | \|pull\| > 5 / > 10 | pull 2.5 / 50 / 97.5 % | ν without \|pull\| > 5 (68 %) | mixture ν_core, f_out, σ_out |
+|---|---:|---|---|---|---|---|
+| 0–20 | 83 | 2.01 (1.63–2.50) | 3 / 1 | −3.37 / 0.11 / 2.00 | 5.3 (3.6–8.4) | 4.3, 3.8 %, 20 |
+| 20–50 | 175 | 1.09 (1.00–1.20) | 7 / 6 | −589 / 0.15 / 1.48 | 27 (12–300) | 8.1, 3.5 %, 4,400 |
+| 50–100 | 152 | 2.16 (1.85–2.53) | 3 / 3 | −2.07 / 0.03 / 2.04 | 79 (16–300) | 83, 2.0 %, 118 |
+| > 100 | 304 | 300 (28–300; bound) | 0 / 0 | −1.73 / −0.01 / 2.08 | 300 | 300, 0 %: Gaussian, no outlier component |
+
+**Reading.**
+- The ν ≈ 1 at a0/σ_a0 20–50 is **not** a near-Cauchy core. The pull core is close to Gaussian (16–84 %: −1.27 to
+  0.94). A handful of catastrophic recoveries dominate the plain-t fit.
+- 6 of the 7 catastrophic recoveries at 20–50 are **long-period interlopers**: true periods of 4,000–190,000 d fitted as
+  C1 orbits at P_fit ≤ 830 d (P_fit/P_true 0.001–0.2), with pulls down to −6,900. Their M2 is wrong whatever the tails.
+  They are a population effect: the rung-5 response matrix maps true P > baseline into the C1 cells, so the binned
+  likelihood carries them. They are not a per-object error tail.
+- **Adopted (config `mass_recovery.student_t_nu`):** the mixture ν_core per bin, 4.3 / 8.13 / 83 / 300 (300 = Gaussian,
+  the fit bound). The outlier fractions (3.8 / 3.5 / 2.0 / 0 %) are recorded for the unbinned per-object likelihood of
+  RUNG5_SPEC R5-T12, which adds an explicit outlier component (default: uninformative in log M2 with these fractions).
+- The old values (2.21 / 2.55 / 8.18 / 11.43, n2d_s1232 gens 1000–1003) are superseded; draws of different noise versions
+  are never mixed (§12.40).
+- **Gate 4b must be re-run with the new ν** on gens 1006–1008 (training partition): a heavy step, queued separately. With
+  the old ν the dark C1 gate gave bias OK and χ² coverage p = 0.96 / 0.88, but 68 % coverage of 0.735 ± 0.047 at
+  1.4–2.2 M⊙, outside ±0.05. Larger ν narrows the per-object intervals, so the coverage moves down toward nominal there;
+  the catastrophic recoveries (≈ 3 %) cap the attainable 95 % coverage near 0.97.
+
 ## References
 
 - Andrae, R. et al. 2018, A&A 616, A8 (BC_G: Eq. 7, Table 4).
