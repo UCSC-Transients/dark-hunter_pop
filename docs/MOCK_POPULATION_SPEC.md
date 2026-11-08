@@ -1870,6 +1870,19 @@ it came from gens 23–27 through `weights_gen23_27.npz`; that cache is gone and
 - **Order.** The two samples and the π̂ refit run at the queue's PAUSE (after gens 53–57 and CO 1006), one heavy job at a
   time, before the joint refit.
 
+**Third re-injection sample and reselection (Ryan, 2026-11-05/06; #609, option (c) of `docs/gate391/spurious_pi_check/`).**
+The far and near samples overlap in log10 ϖ/σ_ϖ only on 1.61–2.10. The #601 slope comes from inside the far sample and is
+extrapolated into the near regime: V0 gives near π̂ 0.036, against the near sample's own rate of 0.086. A third sample
+closes the gaps.
+- **(i) Gap:** d 0.5–0.7 kpc, all G, 130 systems.
+- **(ii) Low-ϖ/σ_ϖ tail:** all real C1 orbits with log10 ϖ/σ_ϖ < 1.4 (`--log-plx-snr-max 1.4`), all d and G. That is 104 systems, all of them used; median G 14.2, d 0.66–2.66 kpc.
+  - The requested cell d > 1.5 kpc at G 16–19 holds **no** real C1 orbit in the fit domain, so the low-ϖ/σ_ϖ tail it was meant to reach is selected directly.
+- **Same protocol** as the far and near samples: 3 realizations, kNN matching, the engine cross-check and the symmetric rung 1.
+- **Matched mock:** luminous gens 53–59, all `colour_v2.1+tr1+e2+st1`; the version guard is as above.
+- **Reselection:** forward selection by ΔBIC (threshold unchanged) on all samples, far + near + gap + tail.
+  - The output goes to a new file, `spurious_calibration_4s`. The #601 calibration is kept.
+  - Reported: the selected model, its coefficients, and Σπ̂ (the N_s prior), against V0 and V9.
+
 ### 12.17 2-D CMD Malmquist closed-loop ledger (Ryan, 2026-10-10; tracking issue #471)
 
 The decision on the 2-D CMD weight (§11.5) stays open. For each adopted decision, this ledger records whether it can change the §11.5 closed loop, how, and the current worst pull. The latest closed-loop run (`docs/gate418/`, small run, Combined19 real dust, σ(E)/E 0.085) has a worst |pull| of 7.6 with the 2-D weight (6.7 with none, 8.8 with 1-D). The "every pull ≤ 3" target is not met.
@@ -2825,6 +2838,14 @@ Every number below is in that config.
 - **Weights:** tabulated 0.7, log-uniform 0.3 (defensive, the full 0.15–1.40). Otherwise the gen-1006 recipe.
 
 **Queue** `scripts/jobs/topup_queue_607.sh`: a 50-draw dry run of each fragment, then g58, g59, g1006→g1007, one at a time under `start_generation.sh` (nice, ≤ 8 workers, CPU-h, wall-clock and memory guards), a disk stop, prefix assembly, FAIL / QUEUE STOPPED lines, then PAUSE. No refit until Ryan instructs one.
+
+### 12.45 Gen 1008: dark-focused compact-object generation for rung 5 (Ryan, 2026-11-06; #616; RUNG5_SPEC R5-T3)
+
+- **Recipe:** the held gen-1004 recipe under `colour_v2.1+tr1+e2+st1`: re-centred rows, period core log P 1.5–3.5 at weight 0.5.
+- **Components:** dark 0.8 (M2 log-uniform 1–40 M⊙), WD 0.2. Gen 1006's matched cooling age (`age_source: draw`) is kept.
+- **Version and partition:** the co_v1 primary-model version and SBC partition of gens 1006/1007, so the three form one deterministic mixture.
+- **draw_index** from 102,410,000 (reserved to 102,809,999).
+- **Running it:** 10 h / 90 CPU-h, all guards, after a 50-draw dry run (`scripts/jobs/gen1008_queue_616.sh`). It runs after the rung-3 v5 fit and profiles (§12.44), then PAUSEs.
 
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 

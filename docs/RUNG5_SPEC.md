@@ -29,7 +29,10 @@ from DR3, built so that DR4 is a config/data swap plus re-calibration, not a rew
 - **Selection-function machinery** exists (rung 4): `compact_objects.build_selection_table`, co_v1 gens 1000–1003
   (old noise `n2d_s1232`), new-version CO gens 1006 (WD-focused, dark share 0.2) and 1007 (queued, #607).
 - **Adopted noise model** `colour_v2.1+tr1+e2+st1`, with its known limitations (EPOCH_MODEL_SPEC §8.16).
-- **Rung 3 is still being closed** (v4 MC-limited; N_s run-away from a distant luminous shortfall; #607 top-ups).
+- **Rung 3 is closed (Ryan, 2026-11-07; DR4 fast path) with one condition: rung 5 does not import the rung-3 spurious
+  amplitude or WD rates** (#630; §2.6). Rung-3 v5: N_s = 40.7k against the four-sample π̂ prior 17.6k ± 1.5k (pull +15;
+  the spurious term absorbs the distant luminous shortfall: spurious share 0.44 at 0.7–1.5 kpc, 0.79 beyond 1.5 kpc), and
+  the WD component over-predicts A > 0.5 orbits at d < 0.3 kpc by ×4.3 with a WD orbit ESS of 32.
 - Normalisation is per looks-single primary of the quality-cut parent sample, never an absolute Galactic density.
 
 ## 1. Gap analysis: what exists vs what rung 5 needs
@@ -78,7 +81,28 @@ from DR3, built so that DR4 is a config/data swap plus re-calibration, not a rew
 - **Gate 4b** must be re-checked on the new-version dark draws, and the Student-t ν re-calibrated on their held-out
   partition (`scripts/calibrate_student_t_564.py`). The noise model changed, so ν may change. **Done for ν (#637,
   MOCK_POPULATION_SPEC §13.13):** ν_core = 4.3 / 8.13 / 83 / 300 with 3.8 / 3.5 / 2.0 / 0 % catastrophic recoveries,
-  mostly long-period interlopers carried by the response matrix; gate 4b re-run pending.
+  mostly long-period interlopers carried by the response matrix.
+  - **Gate 4b re-run with the adopted ν (2026-11-07; #639): PASSES, pointwise and by χ².**
+    - Run: `scripts/build_co_selection_table.py` on the held-out partition of co_v1 gens 1006–1008, with the config ν
+      `[4.30, 8.13, 83.08, 300]` for a0/σ_a0 bins 0–20 / 20–50 / 50–100 / > 100 (#638). Summary:
+      `output/rung5/sf_1006_1008_nu638/summary.json`.
+    - **The old-ν numbers are superseded** (ν `[2.21, 2.55, 8.18, 11.43]`, `output/rung5/sf_1006_1008/`). They failed pointwise in one bin: 68 % coverage 0.735 at 1.4–2.2 M⊙.
+    - Dark companions, C1 domain. Errors are binomial with the Kish ESS:
+
+      | M2 (M⊙) | n / ESS | median bias | 68 % coverage | 95 % coverage |
+      |---|---|---|---|---|
+      | 1.0–1.4 | 164 / 66 | +0.018 | 0.658 ± 0.058 | 0.924 ± 0.033 |
+      | 1.4–2.2 | 221 / 99 | +0.007 | 0.710 ± 0.046 | 0.927 ± 0.026 |
+      | 2.2–3.0 | 145 / 66 | −0.003 | 0.668 ± 0.058 | 0.934 ± 0.031 |
+      | 3–5 | 277 / 121 | −0.003 | 0.653 ± 0.043 | 0.919 ± 0.025 |
+      | 5–10 | 338 / 149 | +0.001 | 0.668 ± 0.039 | 0.943 ± 0.019 |
+      | 10–20 | 386 / 174 | −0.005 | 0.667 ± 0.036 | 0.925 ± 0.020 |
+      | 20–40 | 410 / 177 | −0.001 | 0.661 ± 0.036 | 0.916 ± 0.021 |
+
+    - Bias passes: |median bias| ≤ 0.018. Coverage χ² is 1.52 on 7 dof (p = 0.98) at 68 % and 11.4 on 7 dof (p = 0.12) at 95 %, with 7/7 bins within ±0.05 at both levels.
+    - **95 % coverage is 0.92–0.94, mild under-coverage.** The ~3 % catastrophic recoveries (outlier fractions in
+      MOCK_POPULATION_SPEC §13.13) fall outside the 95 % interval and account for most of the gap. The explicit outlier
+      component of R5-T12 should close the rest. **Re-check 95 % coverage once R5-T12 is built.**
 - **Gate 4c (SBC)** has not been run with fitted rates. It is folded into gate 5c.
 - **Gate 4d** is evaluated at rung 5 with fitted rates (§13.9).
 - **Gate 4e (contamination closure)** has not been run. It is gate 5d.
@@ -113,8 +137,8 @@ For each component k ∈ {lum, WD, NS, BH} plus the spurious term:
 - **Class conditional laws (fixed in config; any other choice is a reweight):**
   - WD: the §12.39 physical P/e/cooling-age/M1 laws conditional on M_WD (non-interacting branch: IFMR floor and MdS17 at
     the progenitor; post-MT He on TS99; post-MT CO), **with the non-parametric heights replacing the §12.39 M_WD shape**.
-    The branch fractions (A_ni vs R_mt, f_He) become shape nuisances: default fixed at the rung-3 fit, varied in a
-    sensitivity run. Hard truncation at M_Ch (`constants.M_CH`).
+    The WD rate parameters (A_ni, R_mt, f_He) are **free nuisance parameters fitted in the rung-5 cells** (§2.6); the
+    rung-3 values are start points and centres of broad priors only. Hard truncation at M_Ch (`constants.M_CH`).
   - NS and BH (one dark population, two classes): P and e from the rung-4 target θ_CO (log P uniform 0.2–8; e uniform
     below MdS17 e_max(P), circular at P ≤ 2 d), every looks-single primary equally likely (R4-Q7). A kick-informed
     e law is a named model-comparison hypothesis (ARCHITECTURE §4), not the default.
@@ -127,8 +151,9 @@ For each component k ∈ {lum, WD, NS, BH} plus the spurious term:
     reported per object, never forced; the separation is expected to be weak and is stated as such.
 - **Covariates:** mass only (heights) unless `sensitivity_analysis` on the mock (R5-T8) shows a class needs P, e or
   M1. A covariate added later is a new config, never a silent change.
-- **Spurious:** the §12.16 template T_b (π̂ recalibrated, #601) with its N_s prior. The rung-3 N_s run-away
-  (pull +16.7 in v4) must be resolved before rung 5 reads anything into the A > 0.5 cells (§2.5, R5-Q5).
+- **Spurious:** the §12.16 template T_b (π̂ recalibrated, #601) gives the **shape** only. Its amplitude is a free
+  nuisance fitted in the rung-5 cells, with a separate free multiplier in the A > 0.5 / high-M2_app cells (§2.6). The
+  rung-3 N_s (40.7k, pull +15 against the π̂ prior) is never imported.
 
 ### 2.3 Bins (fixed before looking at real counts)
 
@@ -165,13 +190,36 @@ At rung 3 the dark rate is degenerate with any luminous shortfall at A > 0.5 (§
 needed), and (ii) the closed-loop test (gate 5b) recovers injected dark rates of zero and of the El-Badry 2024 level
 with the luminous model refit. If (i) fails, the first result is restricted to the robust region (§2.4).
 
+### 2.6 Nuisance parameters fitted in rung 5, not imported from rung 3 (Ryan, 2026-11-07; #630)
+
+Rung 3 was closed with a spurious amplitude and WD rates that absorb a luminous-model shortfall (§0). Rung 5 therefore
+re-fits them in its own cells, A > 0.5 included.
+
+| Nuisance | Rung-5 treatment | Prior (config; the rung-3 value is the start point only) |
+|---|---|---|
+| Spurious amplitude N_s | free; shape = the π̂ template T_b (#601) over all rung-5 cells | log-uniform on [0.25, 4] × Σπ̂ (the four-sample π̂ sum, 17.6k) |
+| High-A spurious multiplier s_A | free; multiplies T_b in the A > 0.5 cells (and M2_app ≥ 1.4) | log-uniform on [0.1, 10] |
+| WD rates ln A_ni, ln R_mt | free | normal, centred on the rung-3 v5 values, σ = 1.5 (e-folds) |
+| WD He fraction f_He | free | uniform on [0, 1] |
+| Luminous θ_lum | free (R5-Q4) | the rung-3 bounds; start at the rung-3 fit |
+
+- **NS/BH–nuisance correlation.** In the A > 0.5 cells the dark heights, s_A, N_s and the WD rates trade against each
+  other: an excess of large-A orbits can be dark companions, spurious orbits or massive WDs. Every rung-5 result reports
+  the posterior correlation matrix of the dark heights with (N_s, s_A, ln A_ni, ln R_mt) and the dark heights with these
+  nuisances held at ±1σ, and states that the dark rate is conditional on the astrometry alone.
+- **What breaks the degeneracy is the §11 follow-up layer**: RV-confirmed/refuted labels fix s_A in the high-M2 cells
+  (§11.3), and the UV excess plus the SED fits constrain the WD share (§11.2). The Gaia-only first result marginalises
+  over the nuisances; the follow-up result replaces the broad priors with these measurements.
+- **Gate 5b** (closed loop) injects spurious amplitudes and WD rates away from the rung-3 values (N_s at 0.5×, 1× and 2×
+  the π̂ sum; s_A at 0.3 and 3; A_ni and R_mt at ±1 e-fold) and must recover the dark heights within their intervals.
+
 ## 3. Likelihood
 
 - **Default (first result): binned inhomogeneous Poisson in observable space**, the rung-3 `joint_refit` likelihood
   extended with the CO components and the M2_app axis:
   ln L = Σ_b [k_b ln μ_b − μ_b] − ½ Σ_b (MC term), with the MC variance per bin fixed relative to the reference θ
   (`mc_variance_at: reference_relative`, as §12.39) and the F2 ESS floor. Plus the rung-3 extra terms (F4 twin
-  binomial, N_s prior).
+  binomial) and the §2.6 nuisance priors.
 - **Per-object Student-t M2 likelihood** enters in two places:
   1. the M2_app estimator per row (posterior median under the isochrone M1 posterior and the `isotropic_log_m2` prior,
      Student-t tails with ν(a0/σ_a0)), applied identically to mock draws and real rows. Real rows use the DR3
@@ -211,7 +259,8 @@ Plus rungs 1–4 green as in MOCK_POPULATION_SPEC §5, with rung 3 closed under 
 
 ## 6. Sampler and compute (laptop only)
 
-- dynesty over the CO heights (≈ 6 WD + 9 dark = 15) + N_s + the luminous θ (≈ 20). Default: θ_lum and N_s profiled
+- dynesty over the CO heights (≈ 6 WD + 9 dark = 15) + the §2.6 nuisances (N_s, s_A, ln A_ni, ln R_mt, f_He) + the
+  luminous θ (≈ 20). Default: θ_lum and the nuisances profiled
   at their joint optimum in a first pass, then a full dynesty run with θ_lum free (R5-Q4).
   The linear-in-heights structure makes one likelihood call ≈ the rung-3 call (ms), so dynesty with nlive 500 is
   < 1 h on the laptop. Three runs for gate 5f: a few hours.
@@ -319,9 +368,9 @@ Sizes: S ≤ 1 day, M 2–3 days, L ≥ 4 days of agent work. **H** = needs heav
 | R5-Q2 | Include AstroSpectroSB1 orbits | **Yes** (st1 routing adopted; most bright candidates) |
 | R5-Q3 | Accelerations in the rung-5 likelihood | **Binned counts, no per-object mass**; dark components contribute predicted counts |
 | R5-Q4 | Luminous θ fixed at rung 3 or refit jointly | **Refit jointly** (profiled first pass, then free in dynesty) |
-| R5-Q5 | If the A > 0.5 PPC still fails at rung-3 closure | **Restrict the first result to the robust (AMRF class-III-like) region** and state it |
+| R5-Q5 | If the A > 0.5 PPC still fails at rung-3 closure (it did; rung 3 closed 2026-11-07, §0, §2.6) | **Restrict the first result to the robust (AMRF class-III-like) region** and state it |
 | R5-Q6 | Follow-up SF | ~~Astrometric-only MF; SF_followup ≡ 1~~ **Superseded (Ryan 2026-11-06)**: the Gaia-only first result keeps SF_followup ≡ 1, but the follow-up evidence layer (SED incl. GALEX UV, RV) is built immediately after it, with a forward-modelled follow-up selection function — see the follow-up evidence layer section (§11, separate PR) |
-| R5-Q7 | WD branch fractions (A_ni, R_mt, f_He) | **Fixed at the rung-3 fit**, varied in one sensitivity run |
+| R5-Q7 | WD branch fractions (A_ni, R_mt, f_He) | ~~Fixed at the rung-3 fit~~ **Superseded (Ryan, 2026-11-07; #630): free nuisances with broad priors (§2.6)** |
 | R5-Q8 | Binned vs unbinned for the first result | **Binned** (contamination self-consistent, MC-robust); unbinned as the gate-5f cross-check |
 | R5-Q9 | Dark P/e law | **Rung-4 θ_CO** (log-uniform P, uniform e below e_max); kick-informed e as model comparison |
 | R5-Q10 | Second dark generation | **Only if gate 5d fails** in the dark × A > 0.5 cells after gen 1008 |
