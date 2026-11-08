@@ -77,8 +77,9 @@ def build_epoch_setup(cfg: Any, prop: Any) -> Any:
     if section is None:
         raise ValueError("epoch_model: dr3_config but the active DR path has no epoch_model section")
     emc = dataclasses.replace(em.epoch_model_config_from_mapping(section), enabled=True)
-    from darkhunter_pop.proposal_set import check_noise_model
+    from darkhunter_pop.proposal_set import check_data_release, check_noise_model
 
+    check_data_release(prop, cfg.active_dr_mode.value)  # R5-T13 (#618): never mix data releases
     check_noise_model(prop, emc)  # EPOCH_MODEL_SPEC §8.12
     return EpochSetup(config=emc, gaps_jd=em.gap_intervals_jd(emc))
 
