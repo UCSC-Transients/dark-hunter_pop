@@ -2886,6 +2886,14 @@ Unchanged: the A axis, F2–F6, the relative MC error fixed at the reference θ 
   5. R_dark ≡ 0 at rung 3.
 - **Condition for rung 5:** rung 5 must **not** import the rung-3 N_s or WD rates. It refits them as free nuisance parameters in its own A > 0.5 cells.
 
+### 12.45 Gen 1008: dark-focused compact-object generation for rung 5 (Ryan, 2026-11-06; #616; RUNG5_SPEC R5-T3)
+
+- **Recipe:** the held gen-1004 recipe under `colour_v2.1+tr1+e2+st1`: re-centred rows, period core log P 1.5–3.5 at weight 0.5.
+- **Components:** dark 0.8 (M2 log-uniform 1–40 M⊙), WD 0.2. Gen 1006's matched cooling age (`age_source: draw`) is kept.
+- **Version and partition:** the co_v1 primary-model version and SBC partition of gens 1006/1007, so the three form one deterministic mixture.
+- **draw_index** from 102,410,000 (reserved to 102,809,999).
+- **Running it:** 10 h / 90 CPU-h, all guards, after a 50-draw dry run (`scripts/jobs/gen1008_queue_616.sh`). It runs after the rung-3 v5 fit and profiles (§12.44), then PAUSEs.
+
 ## 13. Rung 4 kickoff: compact-object injection–recovery (DRAFT, Ryan 2026-10-23; revised after review)
 
 ### 13.0 Population classes (Ryan, 2026-10-23, clarified): keep ARCHITECTURE's WD / NS / BH classes
