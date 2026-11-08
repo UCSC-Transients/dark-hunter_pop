@@ -79,7 +79,9 @@ from DR3, built so that DR4 is a config/data swap plus re-calibration, not a rew
   Scale check: gens 1000–1003 gave a dark detected-draw ESS of 1,722 and 82/84 filled cells at ESS ≥ 30 with 0.3–0.6
   dark share. A 0.8-share batch should reach similar ESS by itself.
 - **Gate 4b** must be re-checked on the new-version dark draws, and the Student-t ν re-calibrated on their held-out
-  partition (`scripts/calibrate_student_t_564.py`). The noise model changed, so ν may change.
+  partition (`scripts/calibrate_student_t_564.py`). The noise model changed, so ν may change. **Done for ν (#637,
+  MOCK_POPULATION_SPEC §13.13):** ν_core = 4.3 / 8.13 / 83 / 300 with 3.8 / 3.5 / 2.0 / 0 % catastrophic recoveries,
+  mostly long-period interlopers carried by the response matrix; gate 4b re-run pending.
 - **Gate 4c (SBC)** has not been run with fitted rates. It is folded into gate 5c.
 - **Gate 4d** is evaluated at rung 5 with fitted rates (§13.9).
 - **Gate 4e (contamination closure)** has not been run. It is gate 5d.
