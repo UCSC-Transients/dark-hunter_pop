@@ -15,7 +15,7 @@ suite() {  # suite <pr> <worktree> <logname>
 }
 # 1. #640
 while pgrep -f "run_heavy.sh suite_640b" >/dev/null; do sleep 30; done
-if ! grep -q "SUITE PR 640 PASS" $Q; then
+if ! grep -q "^exit 0" $SP/suite_640b.log 2>/dev/null || ! grep -q "SUITE PR 640 PASS" $Q; then
 res=$(grep -E "passed|failed" $SP/suite_640b.log | tail -1)
 if grep -q "^exit 0" $SP/suite_640b.log; then gh pr update-branch 640 >/dev/null 2>&1; gh pr merge 640 --auto --merge >/dev/null 2>&1; log "SUITE PR 640 PASS ($res); auto-merge on"
 else log "SUITE PR 640 FAIL ($res); left open"; fi
@@ -35,7 +35,7 @@ grep -q "STEP export_lum_v5 OK" $Q || { $H export_lum_v5 scripts/rung3_joint_391
   --reference-from docs/gate391/joint561/fit/summary.json --fix ln_R_dark=-50 --out-dir output/v5/eval_export \
   --export-lum-weights $D/output/rung5/lum_weights_v5.npz || fail export_lum_v5
 log "STEP export_lum_v5 OK (output/rung5/lum_weights_v5.npz; pihat_4s_dr3.npz exported earlier)"; }
-grep -q "SUITE PR 636 PASS" $Q || suite 636 $V5 suite_636b
+grep -q "^exit 0" $SP/suite_636b.log 2>/dev/null || suite 636 $V5 suite_636b   # the Nov-7 pass predates the #646 commits
 # 3. #645
 W645=$D/.worktrees/rung5-t11; [ -d $W645 ] || W645=$(git -C $D worktree list | grep "\[feat/rung5-t11-fit\]" | awk '{print $1}')
 gh pr update-branch 645 >/dev/null 2>&1; sleep 20; git -C $W645 fetch -q origin && git -C $W645 merge -q --ff-only origin/feat/rung5-t11-fit 2>/dev/null
