@@ -27,6 +27,7 @@ Read these before making a design change. **Docs-first: update the spec via PR b
 | `docs/ORCHESTRATOR_PROMPT.md` | Copy-paste prompts: the long-lived orchestrator (§A) and the verification agent (§B) |
 | `docs/SELECTION_REPRODUCTION_STATUS.md` | Live hand-off: which literature reproduction numbers currently fail and why |
 | `docs/MOCK_POPULATION_SPEC.md` | Step 1 mock: Gaia-star parent, MdS17 companions, proposal set + importance weights, Malmquist (1-D §9, 2-D CMD §11), giants (§10), isochrone M1 (§11), validation ladder (§5); Ryan's decisions §0.1–§0.4; open MP-Qs §8, §10.8, §11.8 |
+| `docs/RUNG5_SPEC.md` | Rung 5 (DRAFT, #610): first DR3 WD / NS / BH mass functions — gap analysis, model, likelihood, gates 5a–5g, DR4 readiness and re-calibration order, work plan R5-T1–T14, open questions R5-Q1–Q12 |
 | `docs/EPOCH_MODEL_SPEC.md` | Epoch model around gaiamock's GOST list: DR3 gaps, p(G, l, b) transit loss, clustered faint loss, bright-star noise, RUWE = UWE / u0 (§8 is the adopted v2) |
 | `docs/ELBADRY2024_REPRODUCTION_SPEC.md` | El-Badry et al. (2024) six-panel / solution-type gate: real comparison set, cuts, cost, Q5–Q12 |
 | `docs/gate*/README.md` | Measured reports, one per gate: `gate390` injection, `gate399` cascade replay, `gate400` epoch model, `gate405` / `gate418` Malmquist closed loops + isochrone M1, `gate_giants`, `gate391` rung 2 (paused), `gate301` end-to-end run |

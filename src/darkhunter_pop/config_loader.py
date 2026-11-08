@@ -360,3 +360,37 @@ def require_dr3_active_for_v1(config: PipelineConfig) -> None:
         raise ValueError(
             "active_dr_mode=dr4 is reserved but not runnable in v1; use dr3"
         )
+
+
+def _find_key(node: Any, key: str) -> list[Any]:
+    found: list[Any] = []
+    if isinstance(node, Mapping):
+        for k, v in node.items():
+            if k == key:
+                found.append(v)
+            found.extend(_find_key(v, key))
+    elif isinstance(node, list):
+        for v in node:
+            found.extend(_find_key(v, key))
+    return found
+
+
+def audit_population_data_release(directory: str | Path) -> dict[str, list[str]]:
+    """R5-T13 (#618): data-release coverage of the analysis configs under ``config/population/``.
+
+    These files (proposal fragments, rung-3 joint fits, rung-4/5 analysis configs) hold release-specific numbers —
+    proposal parents, the spurious template and N_s prior, the C1 period ceiling, Student-t ν, bin edges — outside
+    ``config.yaml``'s ``dr3``/``dr4`` trees. Returns ``{"missing": [...], "dr3": [...], "dr4": [...], "conflict": [...]}``
+    (file names). ``missing`` is informational for historical files; a config used for a new fit must state its
+    release. ``conflict`` (one file naming two releases) is always an error for the caller to raise.
+    """
+    out: dict[str, list[str]] = {"missing": [], "dr3": [], "dr4": [], "conflict": []}
+    for p in sorted(Path(directory).glob("*.yaml")):
+        vals = {str(v) for v in _find_key(yaml.safe_load(p.read_text()), "data_release")}
+        if not vals:
+            out["missing"].append(p.name)
+        elif len(vals) > 1 or not vals <= {"dr3", "dr4"}:
+            out["conflict"].append(p.name)
+        else:
+            out[vals.pop()].append(p.name)
+    return out
