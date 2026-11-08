@@ -2839,6 +2839,53 @@ Every number below is in that config.
 
 **Queue** `scripts/jobs/topup_queue_607.sh`: a 50-draw dry run of each fragment, then g58, g59, g1006→g1007, one at a time under `start_generation.sh` (nice, ≤ 8 workers, CPU-h, wall-clock and memory guards), a disk stop, prefix assembly, FAIL / QUEUE STOPPED lines, then PAUSE. No refit until Ryan instructs one.
 
+### 12.44 Rung 3 v5: refit on gens 53–59 + compact-object gens 1006/1007, and the close / not-close criteria (Ryan, 2026-11-06; #615)
+
+**Model.** The §12.42 model, with these changes:
+- luminous gens 53–59: one deterministic mixture, cache `weights_gen53_59.npz`;
+- WD from co_v1 gens 1006 and 1007: one deterministic mixture across both, including gen 1007's tabulated M2 component (§12.43);
+- R_dark ≡ 0;
+- the §12.16 template and N_s prior reselected on four samples (far, near, gap, tail; #609).
+
+Unchanged: the A axis, F2–F6, the relative MC error fixed at the reference θ (the §12.37 v1 fit, as in v3/v4), and the three §12.42 terms. Start 0 is the v4 fit. 12 starts. Config `config/population/rung3_joint_v5.yaml`.
+
+**Profiles.** 1-D grids, one start from the fit each, at the same reference θ, along dγ_q, ln F_twin, Δln F_twin,sP, κ_cb and N_s.
+
+**Plots.** As v4, in `docs/gate391/rung3_v5/`. Side by side with v4 and v3 on the v3 edges.
+
+**Close criteria for rung 3** (fixed before the fit). Rung 3 closes when C1–C4 hold. C5 failures and the listed limitations are then documented as known limitations, not blockers.
+- **C1, convergence.** ≥ 6/12 starts within Δ(−lnL) < 5, and no profile point more than 3 below the fit.
+- **C2, spurious amplitude.** N_s pull against the reselected prior |pull| ≤ 3, and the spurious share ≤ 0.35 of DR3 in every distance bin (< 0.3 / 0.3–0.7 / 0.7–1.5 / > 1.5 kpc).
+- **C3, totals.** (luminous + WD + spurious)/DR3 within 0.85–1.15 for orbits in every distance bin and for accelerations overall.
+- **C4, MC adequacy.** Luminous orbit ESS ≥ 300 and WD orbit ESS ≥ 50. The key cells (G < 13 & log P < 2; A > 0.5 by distance) are reported, and any cell below ESS 10 is listed as a limitation.
+- **C5, shape (reported).** 1-D orbit χ²/dof (all, bootstrap error) for G, d, P, e, (BP−RP)₀ and M_G0. Noise-dominated observables (F2, RUWE, ϖ/σ_ϖ, a0/σ_a0, the AstroSpectroSB1 splits) are covered by the §8.16 known limitations.
+
+**Result (2026-11-07; `docs/gate391/rung3_v5/`, README.md and index.html).**
+- **Fit:**
+  - 12/12 starts within Δ(−lnL) < 5 (offsets 0.00–0.98); −lnL 17,192.8.
+  - At bounds: a1, b2, Δln F_twin,sP (+2), κ_cb (+5).
+  - N_s = 40,692 ± 937 against the four-sample prior 17,589 ± 1,538 (pull +15.0).
+  - A_ni = 1.44 (ln +0.37 ± 0.10); ln R_mt = −6.25 ± 0.31. WD supplies 13.4k C1 orbits and 216k accelerations.
+  - β_e = +1.95 ± 0.89; dγ_q = +0.09 ± 0.16; ln F_twin = −0.15 ± 0.69.
+  - (mock + WD + spurious)/DR3 is 0.997 for orbits and 1.03 for accelerations.
+- **Profiles:**
+  - The twins, Δln F_twin,sP and κ_cb are flat within Δ ≤ 1.8 over their grids, except dγ_q = 0.6 (+6.6).
+  - Holding N_s at its prior costs Δ ≈ 400.
+  - No point lies below the fit.
+- **Criteria, as measured:**
+  - **C1 PASS.**
+  - **C2 FAIL:** pull +15.0; the spurious share by distance is 0.21 / 0.27 / **0.44 / 0.79**.
+  - **C3 FAIL (marginal):** orbits by distance 0.99 / 0.96 / 1.05 / **1.16**; accelerations 1.03.
+  - **C4 FAIL:** luminous orbit ESS 631 passes, but **WD orbit ESS is 32**. Cells below ESS 10: luminous G < 13 & log P < 2 (8), A > 0.5 at d < 0.3 kpc (7); WD in five cells (1–8).
+  - **C5 (reported):** orbit 1-D χ²/dof is G 2.6 ± 1.2, d 11.8 ± 2.2, P 1.6 ± 3.5, e 3.4 ± 1.4, (BP−RP)₀ 3.6 ± 5.0, M_G0 1.5 ± 1.2.
+- **Decision: CLOSED by Ryan 2026-11-07 with known limitations (DR4 fast path).** The criteria above stay recorded as measured. Known limitations:
+  1. N_s runs to 2.3× the four-sample π̂ prior. The distant luminous shortfall (luminous share 0.30–0.49 of DR3 beyond 0.7 kpc) is absorbed by the spurious term, so the spurious share beyond 0.7 kpc is model-absorbed, not measured.
+  2. A > 0.5 orbits at d < 0.3 kpc are over-predicted ×4.3 by the WD component (mock + spurious 2,594 against DR3 600), and the WD orbit ESS is 32.
+  3. The short-period terms (Δln F_twin,sP and κ_cb) are unconstrained; their cells have ESS 2–8.
+  4. The bright F2 / noise limitations of EPOCH_MODEL_SPEC §8.16 apply, and G < 10 is excluded.
+  5. R_dark ≡ 0 at rung 3.
+- **Condition for rung 5:** rung 5 must **not** import the rung-3 N_s or WD rates. It refits them as free nuisance parameters in its own A > 0.5 cells.
+
 ### 12.45 Gen 1008: dark-focused compact-object generation for rung 5 (Ryan, 2026-11-06; #616; RUNG5_SPEC R5-T3)
 
 - **Recipe:** the held gen-1004 recipe under `colour_v2.1+tr1+e2+st1`: re-centred rows, period core log P 1.5–3.5 at weight 0.5.

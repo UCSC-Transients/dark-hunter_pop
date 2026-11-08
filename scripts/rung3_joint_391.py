@@ -254,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--init-from", type=Path, default=None)
     ap.add_argument("--reference-from", type=Path, default=None,
                     help="#603: summary.json whose θ is the reference for the fixed MC variance (default: the start θ); profiles pass the main fit's reference")
+    ap.add_argument("--export-lum-weights", type=Path, default=None,
+                    help="#646: npz of (generation, draw_index, weight) of the luminous fit draws at the final θ (rung-5 input)")
     ap.add_argument("--profile", nargs="*", default=None,
                     help="#603: NAME=v1,v2,... 1-D profile grids (one setup; each point re-optimised with --n-starts starts); writes profile.json only")
     args = ap.parse_args(argv)
@@ -801,6 +803,13 @@ def main(argv: list[str] | None = None) -> int:
         "a_real_g": ns.ra_cols[0], "a_real_d": ns.ra_cols[1], **{f"a_real_{k}": v for k, v in ra_obs.items()},
     }
     np.savez_compressed(args.out_dir / "plot_dump.npz", **dump)
+    if args.export_lum_weights is not None:  # #646: per-draw luminous weights at this θ (fit domain draws; others are 0)
+        zc_ = np.load(args.cache, allow_pickle=True)
+        args.export_lum_weights.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(args.export_lum_weights, generation=np.asarray(zc_["generation"], np.int64)[ns.rel],
+                            draw_index=np.asarray(zc_["draw_index"], np.int64)[ns.rel], weight=np.asarray(w, float),
+                            theta=np.asarray(th, float), names=np.asarray(names), primary_model=np.asarray(str(zc_["primary_model"])))
+        rep.append(f"exported luminous weights of {w.size} fit-domain draws (sum {w.sum():.4g}) -> {args.export_lum_weights}")
     (args.out_dir / "summary.json").write_text(json.dumps({"label": fc.get("label"), "results": {"joint": res}}, indent=1, default=float))
     (args.out_dir / "report.txt").write_text("\n".join(rep) + "\n")
     print("\n".join(rep))
