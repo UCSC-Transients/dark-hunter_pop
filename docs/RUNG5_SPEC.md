@@ -247,7 +247,7 @@ re-fits them in its own cells, A > 0.5 included.
 
 | Gate | Test | Pass |
 |---|---|---|
-| 5a | Known objects: Gaia BH1, BH2 analogues and the El-Badry 2024 NS candidates (published parameters) injected through the cascade; BH3 recorded as outside the C1 domain | Recovered fraction consistent with the response (MC + Poisson); each real object's posterior responsibility reported |
+| 5a | Known objects: Gaia BH1, BH2 analogues and the El-Badry 2024 NS candidates (published parameters) injected through the cascade; BH3 recorded as outside the C1 domain | **One-sided** (clarified 2026-11-08, #647): an object fails only if its C1 recovery is significantly *below* the response, z = (f − p)/√(p(1 − p)/n + σ²_MC) < −2, with p the local mock response (adopted-version dark draws in a kernel of ±0.2 dex M2, ±0.2 dex P, ±0.75 mag G, ±0.2 dex ϖ). Re-injecting published, detection-conditioned parameters biases recovery upward, so z > 0 is expected and is not a failure. Objects whose accepted realizations mostly have P_fit above the C1 ceiling are a separate outcome, **accepted outside C1** (a domain definition, never a failure). Each real object's posterior responsibility is reported |
 | 5b | Closed loop: synthetic DR3 catalogs from **held-out** luminous + CO draws at known θ (dark rate 0, El-Badry-2024 level, ×10), through the full rung-5 fit | Injected heights inside the 68/95 % intervals at nominal rates |
 | 5c | SBC (absorbs gate 4c): ≥ 200 held-out catalogs, θ from the prior | Rank statistics uniform, KS p > 0.01, for WD, dark tier 1 and NS/BH tier 2 (M_TOV marginalised) |
 | 5d | MC noise + contamination closure (absorbs 4d, 4e) | σ_MC/σ_Poisson < 0.1 in every used cell; predicted contamination matches injected within errors |
