@@ -3,6 +3,7 @@
 # from the spec (§13.6: WD + dark x M2 bins over 0.15-40 Msun x 4 P bins x 3 G bins) before any recovered counts exist.
 # Not under config/fragments/.
 version: co_v1
+data_release: dr3                    # R5-T13 (#618): nu, C1 ceiling and axes are DR3-specific; DR4 gets its own file
 
 selection_table:
   detection: orbit_or_acceleration   # P(published orbit or acceleration | cell), spec §13.3 item 1
@@ -23,7 +24,13 @@ mass_recovery:                       # spec §13.3 item 2, gate 4b
   gate_period_max_days: 830.4        # #557: gate 4b on the C1 domain P_fit <= 0.8 x 1038 d (= rung3.c1_period_max_days)
   likelihood_tails: student_t        # #564: DR3-style solution errors are heavy-tailed; applied identically to real rows
   student_t_snr_edges: [0.0, 20.0, 50.0, 100.0, 1.0e9]   # a0/sigma_a0 (DR3 `significance` for real rows)
-  student_t_nu: [2.21, 2.55, 8.18, 11.43]                # ML on held-out-partition a0 pulls (scripts/calibrate_student_t_564.py)
+  # #637 (2026-11-07): re-fit on the held-out partition of co_v1 gens 1006-1008, noise colour_v2.1+tr1+e2+st1 (714 C1
+  # orbits; docs/gate4b_564/student_t_1006_1008_diag.json). Core nu of a Student-t + broad-outlier mixture per bin
+  # (outlier fractions 3.8 / 3.5 / 2.0 / 0 %): the plain-t fit (2.01 / 1.09 / 2.16 / 300) is dragged to nu ~ 1 at 20-50 by
+  # 7 catastrophic recoveries (|pull| up to 6,900), 6 of them long-period interlopers (P_true 4,000-190,000 d fitted at
+  # P_fit <= 830 d), a population effect the rung-5 response matrix carries, not a per-object error tail. 300 = Gaussian
+  # (the fit's upper bound). Superseded values (n2d_s1232 gens 1000-1003): [2.21, 2.55, 8.18, 11.43].
+  student_t_nu: [4.3, 8.13, 83.08, 300.0]
   coverage_levels: [0.68, 0.95]
   log10_m2_edges: [-0.824, -0.523, -0.222, 0.0, 0.146, 0.342, 0.477, 0.699, 1.0, 1.301, 1.603]
   max_abs_bias: 0.05                 # gate 4b: |bias| < 5 %

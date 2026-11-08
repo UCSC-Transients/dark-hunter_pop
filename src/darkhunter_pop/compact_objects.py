@@ -572,6 +572,9 @@ class Rung4AnalysisConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: str = Field(..., pattern=r"^co_v[0-9]+$")
+    #: R5-T13 (#618): the Gaia data release this analysis config belongs to (ν, the C1 period ceiling and the table
+    #: axes are release-specific); scripts refuse artifacts of another release.
+    data_release: Literal["dr3", "dr4"]
     selection_table: SelectionTableConfig
     mass_recovery: MassRecoveryConfig
     contamination: Literal["declared_stub"]
@@ -825,6 +828,13 @@ def m1_posterior_draws(parent: ps.ParentSnapshot, row: int, n: int, rng: np.rand
         raise ValueError("isochrone_row_lognormal needs an isochrone-mode parent")
     mu = float(np.asarray(parent.isochrone["log_m1_mean"], float)[row])
     sd = float(np.asarray(parent.isochrone["log_m1_sigma"], float)[row])
+    return lognormal_m1_draws(mu, sd, n, rng)
+
+
+def lognormal_m1_draws(log_m1_mean: float, log_m1_sigma: float, n: int, rng: np.random.Generator) -> FloatArray:
+    """M1 draws 10^(μ + σ z) of an isochrone lognormal posterior (log10 M1 mean and sigma); NaN if undefined.
+    Shared by mock parent rows and real DR3/DR4 rows (R5-T2, #620)."""
+    mu, sd = float(log_m1_mean), float(log_m1_sigma)
     if not (np.isfinite(mu) and np.isfinite(sd) and sd >= 0):
         return np.full(n, np.nan)
     return 10.0 ** (mu + sd * rng.standard_normal(n))
@@ -834,29 +844,51 @@ def m2_posterior_draws(
     p0: ArrayLike, covariance: ArrayLike, m1_msun: ArrayLike, *, n_draws: int, random_seed: int, flux_ratio: float,
     prior: str, student_t_nu: float | None = None,
 ) -> tuple[FloatArray, FloatArray, FloatArray, Any]:
-    """(m_f, M2, weight) per Monte-Carlo draw of one orbit, and the covariance factorization (#557).
+    """(m_f, M2, weight) per Monte-Carlo draw of one mock cascade orbit, and the covariance factorization (#557).
 
-    The likelihood draws are the full-covariance Gaussian of the cascade solution, propagated through
-    ``mc_mass_function`` (``factorize_covariance`` → ``sample_multivariate_normal`` → ``propagate_thiele_innes_draws``),
-    the real-row code path. ``prior`` sets the per-draw weight (see :class:`MassRecoveryConfig`):
-    ``flat_thiele_innes`` → 1; ``isotropic_log_m2`` → |d log M2 / d log a0| / (a0⁴ sin² i), where |∂(A,B,F,G)/∂(a0, ω,
-    Ω, i)| = a0³ sin³ i, the isotropic prior is ∝ sin i, log-uniform M2 maps to p(a0) ∝ |d log M2/d log a0| / a0, and
-    d log a0 / d log M2 = 1 − (2/3) M2 / (M1 + M2) for a dark companion (f = 0) at fixed M1 and P.
+    Thin wrapper: the cascade solution becomes a :class:`schemas.ParameterSet` and goes through
+    :func:`m2_posterior_draws_from_solution`, the estimator real DR3/DR4 rows use too (R5-T2, #620).
+    """
+    return m2_posterior_draws_from_solution(cascade_parameter_set(p0, covariance), m1_msun, n_draws=n_draws,
+                                            random_seed=random_seed, flux_ratio=flux_ratio, prior=prior,
+                                            student_t_nu=student_t_nu)
+
+
+def m2_posterior_draws_from_solution(
+    solution: Any, m1_msun: ArrayLike, *, n_draws: int, random_seed: int, flux_ratio: float, prior: str,
+    student_t_nu: float | None = None,
+) -> tuple[FloatArray, FloatArray, FloatArray, Any]:
+    """(m_f, M2, weight) per Monte-Carlo draw of one orbital solution, and the covariance factorization.
+
+    ``solution`` is any :class:`schemas.ParameterSet` carrying the Thiele–Innes elements, parallax and period under
+    their canonical NSS names (``mc_mass_function.canonical_nss_name``) with the full covariance: a mock cascade fit
+    (:func:`cascade_parameter_set`) or a real NSS row (``nss_covariance``). Parameter order does not matter.
+
+    The likelihood draws are the full-covariance Gaussian of the solution, propagated through ``mc_mass_function``
+    (``factorize_covariance`` → ``sample_multivariate_normal`` → ``propagate_thiele_innes_draws``), the real-row
+    code path; with ``student_t_nu`` they become multivariate Student-t (#564). ``prior`` sets the per-draw weight
+    (see :class:`MassRecoveryConfig`): ``flat_thiele_innes`` → 1; ``isotropic_log_m2`` → |d log M2 / d log a0| /
+    (a0⁴ sin² i), where |∂(A,B,F,G)/∂(a0, ω, Ω, i)| = a0³ sin³ i, the isotropic prior is ∝ sin i, log-uniform M2 maps
+    to p(a0) ∝ |d log M2/d log a0| / a0, and d log a0 / d log M2 = 1 − (2/3) M2 / (M1 + M2) for a dark companion
+    (f = 0) at fixed M1 and P.
     """
     from darkhunter_pop import mc_mass_function as mcm
 
-    names = list(ps.ORBIT_PARAMETER_NAMES)
-    idx = {k: names.index(k) for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes", "parallax", "period")}
-    sol = cascade_parameter_set(p0, covariance)
+    names = [mcm.canonical_nss_name(n) for n in solution.names]
+    need = ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes", "parallax", "period")
+    missing = [k for k in need if k not in names]
+    if missing:
+        raise ValueError(f"orbital solution lacks {missing} (names {list(solution.names)})")
+    idx = {k: names.index(k) for k in need}
     import inspect
 
     dflt = inspect.signature(mcm.propagate_nss_solution).parameters  # the real-row path's eigenvalue floors
-    factor = mcm.factorize_covariance(sol.covariance_array(), eig_rel_floor=dflt["eig_rel_floor"].default,
+    factor = mcm.factorize_covariance(solution.covariance_array(), eig_rel_floor=dflt["eig_rel_floor"].default,
                                       eig_abs_floor=dflt["eig_abs_floor"].default)
     rng_ = np.random.default_rng(int(random_seed))
-    d = mcm.sample_multivariate_normal(sol.values_array(), factor, n_draws, rng_)
+    d = mcm.sample_multivariate_normal(solution.values_array(), factor, n_draws, rng_)
     if student_t_nu is not None:  # #564: multivariate Student-t, x = μ + (x_N − μ) √(ν / χ²_ν)
-        mu_ = sol.values_array()
+        mu_ = solution.values_array()
         d = mu_ + (d - mu_) * np.sqrt(student_t_nu / rng_.chisquare(student_t_nu, size=n_draws))[:, None]
     a, b, f_, g = (d[:, idx[k]] for k in ("a_thiele_innes", "b_thiele_innes", "f_thiele_innes", "g_thiele_innes"))
     a0, m_f, m2 = mcm.propagate_thiele_innes_draws(a, b, f_, g, d[:, idx["parallax"]], d[:, idx["period"]], m1_msun, flux_ratio=flux_ratio)
@@ -873,6 +905,28 @@ def m2_posterior_draws(
     else:
         raise ValueError(f"unknown m2_posterior_prior {prior!r}")
     return np.asarray(m_f, float), np.asarray(m2, float), w, factor.method
+
+
+def summarize_m2_posterior(m_f: ArrayLike, m2: ArrayLike, weights: ArrayLike, m2_true: float | None = None) -> dict[str, float] | None:
+    """Weighted summary of one object's M2 posterior draws (shared by mock and real rows, R5-T2): ``m_f_med``,
+    ``m2_med``, ``m2_q16``, ``m2_q84``, ``mc_ess`` and, with ``m2_true``, ``m2_pit``. None if no usable draw."""
+    m2 = np.asarray(m2, float)
+    wq = np.asarray(weights, float)
+    ok = np.isfinite(m2) & (wq > 0)
+    if not ok.any():
+        return None
+    m2o, wo = m2[ok], wq[ok]
+    order = np.argsort(m2o)
+    cw = np.cumsum(wo[order]) / wo.sum()
+
+    def q(p: float) -> float:
+        return float(m2o[order][min(np.searchsorted(cw, p), m2o.size - 1)])
+
+    out = {"m_f_med": float(np.nanmedian(np.asarray(m_f, float))), "m2_med": q(0.5), "m2_q16": q(0.16),
+           "m2_q84": q(0.84), "mc_ess": ps.kish_ess(wo)}
+    if m2_true is not None:
+        out["m2_pit"] = float(np.sum(wo[m2o < m2_true]) / wo.sum())
+    return out
 
 
 def recover_masses(
@@ -911,16 +965,11 @@ def recover_masses(
             nu = student_t_nu_for(float(casc_i[17] / casc_i[18]) if casc_i[18] > 0 else 0.0, cfg)
         m_f, m2, wq, method = m2_posterior_draws(p0s[i], covs[i], m1, n_draws=cfg.n_mc_draws, random_seed=seed,
                                                  flux_ratio=cfg.assumed_flux_ratio, prior=cfg.m2_posterior_prior, student_t_nu=nu)
-        ok = np.isfinite(m2) & (wq > 0)
-        if not ok.any():
+        summ = summarize_m2_posterior(m_f, m2, wq, m2_true=float(m2_true[i]))
+        if summ is None:
             continue
-        m2o, wo = m2[ok], wq[ok]
-        order = np.argsort(m2o)
-        cw = np.cumsum(wo[order]) / wo.sum()
-        out["m_f_med"][i] = float(np.nanmedian(m_f))
-        out["m2_med"][i] = float(m2o[order][min(np.searchsorted(cw, 0.5), m2o.size - 1)])
-        out["m2_pit"][i] = float(np.sum(wo[m2o < m2_true[i]]) / wo.sum())
-        out["mc_ess"][i] = ps.kish_ess(wo)
+        for k in ("m_f_med", "m2_med", "m2_pit", "mc_ess"):
+            out[k][i] = summ[k]
         out["factorization"][i] = codes[method]
     return out
 

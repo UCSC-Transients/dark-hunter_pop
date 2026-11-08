@@ -601,7 +601,9 @@ class ProposalConfig(_Strict):
     generation: int = Field(..., ge=0)
     n_draws: int = Field(..., ge=1)
     base_seed: int = Field(..., ge=0)
-    data_release: Literal["dr3"]
+    #: R5-T13 (#618): the Gaia data release the draws model. DR4 needs its own calibrated epoch model (``dr4.epoch_model``)
+    #: and carries ``:dr4`` in the primary-model version, so draws of different releases are never mixed.
+    data_release: Literal["dr3", "dr4"]
     ruwe_min: float
     skip_acceleration: bool
     #: Spec §12.25: generation-time resolved-companion photocentre (None = off, the gens 23-32 behaviour).
@@ -799,8 +801,38 @@ def primary_model_version(cfg: ProposalConfig) -> str:
     base = f"looks_single_v2:ruwe{sc.ruwe_max:g}:dm{sc.dm_min:g}:c{lo:g}-{hi:g}:g{sc.system_g_max:g}"
     if cfg.noise_model != DEFAULT_NOISE_MODEL:  # EPOCH_MODEL_SPEC §8.12: never mix noise models
         base = f"{base}:noise_{cfg.noise_model}"
+    if cfg.data_release != DEFAULT_DATA_RELEASE:  # R5-T13 (#618): DR3 labels unchanged; other releases never mix
+        base = f"{base}:{cfg.data_release}"
     # Spec §13.2: compact-object generations carry their own suffix and are never combined with luminous ones.
     return base if cfg.compact_object is None else f"{base}:{cfg.compact_object.version}"
+
+
+#: R5-T13 (#618): the release whose primary-model versions carry no release suffix (all draws before DR4).
+DEFAULT_DATA_RELEASE = "dr3"
+DATA_RELEASES: tuple[str, ...] = ("dr3", "dr4")
+
+
+def data_release_of_version(version: str) -> str:
+    """The Gaia data release a primary-model version models (R5-T13): the ``:drN`` component, else DR3."""
+    parts = version.split(":")
+    found = {p for p in parts if p in DATA_RELEASES}
+    if len(found) > 1:
+        raise ValueError(f"primary-model version {version!r} names more than one data release")
+    return found.pop() if found else DEFAULT_DATA_RELEASE
+
+
+def check_data_release(cfg: ProposalConfig, active_dr_mode: str) -> None:
+    """Refuse a launch whose fragment ``data_release`` differs from the config's ``active_dr_mode`` (R5-T13, #618)."""
+    if cfg.data_release != str(active_dr_mode):
+        raise ValueError(f"fragment data_release {cfg.data_release!r} != config active_dr_mode {active_dr_mode!r} "
+                         "(R5-T13: switch the config's active DR path, never mix releases)")
+
+
+def check_release_match(declared: str, versions: Sequence[str], what: str) -> None:
+    """Every primary-model version in ``versions`` must model the release ``declared`` by an analysis config (R5-T13)."""
+    bad = sorted({v for v in versions if data_release_of_version(v) != declared})
+    if bad:
+        raise ValueError(f"{what}: data_release {declared!r} but artifacts model another release: {bad}")
 
 
 def is_compact_object_version(version: str) -> bool:
