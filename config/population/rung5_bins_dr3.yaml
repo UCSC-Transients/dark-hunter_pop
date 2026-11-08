@@ -18,4 +18,70 @@ detection: orbit_or_acceleration     # true-mass merge: any published solution (
 c1_period_max_days: 830.4            # M2_app merge: accepted C1 orbits only (= rung3.c1_period_max_days, gate 4b domain)
 min_cell_ess: 30                     # §13.6 target ESS per cell (detected draws, Kish)
 
-derived: null                        # written by scripts/rung5_freeze_bins.py
+derived:
+  true_m2_edges_msun:
+    wd:
+    - 0.15
+    - 0.45
+    - 0.6
+    - 0.8
+    - 1.0
+    - 1.2
+    - 1.4
+    dark:
+    - 1.0
+    - 1.4
+    - 1.8
+    - 2.2
+    - 2.6
+    - 3.0
+    - 5.0
+    - 10.0
+    - 20.0
+    - 40.0
+  m2_app_edges_msun:
+  - 0.0
+  - 0.6
+  - 1.0
+  - 1.4
+  - 2.0
+  - 3.0
+  - 5.0
+  - 10.0
+  - 1000.0
+  true_bin_ess_detected:
+    wd:
+    - 303.39346172022914
+    - 125.61333166104116
+    - 342.5094784499092
+    - 210.97454088912312
+    - 187.82722340158142
+    - 112.64715944276385
+    dark:
+    - 202.48518772743105
+    - 167.41692433059254
+    - 160.0531722888692
+    - 121.2306388323104
+    - 94.54321105807531
+    - 402.46424246758863
+    - 549.832014243911
+    - 591.0961191427115
+    - 584.3860192014578
+  m2_app_bin_ess_detected:
+  - 116.25286249444537
+  - 122.64890617412071
+  - 103.96999214322027
+  - 85.57569343909995
+  - 91.7841435400973
+  - 123.27176174026103
+  - 144.7400361963757
+  - 344.52486009994635
+  artifacts_sha256:
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st1/co_gen1006.h5: 2980d383607aaedabd8cfdf52a09d51dda4993a301e15690f33f38f027e4297b
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st1/co_gen1007.h5: a23970a4ba946a0ced335f6a51b2277e875f29a9ed640a3dcb5dd65e040dad55
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st1/co_gen1008.h5: bfce83c5db35be8dc7f28a4a5cd4e5cf1d83cb2040b9a2b667c3454999fbab1e
+  primary_model: looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19:noise_colour_v2.1+tr1+e2+st1:co_v1
+  partition: train
+  real_data_read: false
+  frozen_at: '2026-11-08T02:18:37Z'
+  digest: 07a4fa6cd2031f7f67325dc1cb1c6934d5ef37ad417a91dc16e490269f5ac047

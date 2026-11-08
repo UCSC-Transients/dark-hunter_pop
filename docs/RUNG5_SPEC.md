@@ -78,7 +78,28 @@ from DR3, built so that DR4 is a config/data swap plus re-calibration, not a rew
 - **Gate 4b** must be re-checked on the new-version dark draws, and the Student-t ν re-calibrated on their held-out
   partition (`scripts/calibrate_student_t_564.py`). The noise model changed, so ν may change. **Done for ν (#637,
   MOCK_POPULATION_SPEC §13.13):** ν_core = 4.3 / 8.13 / 83 / 300 with 3.8 / 3.5 / 2.0 / 0 % catastrophic recoveries,
-  mostly long-period interlopers carried by the response matrix; gate 4b re-run pending.
+  mostly long-period interlopers carried by the response matrix.
+  - **Gate 4b re-run with the adopted ν (2026-11-07; #639): PASSES, pointwise and by χ².**
+    - Run: `scripts/build_co_selection_table.py` on the held-out partition of co_v1 gens 1006–1008, with the config ν
+      `[4.30, 8.13, 83.08, 300]` for a0/σ_a0 bins 0–20 / 20–50 / 50–100 / > 100 (#638). Summary:
+      `output/rung5/sf_1006_1008_nu638/summary.json`.
+    - **The old-ν numbers are superseded** (ν `[2.21, 2.55, 8.18, 11.43]`, `output/rung5/sf_1006_1008/`). They failed pointwise in one bin: 68 % coverage 0.735 at 1.4–2.2 M⊙.
+    - Dark companions, C1 domain. Errors are binomial with the Kish ESS:
+
+      | M2 (M⊙) | n / ESS | median bias | 68 % coverage | 95 % coverage |
+      |---|---|---|---|---|
+      | 1.0–1.4 | 164 / 66 | +0.018 | 0.658 ± 0.058 | 0.924 ± 0.033 |
+      | 1.4–2.2 | 221 / 99 | +0.007 | 0.710 ± 0.046 | 0.927 ± 0.026 |
+      | 2.2–3.0 | 145 / 66 | −0.003 | 0.668 ± 0.058 | 0.934 ± 0.031 |
+      | 3–5 | 277 / 121 | −0.003 | 0.653 ± 0.043 | 0.919 ± 0.025 |
+      | 5–10 | 338 / 149 | +0.001 | 0.668 ± 0.039 | 0.943 ± 0.019 |
+      | 10–20 | 386 / 174 | −0.005 | 0.667 ± 0.036 | 0.925 ± 0.020 |
+      | 20–40 | 410 / 177 | −0.001 | 0.661 ± 0.036 | 0.916 ± 0.021 |
+
+    - Bias passes: |median bias| ≤ 0.018. Coverage χ² is 1.52 on 7 dof (p = 0.98) at 68 % and 11.4 on 7 dof (p = 0.12) at 95 %, with 7/7 bins within ±0.05 at both levels.
+    - **95 % coverage is 0.92–0.94, mild under-coverage.** The ~3 % catastrophic recoveries (outlier fractions in
+      MOCK_POPULATION_SPEC §13.13) fall outside the 95 % interval and account for most of the gap. The explicit outlier
+      component of R5-T12 should close the rest. **Re-check 95 % coverage once R5-T12 is built.**
 - **Gate 4c (SBC)** has not been run with fitted rates. It is folded into gate 5c.
 - **Gate 4d** is evaluated at rung 5 with fitted rates (§13.9).
 - **Gate 4e (contamination closure)** has not been run. It is gate 5d.
