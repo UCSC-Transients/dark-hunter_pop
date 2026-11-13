@@ -213,6 +213,111 @@ re-fits them in its own cells, A > 0.5 included.
 - **Gate 5b** (closed loop) injects spurious amplitudes and WD rates away from the rung-3 values (N_s at 0.5×, 1× and 2×
   the π̂ sum; s_A at 0.3 and 3; A_ni and R_mt at ±1 e-fold) and must recover the dark heights within their intervals.
 
+### 2.7 Heavy-cell amendment: host axis, bounded spurious term, modelled spill-over (#671; DRAFT, for Ryan's decision)
+
+**Status:** proposed and **not adopted**. Nothing below is implemented. Every item changes the model or the frozen
+observable bins, so each one needs Ryan's sign-off (H1–H5 below). The evidence is the #671 diagnostic note on the
+issue. Its numbers are at `main` @ c53c556 against `inputs_dr3_train_v2.h5` and `fit_dr3_v2`.
+
+**Ryan's direction (2026-11-13, absolute).** The v2 fit is wrong: real, known systems exist at M > 1.4 M⊙. The model
+must match the data, which can calibrate it. Spill-over must be modelled, not assumed.
+
+**What the v2 fit does.** The real train partition has 311 rows at M2_app ≥ 1.4 M⊙. The fit explains them as:
+- spurious: 220;
+- dark spill-over from the true 1.0–1.4 M⊙ bin: 64;
+- luminous: 28;
+- WD: 3.
+
+Every true dark bin above 1.4 M⊙ is at its floor; the expected detection count is ≤ 0.07 in each (posterior median).
+Known real systems go to the spurious term:
+- Gaia BH1: 0.98 spurious;
+- El-Badry 2024/2026 NS candidates: 0.81 spurious in M2_app 1.4–2 at 0.7–1.5 kpc, and 1.00 for the 2.66 M⊙ candidate.
+
+**Diagnosed defects.** No builder or code defect was found: a per-draw rebuild reproduces the dark response to 3e-16.
+
+- **D1. The observable cells cannot separate the real heavy population from dark companions.**
+  - **Real rows.** 94 % of the real M2_app ≥ 1.4 rows have massive or evolved hosts. Their isochrone M1 has a median of
+    1.6 M⊙, 45–48 % have p_evolved > 0.5 beyond 0.7 kpc, and M2_app/M1 ≈ 0.97.
+  - **Dark response.** It places 93 % of its M2_app 1.4–2 detections on hosts with M1 < 1.2.
+  - **No component makes the massive/evolved-host excess.** The luminous template has ESS 1–3 in these cells, and the
+    dark and WD responses sit on the wrong hosts.
+  - **Dark-compatible hosts alone.** Only 26 real heavy rows have M1 < 1.2 and p_evolved < 0.5: the size of the known
+    El-Badry NS + BH1 sample. Their Σπ̂ is 4.0.
+- **D2. The spurious term is the data re-weighted, with an amplitude that breaks its probabilistic meaning.**
+  - **Construction.** T_b = Σ_{i∈b} π̂_i over the real rows (§12.16). Its amplitude is free (§2.6), and the fit puts
+    N_s·s_A at 2.97 Σπ̂.
+  - **Consequence.** The implied per-row P(spurious) is 2.97 π̂, which exceeds 1 for π̂ > 0.34. The template contains
+    every real heavy system, so it absorbs any feature, real companions included.
+  - **Cross-fitting test.** When the template is built from a disjoint half of the rows, BH1 moves to dark 20–40 M⊙.
+  - **π̂ hardly discriminates.** Median π̂ is 0.083 for labelled-good rows, 0.144 for labelled-spurious rows and 0.106
+    for all rows.
+  - **Fixing f_s = 1 does not help.** The A > 0.5 cells then want s_A = 2.96 (ΔlnP = −40). With s_A also fixed at 1,
+    ΔlnP = −97, and the heavy cells still get no dark mass above 1.4 M⊙.
+- **D3. The 1.0–1.4 → ≥ 1.4 spill-over is assumed.**
+  - **Where the 14.8 % comes from.** With dN/dlog M2 constant inside the true 1.0–1.4 bin, the spill to M2_app ≥ 1.4 is
+    14.8 % (ESS 9.6). It is set by the 20 % of weight above 1.3 M⊙, not by the data.
+  - **What the data show.** On dark-compatible hosts the counts fall 25× from M2_app 1.0–1.4 (423 rows) to 1.4–2
+    (17 rows). A flat-in-bin population falls 4.6×.
+  - **Effect.** The assumed spill alone over-predicts the heavy cells (72 predicted vs 17), and the fit drives the
+    1.4–2.2 heights to their floor.
+- **D4. MC adequacy.** The dark response comes from 1,471 accepted training draws: ESS 27–169 per true bin and 1–66 per
+  cell. The luminous ESS in the A > 0.5 cells is 1–3. Gate 5d is not implemented (#675).
+
+**Proposed amendment (each item is a separate decision).**
+
+1. **Host axis on the observable cells (H1).** Every (M2_app, A, d) cell is split by host class:
+   - **dark-compatible:** isochrone M1 < `m1_split` and p_evolved < `p_evolved_split`;
+   - **massive/evolved:** the rest.
+
+   How the class is assigned:
+   - **Mock (dark, WD, luminous):** the parent row's isochrone M1 (`isochrone.log_m1_mean`) and `sys_evolved`.
+   - **Real rows:** `nss_host_m1` (`m1_mean`, `p_evolved`), the same table that feeds the M2_app estimator.
+
+   **`m1_split` comes from the mock only.** It is the 90 % weighted quantile of the dark-response host M1 at
+   M2_app ≥ 1.4, which is about 1.2 M⊙ on the v2 draws. It is fixed in `rung5_bins_dr3.yaml` under a new
+   `schema_version` and digest **before** any real likelihood with the new axis is evaluated. It is an
+   observable-space axis only: the true-mass bins and heights are unchanged. This needs Ryan's explicit exception to
+   "bins fixed before looking at real counts" (§2.3), because the need for the axis was found in the real-data PPC.
+2. **Spurious term (H2, H3).**
+   - **Cross-fitted template (H2).** The real rows are split into K = 2 folds by a fixed salted hash of source_id. The
+     template used for fold k's counts is built from the other fold and rescaled by the ratio of the folds' Σπ̂. No row
+     contributes to its own cell. The likelihood then sums the two folds' cells, each with its own k_b and template,
+     and the CO and luminous responses are scaled by each fold's share of the real rows.
+   - **Probabilistic bound (H3).** f_s·s_A·max_{i∈b} π̂_i ≤ 1 in every used cell. In the dark-compatible-host cells,
+     f_s takes the §12.16 calibrated prior N(1, σ_cal); the log-uniform [0.25, 4] range is kept only for the
+     massive/evolved-host cells.
+   - **Declared catch-all (H3).** The massive/evolved-host cells get their own spurious-plus-unmodelled-excess
+     amplitude, s_host. It is declared as a catch-all for the luminous shortfall there (rung-3 limitation 1; the
+     evolved primary + near-equal-mass faint MS companion and hierarchical-triple hypotheses). It gives the dark
+     heights no leverage. The dark result is quoted from the dark-compatible-host cells, with the massive/evolved-host
+     cells kept in the likelihood only through s_host and the luminous terms.
+3. **Modelled spill-over (H4).** The dark and WD heights become a continuous piecewise-linear (tent / linear B-spline)
+   basis in log M2, with knots at the frozen bin edges, in place of the flat-in-bin step.
+   - **How the response is built.** One response per knot, using the same deterministic-mixture reweighting (a
+     reweight, not a re-simulation), with the tent function as r_i.
+   - **Effect.** The density just below 1.4 M⊙ is then set by the 1.4 knot, which also controls the counts above
+     1.4 M⊙. The spill-over is fixed by the data on both sides of the edge, not by a flat-in-bin assumption.
+   - **Reported quantities.** The heights per bin stay reported as bin integrals of the basis.
+4. **MC adequacy (H5).**
+   - **Gate 5d (#675).** Implemented before the refit. Cells that fail are merged along M2_app, then d, under a merge
+     map fixed from the mock.
+   - **Luminous top-up.** A top-up at A > 0.5 on evolved/massive hosts at d > 0.7 kpc. It is heavy and needs the
+     operator's go-ahead. It runs only if those cells still fail 5d after the merge.
+
+**Acceptance (the posterior-predictive gate added by this amendment).**
+- Every used cell, and every M2_app ≥ 1.4 cell by name, has a two-sided PPC tail p ≥ 0.01. This is computed from
+  ≥ 1,000 posterior draws, with gamma-Poisson MC noise.
+- The known real systems in the C1 domain (Gaia BH1 and the El-Badry good rows) get their posterior responsibilities
+  reported. None may exceed 0.5 spurious unless its π̂ alone (f_s = 1) gives that.
+
+**Questions for Ryan.**
+- **H1:** accept a host axis added after the PPC, with `m1_split` fixed from the mock?
+- **H2:** cross-fitted template, K = 2?
+- **H3:** the bound and calibrated prior on f_s in the dark-compatible-host cells, plus a declared catch-all amplitude
+  for the massive/evolved-host cells?
+- **H4:** a tent basis for the dark and WD heights, replacing the flat-in-bin step?
+- **H5:** gate 5d with a merge map, and the luminous top-up only if the merged cells still fail?
+
 ## 3. Likelihood
 
 - **Default (first result): binned inhomogeneous Poisson in observable space**, the rung-3 `joint_refit` likelihood
