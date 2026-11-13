@@ -247,7 +247,7 @@ re-fits them in its own cells, A > 0.5 included.
 
 | Gate | Test | Pass |
 |---|---|---|
-| 5a | Known objects: Gaia BH1, BH2 analogues and the El-Badry 2024 NS candidates (published parameters) injected through the cascade; BH3 recorded as outside the C1 domain | Recovered fraction consistent with the response (MC + Poisson); each real object's posterior responsibility reported |
+| 5a | Known objects: Gaia BH1, BH2 analogues and the El-Badry 2024 NS candidates (published parameters) injected through the cascade; BH3 recorded as outside the C1 domain | **One-sided** (clarified 2026-11-08, #647): an object fails only if its C1 recovery is significantly *below* the response, z = (f − p)/√(p(1 − p)/n + σ²_MC) < −2, with p the local mock response (adopted-version dark draws in a kernel of ±0.2 dex M2, ±0.2 dex P, ±0.75 mag G, ±0.2 dex ϖ). Re-injecting published, detection-conditioned parameters biases recovery upward, so z > 0 is expected and is not a failure. Objects whose accepted realizations mostly have P_fit above the C1 ceiling are a separate outcome, **accepted outside C1** (a domain definition, never a failure). Each real object's posterior responsibility is reported |
 | 5b | Closed loop: synthetic DR3 catalogs from **held-out** luminous + CO draws at known θ (dark rate 0, El-Badry-2024 level, ×10), through the full rung-5 fit | Injected heights inside the 68/95 % intervals at nominal rates |
 | 5c | SBC (absorbs gate 4c): ≥ 200 held-out catalogs, θ from the prior | Rank statistics uniform, KS p > 0.01, for WD, dark tier 1 and NS/BH tier 2 (M_TOV marginalised) |
 | 5d | MC noise + contamination closure (absorbs 4d, 4e) | σ_MC/σ_Poisson < 0.1 in every used cell; predicted contamination matches injected within errors |
@@ -264,6 +264,14 @@ Plus rungs 1–4 green as in MOCK_POPULATION_SPEC §5, with rung 3 closed under 
   at their joint optimum in a first pass, then a full dynesty run with θ_lum free (R5-Q4).
   The linear-in-heights structure makes one likelihood call ≈ the rung-3 call (ms), so dynesty with nlive 500 is
   < 1 h on the laptop. Three runs for gate 5f: a few hours.
+- **Adopted sampler settings for the DR3 fit (#667).** dynesty 3.1 static sampler, `bound='multi'`,
+  `sample='auto'` (rslice, ndim + 3 slices at ndim 23), `dlogz` 0.5, **base nlive 2000**; the three gate-5f runs use
+  nlive 2000 / 3000 / 2000 (`rung5_fit_dr3.py fit --n-runs 3 --nlive 2000`, which alternates ×1.5) with distinct seeds.
+  Reason: with nlive 500 / 750 / 500 (`fit_dr3_v2`) the posterior has a minor branch in which dark 1.0–1.4 M☉
+  trades against WD 1.0–1.2 M☉ (log10 h_dark_0 down to the prior floor), whose weight differed ×6 between runs
+  (< −5: 4.6 % / 1.9 % / 0.7 %); dark 1.4–40 medians spread 0.17–0.55σ. A tighter `dlogz` does not help (the branch
+  sits at low L, explored early). The wall time scales ≈ linearly with nlive (v2: 19 min for 8 × 10⁶ calls), so
+  the three runs take ≈ 1.5–2 h on the laptop.
 - Heavy compute is only the new draws (gen 1008 dark, ≤ 2 × 10 h / 90 CPU-h) behind the #607 queue (≈ 30 h), and the
   known-object injections (minutes). SBC and closed loops are reweighting + fits: light-to-medium (≈ 200 fits × minutes).
 - One heavy job at a time, `scripts/jobs/start_generation.sh` guards, `nice`, threadpoolctl.
