@@ -220,13 +220,43 @@ def start_point(inp: Rung5Inputs, pr: Priors) -> FloatArray:
 
 @dataclass(frozen=True)
 class MapFitResult:
-    """MAP fit (#658): θ, log posterior, and whether the Nelder–Mead polish of the best start met its tolerances
-    (``converged``; ``message`` is scipy's) rather than stopping at ``polish_maxiter``."""
+    """MAP fit (#658, #668).
+
+    ``converged`` tests the returned θ (see :func:`map_fit_result`): the Laplace Hessian over the free interior
+    parameters is positive definite, the Newton decrement there predicts a remaining gain ``newton_gain`` = ½ gᵀH⁻¹g
+    below ``newton_tol`` (ln p units — scale-free, so flat nuisance directions with σ ≫ 1 are not held to an absolute
+    gradient), and every free parameter within one Laplace step of a bound has projected gradient below ``grad_tol``.
+    ``max_projected_gradient`` is max |g| over the free parameters; ``message`` is scipy's message from the final
+    L-BFGS-B polish of the best start (``ABNORMAL`` there only means its line search hit the roundoff floor).
+    """
 
     theta: FloatArray
     log_post: float
     converged: bool
     message: str
+    max_projected_gradient: float = math.nan
+    newton_gain: float = math.nan
+    hessian_positive_definite: bool = False
+
+
+def projected_gradient(inp: Rung5Inputs, pr: Priors, theta: ArrayLike, *, step: float = 1e-5,
+                       active_tol: float = 1e-3, free: ArrayLike | None = None) -> FloatArray:
+    """Central-difference gradient (``step``) of −ln p at θ (one-sided, inside the support, near a bound), projected
+    onto the feasible set: a component whose descent direction leaves the support at a bound closer than
+    ``active_tol`` (default = the Laplace step, so the active set matches :func:`laplace_fit`'s pegged set) is set to 0.
+    Only the indices in ``free`` (default all) are differenced; the rest are returned as 0."""
+    t0 = np.asarray(theta, float)
+    bb = bounds(inp, pr)
+    idx = np.arange(t0.size) if free is None else np.asarray(free, int)
+    g = np.zeros(t0.size)
+    for i in idx:
+        hi, lo = min(t0[i] + step, bb[i, 1]), max(t0[i] - step, bb[i, 0])
+        tp, tm = t0.copy(), t0.copy()
+        tp[i], tm[i] = hi, lo
+        g[i] = (log_posterior(tm, inp, pr) - log_posterior(tp, inp, pr)) / (hi - lo)
+    at_lo, at_hi = t0 - bb[:, 0] < active_tol, bb[:, 1] - t0 < active_tol
+    g[(at_lo & (g > 0)) | (at_hi & (g < 0))] = 0.0
+    return g
 
 
 def map_fit(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None, fixed: Mapping[int, float] | None = None,
@@ -238,9 +268,17 @@ def map_fit(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None, fixed:
 
 def map_fit_result(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None,
                    fixed: Mapping[int, float] | None = None, n_starts: int = 4, seed: int = 0,
-                   polish_maxiter: int = 4000) -> MapFitResult:
-    """MAP by bounded L-BFGS from ``n_starts`` jittered starts, each polished by Nelder–Mead (``polish_maxiter``
-    iterations, xatol 1e-7, fatol 1e-9); ``fixed`` holds parameters at given values."""
+                   polish_maxiter: int = 4000, grad_tol: float = 1e-3, newton_tol: float = 1e-4,
+                   lbfgs_maxfun: int = 100_000) -> MapFitResult:
+    """MAP from ``n_starts`` jittered starts; ``fixed`` holds parameters at given values.
+
+    Each start runs bounded L-BFGS-B → Nelder–Mead (``polish_maxiter`` iterations, xatol 1e-7, fatol 1e-9; escapes the
+    shallow N_s / s_A ridge) → bounded L-BFGS-B with a 3-point (central) finite-difference gradient (``ftol`` 1e-15,
+    ``gtol`` = ``grad_tol`` / 10, at most ``lbfgs_maxfun`` evaluations). The final step is what converges at the
+    23-parameter DR3 scale: Nelder–Mead alone stalls at ``polish_maxiter`` with |∇ln p| ~ 1e-2 and a non-PD Hessian,
+    and restarting it does not help (#668). The best start's θ is then tested as described in :class:`MapFitResult`
+    (``newton_tol`` in ln p; ``grad_tol`` in ln p per unit parameter for pegged parameters).
+    """
     bb = bounds(inp, pr)
     fixed = dict(fixed or {})
     free = np.array([i for i in range(bb.shape[0]) if i not in fixed])
@@ -248,6 +286,7 @@ def map_fit_result(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None,
     for i, v in fixed.items():
         base[i] = v
     rng = np.random.default_rng(seed)
+    bfree = [tuple(b) for b in bb[free]]
 
     def full(x: FloatArray) -> FloatArray:
         t = base.copy()
@@ -258,19 +297,45 @@ def map_fit_result(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None,
         v = log_posterior(full(x), inp, pr)
         return 1e300 if not math.isfinite(v) else -v
 
-    best_x, best_f, best_r = None, math.inf, None
+    best_x, best_f, best_msg = None, math.inf, ""
     for k in range(max(1, n_starts)):
-        x = base[free].copy()
+        x = np.clip(base[free].copy(), bb[free, 0], bb[free, 1])
         if k:
             span = bb[free, 1] - bb[free, 0]
             x = np.clip(x + rng.normal(0.0, 0.05, x.size) * span, bb[free, 0], bb[free, 1])
-        r = optimize.minimize(nlp, x, method="L-BFGS-B", bounds=[tuple(b) for b in bb[free]])
-        r = optimize.minimize(nlp, r.x, method="Nelder-Mead",  # polish: L-BFGS stops early along the flat N_s/s_A ridge
+        r = optimize.minimize(nlp, x, method="L-BFGS-B", bounds=bfree)
+        r = optimize.minimize(nlp, r.x, method="Nelder-Mead",
                               options={"maxiter": polish_maxiter, "xatol": 1e-7, "fatol": 1e-9, "adaptive": True})
+        r = optimize.minimize(nlp, np.clip(r.x, bb[free, 0], bb[free, 1]), method="L-BFGS-B", jac="3-point",
+                              bounds=bfree, options={"ftol": 1e-15, "gtol": grad_tol / 10.0, "maxfun": lbfgs_maxfun,
+                                                     "maxiter": lbfgs_maxfun})
         if r.fun < best_f:
-            best_x, best_f, best_r = r.x, float(r.fun), r
-    assert best_x is not None and best_r is not None
-    return MapFitResult(full(best_x), -best_f, bool(best_r.success), str(best_r.message))
+            best_x, best_f, best_msg = r.x, float(r.fun), str(r.message)
+    assert best_x is not None
+    theta = full(best_x)
+    if free.size == 0:
+        return MapFitResult(theta, -best_f, True, best_msg, 0.0, 0.0, True)
+    g = projected_gradient(inp, pr, theta, free=free)
+    lap = laplace_fit(inp, pr, theta)
+    is_free = np.zeros(theta.size, bool)
+    is_free[free] = True
+    interior = np.flatnonzero(~lap.at_bound)
+    keep = is_free[interior]  # free interior parameters, as positions in the interior Hessian
+    pd, gain = False, math.inf
+    if lap.hessian is not None and np.all(np.isfinite(lap.hessian)):
+        Hs = lap.hessian[np.ix_(keep, keep)]
+        gi = g[interior[keep]]
+        try:
+            L = np.linalg.cholesky(Hs) if Hs.size else np.zeros((0, 0))
+            pd = True
+            z = np.linalg.solve(L, gi) if gi.size else gi
+            gain = 0.5 * float(z @ z)
+        except np.linalg.LinAlgError:
+            pass
+    pegged_free = lap.at_bound & is_free
+    g_peg = float(np.max(np.abs(g[pegged_free]))) if np.any(pegged_free) else 0.0
+    ok = pd and gain < newton_tol and g_peg < grad_tol
+    return MapFitResult(theta, -best_f, ok, best_msg, float(np.max(np.abs(g[free]))), gain, pd)
 
 
 def run_dynesty(inp: Rung5Inputs, pr: Priors, *, nlive: int, seed: int, dlogz: float = 0.5,
@@ -371,6 +436,7 @@ class LaplaceResult:
     at_bound: NDArray[np.bool_]
     positive_definite: bool
     min_eigenvalue: float
+    hessian: FloatArray | None = None  # interior Hessian of −ln p, rows/cols = np.flatnonzero(~at_bound) (#668)
 
     @property
     def ok(self) -> bool:
@@ -414,15 +480,15 @@ def laplace_fit(inp: Rung5Inputs, pr: Priors, theta: ArrayLike, step: float = 1e
         for b in range(a + 1, m):
             H[a, b] = H[b, a] = (f(E[a] + E[b]) - f(E[a] - E[b]) - f(-E[a] + E[b]) + f(-E[a] - E[b])) / (4 * step**2)
     if not np.all(np.isfinite(H)):
-        return LaplaceResult(sigma, at_bound, False, math.nan)
+        return LaplaceResult(sigma, at_bound, False, math.nan, H)
     min_eig = float(np.linalg.eigvalsh(H)[0])
     try:
         L = np.linalg.cholesky(H)
     except np.linalg.LinAlgError:
-        return LaplaceResult(sigma, at_bound, False, min_eig)
+        return LaplaceResult(sigma, at_bound, False, min_eig, H)
     Linv = np.linalg.solve(L, np.eye(m))
     sigma[free] = np.sqrt(np.sum(Linv**2, axis=0))  # diag(H⁻¹) = Σ_k (L⁻¹)_ki², H = L Lᵀ
-    return LaplaceResult(sigma, at_bound, True, min_eig)
+    return LaplaceResult(sigma, at_bound, True, min_eig, H)
 
 
 def laplace_sigma(inp: Rung5Inputs, pr: Priors, theta: ArrayLike, step: float = 1e-3) -> FloatArray:
