@@ -9,7 +9,7 @@ Three prompts exist in total, and they nest:
 | Prompt | Who gets it | Lives in |
 |---|---|---|
 | **Orchestrator** | the long-lived session | this file, §A below |
-| **Per-ticket preamble** | every coding subagent | `EXECUTION_PLAN.md` §5.2 — copy verbatim |
+| **Per-ticket preamble** | every coding subagent | `EXECUTION_PLAN.md` §5.2 — verbatim, slots filled |
 | **Verification (#49)** | the verifier, pinged repeatedly | this file, §B below |
 
 `docs/EXECUTION_PLAN.md` is the specification; `docs/ARCHITECTURE.md` is authoritative for anything
@@ -33,14 +33,13 @@ agent fed, assemble gate artifacts, and stop for Ryan at every wave boundary.
 * /Users/rfoley/.agents/skills/caveman/SKILL.md
 * /Users/rfoley/.agents/skills/regression-hunter/SKILL.md
 * ./.cursor/skills/dark-hunter-pop-workflow/SKILL.md   (project skill; repo-local, read by path)
-* ./CLAUDE.md                                          (standing brief)
-* ./docs/EXECUTION_PLAN.md                             (THE PLAN. §5 is how you operate; §6 is the
-                                                        roster; §7 is each wave's entry state,
-                                                        tickets, "Do not assume", exit artifacts)
+* ./CLAUDE.md                                          (standing brief; already autoloaded)
+* ./docs/EXECUTION_PLAN.md §5 (how you operate, incl. §5.5a token budget) and the §7 entry for the
+  current wave only. §6 roster and other waves: grep when needed, never read whole.
 * ./docs/ORCHESTRATOR_PROMPT.md                        (this file; §B is the verification prompt)
-* ./docs/ARCHITECTURE.md                               (consult as needed)
+* ./docs/ARCHITECTURE.md                               (consult by section, as needed)
 
-Keep `caveman` active for yourself and every subagent.
+Keep `caveman` full for yourself and every subagent (EXECUTION_PLAN.md §5.5a lists the exemptions).
 
 ## 2. Establish where you are
 
@@ -97,11 +96,27 @@ unverified.
 Walk the tickets in the dependency order given in §6 and §7. For each:
 
 - Open a subagent with the EXECUTION_PLAN.md §5.2 preamble, copied VERBATIM, filled in with the
-  ticket's slug, issue number, Model, Effort and Task. Do not paraphrase the preamble.
-- Model/effort per §5.5: Top = claude-opus-5-thinking-medium (statistics, selection functions,
-  likelihood, cross-module integrity); Mid = claude-4-sonnet (well-specified implementation against
-  a frozen interface); Light = claude-haiku (transcription, doc sync, hygiene). Lower tier and
-  effort TOGETHER — never a Light model on a Deep contract.
+  ticket's Model, Effort, slug, issue number, Pointers, Known and Task. Do not paraphrase the
+  preamble.
+- ALWAYS pass `model` and `effort` to the Agent tool explicitly (§5.5) — never let a subagent
+  inherit yours:
+    haiku / low      lookups, pointer-finding, doc sync, transcription, issue filing, PR/CI status,
+                     #49 mechanical verification
+    sonnet / medium  DEFAULT: implementation against a frozen interface, adapters, ETL,
+                     diagnostics, tests, known-cause fixes, #49 drift hunt
+    opus / high      statistics, likelihood, selection functions, cross-module integrity,
+                     unknown-cause gate failures, #49 on stats-bearing merges
+  Record both in the ledger; an opus row carries a one-line reason. Lower tier and effort
+  TOGETHER — never a haiku model on a Deep contract. A Light/Mid agent that reports
+  STATUS: escalate is not upgraded in place; re-dispatch a fresh agent at the right tier with
+  its written findings.
+- Fill Pointers (file + § or line range) and Known (decisions, gotchas, acceptance items you
+  already hold) yourself. If you do not know the pointers, run a haiku/low read-only lookup first.
+  Do not read file dumps yourself — delegate and keep the conclusion.
+- Fix-ups on an agent's own PR (CI red, #49 finding) go back to that agent via SendMessage;
+  start fresh only when its context is bloated, and then with a written summary.
+- Serial by default: one coding agent at a time; only haiku read-only lookups in parallel. The
+  memory cap below is a ceiling, not a target.
 - State the ticket's class (heavy/light) when you dispatch it, and record it in the ledger.
 - Worktrees go under ../dark-hunter_pop-worktrees/<slug>. Subagents NEVER delete a branch or
   worktree.
@@ -122,11 +137,17 @@ The verification agent is ITSELF heavy; it counts too.
 This is the part that must not slip. Auto-merge is on for dark-hunter_pop, so code reaches main
 without a human reading it; #49 is the only thing standing behind that.
 
-- **Every subagent reports back to you when it finishes** (step 14 of its preamble): issues, PR,
-  merge status, interface changes, anything filed, anything it could not do.
+- **Every subagent reports back to you when it finishes** (step 11 of its preamble): a caveman-ultra
+  STATUS / PR / ISSUES / CHANGED / TESTS / INTERFACE / DECISIONS / OPEN block, at most 120 words.
+  Failures and escalations come in full. If a report arrives as prose or with diffs/logs, do not
+  re-read them — take the fields you need.
 - **On every such report, ping a verification agent** with §B of this file, filled in for that
   merge. One ping per merge. Do not batch merges into one ping — a verdict that covers three merges
   cannot tell you which one broke something.
+- **Tier the verifier** (EXECUTION_PLAN.md §5.5): haiku/low for §B checks 1–3 and 5 by default; sonnet/medium
+  adds check 4 (drift hunt) when those fail, when two or more merges since the last drift hunt
+  touched shared interfaces, and at every wave boundary; opus/high for a merge that changed
+  statistics, likelihood or a selection function. Record the tier in the ledger's verdict cell.
 - **Respect the memory budget.** If heavy sessions are saturating the laptop, QUEUE the ping and
   say so in the ledger; do not stack it. Queued is fine; forgotten is not. Nothing reaches a gate
   with an empty verdict column.
@@ -235,13 +256,19 @@ issues.
 
 ## §B — Verification agent (#49)
 
-The orchestrator pastes this for every ping, with the merge details filled in. Top tier, Deep
-effort. It is heavy: it counts against the concurrency budget.
+The orchestrator pastes this for every ping, with the merge details filled in. Model/effort is
+tiered per merge (`EXECUTION_PLAN.md` §5.5): `haiku` / `low` runs checks 1–3 and 5 and reports
+`Drift hunt: not run (mechanical tier)`; `sonnet` / `medium` or `opus` / `high` runs all five. It is
+heavy: it counts against the concurrency budget.
 
 ```
 You are the verification agent for UCSC-Transients/dark-hunter_pop, at
-/Users/rfoley/darkhunter/pop/dark-hunter_pop. Read ./CLAUDE.md and ./docs/EXECUTION_PLAN.md §5.4.
+/Users/rfoley/darkhunter/pop/dark-hunter_pop. CLAUDE.md is already loaded; read only
+./docs/EXECUTION_PLAN.md §5.4. Read /Users/rfoley/.agents/skills/caveman/SKILL.md and write the
+report caveman full — except Findings, Escalation and any failure, which are written in full.
+pytest: `-q --tb=short 2>&1 | tail -40`; re-run only failing node IDs. Read diffs by file, not whole.
 
+Tier:              <mechanical (checks 1–3, 5) | full (checks 1–5)>
 Verify this merge:
   Issue:             #<issue>
   PR:                #<pr>
@@ -287,6 +314,7 @@ Report back in exactly this shape:
   Merge completeness: <landed everything claimed? if not, what is missing>
   Suite: <result, markers run, anything that could not run and why>
   Runs: <dry-run plan + stage execution result>
+  Drift hunt: <run | not run (mechanical tier)>
   Findings: <numbered; each with file, symbol, and why it matters — or "none">
   Tests written: <paths, or "none">
   Teardown: <branches/worktrees removed, or "held, because ...">
