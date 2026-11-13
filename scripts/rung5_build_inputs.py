@@ -76,7 +76,13 @@ def high_a_mask(m2_edges, m2_min_high: float) -> np.ndarray:
 
 
 def binned_response(cell, true_bin, n_true, w, r, n_cells_: int, n_prim: float):
-    """(R[j,b], V[j,b], I[j]) — see the module docstring."""
+    """(R[j,b], V[j,b], I[j]) — see the module docstring.
+
+    V_jb = N_prim² Σ_{i∈j,b} (w_i r_i / Σ_{i∈j} w_i r_i)². The weights are normalised *before* squaring: a branch whose
+    density is ~1e-300 in a bin (e.g. ``mt_he`` above the He-WD masses) has Σ w r ~ 1e-300, whose square underflows to
+    0, and the former ``Σ (w r)² / tot²`` returned 0/0 = NaN there (#659). A bin with no weight (Σ w r ≤ 0, including
+    no draws) has R = V = 0. Raises ``ValueError`` on a non-finite weight sum or result.
+    """
     R = np.zeros((n_true, n_cells_))
     V = np.zeros((n_true, n_cells_))
     I = np.zeros(n_true)
@@ -84,12 +90,17 @@ def binned_response(cell, true_bin, n_true, w, r, n_cells_: int, n_prim: float):
     for j in range(n_true):
         sj = true_bin == j
         tot = float(np.sum(wr[sj]))
+        if not math.isfinite(tot):
+            raise ValueError(f"binned_response: non-finite weight sum in true bin {j}")
         I[j] = tot / n_prim if n_prim > 0 else 0.0
         if tot <= 0:
             continue
         sd = sj & (cell >= 0)
-        R[j] = n_prim * np.bincount(cell[sd], weights=wr[sd], minlength=n_cells_) / tot
-        V[j] = n_prim**2 * np.bincount(cell[sd], weights=wr[sd] ** 2, minlength=n_cells_) / tot**2
+        u = wr[sd] / tot
+        R[j] = n_prim * np.bincount(cell[sd], weights=u, minlength=n_cells_)
+        V[j] = n_prim**2 * np.bincount(cell[sd], weights=u * u, minlength=n_cells_)
+    if not (np.all(np.isfinite(R)) and np.all(np.isfinite(V))):
+        raise ValueError("binned_response: non-finite response or variance")
     return R, V, I
 
 
