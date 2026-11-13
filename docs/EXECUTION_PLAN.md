@@ -229,8 +229,9 @@ maintained separately and never dispatches.
 
 ### 5.2 Standard session preamble
 
-Paste this at the start of every subagent session, with `<slug>`, `<issue>`, and `Task:` filled in.
-Paths are verified against this machine.
+Paste this at the start of every subagent session, with `Model`, `Effort`, `<slug>`, `<issue>`,
+`Pointers`, `Known` and `Task` filled in. Paths are verified against this machine. The token rules
+it carries are §5.5a.
 
 **Standing note (added Wave −1, from #49's audit of PR #171):** a subagent's fresh
 `git worktree add` checkout has no `data/` (gitignored) and usually no gaiamock overlay installed.
@@ -263,88 +264,81 @@ filename (e.g. `pr-body-<slug>-<issue>.md` in your own worktree or session scrat
 are yours. If they are not, fix them with `gh pr edit <N> --body-file` before arming auto-merge.
 
 ```
-1. Read and follow:
-   * /Users/rfoley/.agents/skills/strict-workflow/SKILL.md
-   * /Users/rfoley/.agents/skills/caveman/SKILL.md
-   * /Users/rfoley/.agents/skills/regression-hunter/SKILL.md
+Model: <haiku | sonnet | opus — §5.5>    Effort: <low | medium | high — §5.5>
+Issue: #<issue>    Slug: <slug>
+
+0. TOKEN RULES (§5.5a) — apply all session:
+   * CLAUDE.md is already loaded. Do NOT re-read CLAUDE.md or README.md.
+   * Read ONLY the files / § / line ranges named under "Pointers". Need more? `grep -n` first,
+     then read the range (`sed -n a,bp`, or Read with offset/limit). Never read a whole spec.
+   * pytest: `-q --tb=short -x -p no:cacheprovider 2>&1 | tail -40`; re-run only failing node IDs.
+   * Long runs/stages: log to a file, run in background, then `grep` / `tail` the log. Never cat
+     full logs, HDF5 dumps, big YAML/JSON.
+   * Same test/fit fails 3 times -> stop, record what you tried in the issue, report STATUS: blocked.
+   * Need a structural/domain decision your Effort does not cover -> stop and report STATUS: escalate.
+
+1. Read and follow (by path):
+   * /Users/rfoley/.agents/skills/caveman/SKILL.md                       (always; full level)
+   * /Users/rfoley/.agents/skills/strict-workflow/SKILL.md               (only if you open a PR)
    * /Users/rfoley/darkhunter/pop/dark-hunter_pop/.cursor/skills/dark-hunter-pop-workflow/SKILL.md
-     (project skill; repo-local, NOT in ~/.agents — read it by path, do not expect autoload)
-   * /Users/rfoley/.cursor/skills-cursor/create-rule/SKILL.md  (only if adding rules)
+                                                                         (only if you open a PR)
+   * /Users/rfoley/.agents/skills/regression-hunter/SKILL.md             (only for regression/bisect work)
 
-2. Read README.md. Check CLAUDE.md. If it is a dummy file or incomplete, fill it with the
-   normal information plus anything in README.md, docs/, or this project's conversations.
-   Read docs/EXECUTION_PLAN.md §7 for the wave you are in — its Entry state, Do not assume,
-   and Exit artifacts. docs/ARCHITECTURE.md is authoritative for anything it covers.
+2. Use ONLY .venv/bin/python3, .venv/bin/pytest, /opt/local/bin/gh. Laptop only.
+   A scratch environment only if your issue authorizes one: outside the repo, versions recorded,
+   never in pyproject.toml or .venv.
 
-3. Use ONLY:
-   * .venv/bin/python3
-   * .venv/bin/pytest
-   * /opt/local/bin/gh
-   Work on this laptop only. ziggy and lux are out of scope.
-   Exception: if YOUR issue explicitly authorizes a scratch environment (the Q7 nsstools measurement
-   does), create it outside the repo, record exact versions, and never add its packages to
-   pyproject.toml or install them into .venv — every other ticket shares that venv.
+3. Read issue #<issue> first. You MAY edit it (acceptance checklist, findings, dead ends).
+   Anything OUTSIDE its scope -> NEW issue (## Summary, ## Context, ## Acceptance checklist,
+   ## Do not), linked to #<issue>. NOTHING is silently fixed in a PR.
 
-4. Your issue is #<issue>, already filed by the orchestrator. Read it first.
-   You MAY edit it — sharpen the acceptance checklist, record findings, note what you ruled out.
-   Anything you discover that is OUTSIDE this issue's scope becomes a NEW issue you file with
-   /opt/local/bin/gh, in UCSC-Transients/dark-hunter_rv style (## Summary, ## Context,
-   ## Acceptance checklist, ## Do not), linked to #<issue>. Paste every issue URL.
-   NOTHING is silently fixed in a PR. An untracked change is a defect, not a favor.
-
-5. Create an isolated worktree + branch from latest main:
+4. Worktree from latest main, work only there, never delete branches/worktrees (#49 owns teardown):
    git fetch origin && git worktree add ../dark-hunter_pop-worktrees/<slug> -b feat/<slug> origin/main
-   Work ONLY in that worktree. Do NOT delete branches or worktrees — #49 owns teardown.
 
-6. Create consistent [AI Checkpoint] microcommits when code changes. These are PUSHED and land on
-   main inside the PR's merge commit — write each one so its message and diff still make sense to
-   someone bisecting six months from now.
+5. [AI Checkpoint] microcommits, pushed; each message + diff must make sense to a bisect later.
 
-7. Before every final commit before a PR: git fetch origin && git merge origin/main (or rebase);
-   resolve so a merge to main would be conflict-free. Do not commit if conflicts remain.
+6. Before the final commit: git fetch origin && git merge origin/main; no conflicts left.
 
-8. Run .venv/bin/pytest and fix failures before commit/PR. Required gate:
-   -m "unit or physics or api". gaiamock / slow / network are optional.
+7. Required gate green before PR: .venv/bin/pytest -m "unit or physics or api".
+   Flag counts/timings measured in a worktree without data/ as worktree-only.
 
-9. Open a verbose PR with /opt/local/bin/gh that Closes #<issue>, includes a Test plan, and
-   notes pytest status. Then arm auto-merge as a MERGE COMMIT (not squash) so the checkpoint
-   history survives:
-       /opt/local/bin/gh pr merge --auto --merge
-   Do not force-push main. No --no-verify.
+8. PR via gh: body in a UNIQUE file (pr-body-<slug>-<issue>.md), `--body-file`, confirm with
+   `gh pr view`. Body: `Closes #<issue>` alone on a line, test plan, pytest status,
+   "Interface changes" for any renamed parameter / config key / signature / schema field.
+   Then: gh pr merge --auto --merge   (merge commit, never squash; no force-push, no --no-verify)
 
-10. Execute ONLY this issue's scope. No unrelated refactors. Everything else is a new issue (step 4).
+9. Scope only. Strict typing, vectorized numerics, documented params/limits, new deps in
+   pyproject.toml. Zero hardcoded physics constants / thresholds / paths outside constants.py and
+   config. Never edit a frozen config/selections/*.yaml threshold — escalate.
 
-11. Strict typing, vectorize numerics, document params/limits per function;
-    log new deps in pyproject.toml in the same PR.
+10. Ryan's domain decisions are absolute.
 
-12. Zero hardcoded physics constants, thresholds, or paths outside constants.py and config.
-    Never edit a frozen config/selections/*.yaml threshold — escalate instead.
+11. FINAL REPORT to the orchestrator — caveman ultra, at most 120 words, exactly:
+      STATUS: done | blocked | escalate
+      PR: <url or none> | ISSUES: <urls filed/edited>
+      CHANGED: <files>
+      TESTS: <pass/fail/skip counts; worktree-only? y/n>
+      INTERFACE: <changes or none>
+      DECISIONS: <one line each>
+      OPEN: <one line each>
+    No diffs, no logs, no prose recap. Gate/convergence failures and escalations are EXEMPT from
+    caveman and the word limit: state them in full.
 
-13. If you rename a parameter, config key, function signature, or schema field, say so explicitly
-    in the PR body under "Interface changes". #49 checks for silent drift; help it.
-
-14. When you finish, report back to the orchestrator: issue(s), PR, merge status, interface changes,
-    anything you filed, and anything you could not do. The orchestrator pings the verification agent
-    (#49) from that report.
-
-15. User domain decisions are absolute.
-
-Model: <slug from §5.5>
-Effort: <Deep | Standard | Light — see CONTINUATION_PLAN.md §2.2>
-
+Pointers: <file + § or line range, one per line — chosen by the orchestrator>
+Known: <decisions, gotchas and acceptance items the orchestrator already holds>
 Task: <one paragraph, imperative>
 ```
 
-**Harness.** Subagents run as **Claude Code sessions**, which read `~/.agents/skills/` natively and
-pick up `CLAUDE.md` automatically — so steps 1 and 2 are cheap. The project skill is the exception:
-it lives in the repo, not in `~/.agents/skills/`, so the preamble reads it by absolute path rather
-than relying on autoload. If it starts getting skipped, copy it into `~/.agents/skills/` and update
-this section.
+**Harness.** Subagents are Claude Code sessions (the orchestrator's Agent tool). `CLAUDE.md` loads
+automatically into every one of them — about 10k tokens before the task starts — which is why step
+0 forbids re-reading it. Skills are read by path because `~/.agents/skills/` and the repo-local
+`dark-hunter-pop-workflow` are not autoloaded by Claude Code. Worktrees go under
+`../dark-hunter_pop-worktrees/<slug>`, matching those already on disk.
 
-Two deviations from earlier drafts, both deliberate: worktrees go under
-`../dark-hunter_pop-worktrees/<slug>`, matching the ones already on disk rather than introducing a
-second naming scheme; and `dark-hunter-pop-workflow` is read from the **repo**, since it is
-project-specific and does not live in `~/.agents/skills/`.
+**Pointers and Known are the orchestrator's job.** A subagent that rebuilds its own context from
+the docs pays for it on every spawn; the orchestrator already holds the decisions. When it does not
+know the right pointers, it first runs a `haiku` / `low` lookup agent (read-only) and passes the
+result on. "Read docs/X.md" with no section is not a pointer.
 
 ### 5.3 Issues are the ledger
 
@@ -377,8 +371,10 @@ does not block on it.
 
 Auto-merge is only safe because a standing agent owns correctness *after* the merge.
 
-**#49 — Verification / integrity.** Continuous, like Review/Integration (#15). Top tier, Deep effort:
-it is the only role whose job is catching cross-module inconsistency, and being wrong here is silent.
+**#49 — Verification / integrity.** Continuous, like Review/Integration (#15). It is the only role
+whose job is catching cross-module inconsistency, and being wrong here is silent — so its model is
+**tiered by what the merge touched** (§5.5), never cut by skipping a check: every merge still gets
+its own ping and the full §B check list.
 
 **How it is triggered.** #49 is not a daemon. Each subagent **reports back to the orchestrator when
 it finishes**, and the orchestrator then pings #49 to verify that merge — **one ping per merge**,
@@ -424,25 +420,60 @@ checkpoints and owns pre-merge config coherence. #49 owns everything after the m
 
 ### 5.5 Model and effort matched to the task
 
-`caveman` is active in **every** session — it is the token-reduction skill, and its exemptions
-(diagnostic reports, validation summaries, run-plan output, plot captions, and all convergence and
-gate failures) are exactly the outputs that must stay legible. Cheap sessions benefit most, because a
-Light-tier model wastes the largest fraction of its budget on prose.
+Every dispatch sets the Agent tool's `model` and `effort` **explicitly** — a subagent with neither
+inherits the orchestrator's model, which is how Light tickets ended up running on Top. The ledger
+records both; a `opus` dispatch carries a one-line justification there.
 
-| Tier | Slug | Use for | Typical effort |
+| Tier | `model` | `effort` | Use for |
 |---|---|---|---|
-| Top | `claude-opus-5-thinking-medium` | Statistical formulation, selection-function correctness, likelihood changes, cross-module integrity — anywhere being wrong is silent | Deep |
-| Top (alt) | `gpt-5.6-sol-medium` | Second opinion on a Top-tier statistical result | Deep |
-| Mid | `claude-4-sonnet` | Well-specified implementation against a frozen interface; adapters; ETL; diagnostics | Standard |
-| Light | `claude-haiku` | Transcription, doc sync, fixture generation, hygiene, mechanical sweeps with exact acceptance tests | Light |
+| Light | `haiku` | `low` | Read-only lookups ("where is X", "what does #N say", pointer-finding for a brief), doc sync, fixture transcription, config-key sweeps, filing issues from a written body, collecting PR/CI status, #49 mechanical verification |
+| Mid (default) | `sonnet` | `medium` | Well-specified implementation against a frozen interface; adapters; ETL; diagnostics and plots; test writing; fixing a failing test with a known cause; #49 cross-PR drift hunt |
+| Top | `opus` | `high` | Statistical formulation, likelihood and selection-function correctness, cross-module integrity, diagnosing a gate failure of unknown cause, #49 on a stats-bearing merge — anywhere being wrong is silent |
+
+A second opinion on a Top-tier statistical result is a fresh `opus` / `high` agent given the
+result, not the first agent's reasoning.
 
 Effort is a contract about how much the subagent may **decide** and how much verification it must
-produce before a PR (`CONTINUATION_PLAN.md` §2.2). A **Light** session that discovers it needs a
-structural decision must stop and escalate, not decide. Lower tier *and* effort together — a Haiku
-session running a Deep contract is the worst of both.
+produce before a PR (`CONTINUATION_PLAN.md` §2.2: Light / Standard / Deep map to `low` / `medium` /
+`high`). A Light or Mid session that meets a structural decision stops and reports
+`STATUS: escalate`; it is **not** upgraded mid-task. The orchestrator re-dispatches a fresh agent at
+the right tier, handing it the written-down findings. Lower tier *and* effort together — a `haiku`
+session on a Deep contract is the worst of both.
 
-Concretely: #28 and the doc-sync half of #36 are Light; #29, #30, #31, #35, #40 are Mid/Standard;
-#32, #33, #34, #37, #38, #41, #42, #43 and #49 are Top/Deep.
+**#49 is tiered per merge.** `haiku` / `low` runs the mechanical half of §B (merge completeness,
+required suite on the pinned SHA, `--dry-run`, small stage execution, diff against issue scope) and reports. The orchestrator
+escalates to `sonnet` / `medium` for the drift hunt when that run fails, or when two or more merges
+since the last drift hunt touched shared interfaces (config keys, schemas, `inputs_from`,
+`dependency_modules`), and at every wave boundary; to `opus` / `high` for a merge that changed
+statistics, likelihood or a selection function.
+
+Historical (Waves −1 and 0): #28 and the doc-sync half of #36 were Light; #29, #30, #31, #35, #40
+Mid; #32, #33, #34, #37, #38, #41, #42, #43 and #49 Top.
+
+### 5.5a Token budget
+
+Most tokens go to subagents rebuilding context, not to what they write. Rules, in order of payoff:
+
+1. **Right model** (§5.5). `sonnet` is the default; `opus` needs a reason.
+2. **Context diet.** `CLAUDE.md` autoloads into every subagent; nobody re-reads it or README. Briefs
+   carry `Pointers` (file + § or line range) and `Known` (decisions, gotchas, acceptance items the
+   orchestrator already holds) instead of "read the spec". Several specs exceed 100 KB
+   (`MOCK_POPULATION_SPEC.md` is ~276 KB); none is read whole. The orchestrator does not read file
+   dumps itself either — it delegates a `haiku` lookup and keeps the conclusion.
+3. **Tool-output hygiene.** `pytest -q --tb=short -x … | tail -40`; long runs to a log file read by
+   `grep` / `tail`; files read by range; no diffs or logs in reports.
+4. **`caveman` everywhere it is safe.** Orchestrator and subagents run `full`; the subagent's final
+   report is `ultra` in the fixed §5.2 step-11 schema (≤ 120 words), because it sits in the
+   orchestrator's context for the rest of the session. **Exempt** — written normally and in full:
+   gate and convergence failures, diagnostic reports, validation summaries, plot captions, run-plan
+   output, PR bodies, commit messages, issue bodies, escalations to Ryan, and anything irreversible.
+5. **Reuse, don't re-bootstrap.** A fix-up on an agent's own PR (CI failure, review finding) goes to
+   that agent by `SendMessage`. A fresh agent only when the old context is bloated past use, and then
+   with a written summary, never "see the previous agent".
+6. **Loop guard.** Three failures of the same test or fit → stop, record in the issue, report
+   `STATUS: blocked`. No open-ended retry loops on any model.
+7. **Serial by default.** One coding agent at a time (spend limit); only `haiku` read-only lookups
+   run in parallel. §5.6's memory budget is the ceiling, not the target.
 
 ### 5.6 Concurrency
 
