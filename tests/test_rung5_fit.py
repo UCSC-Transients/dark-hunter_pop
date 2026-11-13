@@ -312,11 +312,12 @@ fitcli = importlib.util.module_from_spec(_fs)
 _fs.loader.exec_module(fitcli)  # type: ignore[union-attr]
 
 
-@pytest.mark.unit  # ~8 s: tiny dynesty run (maxcall 3000) so the merge gate covers the fit CLI
+@pytest.mark.unit  # ~8 s: tiny dynesty run (maxcall 3000); skipped where dynesty is absent (CI)
 def test_cmd_fit_writes_fit_health(tmp_path: Path) -> None:
     """#668: `rung5_fit_dr3.py fit` records MAP convergence and Laplace health in rung5_fit.json (fixture scale)."""
     import json
 
+    pytest.importorskip("dynesty")  # optional `inference` extra; the CI image does not install it
     inp = _inputs(scale=50.0)
     t0 = _theta(inp)
     inp.k_obs = rf.simulate_counts(t0, inp, np.random.default_rng(3))
