@@ -3,6 +3,34 @@
 Status: Decisions locked (2026-08-25). Scaffold exists; Foundation implementation waits on
 approval of the Foundation task list against this document.
 
+## Contents
+
+- [0. Purpose and non-goals](#0-purpose-and-non-goals)
+- [1. Repository layout](#1-repository-layout)
+  - [1.1 Vendored `gaiamock` (modified-RUWE only)](#11-vendored-gaiamock-modified-ruwe-only)
+- [2. Foundation layer — built first, gates all parallel work](#2-foundation-layer--built-first-gates-all-parallel-work)
+- [3. Interface contracts (schemas)](#3-interface-contracts-schemas)
+- [4. Pipeline stages](#4-pipeline-stages)
+  - [`data_acquisition`](#data_acquisition)
+  - [`mass_derivation_bulk`](#mass_derivation_bulk)
+  - [`mass_derivation_refined` (dark-hunter_sed integration)](#mass_derivation_refined-dark-hunter_sed-integration)
+  - [`rv_astrometry_gate`](#rv_astrometry_gate)
+  - [`joint_orbit_fit`](#joint_orbit_fit)
+  - [`companion_nature_likelihood`](#companion_nature_likelihood)
+  - [`triples` (off by default)](#triples-off-by-default)
+  - [`selection_function_astrometric`](#selection_function_astrometric)
+  - [`selection_function_followup`](#selection_function_followup)
+  - [`population_model`](#population_model)
+  - [`sensitivity_analysis`](#sensitivity_analysis)
+  - [`inference`](#inference)
+  - [`diagnostics`](#diagnostics)
+- [5. Run management](#5-run-management)
+- [6. DR3 / DR4 mode matrix](#6-dr3--dr4-mode-matrix)
+- [7. Config philosophy](#7-config-philosophy)
+- [8. Open items](#8-open-items)
+- [9. Documented v1 limitations (revisit list)](#9-documented-v1-limitations-revisit-list)
+- [10. Testing and CI](#10-testing-and-ci)
+
 ## 0. Purpose and non-goals
 
 **Goal:** a debiased mass function, dN/dM, for compact-object companions (WD / NS / BH) found in
