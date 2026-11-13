@@ -122,6 +122,9 @@ def expected_counts(theta: ArrayLike, inp: Rung5Inputs) -> tuple[FloatArray, Flo
     mu = (a @ inp.lum + spur_scale * inp.spur + np.einsum("j,kj,kjb->b", h_wd, pi, inp.wd) + h_dark @ inp.dark)
     var = ((a**2) @ inp.lum_var + spur_scale**2 * inp.spur_var + np.einsum("j,kj,kjb->b", h_wd**2, pi**2, inp.wd_var)
            + (h_dark**2) @ inp.dark_var)
+    if not (np.all(np.isfinite(mu)) and np.all(np.isfinite(var))):
+        raise ValueError(f"expected_counts: non-finite μ ({int(np.sum(~np.isfinite(mu)))} cells) or MC variance "
+                         f"({int(np.sum(~np.isfinite(var)))} cells) at θ — check the templates (validate_inputs, #659)")
     return mu, var
 
 
@@ -151,6 +154,8 @@ def say_loglike(k: FloatArray, mu: FloatArray, var: FloatArray) -> float:
     using lnΓ(k+a) − lnΓ(a) = k ln a + (k+a−½) ln(1+k/a) − k + ω(k+a) − ω(a) (Stirling with remainder ω), so every
     term is O(k ln μ) or O(μ).
     """
+    if not np.all(np.isfinite(var)):  # NaN fails every `var > …` test and would silently mean pure Poisson (#659)
+        raise ValueError(f"say_loglike: non-finite MC variance in {int(np.sum(~np.isfinite(var)))} cells")
     mu = np.maximum(mu, 1e-300)
     out = k * np.log(mu) - mu - gammaln(k + 1)
     use = var > 1e-12 * mu**2
@@ -434,11 +439,33 @@ _ARRAYS = ("k_obs", "high_a", "lum", "lum_var", "spur", "spur_var", "wd", "wd_va
            "wd_edges", "dark_edges")
 
 
+def validate_inputs(inp: Rung5Inputs, source: str = "Rung5Inputs") -> None:
+    """Raise ``ValueError`` naming every array that holds a non-finite entry (#659).
+
+    A NaN in any template variance makes the MC variance NaN in every cell, which used to switch ``say_loglike`` to
+    pure Poisson without notice; a non-finite template or count makes μ undefined. Neither is ever repaired here.
+    """
+    bad = {}
+    for k in _ARRAYS:
+        a = np.asarray(getattr(inp, k))
+        if a.dtype.kind in "fc":
+            n = int(np.count_nonzero(~np.isfinite(a)))
+            if n:
+                bad[k] = n
+    for k in ("pihat_sum", "ln_r_center"):
+        if not math.isfinite(float(getattr(inp, k))):
+            bad[k] = 1
+    if bad:
+        raise ValueError(f"{source}: non-finite entries (array: count) {bad}")
+
+
 def write_inputs(path: str | Path, inp: Rung5Inputs) -> None:
+    """Write the fit inputs to HDF5; refuses inputs with non-finite templates, variances or counts (#659)."""
     import json
 
     import h5py
 
+    validate_inputs(inp, f"write_inputs({path})")
     with h5py.File(path, "w") as h:
         for k in _ARRAYS:
             h.create_dataset(k, data=np.asarray(getattr(inp, k)))
@@ -454,6 +481,8 @@ def read_inputs(path: str | Path) -> Rung5Inputs:
 
     with h5py.File(path, "r") as h:
         arr = {k: h[k][()] for k in _ARRAYS}
-        return Rung5Inputs(**arr, pihat_sum=float(h.attrs["pihat_sum"]), ln_r_center=float(h.attrs["ln_r_center"]),
-                           meta=json.loads(h.attrs["meta_json"]))
+        inp = Rung5Inputs(**arr, pihat_sum=float(h.attrs["pihat_sum"]), ln_r_center=float(h.attrs["ln_r_center"]),
+                          meta=json.loads(h.attrs["meta_json"]))
+    validate_inputs(inp, f"read_inputs({path})")
+    return inp
 

@@ -242,6 +242,49 @@ def test_binned_response_normalisation() -> None:
     np.testing.assert_allclose(V[0], [100.0**2 * 2 / 16, 100.0**2 / 16, 0.0])
 
 
+@pytest.mark.unit
+def test_binned_response_empty_and_negligible_bins_finite() -> None:
+    """#659: a true bin with no draws, and one whose branch density is ~1e-300 (Σ w r underflows when squared), both
+    give finite responses; the negligible one keeps the normalised shape and variance."""
+    cell = np.array([0, 0, 1, 1, 2])
+    jb = np.array([0, 0, 0, 2, 2])  # true bin 1 has no draws
+    w = np.ones(5)
+    r = np.array([1.0, 1.0, 1.0, 1e-300, 1e-300])
+    R, V, I = bld.binned_response(cell, jb, 3, w, r, 3, n_prim=100.0)
+    assert np.all(np.isfinite(R)) and np.all(np.isfinite(V))
+    np.testing.assert_array_equal(R[1], 0.0)
+    np.testing.assert_array_equal(V[1], 0.0)
+    assert I[1] == 0.0
+    np.testing.assert_allclose(R[2], [0.0, 50.0, 50.0])
+    np.testing.assert_allclose(V[2], [0.0, 100.0**2 / 4, 100.0**2 / 4])
+    assert I[2] == pytest.approx(2e-302, rel=1e-6)
+
+
+@pytest.mark.unit
+def test_nonfinite_variance_rejected(tmp_path: Path) -> None:
+    """#659: non-finite template variance is refused on write/read and by expected_counts / say_loglike — never a
+    silent fall back to pure Poisson."""
+    inp = _inputs(scale=50.0)
+    t0 = _theta(inp)
+    inp.k_obs, _ = rf.expected_counts(t0, inp)
+    good = tmp_path / "good.h5"
+    rf.write_inputs(good, inp)
+    assert np.all(np.isfinite(rf.read_inputs(good).wd_var))
+    inp.wd_var[1, 0, :] = np.nan
+    with pytest.raises(ValueError, match="wd_var"):
+        rf.write_inputs(tmp_path / "bad.h5", inp)
+    with pytest.raises(ValueError, match="non-finite"):
+        rf.expected_counts(t0, inp)
+    with pytest.raises(ValueError, match="non-finite"):
+        rf.say_loglike(inp.k_obs, np.ones(inp.k_obs.size), np.full(inp.k_obs.size, np.nan))
+    import h5py  # a file written before #659 (NaN on disk) must not load
+
+    with h5py.File(good, "r+") as h:
+        h["wd_var"][1, 0, :] = np.nan
+    with pytest.raises(ValueError, match="wd_var"):
+        rf.read_inputs(good)
+
+
 @pytest.mark.slow
 def test_dynesty_tiny_run() -> None:
     inp = _inputs(scale=50.0)
