@@ -286,8 +286,12 @@ under restricted permissions.
 - **Diagnostics named in a task list are mandatory.** Unspecified extras are flagged as follow-ups,
   not silently added. Diagnostic reports, run-plan output, and plot captions are **exempt** from
   terse/caveman compression, as are convergence and gate failures.
-- Skills active in every session: `strict-workflow`, `regression-hunter`, `caveman`,
-  `dark-hunter-pop-workflow` (`.cursor/skills/`).
+- Skills: `caveman` in every session; `strict-workflow` and `dark-hunter-pop-workflow`
+  (`.cursor/skills/`) when opening a PR; `regression-hunter` for regression/bisect work.
+- **Token budget** (`docs/EXECUTION_PLAN.md` §5.5a): this file autoloads — do not re-read it or
+  README. Read specs by § / line range, never whole. pytest output `-q --tb=short | tail`. Every
+  subagent dispatch sets `model` + `effort` explicitly (`haiku`/`low`, `sonnet`/`medium` default,
+  `opus`/`high` for statistics); final reports are caveman-ultra in the §5.2 step-11 schema.
 
 ## Run management
 
@@ -327,7 +331,7 @@ under restricted permissions.
 7. Branch protection on `main`: PR required, `tests` required, zero required reviews, admin bypass.
 8. Keep truly-simultaneous agent sessions to **2–3**.
 9. **All coding is dispatched to subagents**, one per ticket, each opening with the standard session
-   preamble in `docs/EXECUTION_PLAN.md` §5.2 and a hand-picked model/effort pair (§5.5). The
+   preamble in `docs/EXECUTION_PLAN.md` §5.2 and an explicit model/effort pair (§5.5, §5.5a). The
    orchestrator plans, files issues, reviews and runs the wave stops; it does not edit code.
    `caveman` is active in every session.
 10. **The orchestrator owns the issues**, one per ticket, filed before dispatch — though filing is
