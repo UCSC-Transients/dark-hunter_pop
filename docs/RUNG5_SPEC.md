@@ -264,6 +264,14 @@ Plus rungs 1–4 green as in MOCK_POPULATION_SPEC §5, with rung 3 closed under 
   at their joint optimum in a first pass, then a full dynesty run with θ_lum free (R5-Q4).
   The linear-in-heights structure makes one likelihood call ≈ the rung-3 call (ms), so dynesty with nlive 500 is
   < 1 h on the laptop. Three runs for gate 5f: a few hours.
+- **Adopted sampler settings for the DR3 fit (#667).** dynesty 3.1 static sampler, `bound='multi'`,
+  `sample='auto'` (rslice, ndim + 3 slices at ndim 23), `dlogz` 0.5, **base nlive 2000**; the three gate-5f runs use
+  nlive 2000 / 3000 / 2000 (`rung5_fit_dr3.py fit --n-runs 3 --nlive 2000`, which alternates ×1.5) with distinct seeds.
+  Reason: with nlive 500 / 750 / 500 (`fit_dr3_v2`) the posterior has a minor branch in which dark 1.0–1.4 M☉
+  trades against WD 1.0–1.2 M☉ (log10 h_dark_0 down to the prior floor), whose weight differed ×6 between runs
+  (< −5: 4.6 % / 1.9 % / 0.7 %); dark 1.4–40 medians spread 0.17–0.55σ. A tighter `dlogz` does not help (the branch
+  sits at low L, explored early). The wall time scales ≈ linearly with nlive (v2: 19 min for 8 × 10⁶ calls), so
+  the three runs take ≈ 1.5–2 h on the laptop.
 - Heavy compute is only the new draws (gen 1008 dark, ≤ 2 × 10 h / 90 CPU-h) behind the #607 queue (≈ 30 h), and the
   known-object injections (minutes). SBC and closed loops are reweighting + fits: light-to-medium (≈ 200 fits × minutes).
 - One heavy job at a time, `scripts/jobs/start_generation.sh` guards, `nice`, threadpoolctl.
