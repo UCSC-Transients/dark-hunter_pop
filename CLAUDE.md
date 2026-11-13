@@ -59,7 +59,7 @@ Stage → module: both mass-derivation stages → `mass_derivation.py`; both sel
 
 ## Compute environments
 
-**Laptop** only is in scope (smoke-testing, partial data; sandbox HDF5/pytest segfaults are a laptop artifact). ziggy (bulk data, SED) and lux (production `inference`, mock volume) are deferred (`docs/EXECUTION_PLAN.md` §2). Host differences are **config, never code** (`paths.data_root`, `paths.artifact_root`, `mass_derivation.sed_summary_root`, `dr3.rv_summary_root`); record the profile in the run file.
+**Laptop** only is in scope (smoke-testing, partial data; sandbox HDF5/pytest segfaults are a laptop artifact). ziggy (bulk data, SED) and lux (production `inference`, mock volume; the December access deadline is about this machine) are deferred (`docs/EXECUTION_PLAN.md` §2). Host differences are **config, never code** (`paths.data_root`, `paths.artifact_root`, `mass_derivation.sed_summary_root`, `dr3.rv_summary_root`); record the profile in the run file.
 
 ## Sibling repos and data
 
