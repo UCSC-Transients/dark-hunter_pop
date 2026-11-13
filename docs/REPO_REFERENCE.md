@@ -205,3 +205,59 @@ is reported per model as `cleaning_settings_absent` (#207).
   expects a sizeable mock `insufficient_visibility` fraction is wrong.
 - Never read `dark-hunter_rv` / `dark-hunter_sed` production output directories live — snapshot with
   a timestamp (and preserve mtimes, which the gate now orders by).
+
+## Run management
+
+- The run file **is** the manifest: config checksum, `active_dr_mode`, artifact root, gaiamock version
+  triple, random seeds, and per stage `status`/`source_hash`/`config_subset`/`artifact_path`/
+  `code_commit`/`force_rerun`/`reason`.
+- **Amend vs new run**: resume between stages with matching checksum+hash → amend. Force-rerun of a
+  completed stage → **always a new run file** (prior stage records copied forward). Config checksum
+  or gaiamock version mismatch → **refuse**. Mid-stage crash → wipe partials, amend, re-run that
+  stage. Docstring/plotting-only edits are outside dependency hashes and are ignored.
+- Resume checksum covers the **active DR subtree + shared physics/population sections** only;
+  `diagnostics` and `benchmarks` are deliberately excluded, as are the `inference` cluster-recipe
+  comments.
+- If incomplete runs exist and `--run-file` is omitted, the entry point prints a table and exits
+  nonzero. Run selection uses the `run_id` timestamp inside the file, never filesystem mtime.
+
+## Git / PR workflow
+
+1. One worktree/branch per subagent; `[AI Checkpoint] <description>` micro-commits, **pushed** and
+   kept in the PR's merge commit for regression tracing (bisect with `--first-parent` for per-PR
+   granularity, then descend into a suspect PR).
+2. **Full local `pytest -m "unit or physics or api"` pass before opening a PR.**
+3. PR via `gh`: detailed description, `Closes #N` alone on a line, test checklist, CI `tests` green.
+4. One issue = one thing; prefer fine-grained issues with optional umbrellas. Track work on GitHub,
+   not only in chat.
+5. Review/Integration merges config fragments into `config/config.yaml` at checkpoints.
+6. **PRs may auto-merge on green CI.** Correctness after the merge is owned by the standing
+   verification agent (roster #49): it re-runs the suite on `main`, confirms the code actually
+   runs (`--dry-run` plan plus a small stage execution), hunts silent cross-PR conflicts
+   (parameter/keyword name drift, duplicate config-key spellings, schema drift, stale
+   `inputs_from` / `dependency_modules`, docs describing what the code stopped doing), and
+   **owns branch and worktree teardown**, and **may revert a merge** that leaves `main` broken. It
+   writes no code except tests, never lands a forward fix, and escalates to the orchestrator.
+   Coding agents never delete a branch or worktree. Merges are **merge commits, not squashes**.
+   Auto-merge is enabled on **`dark-hunter_pop` only** — `dark-hunter_rv` and `dark-hunter_sed`
+   PRs are merged by hand.
+7. Branch protection on `main`: PR required, `tests` required, zero required reviews, admin bypass.
+8. Keep truly-simultaneous agent sessions to **2–3**.
+9. **All coding is dispatched to subagents**, one per ticket, each opening with the standard session
+   preamble in `docs/EXECUTION_PLAN.md` §5.2 and an explicit model/effort pair (§5.5, §5.5a). The
+   orchestrator plans, files issues, reviews and runs the wave stops; it does not edit code.
+   `caveman` is active in every session.
+10. **The orchestrator owns the issues**, one per ticket, filed before dispatch — though filing is
+   done by a Claude Code agent on the laptop, since the orchestrator has no `gh`. Subagents may *edit* their
+   issue, and must **file a new issue** for anything they find outside its scope. **Nothing is
+   silently fixed in a PR** — an untracked change is bounced by #49 even when it is an improvement.
+   A PR that renames a parameter, config key, signature or schema field says so under
+   "Interface changes". One issue is one thing, but **one PR may close several** — list each
+   `Closes #N` on its own line.
+11. Concurrency is bounded by **laptop memory**, not a session count: classify each session heavy
+   (runs pytest / stages / HDF5 / MC) or light (docs, config, fixture-scale), cap the heavy ones,
+   budget **40 GB** of the laptop's 64 GB for all agent work, assume ~6 GB per heavy session until
+   #28 measures it, start at three and raise on evidence (`EXECUTION_PLAN.md` §5.6). Subagents
+   report to the orchestrator on finish; the orchestrator pings #49 to verify that merge.
+12. Every wave ends in a hard stop for operator review, with a written handoff note, before the next
+   begins (§5.9).
