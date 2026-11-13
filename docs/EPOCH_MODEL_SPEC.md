@@ -12,6 +12,36 @@ Related: `docs/gate399/README.md` (the #398 decomposition that found the ~11% tr
 `docs/gate390/README.md` (the injection set), `docs/GAIAMOCK_API.md` (what must not be
 reimplemented), `docs/MOCK_POPULATION_SPEC.md` §4 (the mock's gaiamock interface).
 
+## Contents
+
+- [0. Requirement (Ryan)](#0-requirement-ryan)
+- [1. What gaiamock does today](#1-what-gaiamock-does-today)
+- [2. Data](#2-data)
+- [3. Measurement and decomposition](#3-measurement-and-decomposition)
+- [4. The model](#4-the-model)
+  - [Implementation](#implementation)
+- [5. Validation (#390 injection set)](#5-validation-390-injection-set)
+- [6. Options for Ryan (none chosen)](#6-options-for-ryan-none-chosen)
+- [7. Limitations](#7-limitations)
+- [8. v2: Ryan's decisions (2026-10-03)](#8-v2-ryans-decisions-2026-10-03)
+  - [8.1 E6: calibrating on NSS stars without circularity](#81-e6-calibrating-on-nss-stars-without-circularity)
+  - [8.2 E7 and E3: continuous in G, smooth in Galactic (l, b)](#82-e7-and-e3-continuous-in-g-smooth-in-galactic-l-b)
+  - [8.3 E4: time-clustered loss for faint stars](#83-e4-time-clustered-loss-for-faint-stars)
+  - [8.4 E1: on](#84-e1-on)
+  - [8.5 N2: bright-star excess noise for the unbinned overlay](#85-n2-bright-star-excess-noise-for-the-unbinned-overlay)
+  - [8.6 Options remaining for Ryan (none chosen)](#86-options-remaining-for-ryan-none-chosen)
+  - [8.7 Data: epoch-time snapshot](#87-data-epoch-time-snapshot)
+  - [8.8 N2-u0: bright-star noise with DR3's RUWE definition (Ryan, 2026-10-03)](#88-n2-u0-bright-star-noise-with-dr3s-ruwe-definition-ryan-2026-10-03)
+  - [8.9 The insufficient-visibility channel (#428, measured; addressed by §8.10)](#89-the-insufficient-visibility-channel-428-measured-addressed-by-810)
+  - [8.10 v3: visibility-period loss calibrated on the N_vis distribution (#432, 2026-10-04/05)](#810-v3-visibility-period-loss-calibrated-on-the-n_vis-distribution-432-2026-10-0405)
+  - [8.11 Options added by #432 (V2 and V0 adopted 2026-10-06)](#811-options-added-by-432-v2-and-v0-adopted-2026-10-06)
+  - [8.12 Noise model v3: a colour term and a refit F2 calibration (#572, #454; Ryan, 2026-10-26)](#812-noise-model-v3-a-colour-term-and-a-refit-f2-calibration-572-454-ryan-2026-10-26)
+  - [8.13 Noise model `colour_v2`: colour term on top of N2d, with the G = 13 break (#579; Ryan, 2026-10-27)](#813-noise-model-colour_v2-colour-term-on-top-of-n2d-with-the-g--13-break-579-ryan-2026-10-27)
+  - [8.14 Transit and CCD-row recalibration on single stars (#581; Ryan, 2026-10-27)](#814-transit-and-ccd-row-recalibration-on-single-stars-581-ryan-2026-10-27)
+  - [8.15 Bright per-source noise scale `ss1` and an optional empirical σ_a0 scale `sa1` (#595; Ryan, 2026-10-30)](#815-bright-per-source-noise-scale-ss1-and-an-optional-empirical-σ_a0-scale-sa1-595-ryan-2026-10-30)
+  - [8.16 Bright stated-error refit `e2` and solution-type model `st1` (#597; Ryan, 2026-10-30)](#816-bright-stated-error-refit-e2-and-solution-type-model-st1-597-ryan-2026-10-30)
+- [References](#references)
+
 ## 0. Requirement (Ryan)
 
 The epoch-loss model is **statistical**. The mock simulates stars we do not know
