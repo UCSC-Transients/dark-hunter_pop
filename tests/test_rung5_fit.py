@@ -115,11 +115,75 @@ def test_simulate_and_closed_loop_pulls_reasonable() -> None:
     t0 = _theta(inp)
     rng = np.random.default_rng(3)
     inp.k_obs = rf.simulate_counts(t0, inp, rng)
-    th, _ = rf.map_fit(inp, rf.Priors(), x0=t0, n_starts=1)
-    sig = rf.laplace_sigma(inp, rf.Priors(), th)
+    fit = rf.map_fit_result(inp, rf.Priors(), x0=t0, n_starts=1)
+    assert fit.converged, fit.message
+    lap = rf.laplace_fit(inp, rf.Priors(), fit.theta)
     s = rf._slices(inp)
-    pull = (th[s["dark"]] - t0[s["dark"]]) / sig[s["dark"]]
+    names = rf.parameter_names(inp)
+    # This realization pushes N_s onto its upper prior bound (the N_s / s_A direction is nearly flat in the fixture):
+    # it must be reported as pegged and held fixed, never differenced through the bound (#658).
+    assert lap.ok and lap.at_bound[names.index("ln_ns")] and not np.any(lap.at_bound[s["dark"]])
+    pull = (fit.theta[s["dark"]] - t0[s["dark"]]) / lap.sigma[s["dark"]]
+    # Seeded realization, deterministic fit: measured pulls ≈ (0.26, 2.30). |pull| < 5 on 2 Gaussian pulls fails with
+    # probability ~1e-6, so a breach means a broken Hessian, not an unlucky draw.
     assert np.all(np.isfinite(pull)) and np.all(np.abs(pull) < 5)
+
+
+@pytest.mark.unit
+def test_laplace_sigma_stable_under_start_jitter() -> None:
+    """#658: σ and the MAP must not depend on 1e-9 start perturbations (the size of cross-platform roundoff). With the
+    literal SAY form the log posterior carried ~1e-6 roundoff, the fit never converged and σ_dark varied by ×3 or NaN."""
+    inp = _inputs(scale=50.0)
+    t0 = _theta(inp)
+    inp.k_obs = rf.simulate_counts(t0, inp, np.random.default_rng(3))
+    jr = np.random.default_rng(99)
+    s = rf._slices(inp)
+    sig = []
+    for _ in range(4):
+        fit = rf.map_fit_result(inp, rf.Priors(), x0=t0 + jr.normal(0.0, 1e-9, t0.size), n_starts=1)
+        lap = rf.laplace_fit(inp, rf.Priors(), fit.theta)
+        assert fit.converged and lap.ok
+        sig.append(lap.sigma[s["dark"]])
+    sig_a = np.array(sig)
+    assert np.all(np.isfinite(sig_a))
+    assert np.all(np.ptp(sig_a, axis=0) < 0.02 * sig_a.mean(axis=0))
+
+
+@pytest.mark.unit
+def test_say_loglike_smooth_and_matches_literal() -> None:
+    """Cancellation-free SAY (#658) equals the literal formula where the latter is accurate (a ≤ 10⁴), and stays
+    smooth at a ~ 10⁸ (roundoff ≪ the 1e-6·step² scale a 1e-3 finite-difference Hessian can tolerate)."""
+    from scipy.special import gammaln
+
+    rng = np.random.default_rng(0)
+    m = 10 ** rng.uniform(-0.5, 3.0, 400)
+    a = 10 ** rng.uniform(0.01, 4.0, 400)
+    v = m * m / (a - 1.0)
+    k = rng.poisson(m).astype(float)
+    b = m / v
+    lit = a * np.log(b) + gammaln(k + a) - gammaln(k + 1) - (k + a) * np.log1p(b) - gammaln(a)
+    got = np.array([rf.say_loglike(k[i:i + 1], m[i:i + 1], v[i:i + 1]) for i in range(m.size)])
+    np.testing.assert_allclose(got, lit, rtol=0, atol=1e-9)
+    mu = np.full(20, 2.0e4)
+    var = mu * mu / 1e8
+    kk = np.round(mu * np.linspace(0.98, 1.02, 20))
+    vals = [rf.say_loglike(kk, mu * (1 + e), var) for e in rng.normal(0.0, 1e-14, 50)]
+    assert np.ptp(vals) < 1e-8
+
+
+@pytest.mark.unit
+def test_laplace_fit_flags_pegged_parameter() -> None:
+    inp = _inputs(scale=50.0)
+    t0 = _theta(inp)
+    inp.k_obs, _ = rf.expected_counts(t0, inp)
+    names = rf.parameter_names(inp)
+    bb = rf.bounds(inp, rf.Priors())
+    i = names.index("f_he")
+    t, _ = rf.map_fit(inp, rf.Priors(), x0=t0, fixed={i: bb[i, 0]}, n_starts=1)  # optimum with f_He on its bound
+    lap = rf.laplace_fit(inp, rf.Priors(), t)
+    assert lap.ok and lap.at_bound[i]
+    assert np.all(np.isnan(lap.sigma[lap.at_bound])) and np.all(np.isfinite(lap.sigma[~lap.at_bound]))
+    np.testing.assert_array_equal(rf.laplace_sigma(inp, rf.Priors(), t), lap.sigma)
 
 
 @pytest.mark.unit
