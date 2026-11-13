@@ -115,21 +115,30 @@ def cmd_closed_loop(a: argparse.Namespace) -> int:
         for r in range(a.n_real):
             k = rf.simulate_counts(th, inj, rng)
             sim = rf.Rung5Inputs(**{**fit_inp.__dict__, "k_obs": k})
-            th_fit, _ = rf.map_fit(sim, pr, x0=th, n_starts=1, seed=a.seed + r)
-            sig = rf.laplace_sigma(sim, pr, th_fit)
-            pull = (th_fit[s["dark"]] - th[s["dark"]]) / sig[s["dark"]]
+            fit = rf.map_fit_result(sim, pr, x0=th, n_starts=1, seed=a.seed + r)
+            th_fit = fit.theta
+            lap = rf.laplace_fit(sim, pr, th_fit)
+            with np.errstate(invalid="ignore"):
+                pull = (th_fit[s["dark"]] - th[s["dark"]]) / lap.sigma[s["dark"]]
             rows.append({"injection": label, "realization": r, "dark_pull": np.round(pull, 3).tolist(),
+                         "map_converged": fit.converged, "laplace_positive_definite": lap.positive_definite,
+                         "laplace_min_eigenvalue": lap.min_eigenvalue,
+                         "at_bound": [n for n, b in zip(names, lap.at_bound) if b],
                          "nuisance_fit": {n: float(th_fit[names.index(n)]) for n in rf.NUISANCES}})
     pulls = np.array([r["dark_pull"] for r in rows], float)
-    with np.errstate(invalid="ignore"):
+    with np.errstate(invalid="ignore"):  # NaN pulls (pegged bin or non-PD Hessian) are counted below, not hidden
         cover68 = np.nanmean(np.abs(pulls) < 1.0, axis=0)
         cover95 = np.nanmean(np.abs(pulls) < 1.96, axis=0)
+    counts = {"n_rows": len(rows), "map_not_converged": sum(not r["map_converged"] for r in rows),
+              "laplace_not_positive_definite": sum(not r["laplace_positive_definite"] for r in rows),
+              "rows_any_at_bound": sum(bool(r["at_bound"]) for r in rows),
+              "dark_pull_nonfinite_per_bin": np.sum(~np.isfinite(pulls), axis=0).tolist()}
     out = {"issue": 644, "gate": "5b", "inputs_injection": str(a.inputs), "inputs_fit": str(a.fit_inputs),
-           "n_realizations_per_injection": a.n_real, "rows": rows,
+           "n_realizations_per_injection": a.n_real, "rows": rows, "fit_health": counts,
            "dark_coverage_68": np.round(cover68, 3).tolist(), "dark_coverage_95": np.round(cover95, 3).tolist(),
            "limitations": list(rf.LIMITATIONS) + ["closed-loop intervals are Laplace (MAP + Hessian), not dynesty"]}
     (a.out / "rung5_closed_loop.json").write_text(json.dumps(out, indent=1, default=float))
-    print(json.dumps({k: out[k] for k in ("dark_coverage_68", "dark_coverage_95")}))
+    print(json.dumps({k: out[k] for k in ("dark_coverage_68", "dark_coverage_95", "fit_health")}))
     return 0
 
 

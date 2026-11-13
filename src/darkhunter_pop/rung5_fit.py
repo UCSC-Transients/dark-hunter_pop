@@ -125,8 +125,32 @@ def expected_counts(theta: ArrayLike, inp: Rung5Inputs) -> tuple[FloatArray, Flo
     return mu, var
 
 
+# Below this gamma shape the SAY terms are evaluated with gammaln directly (no large cancellation); at or above it the
+# Stirling form is used, whose 4-term remainder series is truncated at < 1 / (1188 x⁹) ≈ 1e-12 for x ≥ 10.
+_STIRLING_MIN_SHAPE = 10.0
+
+
+def _stirling_remainder(x: FloatArray) -> FloatArray:
+    """ω(x) = lnΓ(x) − [(x − ½) ln x − x + ½ ln 2π], asymptotic series (valid for x ≥ ``_STIRLING_MIN_SHAPE``)."""
+    r = 1.0 / (x * x)
+    return (1.0 / 12.0 - r * (1.0 / 360.0 - r * (1.0 / 1260.0 - r / 1680.0))) / x
+
+
 def say_loglike(k: FloatArray, mu: FloatArray, var: FloatArray) -> float:
-    """SAY effective log-likelihood summed over cells (Poisson where the MC variance vanishes)."""
+    """SAY effective log-likelihood summed over cells (Poisson where the MC variance vanishes).
+
+    Per cell, with gamma shape a = μ²/V + 1 and rate b = μ/V,
+    ``a ln b + lnΓ(k+a) − lnΓ(k+1) − (k+a) ln(1+b) − lnΓ(a)``. For well-sampled templates a reaches 10⁸–10¹², where the
+    literal form cancels terms of size ~a ln a ≈ 10⁹ and leaves roundoff ~10⁻⁶ per evaluation — enough to stall the
+    optimiser and to make the finite-difference Laplace Hessian non-positive-definite at random, i.e. platform-
+    dependent (#658). For a ≥ ``_STIRLING_MIN_SHAPE`` the same expression is evaluated in the algebraically identical
+    cancellation-free form
+
+        −a ln(1 + V/μ) + k ln[(μ² + V)/(μ + V)] + (k + a − ½) ln(1 + k/a) − k + ω(k+a) − ω(a) − lnΓ(k+1),
+
+    using lnΓ(k+a) − lnΓ(a) = k ln a + (k+a−½) ln(1+k/a) − k + ω(k+a) − ω(a) (Stirling with remainder ω), so every
+    term is O(k ln μ) or O(μ).
+    """
     mu = np.maximum(mu, 1e-300)
     out = k * np.log(mu) - mu - gammaln(k + 1)
     use = var > 1e-12 * mu**2
@@ -134,7 +158,18 @@ def say_loglike(k: FloatArray, mu: FloatArray, var: FloatArray) -> float:
         m, v, kk = mu[use], var[use], k[use]
         a_ = m * m / v + 1.0
         b_ = m / v
-        out[use] = a_ * np.log(b_) + gammaln(kk + a_) - gammaln(kk + 1) - (kk + a_) * np.log1p(b_) - gammaln(a_)
+        lit = a_ < _STIRLING_MIN_SHAPE
+        res = np.empty_like(m)
+        if np.any(lit):
+            al, bl, kl = a_[lit], b_[lit], kk[lit]
+            res[lit] = al * np.log(bl) + gammaln(kl + al) - gammaln(kl + 1) - (kl + al) * np.log1p(bl) - gammaln(al)
+        st = ~lit
+        if np.any(st):
+            a, ms, vs, ks = a_[st], m[st], v[st], kk[st]
+            res[st] = (-a * np.log1p(vs / ms) + ks * np.log((ms * ms + vs) / (ms + vs))
+                       + (ks + a - 0.5) * np.log1p(ks / a) - ks
+                       + _stirling_remainder(ks + a) - _stirling_remainder(a) - gammaln(ks + 1))
+        out[use] = res
     return float(np.sum(out))
 
 
@@ -178,9 +213,29 @@ def start_point(inp: Rung5Inputs, pr: Priors) -> FloatArray:
     return t
 
 
+@dataclass(frozen=True)
+class MapFitResult:
+    """MAP fit (#658): θ, log posterior, and whether the Nelder–Mead polish of the best start met its tolerances
+    (``converged``; ``message`` is scipy's) rather than stopping at ``polish_maxiter``."""
+
+    theta: FloatArray
+    log_post: float
+    converged: bool
+    message: str
+
+
 def map_fit(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None, fixed: Mapping[int, float] | None = None,
             n_starts: int = 4, seed: int = 0, polish_maxiter: int = 4000) -> tuple[FloatArray, float]:
-    """MAP by bounded L-BFGS from ``n_starts`` jittered starts; ``fixed`` holds parameters at given values."""
+    """MAP θ and log posterior; see :func:`map_fit_result` (which also reports convergence)."""
+    r = map_fit_result(inp, pr, x0=x0, fixed=fixed, n_starts=n_starts, seed=seed, polish_maxiter=polish_maxiter)
+    return r.theta, r.log_post
+
+
+def map_fit_result(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None,
+                   fixed: Mapping[int, float] | None = None, n_starts: int = 4, seed: int = 0,
+                   polish_maxiter: int = 4000) -> MapFitResult:
+    """MAP by bounded L-BFGS from ``n_starts`` jittered starts, each polished by Nelder–Mead (``polish_maxiter``
+    iterations, xatol 1e-7, fatol 1e-9); ``fixed`` holds parameters at given values."""
     bb = bounds(inp, pr)
     fixed = dict(fixed or {})
     free = np.array([i for i in range(bb.shape[0]) if i not in fixed])
@@ -198,19 +253,19 @@ def map_fit(inp: Rung5Inputs, pr: Priors, *, x0: ArrayLike | None = None, fixed:
         v = log_posterior(full(x), inp, pr)
         return 1e300 if not math.isfinite(v) else -v
 
-    best_x, best_f = None, math.inf
+    best_x, best_f, best_r = None, math.inf, None
     for k in range(max(1, n_starts)):
         x = base[free].copy()
         if k:
             span = bb[free, 1] - bb[free, 0]
             x = np.clip(x + rng.normal(0.0, 0.05, x.size) * span, bb[free, 0], bb[free, 1])
         r = optimize.minimize(nlp, x, method="L-BFGS-B", bounds=[tuple(b) for b in bb[free]])
-        r = optimize.minimize(nlp, r.x, method="Nelder-Mead",  # polish: L-BFGS stalls on the flat nuisance directions
+        r = optimize.minimize(nlp, r.x, method="Nelder-Mead",  # polish: L-BFGS stops early along the flat N_s/s_A ridge
                               options={"maxiter": polish_maxiter, "xatol": 1e-7, "fatol": 1e-9, "adaptive": True})
         if r.fun < best_f:
-            best_x, best_f = r.x, float(r.fun)
-    assert best_x is not None
-    return full(best_x), -best_f
+            best_x, best_f, best_r = r.x, float(r.fun), r
+    assert best_x is not None and best_r is not None
+    return MapFitResult(full(best_x), -best_f, bool(best_r.success), str(best_r.message))
 
 
 def run_dynesty(inp: Rung5Inputs, pr: Priors, *, nlive: int, seed: int, dlogz: float = 0.5,
@@ -296,30 +351,79 @@ def simulate_counts(theta: ArrayLike, inp: Rung5Inputs, rng: np.random.Generator
     return rng.poisson(np.maximum(mu, 0.0)).astype(float)
 
 
-def laplace_sigma(inp: Rung5Inputs, pr: Priors, theta: FloatArray, step: float = 1e-3) -> FloatArray:
-    """σ per parameter from the numerical Hessian (absolute step) of −log posterior at θ, which must be a converged
-    optimum (closed-loop pulls; NaN where the inverse Hessian is not positive)."""
-    n = theta.size
+@dataclass(frozen=True)
+class LaplaceResult:
+    """Laplace approximation at a MAP θ (#658).
+
+    ``sigma`` is the σ of each interior parameter conditional on the pegged ones (held at their bound), NaN for a
+    pegged parameter, and NaN everywhere when the interior Hessian is not positive definite. ``at_bound`` marks the
+    parameters closer than one finite-difference step to a prior bound, where the central stencil would leave the
+    prior support and no Gaussian approximation applies. ``positive_definite`` is the Cholesky test of the interior
+    Hessian; ``min_eigenvalue`` is its smallest eigenvalue (NaN when it is undefined).
+    """
+
+    sigma: FloatArray
+    at_bound: NDArray[np.bool_]
+    positive_definite: bool
+    min_eigenvalue: float
+
+    @property
+    def ok(self) -> bool:
+        """True when the interior Hessian is positive definite (pegged parameters are reported, not failures)."""
+        return self.positive_definite
+
+
+def laplace_fit(inp: Rung5Inputs, pr: Priors, theta: ArrayLike, step: float = 1e-3) -> LaplaceResult:
+    """Numerical Hessian (absolute central-difference step ``step`` in every parameter) of −log posterior at θ, which
+    must be a converged optimum.
+
+    A parameter closer than ``step`` to a prior bound is *pegged*: the MAP sits on the bound (a flat or one-sided
+    direction, e.g. N_s against s_A, or f_He), and the central stencil would leave the support. The former clipped
+    stencil then returned a one-sided difference dominated by the boundary gradient (≈ |∂f/∂θ| / step), so the
+    inverse Hessian depended on how far below ``step`` the optimiser happened to stop — platform-dependent NaN σ, or a
+    wrong σ for every correlated parameter (#658). Pegged parameters are therefore held fixed: the Hessian is built over
+    the interior parameters only (every stencil point lies inside the bounds, no clipping) and ``sigma`` is their σ
+    conditional on the pegged values. Positive definiteness is tested by Cholesky and reported in the result.
+    """
+    t0 = np.asarray(theta, float)
+    n = t0.size
     bb = bounds(inp, pr)
-    h = np.full(n, step)
-    f0 = -log_posterior(theta, inp, pr)
-    H = np.zeros((n, n))
-    for i in range(n):
-        for j in range(i, n):
-            def f(di: float, dj: float) -> float:
-                t = theta.copy()
-                t[i] += di
-                t[j] += dj
-                return -log_posterior(np.clip(t, bb[:, 0], bb[:, 1]), inp, pr)
-            if i == j:
-                H[i, i] = (f(h[i], 0) - 2 * f0 + f(-h[i], 0)) / h[i] ** 2
-            else:
-                H[i, j] = H[j, i] = (f(h[i], h[j]) - f(h[i], -h[j]) - f(-h[i], h[j]) + f(-h[i], -h[j])) / (4 * h[i] * h[j])
+    at_bound = np.minimum(t0 - bb[:, 0], bb[:, 1] - t0) < step
+    free = np.flatnonzero(~at_bound)
+    m = free.size
+    sigma = np.full(n, np.nan)
+    if m == 0:
+        return LaplaceResult(sigma, at_bound, False, math.nan)
+
+    def f(d: FloatArray) -> float:
+        t = t0.copy()
+        t[free] += d
+        return -log_posterior(t, inp, pr)
+
+    f0 = f(np.zeros(m))
+    E = np.eye(m) * step
+    fp = np.array([f(E[a]) for a in range(m)])
+    fm = np.array([f(-E[a]) for a in range(m)])
+    H = np.diag((fp - 2.0 * f0 + fm) / step**2)
+    for a in range(m):
+        for b in range(a + 1, m):
+            H[a, b] = H[b, a] = (f(E[a] + E[b]) - f(E[a] - E[b]) - f(-E[a] + E[b]) + f(-E[a] - E[b])) / (4 * step**2)
+    if not np.all(np.isfinite(H)):
+        return LaplaceResult(sigma, at_bound, False, math.nan)
+    min_eig = float(np.linalg.eigvalsh(H)[0])
     try:
-        cov = np.linalg.inv(H)
-        return np.sqrt(np.where(np.diag(cov) > 0, np.diag(cov), np.nan))
+        L = np.linalg.cholesky(H)
     except np.linalg.LinAlgError:
-        return np.full(n, np.nan)
+        return LaplaceResult(sigma, at_bound, False, min_eig)
+    Linv = np.linalg.solve(L, np.eye(m))
+    sigma[free] = np.sqrt(np.sum(Linv**2, axis=0))  # diag(H⁻¹) = Σ_k (L⁻¹)_ki², H = L Lᵀ
+    return LaplaceResult(sigma, at_bound, True, min_eig)
+
+
+def laplace_sigma(inp: Rung5Inputs, pr: Priors, theta: ArrayLike, step: float = 1e-3) -> FloatArray:
+    """σ per parameter from :func:`laplace_fit` (NaN for pegged parameters, and everywhere when the interior Hessian is
+    not positive definite; use :func:`laplace_fit` to tell the two apart)."""
+    return laplace_fit(inp, pr, theta, step).sigma
 
 
 # ---------------------------------------------------------------------------
