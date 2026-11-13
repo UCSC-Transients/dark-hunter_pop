@@ -38,7 +38,13 @@ def cmd_fit(a: argparse.Namespace) -> int:
     pr = rf.Priors()
     names = rf.parameter_names(inp)
     t0 = time.time()
-    th_map, lp_map = rf.map_fit(inp, pr, n_starts=a.map_starts, seed=a.seed)
+    fit = rf.map_fit_result(inp, pr, n_starts=a.map_starts, seed=a.seed)
+    th_map, lp_map = fit.theta, fit.log_post
+    lap = rf.laplace_fit(inp, pr, th_map)
+    fit_health = {"map_converged": fit.converged, "map_message": fit.message,
+                  "map_newton_gain": fit.newton_gain, "map_max_projected_gradient": fit.max_projected_gradient,
+                  "laplace_positive_definite": lap.positive_definite, "laplace_min_eigenvalue": lap.min_eigenvalue,
+                  "at_bound": [n for n, b in zip(names, lap.at_bound) if b]}
     mu, var = rf.expected_counts(th_map, inp)
     runs = []
     for r in range(a.n_runs):
@@ -62,6 +68,7 @@ def cmd_fit(a: argparse.Namespace) -> int:
         "map": {"theta": dict(zip(names, np.round(th_map, 5).tolist())), "log_posterior": lp_map,
                 "chi2_like": float(np.sum((inp.k_obs - mu) ** 2 / np.maximum(mu + var, 1e-9))), "n_cells": int(inp.k_obs.size),
                 "k_total": float(inp.k_obs.sum()), "mu_total": float(mu.sum())},
+        "fit_health": fit_health,
         "runs": [{k: v for k, v in r.items() if k != "samples"} for r in runs],
         "gate_5f_agreement": agree,
         "posterior": _summ(allsamp, names),
@@ -73,7 +80,7 @@ def cmd_fit(a: argparse.Namespace) -> int:
         "wall_s": round(time.time() - t0, 1),
     }
     (a.out / "rung5_fit.json").write_text(json.dumps(out, indent=1, default=float))
-    print(json.dumps({k: out[k] for k in ("map", "gate_5f_agreement")}, indent=1, default=float)[:4000])
+    print(json.dumps({k: out[k] for k in ("map", "fit_health", "gate_5f_agreement")}, indent=1, default=float)[:4000])
     return 0
 
 

@@ -292,3 +292,39 @@ def test_dynesty_tiny_run() -> None:
     inp.k_obs, _ = rf.expected_counts(t0, inp)
     res = rf.run_dynesty(inp, rf.Priors(), nlive=30, seed=1, dlogz=5.0, maxcall=3000)
     assert res["samples"].shape[1] == t0.size and np.isfinite(res["logz"])
+
+
+@pytest.mark.unit
+def test_map_fit_result_reports_convergence() -> None:
+    """#668: the MAP is tested by a Newton decrement over the free interior parameters, not by optimiser status."""
+    inp = _inputs(scale=50.0)
+    t0 = _theta(inp)
+    inp.k_obs = rf.simulate_counts(t0, inp, np.random.default_rng(3))
+    fit = rf.map_fit_result(inp, rf.Priors(), x0=t0, n_starts=2, seed=1)
+    assert fit.converged and fit.hessian_positive_definite and fit.newton_gain < 1e-4
+    assert fit.log_post >= rf.log_posterior(t0, inp, rf.Priors())
+    # one 4000-iteration Nelder–Mead stop is not a converged MAP: tightening newton_tol to 0 must flip the flag
+    assert not rf.map_fit_result(inp, rf.Priors(), x0=t0, n_starts=1, newton_tol=0.0).converged
+
+
+_fs = importlib.util.spec_from_file_location("rung5_fit_dr3", ROOT / "scripts" / "rung5_fit_dr3.py")
+fitcli = importlib.util.module_from_spec(_fs)
+_fs.loader.exec_module(fitcli)  # type: ignore[union-attr]
+
+
+@pytest.mark.unit  # ~8 s: tiny dynesty run (maxcall 3000) so the merge gate covers the fit CLI
+def test_cmd_fit_writes_fit_health(tmp_path: Path) -> None:
+    """#668: `rung5_fit_dr3.py fit` records MAP convergence and Laplace health in rung5_fit.json (fixture scale)."""
+    import json
+
+    inp = _inputs(scale=50.0)
+    t0 = _theta(inp)
+    inp.k_obs = rf.simulate_counts(t0, inp, np.random.default_rng(3))
+    rf.write_inputs(tmp_path / "in.h5", inp)
+    rc = fitcli.main(["fit", "--inputs", str(tmp_path / "in.h5"), "--out", str(tmp_path / "out"), "--n-runs", "1",
+                      "--nlive", "30", "--dlogz", "5", "--maxcall", "3000", "--map-starts", "2"])
+    assert rc == 0
+    fh = json.loads((tmp_path / "out" / "rung5_fit.json").read_text())["fit_health"]
+    assert set(fh) == {"map_converged", "map_message", "map_newton_gain", "map_max_projected_gradient",
+                       "laplace_positive_definite", "laplace_min_eigenvalue", "at_bound"}
+    assert fh["map_converged"] is True and fh["laplace_positive_definite"] is True and "ln_ns" in fh["at_bound"]
