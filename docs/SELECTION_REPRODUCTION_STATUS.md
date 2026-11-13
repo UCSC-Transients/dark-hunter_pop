@@ -65,6 +65,27 @@ selection-definition gap → **#284**; Simon last slot fixed as **#281**, stage 
 
 ---
 
+## Contents
+
+- [1. Local data artifacts (not in git)](#1-local-data-artifacts-not-in-git)
+- [2. What is already fixed (binding) — and this time it is on `main`](#2-what-is-already-fixed-binding--and-this-time-it-is-on-main)
+- [3. Acceptance checklist — measured on `main` @ `c905575`](#3-acceptance-checklist--measured-on-main--c905575)
+  - [3.1 Andrews et al. (2022)](#31-andrews-et-al-2022)
+  - [3.2 El-Badry et al. (2024)](#32-el-badry-et-al-2024)
+  - [3.3 El-Badry et al. (2026)](#33-el-badry-et-al-2026)
+  - [3.3.0 `andrews2022_import` re-measurement after the Andrews FLAME rebuild (#270)](#330-andrews2022_import-re-measurement-after-the-andrews-flame-rebuild-270)
+  - [3.3.4 Counting rule for published-N comparisons (#274)](#334-counting-rule-for-published-n-comparisons-274)
+  - [3.3.1 Extinction chain audit (#232, #258) — root cause confirmed, fix landed (#258)](#331-extinction-chain-audit-232-258--root-cause-confirmed-fix-landed-258)
+  - [3.3.2 Spectroscopic-branch binding audit (#234) — no code bug found, same root cause as #133/#258](#332-spectroscopic-branch-binding-audit-234--no-code-bug-found-same-root-cause-as-133258)
+  - [3.3.3 `M̃2` point-estimate chain audit (#275): the chain is right; `sub_chandrasekhar` is a selection-definition gap](#333-m2-point-estimate-chain-audit-275-the-chain-is-right-sub_chandrasekhar-is-a-selection-definition-gap)
+  - [3.3.5 PI decision on the `E(B-V)` conversions (#295) — re-measured, no count moves](#335-pi-decision-on-the-eb-v-conversions-295--re-measured-no-count-moves)
+  - [3.3.6 `sub_chandrasekhar` after the #284 decision: `M̃2 > M̃1`, AMRF cut, analytic `σ_M̃2`](#336-sub_chandrasekhar-after-the-284-decision-m2--m1-amrf-cut-analytic-σ_m2)
+  - [3.3.7 `sub_chandrasekhar` = Shahaf et al. (2023b) class III + Eq. 5 on Shahaf's masses: exactly the paper's 22 (#284, #315; schema_version 3 landed)](#337-sub_chandrasekhar--shahaf-et-al-2023b-class-iii--eq-5-on-shahafs-masses-exactly-the-papers-22-284-315-schema_version-3-landed)
+  - [3.4 Simon 2026 exclusion breakdown](#34-simon-2026-exclusion-breakdown)
+- [4. Known root causes (for fix agents)](#4-known-root-causes-for-fix-agents)
+- [5. Minimal re-check script sketch](#5-minimal-re-check-script-sketch)
+- [6. Out of scope for this hand-off](#6-out-of-scope-for-this-hand-off)
+
 ## 1. Local data artifacts (not in git)
 
 | Artifact | Path | Notes |

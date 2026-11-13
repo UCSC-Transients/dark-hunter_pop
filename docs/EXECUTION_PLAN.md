@@ -48,6 +48,46 @@ than resolving it inline.
 
 ---
 
+## Contents
+
+- [1. Where the project actually stands](#1-where-the-project-actually-stands)
+- [2. Scope boundary and compute](#2-scope-boundary-and-compute)
+  - [2.1 The current boundary](#21-the-current-boundary)
+  - [2.2 Why laptop-only is enough for Waves 0–D](#22-why-laptop-only-is-enough-for-waves-0d)
+  - [2.3 The December consequence](#23-the-december-consequence)
+- [3. Cross-repo interfaces](#3-cross-repo-interfaces)
+  - [3.1 `dark-hunter_rv` → pop (live and healthy)](#31-dark-hunter_rv--pop-live-and-healthy)
+  - [3.2 `dark-hunter_sed` → pop (two open gaps)](#32-dark-hunter_sed--pop-two-open-gaps)
+- [4. Strategy](#4-strategy)
+- [5. How work is dispatched](#5-how-work-is-dispatched)
+  - [5.1 All coding happens in subagents](#51-all-coding-happens-in-subagents)
+  - [5.2 Standard session preamble](#52-standard-session-preamble)
+  - [5.3 Issues are the ledger](#53-issues-are-the-ledger)
+  - [5.4 Merge, and the verification agent (#49)](#54-merge-and-the-verification-agent-49)
+  - [5.5 Model and effort matched to the task](#55-model-and-effort-matched-to-the-task)
+  - [5.5a Token budget](#55a-token-budget)
+  - [5.6 Concurrency](#56-concurrency)
+  - [5.6b Merge mode and commit history](#56b-merge-mode-and-commit-history)
+  - [5.7 Compaction](#57-compaction)
+  - [5.8 Who orchestrates, and carrying state across sessions](#58-who-orchestrates-and-carrying-state-across-sessions)
+  - [5.9 Stop at every wave gate — and the handoff note](#59-stop-at-every-wave-gate--and-the-handoff-note)
+  - [5.10 Workflow interview before Wave 0](#510-workflow-interview-before-wave-0)
+- [6. Roster continuation](#6-roster-continuation)
+- [7. Waves and acceptance gates](#7-waves-and-acceptance-gates)
+  - [Wave −1 — clean the local environment and repo; make `main` the truth — **COMPLETE**](#wave-1--clean-the-local-environment-and-repo-make-main-the-truth--complete)
+  - [Wave 0 — quick wins and the end-to-end dry run](#wave-0--quick-wins-and-the-end-to-end-dry-run)
+  - [Wave A — close the reproduction gates *(blocking)*](#wave-a--close-the-reproduction-gates-blocking)
+  - [Wave B — spuriousness model acceptance](#wave-b--spuriousness-model-acceptance)
+  - [Wave C — companion-nature plumbing and follow-up calibration](#wave-c--companion-nature-plumbing-and-follow-up-calibration)
+  - [Wave D — forward-model activation](#wave-d--forward-model-activation)
+  - [Waves E–H — cluster readiness, production campaign, validation, paper](#waves-eh--cluster-readiness-production-campaign-validation-paper)
+- [8. Sequencing](#8-sequencing)
+- [9. Cross-cutting work](#9-cross-cutting-work)
+- [10. Risks and contingencies](#10-risks-and-contingencies)
+- [11. Definition of done](#11-definition-of-done)
+  - [11.1 Authorized scope — "running smoothly on the laptop"](#111-authorized-scope--running-smoothly-on-the-laptop)
+  - [11.2 Full v1 — after the boundary moves](#112-full-v1--after-the-boundary-moves)
+
 ## 1. Where the project actually stands
 
 **Built and landed.** All fourteen stages are registered, implemented, and have run against the real
