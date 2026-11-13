@@ -189,7 +189,7 @@ Write a handoff note into the wave's umbrella issue in exactly this shape:
   ### Open questions raised
   <new escalations, with issue numbers>
 
-Then update: the EXECUTION_PLAN.md status line, CLAUDE.md's Status section, and
+Then update: the EXECUTION_PLAN.md status line, docs/STATUS.md (live status; CLAUDE.md no longer carries it), and
 SELECTION_REPRODUCTION_STATUS.md if any number in it moved.
 
 ### 4.6 STOP

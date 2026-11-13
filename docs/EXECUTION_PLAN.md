@@ -643,7 +643,7 @@ Because every session ends, nothing load-bearing may live only in a conversation
 four durable places, and any successor rebuilds context from them alone:
 
 - **This document** — plan, roster, current wave (update the status line at each checkpoint).
-- **`CLAUDE.md`** — the standing brief: architecture, conventions, status, open questions.
+- **`CLAUDE.md`** — the standing brief: architecture, conventions, open questions; live status in `docs/STATUS.md`.
 - **GitHub issues and PRs** — one issue per ticket; decisions and escalations recorded there.
 - **`runs/*.yaml` and the diagnostic artifacts** — what was executed and what it produced.
 
@@ -1128,7 +1128,7 @@ merged work.
 ## 9. Cross-cutting work
 
 **Documentation sync** (each wave): `ARCHITECTURE.md` and `CONTINUATION_PLAN.md` are updated by PR
-**before** any design change lands. `CLAUDE.md` and `README.md` status sections refresh at each
+**before** any design change lands. `docs/STATUS.md` and `README.md` status sections refresh at each
 checkpoint, and this document's status line names the current wave.
 
 **Sibling-repo changes** (`dark-hunter_rv`, `dark-hunter_sed`): same rules — full local pytest before
