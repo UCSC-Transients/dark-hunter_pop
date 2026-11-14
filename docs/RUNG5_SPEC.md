@@ -213,6 +213,182 @@ re-fits them in its own cells, A > 0.5 included.
 - **Gate 5b** (closed loop) injects spurious amplitudes and WD rates away from the rung-3 values (N_s at 0.5×, 1× and 2×
   the π̂ sum; s_A at 0.3 and 3; A_ni and R_mt at ±1 e-fold) and must recover the dark heights within their intervals.
 
+### 2.7 Per-published-sample comparison (#671; DRAFT, for Ryan's decision)
+
+**Status:** draft. Nothing here is implemented. This section supersedes the first #671 draft (H1: a luminous-star mass split). Ryan's
+2026-11-13 decisions on PR #676 are binding and are listed first. The evidence is the #671 diagnostic note.
+
+**Terminology (Ryan, 2026-11-13).**
+- **Luminous star:** the Gaia-detected star, mass M1.
+- **Dark companion:** the unseen object implied by the orbit, mass M2, apparent mass M2_app.
+- Every statement says whether it is about **real DR3** rows or **mock** draws.
+
+#### 2.7.1 Ryan's decisions (2026-11-13)
+
+- **Reproduction is paramount.** "We can only back out the underlying population if the simulation is identical to
+  everything done with the real data." The rung-5 comparison is therefore made **per published sample**, and each
+  sample's full cut chain is applied identically to real DR3 rows and to mock draws (`forward_model` mode).
+- **Samples:**
+  - Andrews et al. (2022) modified (`andrews2022_modified`, N = 25: published 24 plus Gaia BH1, Q14);
+  - El-Badry et al. (2024) (`elbadry2024`);
+  - El-Badry et al. (2026) astrometric subsamples (`elbadry2026`).
+- **Overlap** is handled by the signed-off Q1 inclusion-indicator formulation (#112, PR #125; `sample_inclusion.py`):
+  each unique source enters once.
+- **The luminous-star mass split (former H1) is superseded.** The literature cuts already remove the A/F and evolved
+  excess:
+  - Andrews giant rejects (log g and CMD);
+  - Shahaf AMRF class III;
+  - El-Badry 2026 `main_sequence` and M̃2/M̃1.
+
+  The orchestrator's real DR3 check: of 351 real C1 rows with M2_app ≥ 1.4, 183 have a main-sequence luminous star,
+  47 of those have M2/M1 > 1.0, and 30 have M2/M1 > 1.2 (median luminous-star M1 = 1.00).
+- **Kept from the first draft (approved):**
+  - **H2:** cross-fitted spurious template.
+  - **H3:** probabilistic bound f_s·s·max π̂ ≤ 1, now applied within each sample.
+  - **H4:** a **power-law dark mass function** dN/dM2 ∝ M2^−α. α is free by default; exactly Salpeter (α = 2.35) is the
+    fixed-slope comparison. The binned heights are kept as a check. Spill-over across the M2_app edges is then modelled
+    by the forward model, not assumed.
+- **H5** (gate 5d, plus a luminous top-up only if needed) is pending. Gate 5d itself is #675.
+- **Reproduction status is accepted as good enough to proceed** (Ryan, 2026-11-13, via the orchestrator). The current
+  Andrews and El-Badry 2026 differences are not blockers. #335 and #133 are later follow-ups. §2.7.3 records the numbers
+  re-measured on `main`; they gate nothing.
+
+#### 2.7.2 Rate model per sample
+
+For each published sample s with cell index b (observables after that sample's cuts):
+
+  μ_s,b(θ) = Σ_k [population_k(θ) × SF_astrometric × SF_sample_s]_b + N_s,s · T_s,b
+
+- **Terms.**
+  - **population_k:** the luminous (rung 3), WD (§2.2) and dark components. The dark component is the H4 power law over
+    1–40 M⊙ (normalisation and α).
+  - **SF_astrometric:** the adopted cascade (`colour_v2.1+tr1+e2+st1`).
+  - **SF_sample_s:** the sample's frozen cut chain (`config/selections/<s>.yaml`, `forward_model` mode), evaluated
+    **per mock draw** on mock observables by the same `sample_selection` evaluator code path as the real rows.
+- **The response for sample s** is the deterministic-mixture reweighting of the CO and luminous draws, restricted to the
+  draws that pass the chain. No re-simulation is needed unless a cut needs an observable the draws do not store
+  (§2.7.4).
+- **Cells inside a sample:** M2_app (or the sample's own mass statistic, e.g. M̃2) × the observables the sample's cuts
+  leave free (d, A, P). Bins are fixed from the mock before any real likelihood. The per-sample counts are small
+  (tens), so the cells are coarse and the PPC gate (§2.7.5) is evaluated on them.
+- **Overlap (Q1).** For each mock draw, the chains give a membership pattern m ∈ {0, 1}^S, which is exact per draw. The
+  likelihood uses one point process whose cells are split by membership pattern; a real source with pattern m is
+  counted once, in pattern m. This is the per-draw, deterministic form of `sample_inclusion.p_any`. No source is counted
+  twice, and the nested samples (El-Badry 2026 `andrews2022_import` ⊂ Andrews; El-Badry 2024's A22 pool) are exact
+  sub-patterns.
+- **Spurious (H2, H3) per sample.**
+  - **Template.** T_s,b = Σ π̂_i over the real rows that pass sample s, cross-fitted (K = 2 salted source_id folds), so
+    no row is in its own template.
+  - **Amplitude.** N_s,s = f_s · Σ_{i∈s} π̂_i, with f_s under the §12.16 calibrated prior N(1, σ_cal). The bound
+    f_s·max_{i∈b} π̂_i ≤ 1 is enforced in every cell.
+  - **One f_s across samples.** π̂ is sample-independent (§12.16, `spuriousness_model` philosophy), so f_s is shared.
+  - **Validation targets only.** Each sample's published spurious rate (El-Badry 2024: 0.25 at G < 15; El-Badry 2026
+    advisory, Q15) is a validation target, never an input.
+- **Follow-up inclusion operators.** El-Badry 2024's `m2_joint_fit` / `not_spurious` / `orbit_coverage` and El-Badry
+  2026's `not_spurious` / `followup_characterized` are catalog-level (`catalog_level_only`). The Gaia-only comparison
+  uses the pre-follow-up candidate set: El-Badry 2024's union of 48, El-Badry 2026's pre-inclusion subsamples. The
+  follow-up layer enters through SF_followup (§11) once it exists. Until then the post-follow-up N (21 COC; 227) are
+  reported as comparisons.
+
+#### 2.7.3 Reproduction status, re-measured on `main` @ c53c556 (2026-11-13)
+
+**How this was measured.** `sample_selection.run_sample_selection` with the current `config/config.yaml`, on the
+gate301 run's uncut-snapshot rows (`runs/20260930-022223-672b092.yaml`: data_acquisition + bulk enrichment), then
+`sample_diagnostics.build_reproduction_comparisons`. Cost: 167 s, 6.6 GB peak, via `run_heavy.sh`.
+
+| sample / subsample | mode | published / expected | ours | note |
+|---|---|---:|---:|---|
+| `andrews2022` | reproduction | 24 | 25 | extra row is still `6424213726885519744` (G = 15.15, pass-1 boundary p = 0.9545); **not** Gaia BH1, which is absent here as published |
+| `andrews2022_modified` | forward_model | 25 (expected) | 24 | contains Gaia BH1; vs reproduction, drops `1749013354127453696` and `3649963989549165440` (forward-mode TAG10 M1) |
+| `elbadry2024` union / COC | reproduction | 48 / 21 | 48 / 21 | match |
+| `elbadry2026` union | reproduction | 227 | 225 | #335 |
+| `elbadry2026` astrometric | reproduction | 76 | 74 | |
+| `elbadry2026` spectroscopic | reproduction | 151 | 151 | N matches; ID sets differ (#335) |
+| `primary_ns_bh` | reproduction | 47 | 46 | #133 |
+| `andrews2022_import` | reproduction | 16 | 16 | match |
+| `elbadry2023_table_e1` | reproduction | 5 | 5 | match |
+| `sub_chandrasekhar` | reproduction | 22 | 22 | match |
+
+Ryan accepted these as good enough to proceed (2026-11-13). They are recorded here and are **not** a gate. #335, #133
+and the Andrews extra row are later follow-ups.
+
+#### 2.7.4 Can each cut be evaluated on the mock?
+
+**What the mock stores per draw.**
+- Truth: luminous star, dark companion, orbit, `sys_bp_rp`, `sys_mg0`, `sys_evolved`, `atmosphere_logg`, position.
+- Cascade fit: ϖ, A, B, F, G (Thiele–Innes) and their σ, P, e, a0, σ_a0, N_vis, N_obs, F2, RUWE.
+- Fit covariance: `orbit_p0` and `orbit_cov`.
+- Parent-row luminous-star M1: TAG10 (`proposal_set.tag10_m1_for_rows`) and MIST isochrone.
+
+In the table, **Y** means computable from stored mock columns, **gap** means a column or emulator is missing, and
+**N** means it cannot be forward-modelled.
+
+| Sample / subsample | Cut | Real DR3 column(s) | Mock source | Mock? |
+|---|---|---|---|---|
+| Andrews 2022 (both) | parent: Orbital, C1 P range | `nss_solution_type`, period | `solution_type`, cascade P | Y |
+| | `atf_covariance_valid`, `atf_pass1_root_found`, `atf_pass2_root_found` | ATF notebook on the NSS 12×12 | `orbit_p0` / `orbit_cov` through the same ATF code | Y (code path to wire: `build_andrews2022_atf_columns` on mock rows) |
+| | `atf_m2_probability` P(M2 > 1.4) > threshold | ATF MC from the covariance + pass-2 M1 | same MC on `orbit_cov`; pass-2 M1 = TAG10 posterior (forward_model) | Y (wire) |
+| | `atf_goodness_of_fit` | NSS `goodness_of_fit` | cascade F2 | Y. The F2 calibration is a known limitation (EPOCH_MODEL_SPEC §8.16) |
+| | `atf_giant_reject_logg` (log g < dwarf min) | VizieR I/355 GSP-Phot log g | **none**: no GSP-Phot emulator | **gap**: GSP-Phot log g emulator (truth `atmosphere_logg` + calibrated noise / failure model) |
+| | `atf_giant_reject_cmd` | BP−RP, M_G (ATF convention) | `sys_bp_rp`, G and ϖ_fit | Y (reddening convention must match ATF) |
+| | `atf_m2_3sigma` | ATF pass-2 mean / std | same MC | Y (wire) |
+| | modified: BH1 restored (scan-alias exclusion lifted) | n/a | n/a (the mock has no scan-alias rejection) | Y |
+| El-Badry 2024 | `ns_candidate_pool` = Table 3 membership (A22 ∪ S23) | external table | A22 part = the Andrews chain above; S23 part = Shahaf 2023b class III | **A22 Y; S23 N** until an AMRF class-III reimplementation reproduces the Shahaf catalogue membership exactly (Q2) |
+| | G < 15 | `phot_g_mean_mag` | `phot_g_mean_mag` | Y |
+| | inclusion `m2_joint_fit`, `not_spurious`, `orbit_coverage` | follow-up labels | SF_followup (§11) | catalog-level: comparison only until §11 |
+| El-Badry 2026 `primary_ns_bh` | `main_sequence` (dereddened CMD, Janssens segment) | M_G, BP−RP, E(B−V) from Green19 / Lallement19 at the position | `sys_bp_rp` / G / ϖ + the same dust-map E(B−V) at the mock (l, b, d) | Y (wire; the mock must carry **reddened** photometry and be dereddened by the same maps, not use truth `sys_colour0`) |
+| | `m2_floor` M̃2 > 1.4; `m2_over_m1` M̃2/M̃1 > 1.2 | Janssens M̃1(M_G), M̃2 from a0, ϖ, P at fixed M̃1 | the same functions on cascade a0, ϖ, P and mock M_G | Y (wire) |
+| | `goodness_of_fit` < 10, P < 1200 d, G < 15 | NSS columns | cascade F2, P; G | Y |
+| El-Badry 2026 `andrews2022_import` | Andrews membership, G < 15 | Andrews chain | Andrews chain on the mock | Y, once the Andrews mock chain exists |
+| El-Badry 2026 `elbadry2023_table_e1` | Table E1 membership | external table (5 rows) | none | **N**: no published selection function. Report as comparison; exclude from the forward-modelled likelihood |
+| El-Badry 2026 `sub_chandrasekhar` (forward_model) | `main_sequence`, `m2_range` 1.05–1.40, M̃2/M̃1 > 1.0, `amrf` > threshold, `m2_error` σ_M̃2 ≤ 0.105 (analytic), P ≤ 900 d, G < 15 | Janssens chain; analytic σ_M̃2 from the NSS covariance | the same on `orbit_cov` | Y (wire). The reproduction mode (Shahaf class-III cross-match) is real-only by construction |
+| El-Badry 2026 inclusion | `not_spurious`, `followup_characterized` | follow-up labels | SF_followup | catalog-level: comparison only |
+| El-Badry 2026 spectroscopic branch | SB1 `k1_significance`, `mass_route` | SB1 | none (SB1 not in the mock cascade; Q6, v1 scope) | **N** (v1 scope boundary) |
+
+#### 2.7.5 Kept gates
+
+- **Gate 5d (#675)** in every used per-sample cell.
+- **PPC per sample and per cell:** two-sided tail p ≥ 0.01 from ≥ 1,000 posterior draws, with gamma-Poisson MC noise.
+  Every cell with M2_app ≥ 1.4 is reported by name.
+- **Known real systems in a sample:** Gaia BH1 and the El-Badry good rows get their posterior responsibilities
+  reported. None may exceed 0.5 spurious unless its π̂ alone (f_s = 1) gives that.
+- **Power-law fit:** the free-α posterior is compared with the fixed Salpeter fit (Δ ln Z and PPC) and with the binned
+  heights.
+
+#### 2.7.6 Gap list → tickets (ordered; H = heavy, L = light)
+
+1. **L — gate 5d** in `rung5_fit` (#675; already filed).
+2. **L — mock → selection-row adapter.**
+   - **Input:** proposal-set draws (truth, cascade, `orbit_p0` / `orbit_cov`, parent-row TAG10 and isochrone M1). **Output:** `sample_selection` rows with the real-row column names.
+   - **Reddened photometry:** apply the same dust maps at the mock (l, b, d).
+   - **Contract test:** the `sample_selection` evaluator runs unchanged on mock rows. Use fixture draws.
+3. **L — Andrews ATF columns on mock rows.** Run the `build_andrews2022_atf_columns` code path on `orbit_cov`, with pass-2 M1 = TAG10 posterior (forward_model). Test it against the real-row sidecar on the published orbits.
+4. **L — GSP-Phot log g emulator** for `atf_giant_reject_logg`, depending on P2.
+   - Map truth `atmosphere_logg` to a GSP-Phot log g with noise and a missing-value model.
+   - Calibrate it on real DR3 rows matched in G, BP−RP and M_G.
+5. **L — El-Badry 2026 columns on mock rows:** `main_sequence` (same Janssens segment and dereddening), M̃1, M̃2, analytic σ_M̃2 from `orbit_cov`, AMRF and its threshold. Test against the real-row values on the published orbits.
+6. **L — Shahaf 2023b AMRF class-III reimplementation (Q2, P1).** It must reproduce the published 177-candidate class-III membership exactly on real DR3 before it is applied to the mock. Without it, El-Badry 2024's S23 pool stays real-only.
+7. **L — per-draw membership pattern and Q1 pattern cells.**
+   - Per-sample cell definitions, frozen from the mock in a new `rung5_bins` schema version.
+   - `rung5_build_inputs` per-sample mode: the response is restricted to chain-passing draws per pattern.
+8. **L — spurious term per sample (H2, H3).** Cross-fitted (K = 2) template within each sample, f_s under N(1, σ_cal) shared across samples, and the bound f_s·max π̂ ≤ 1. Implemented in `rung5_fit` with tests.
+9. **L — power-law dark mass function (H4).** α free plus a fixed-Salpeter variant, done by per-draw reweighting r_i ∝ M2^−α. The inputs therefore carry per-draw (cell, M2, w) rather than a fixed per-bin R. Keep the binned heights as a check.
+10. **H — rebuild the rung-5 inputs per sample** (train and holdout) via `run_heavy.sh`, after items 2–9. This needs the operator's go-ahead.
+11. **H — MC top-up if needed.** If gate 5d fails in the per-sample cells, run a dark generation restricted to main-sequence luminous stars that pass the sample cuts (R5-Q10 analogue). Operator go-ahead.
+12. **H — per-sample fit:** dynesty ×3, gate 5b (closed loop per sample with the holdout), the per-sample PPC gate, and the known-object responsibilities.
+13. **L — follow-ups, not blockers:**
+    - #335 (El-Badry 2026 union 225 vs 227);
+    - #133 (`primary_ns_bh` 46 vs 47);
+    - the Andrews reproduction extra row (§2.7.3);
+    - the mock F2 calibration (EPOCH_MODEL_SPEC §8.16, which feeds `atf_goodness_of_fit` and `goodness_of_fit`).
+
+**Open questions for Ryan.**
+- **P1.** El-Badry 2024: drop the S23 part of the pool from the forward-modelled likelihood until Q2 is resolved (only
+  the A22 part forward-modelled), or reimplement Shahaf's AMRF triage first?
+- **P2.** Andrews log g reject: build a GSP-Phot log g emulator, or (only if Ryan prefers) evaluate the Andrews chain
+  on the mock without that cut and declare it as a stand-in?
+- **P3.** Table E1 and the SB1 branch: comparison-only. Confirm?
+
 ## 3. Likelihood
 
 - **Default (first result): binned inhomogeneous Poisson in observable space**, the rung-3 `joint_refit` likelihood
