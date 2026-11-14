@@ -344,7 +344,7 @@ In the table, **Y** means computable from stored mock columns, **gap** means a c
 | | `atf_covariance_valid`, `atf_pass1_root_found`, `atf_pass2_root_found` | ATF notebook on the NSS 12×12 | `orbit_p0` / `orbit_cov` through the same ATF code | Y (code path to wire: `build_andrews2022_atf_columns` on mock rows) |
 | | `atf_m2_probability` P(M2 > 1.4) > threshold | ATF MC from the covariance + pass-2 M1 | same MC on `orbit_cov`; pass-2 M1 = TAG10 posterior (forward_model) | Y (wire) |
 | | `atf_goodness_of_fit` | NSS `goodness_of_fit` | cascade F2 | Y. The F2 calibration is a known limitation (EPOCH_MODEL_SPEC §8.16) |
-| | `atf_giant_reject_logg` (log g < dwarf min) | VizieR I/355 GSP-Phot log g | **none**: no GSP-Phot emulator | **gap**: GSP-Phot log g emulator (truth `atmosphere_logg` + calibrated noise / failure model) |
+| | `atf_giant_reject_logg` (log g < dwarf min) | VizieR I/355 GSP-Phot log g | GSP-Phot log g emulator (#680, below) on the row's G, BP−RP, M_G | Y (emulated; statistical, see the GSP-Phot log g emulator paragraph) |
 | | `atf_giant_reject_cmd` | BP−RP, M_G (ATF convention) | `sys_bp_rp`, G and ϖ_fit | Y (reddening convention must match ATF) |
 | | `atf_m2_3sigma` | ATF pass-2 mean / std | same MC | Y (wire) |
 | | modified: BH1 restored (scan-alias exclusion lifted) | n/a | n/a (the mock has no scan-alias rejection) | Y |
@@ -359,6 +359,36 @@ In the table, **Y** means computable from stored mock columns, **gap** means a c
 | El-Badry 2026 `sub_chandrasekhar` (forward_model) | `main_sequence`, `m2_range` 1.05–1.40, M̃2/M̃1 > 1.0, `amrf` > threshold, `m2_error` σ_M̃2 ≤ 0.105 (analytic), P ≤ 900 d, G < 15 | Janssens chain; analytic σ_M̃2 from the NSS covariance | the same on `orbit_cov` | Y (wire). The reproduction mode (Shahaf class-III cross-match) is real-only by construction |
 | El-Badry 2026 inclusion | `not_spurious`, `followup_characterized` | follow-up labels | SF_followup | catalog-level: comparison only |
 | El-Badry 2026 spectroscopic branch | SB1 `k1_significance`, `mass_route` | SB1 | none (SB1 not in the mock cascade; Q6, v1 scope) | **N** (v1 scope boundary) |
+
+**GSP-Phot log g emulator (#680; P2, Ryan 2026-11-13).** Andrews' giant reject reads `logg_vizier_apsis`
+(VizieR I/355/paramp `logg`, the archive `logg_gspphot`). Mock rows get it from
+`gspphot_logg_emulator` (definition `config/population/gspphot_logg_emulator_680.yaml`, version `gle1`; calibrated
+cells in `gspphot_logg_emulator_680_table.yaml`; `mock_draws_to_selection_rows(..., logg_emulator=load_emulator())`).
+- **Statistical, never per-star.** The conditioning is the observed x = (G, BP−RP, M_G), computed the same way on real
+  and mock rows: system G, reddened BP−RP, and M_G = G + 5 log10 ϖ − 10 from the NSS or cascade fit ϖ.
+- **(a) Missingness.** P(defined | x) is the defined fraction of the finest fallback cell of x with ≥ 30 real rows.
+- **(b) Value.** log g | x is drawn from the 0.1-dex histogram of the defined real log g in the finest fallback cell
+  with ≥ 30 defined rows, uniform within a bin. GSP-Phot bias, scatter and catastrophic giant ↔ dwarf errors come in
+  through that histogram.
+- **Fallback levels.** G × BP−RP × M_G, then BP−RP × M_G, then a coarse BP−RP × M_G grid, then all rows.
+- **Truth `atmosphere_logg` is not used.** Real rows have no truth log g, so a truth → observed link cannot be
+  calibrated. The CMD position is the conditioning instead. Within a cell the emulated value is independent of the
+  mock star's truth evolutionary state.
+- **Seeding.** The draw is deterministic in (seed, generation, draw_index), via a counter-based hash.
+- **Calibration population.** The real Orbital rows the Andrews notebook fetched log g for: the VizieR snapshot,
+  `andrews_atf_p_m2_above` ≥ 0.1, 6,107 rows. The calibration refuses to run unless `logg_vizier_apsis` =
+  `logg_gspphot` on all of them; they agree on the missing pattern and to the published 10⁻⁴ dex.
+- **Why that population.** At fixed x, GSP-Phot behaves differently on these rows than on the full NSS orbit sample.
+  An emulator calibrated on all 168,065 Orbital + AstroSpectroSB1 rows passes its own holdout, but on the Andrews
+  holdout rows it gives undefined 0.222 vs real 0.183 (pull −3.7) and giant reject 0.101 vs 0.125 (+2.9).
+- **Train / holdout.** The split is a hash of (seed, source_id). The shipped table uses the train half only
+  (3,093 rows).
+- **Validation (`docs/gate680/README.md`).** On the 3,014 holdout rows: undefined 0.178 vs real 0.183 (pull +0.5),
+  reject (log g < 3.6, read from the frozen file) 0.112 vs 0.125 (+1.6). Every CMD region and G bin with ≥ 100 rows
+  has |pull| ≤ 3: **gate PASS**.
+- **Known residual.** In the giant regions (M_G 1–3) the emulator rejects less than the real chain: 0.28 vs 0.42 and
+  0.52 vs 0.68, pulls +2.5 and +3.0. Fine cells there are sparse, so the coarse fallback mixes in subgiants.
+  The edges were fixed before the holdout was examined and were not retuned on it (follow-up #716).
 
 #### 2.7.5 Kept gates
 
@@ -378,9 +408,10 @@ In the table, **Y** means computable from stored mock columns, **gap** means a c
    - **Reddened photometry:** apply the same dust maps at the mock (l, b, d).
    - **Contract test:** the `sample_selection` evaluator runs unchanged on mock rows. Use fixture draws.
 3. **L — Andrews ATF columns on mock rows.** Run the `build_andrews2022_atf_columns` code path on `orbit_cov`, with pass-2 M1 = TAG10 posterior (forward_model). Test it against the real-row sidecar on the published orbits.
-4. **L — GSP-Phot log g emulator** for `atf_giant_reject_logg`, depending on P2.
-   - Map truth `atmosphere_logg` to a GSP-Phot log g with noise and a missing-value model.
-   - Calibrate it on real DR3 rows matched in G, BP−RP and M_G.
+4. **L — GSP-Phot log g emulator** for `atf_giant_reject_logg`, depending on P2. **Done (#680)**; see §2.7.4.
+   - A missing-value model plus a log g value model, conditioned on the observed (G, BP−RP, M_G) rather than on truth
+     `atmosphere_logg`.
+   - Calibrated on real DR3 rows matched in G, BP−RP and M_G (the Andrews ATF population).
 5. **L — El-Badry 2026 columns on mock rows:** `main_sequence` (same Janssens segment and dereddening), M̃1, M̃2, analytic σ_M̃2 from `orbit_cov`, AMRF and its threshold. Test against the real-row values on the published orbits.
 6. **L — Shahaf 2023b AMRF class-III reimplementation (Q2, P1).** It must reproduce the published 177-candidate class-III membership exactly on real DR3 before it is applied to the mock. Without it, El-Badry 2024's S23 pool stays real-only.
 7. **L — per-draw membership pattern and Q1 pattern cells.**

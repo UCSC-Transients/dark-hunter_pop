@@ -29,6 +29,7 @@ from darkhunter_pop.mock_atf_columns import (
     compute_atf_columns,
     mock_orbit_to_atf_frame,
     mock_orbit_to_atf_inputs,
+    prefilter_excluded_atf_columns,
     wrap_phase_to_dr3_window,
 )
 from darkhunter_pop.mass_derivation import pipeline_tag10_m1
@@ -279,3 +280,18 @@ def test_real_rows_through_mock_path_reproduce_real_sidecar(cfg: Any, spec: Any,
                 assert have == want, (sid, col, want, have)
         n_pass2 += side[sid]["andrews_atf_m1_source"] is not None
     assert n_pass2 >= 3, "test must exercise pass 2 (pipeline M1) on real rows"
+
+
+def test_row_giant_logg_reaches_andrews_atf_logg(spec: Any) -> None:
+    """#680: the row's emulated log g (pass2.giant_logg_column) is the ATF log g; absent -> NaN (undefined)."""
+    from darkhunter_pop.andrews2022_atf import require_procedure, static_columns
+
+    proc = require_procedure(spec)
+    p0, cov = np.zeros(12), np.eye(12)
+    inp = mock_orbit_to_atf_inputs(1, p0, cov, proc=proc, goodness_of_fit=2.0, g_mag=13.0, bp_rp=1.0, logg=3.1)
+    assert static_columns(inp, proc)["andrews_atf_logg"] == 3.1
+    row = {"source_id": 2, "goodness_of_fit": 2.0, "g_mag": 13.0, "bp_rp": 1.0, "parallax": 2.0,
+           "mock_orbit_cov_status": "prefilter_excluded:lcf1", proc.pass2.giant_logg_column: 3.2}
+    assert prefilter_excluded_atf_columns(row, proc=proc, threshold=1.4)["andrews_atf_logg"] == 3.2
+    del row[proc.pass2.giant_logg_column]
+    assert math.isnan(prefilter_excluded_atf_columns(row, proc=proc, threshold=1.4)["andrews_atf_logg"])

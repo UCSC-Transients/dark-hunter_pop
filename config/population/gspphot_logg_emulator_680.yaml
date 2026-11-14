@@ -1,0 +1,89 @@
+# #680 (RUNG5_SPEC §2.7.4, gap list §2.7.6 item 4; P2 approved by Ryan 2026-11-13): emulator of the Gaia DR3
+# GSP-Phot log g that Andrews' giant reject (andrews2022.yaml atf_giant_reject_logg) reads, for MOCK rows.
+# Mock-only; never read by a real-DR3 path. Module: darkhunter_pop.gspphot_logg_emulator.
+#
+# Column. The real chain reads logg_vizier_apsis (VizieR I/355/paramp "logg" = GSP-Phot Aeneas best library, the
+# archive's astrophysical_parameters.logg_gspphot). The calibration reads logg_gspphot from the uncut NSS snapshot and
+# REFUSES to run unless, on every row of the VizieR snapshot, logg_vizier_apsis equals logg_gspphot (same missing
+# pattern; values within half the published 1e-4 dex: measured 6,107 / 6,107 rows, max |diff| 2.4e-7, float32).
+#
+# Calibration population (calibration.restrict_to_equivalence_ids). true = the real Orbital rows of the VizieR
+# snapshot: exactly the rows the Andrews notebook fetched log g for (andrews_atf_p_m2_above >= 0.1, 6,107 rows), the
+# population that reaches the giant cut. false = all Orbital + AstroSpectroSB1 NSS rows (168,065). Measured (#680,
+# docs/gate680/README.md): at FIXED (G, BP-RP, M_G) GSP-Phot behaves differently on the Andrews rows. Calibrated on
+# the full NSS sample (false), the emulator passes the full-sample holdout (reject 0.065 vs real 0.066) but on the
+# Andrews holdout rows gives undefined 0.222 vs real 0.183 (pull -3.7) and reject 0.101 vs real 0.125 (pull +2.9):
+# it under-rejects giants exactly where the cut acts. Calibrated on the Andrews rows (true, adopted): undefined 0.178
+# vs 0.183, reject 0.112 vs 0.125 (pulls +0.5, +1.6). Cost: 3,093 train rows, so cells are coarser.
+#
+# Model (statistical, never per-star; Ryan 2026-11-13). Conditioning x = (G, BP-RP, M_G) of the row, computed the
+# same way on both sides: G = phot_g_mean_mag (system G), BP-RP observed (reddened; real bp_mag - rp_mag, mock
+# sys_bp_rp), M_G = G + 5 log10(parallax_mas) - 10 with the NSS / cascade fit parallax (undefined for parallax <= 0).
+#   (a) missingness: P(defined | x) = n_defined / n_rows of the finest fallback cell holding >= n_min_rows rows;
+#   (b) value: logg_obs | x ~ the histogram (logg_bins) of the defined real log g of the finest fallback cell holding
+#       >= n_min_defined defined rows, uniform within a bin. GSP-Phot biases, scatter and catastrophic giant <-> dwarf
+#       confusions are carried in that histogram. P(logg < t | defined) is exact for any t on the bin grid.
+# Cells: per fallback level, each named axis is binned by that level's edges (open-ended outer bins) plus one
+# "undefined" bin for a non-finite value. Levels are tried finest first; the last ({}) is all rows.
+# The truth atmosphere_logg of the mock is NOT used: real rows have no truth log g, so a truth -> observed link cannot
+# be calibrated on them; the CMD position, shared by real and mock rows, is the conditioning instead.
+#
+# Randomness: per draw, deterministic in (seed, generation, draw_index) via a counter-based splitmix64 hash; stream
+# 0 decides defined / undefined, stream 1 the value. No global RNG state.
+#
+# Calibration / validation (scripts/calibrate_gspphot_logg_emulator_680.py): rows are split train / holdout by a hash
+# of (split_seed, source_id); the shipped table (gspphot_logg_emulator_680_table.yaml) is calibrated on the TRAIN half
+# only, so the holdout validation applies to exactly the shipped parameters. Gate on the calibration population's
+# holdout: in every validation CMD region and G bin with >= n_min_report holdout rows, |pull| <= max_abs_pull for the
+# undefined rate and for the giant-reject rate (defined AND logg < logg_dwarf_min, read from the frozen selection
+# file, never copied here). Edges and minimum counts are not tuned to Andrews' N (#680 "Do not").
+
+schema_version: 1
+version: gle1
+provenance: "#680, P2 approved by Ryan 2026-11-13 (RUNG5_SPEC §2.7.6 item 4); edges / counts fixed a priori"
+output_column: logg_vizier_apsis     # = andrews2022.yaml reproduction_procedure.pass2.giant_logg_column (a test pins it)
+seed: 680
+binning:
+  fallback_levels:
+    - name: g_cmd
+      edges:
+        g_mag: [11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+        bp_rp: [0.5, 0.7, 0.85, 1.0, 1.15, 1.3, 1.5, 1.8, 2.2]
+        abs_g_mag: [-1.0, 0.0, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0]
+    - name: cmd
+      edges:
+        bp_rp: [0.5, 0.7, 0.85, 1.0, 1.15, 1.3, 1.5, 1.8, 2.2]
+        abs_g_mag: [-1.0, 0.0, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0]
+    - name: cmd_coarse
+      edges:
+        bp_rp: [0.7, 1.0, 1.5, 2.2]
+        abs_g_mag: [0.0, 2.0, 4.0, 6.0]
+    - name: all
+      edges: {}
+  n_min_rows: 30
+  n_min_defined: 30
+  logg_bins: {min: 0.0, max: 5.5, width: 0.1}   # GSP-Phot log g in the NSS orbit sample spans 0.32-5.09
+calibration:
+  snapshot_meta: data/dr3/gaia_snapshots/20260826T234425Z_3d3f740b080c/meta.yaml   # uncut NSS snapshot
+  solution_types: [Orbital, AstroSpectroSB1]
+  restrict_to_equivalence_ids: true
+  logg_column: logg_gspphot
+  g_mag_column: g_mag
+  bp_mag_column: bp_mag
+  rp_mag_column: rp_mag
+  parallax_column: parallax
+  equivalence_snapshot_meta: data/dr3/vizier_apsis/20260928T184758Z_cb5ebfebe7bc/meta.yaml
+  equivalence_column: logg_vizier_apsis
+  logg_decimals: 4                   # GSP-Phot log g is published to 1e-4 dex (the archive column is float32)
+  equivalence_tolerance: 5.0e-5      # half the published precision
+  holdout_fraction: 0.5
+  split_seed: 6801
+validation:
+  selection: config/selections/andrews2022.yaml
+  cut_id: atf_giant_reject_logg
+  threshold_parameter: logg_dwarf_min
+  bp_rp_edges: [0.8, 1.2, 1.8]
+  abs_g_mag_edges: [1.0, 3.0, 4.5, 6.0]
+  g_mag_edges: [12.0, 13.0, 14.0, 15.0, 16.0]
+  n_min_report: 100
+  max_abs_pull: 3.0
