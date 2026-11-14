@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -112,3 +114,71 @@ def test_quantile_map_keeps_tail_and_intercept() -> None:
     assert st.map_f2_asb1(m[-1] + 5.0, 10.5) == pytest.approx(d[-1] + 5.0)  # slope 1 beyond the 99th percentile
     assert st.map_f2_asb1(7.0, 14.0) == 7.0  # nothing at G >= 13
     assert st.delta(10.5) == 0.0 and not st.routing_delta  # st2 (#696): no routing intercept
+
+
+def _random_orbits(n: int, seed: int = 696) -> dict[str, np.ndarray]:
+    r = np.random.default_rng(seed)
+    c = np.zeros((n, 23))
+    c[:, 0], c[:, 1], c[:, 10], c[:, 11] = r.uniform(0.5, 5, n), r.uniform(0.01, 0.1, n), r.uniform(20, 800, n), r.uniform(0.5, 5, n)
+    c[:, 14], c[:, 15], c[:, 16], c[:, 17] = r.uniform(0, 0.9, n), r.uniform(0.01, 0.1, n), r.uniform(5, 175, n), r.uniform(0.2, 3, n)
+    c[:, 18], c[:, 21], c[:, 22] = r.uniform(0.01, 0.2, n), r.uniform(-3, 30, n), r.uniform(1.4, 5, n)
+    g = r.uniform(8.5, 14.5, n)
+    bp = np.where(r.random(n) < 0.05, np.nan, r.uniform(0.0, 3.8, n))
+    return {"c": c, "g": g, "bp": bp, "a": r.random(n) < 0.5}
+
+
+def test_vectorized_routing_matches_scalar() -> None:
+    """#696: the array forms used for post-hoc re-routing equal the scalar run-time forms."""
+    st = em.epoch_model_config_from_mapping(_on()).solution_type_model
+    d = _random_orbits(400)
+    c, g, bp = d["c"], d["g"], d["bp"]
+    k1 = em.predicted_k1_kms_array(c[:, 17], c[:, 0], c[:, 10], c[:, 14], c[:, 16])
+    k1s = np.array([em.predicted_k1_kms(*c[i, [17, 0, 10, 14, 16]]) for i in range(g.size)])
+    assert np.allclose(k1, k1s, rtol=1e-13)
+    st_d = dataclasses.replace(st, routing_delta_knots_g=(10.5, 12.5), routing_delta=(-0.5, -0.7))  # with an intercept δ(G)
+    st_0 = dataclasses.replace(st, routing_delta_knots_g=(), routing_delta=())  # without: the bare DR3 logistic (st2)
+    for s in (st_d, st_0):
+        p = s.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1)
+        ps_ = np.array([s.p_asb1(g[i], bp[i], c[i, 10], c[i, 14], k1s[i]) for i in range(g.size)])
+        assert np.allclose(p, ps_, rtol=1e-12, atol=1e-15)
+    assert st_0.delta(11.0) == 0.0
+    assert np.all(st_d.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1) <= st_0.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1))
+
+
+def test_type_properties_array_matches_apply_and_inverts() -> None:
+    """#696: forward = ``apply_solution_type`` for a fixed type; inverse recovers the pre-routing vector."""
+    st = em.epoch_model_config_from_mapping(_on()).solution_type_model
+    d = _random_orbits(300, seed=7)
+    c, g, a = d["c"], d["g"], d["a"]
+    fwd = em.solution_type_properties_array(c, g, a, st)
+    for i in range(g.size):
+        pre = "asb1" if a[i] else "orbital"
+        for slot, key in ((18, "dlog_sigma_a0"), (1, "dlog_sigma_plx"), (15, "dlog_sigma_e"), (11, "dlog_sigma_p")):
+            assert fwd[i, slot] == pytest.approx(c[i, slot] * 10 ** st.offset(f"{pre}_{key}", g[i]), rel=1e-12)
+        assert fwd[i, 21] == pytest.approx(st.map_f2_asb1(c[i, 21], g[i]) if a[i] else c[i, 21], rel=1e-12, abs=1e-12)
+    keep = np.ones(23, bool)
+    keep[[1, 11, 15, 18, 21]] = False
+    assert np.array_equal(fwd[:, keep], c[:, keep])
+    back = em.solution_type_properties_array(fwd, g, a, st, inverse=True)
+    assert np.allclose(back, c, rtol=1e-12, atol=1e-12)
+
+
+def test_routing_uniforms_follow_the_run_time_stream() -> None:
+    """#696: ``routing_uniforms`` is the routing draw of ``apply_solution_type`` (first spawned child)."""
+    from darkhunter_pop import joint_refit as jr
+    from darkhunter_pop.proposal_set import PROPOSAL_RNG_STREAM_BASE
+
+    u = jr.routing_uniforms([53, 53, 1006], [10_000_001, 10_000_002, 101_610_000], 391)
+    for k, (gen, di) in enumerate(((53, 10_000_001), (53, 10_000_002), (1006, 101_610_000))):
+        rng = em.epoch_model_rng(391, PROPOSAL_RNG_STREAM_BASE + gen, di, tag=em.PER_CCD_NOISE_RNG_TAG)
+        assert u[k] == rng.spawn(1)[0].random()
+    cfg = em.epoch_model_config_from_mapping(_on())
+    src = em.source_context(10.0, 20.0, 10.5, bp_rp=1.0)
+    st = cfg.solution_type_model
+    v = _orbital_vec()
+    k1 = em.predicted_k1_kms(v[17], v[0], v[10], v[14], v[16])
+    p = st.p_asb1(10.5, 1.0, v[10], v[14], k1)
+    for di in range(10_000_000, 10_000_040):
+        rng = em.epoch_model_rng(391, PROPOSAL_RNG_STREAM_BASE + 53, di, tag=em.PER_CCD_NOISE_RNG_TAG)
+        _, typ = em.apply_solution_type(v, src, cfg, rng)
+        assert (typ == "AstroSpectroSB1") == (jr.routing_uniforms([53], [di], 391)[0] < p)

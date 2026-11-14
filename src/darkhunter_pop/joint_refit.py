@@ -431,6 +431,21 @@ def close_binary_log_factor(m1: ArrayLike, s_p: ArrayLike, kappa: float, cfg: V4
     return float(kappa) * np.asarray(s_p, float) * np.minimum(0.0, np.log(np.asarray(m1, float) / cfg.cb_m1_pivot_msun))
 
 
+def routing_uniforms(generation: ArrayLike, draw_index: ArrayLike, base_seed: int) -> FloatArray:
+    """#696: the uniform of each draw's st routing draw, ``u < P(ASB1 | x)`` → AstroSpectroSB1 (the same Generator as
+    :func:`routed_asb1`: first spawned child of the per-CCD noise Generator; exact with ss1 / sa1 off). Independent of
+    the routing parameters, so a draw's type under any routing version follows from ``u`` and that version's P."""
+    from darkhunter_pop import epoch_model as em
+    from darkhunter_pop.proposal_set import PROPOSAL_RNG_STREAM_BASE
+
+    gen, di = np.asarray(generation, np.int64), np.asarray(draw_index, np.int64)
+    out = np.empty(gen.size)
+    for i in range(gen.size):
+        rng = em.epoch_model_rng(int(base_seed), PROPOSAL_RNG_STREAM_BASE + int(gen[i]), int(di[i]), tag=em.PER_CCD_NOISE_RNG_TAG)
+        out[i] = float(rng.spawn(1)[0].random())
+    return out
+
+
 def routed_asb1(g_mag: ArrayLike, bp_rp: ArrayLike, cascade: ArrayLike, generation: ArrayLike, draw_index: ArrayLike,
                 base_seed: int, st: Any) -> FloatArray:
     """Post-hoc st1 type of stored orbital-branch draws: 1 AstroSpectroSB1, 0 Orbital, NaN for other branches.
