@@ -1,0 +1,20 @@
+# Current st2 file (#702). Copy of rung5_bins_dr3.yaml re-pinned to colour_v2.1+tr1+e2+st2; the derived block is deliberately absent and is to be RE-FROZEN by scripts/rung5_freeze_bins.py from the st2 CO gens 1006-1008 (output/proposal_set/v21tr1_e2st2/). assert_frozen refuses this file until then.
+# R5-T1 (#614; docs/RUNG5_SPEC.md §2.3): rung-5 mass-bin edges and merge map, DR3 path.
+# Proposed edges are fixed here from the spec, before any real-data count; the `derived:` block is written by
+# scripts/rung5_freeze_bins.py from the compact-object MOCK only (training partition of the adopted-version CO
+# generations). The rung-5 fit calls rung5_bins.assert_frozen() and refuses an unfrozen or edited file.
+# Not under config/fragments/. Read by darkhunter_pop.rung5_bins.load_rung5_bins.
+data_release: dr3
+co_version: co_v1
+required_noise_model: colour_v2.1+tr1+e2+st2
+rung4_config: config/population/rung4_co_v1.yaml   # M2_app estimator = its mass_recovery block (Student-t, #564)
+
+true_m2_edges_msun:                  # non-parametric dN/dlog M2 heights, per class
+  wd: [0.15, 0.45, 0.6, 0.8, 1.0, 1.2, 1.4]          # 0.45 splits He WDs; top edge = M_Ch (hard truncation)
+  dark: [1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 5.0, 10.0, 20.0, 40.0]   # resolves M_Ch, M_TOV, the 2.5-5 gap; BH = dark > 3
+
+m2_app_edges_msun: [0.0, 0.6, 1.0, 1.4, 2.0, 3.0, 5.0, 10.0, 40.0, 1000.0]   # f = 0 apparent mass; last bin = overflow
+
+detection: orbit_or_acceleration     # true-mass merge: any published solution (orbit or acceleration)
+c1_period_max_days: 830.4            # M2_app merge: accepted C1 orbits only (= rung3.c1_period_max_days, gate 4b domain)
+min_cell_ess: 30                     # §13.6 target ESS per cell (detected draws, Kish)

@@ -1,3 +1,4 @@
+# SUPERSEDED by rung5_bins_dr3_st2.yaml (#702); st1 freeze kept as history.
 # R5-T1 (#614; docs/RUNG5_SPEC.md §2.3): rung-5 mass-bin edges and merge map, DR3 path.
 # Proposed edges are fixed here from the spec, before any real-data count; the `derived:` block is written by
 # scripts/rung5_freeze_bins.py from the compact-object MOCK only (training partition of the adopted-version CO

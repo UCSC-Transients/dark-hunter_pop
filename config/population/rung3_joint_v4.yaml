@@ -1,3 +1,4 @@
+# SUPERSEDED by rung3_joint_v6.yaml (retired under st2, #702); kept as history.
 # #603 rung 3 v4 (spec §12.42; Ryan 2026-11-02): the v3 model (spec §12.39, rung3_joint_v3.yaml) on the colour_v2.1+tr1+e2+st1
 # draws (luminous gens 53-57, co_v1 gen 1006 WD component), R_dark = 0 (passed as --fix ln_R_dark=-50), the #601 spurious
 # template, plus three reweight-only population terms (M1-dependent e-shape, P-dependent twin fraction, low-mass close-binary
