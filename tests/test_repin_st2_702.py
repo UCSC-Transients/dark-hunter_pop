@@ -15,12 +15,11 @@ ST2 = "colour_v2.1+tr1+e2+st2"
 
 
 @pytest.mark.unit
-def test_bins_st2_loads_unfrozen() -> None:
+def test_bins_st2_frozen() -> None:
     cfg = r5.load_rung5_bins(str(ROOT / "config/population/rung5_bins_dr3_st2.yaml"))
     assert cfg.required_noise_model == ST2
-    assert cfg.derived is None
-    with pytest.raises(ValueError, match="not frozen"):
-        r5.assert_frozen(cfg)
+    r5.assert_frozen(cfg)  # re-frozen by #710 from st2 CO gens 1006-1008
+    assert cfg.derived is not None and cfg.derived.real_data_read is False
 
 
 @pytest.mark.unit

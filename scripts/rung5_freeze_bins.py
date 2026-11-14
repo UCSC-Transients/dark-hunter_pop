@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--artifact", type=Path, nargs="+", required=True)
     ap.add_argument("--fragment", type=Path, nargs="+", required=True, help="one per artifact, same order")
     ap.add_argument("--config", type=Path, default=Path("config/config.yaml"))
-    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3.yaml"))
+    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3_st2.yaml"))
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--dry-run", action="store_true", help="report only; do not write the derived block")
     args = ap.parse_args(argv)

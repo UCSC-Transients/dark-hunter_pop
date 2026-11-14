@@ -18,3 +18,71 @@ m2_app_edges_msun: [0.0, 0.6, 1.0, 1.4, 2.0, 3.0, 5.0, 10.0, 40.0, 1000.0]   # f
 detection: orbit_or_acceleration     # true-mass merge: any published solution (orbit or acceleration)
 c1_period_max_days: 830.4            # M2_app merge: accepted C1 orbits only (= rung3.c1_period_max_days, gate 4b domain)
 min_cell_ess: 30                     # §13.6 target ESS per cell (detected draws, Kish)
+
+derived:
+  true_m2_edges_msun:
+    wd:
+    - 0.15
+    - 0.45
+    - 0.6
+    - 0.8
+    - 1.0
+    - 1.2
+    - 1.4
+    dark:
+    - 1.0
+    - 1.4
+    - 1.8
+    - 2.2
+    - 2.6
+    - 3.0
+    - 5.0
+    - 10.0
+    - 20.0
+    - 40.0
+  m2_app_edges_msun:
+  - 0.0
+  - 0.6
+  - 1.0
+  - 1.4
+  - 2.0
+  - 3.0
+  - 5.0
+  - 10.0
+  - 1000.0
+  true_bin_ess_detected:
+    wd:
+    - 303.7410791544706
+    - 125.6374771017624
+    - 343.6267004445884
+    - 212.28431073402032
+    - 187.82722340158142
+    - 112.64715944276385
+    dark:
+    - 202.75647302946118
+    - 167.41692433059254
+    - 160.0531722888692
+    - 121.34424002819303
+    - 94.54324533446875
+    - 402.58505814023187
+    - 551.6227463711825
+    - 591.1872093513834
+    - 584.3860192014578
+  m2_app_bin_ess_detected:
+  - 116.40317707883463
+  - 123.36232787866838
+  - 104.13050021828496
+  - 85.57569343909995
+  - 91.8853683841563
+  - 123.37427797802458
+  - 145.73212344894918
+  - 344.52486009994635
+  artifacts_sha256:
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st2/co_gen1006.h5: 746bc7c720d3297b162c94377ae1fecd29f0477229ffeff133bb557d325be78d
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st2/co_gen1007.h5: 973350a70952bd44d547b3595761df17d9af191a3019843d1d11904a65da70f1
+    /Users/rfoley/darkhunter/pop/dark-hunter_pop/output/proposal_set/v21tr1_e2st2/co_gen1008.h5: 8f9594b10d18c49753952e64deb69eb5f099eca74c4b9e7314f42d19a064d223
+  primary_model: looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19:noise_colour_v2.1+tr1+e2+st2:co_v1
+  partition: train
+  real_data_read: false
+  frozen_at: '2026-11-14T11:06:22Z'
+  digest: 3a6b4b40e56217bcf4ba60dd2f96c6e5174b3efad45bd6488d63480ea83f059f
