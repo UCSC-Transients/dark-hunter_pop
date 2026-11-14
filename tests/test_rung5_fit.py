@@ -329,3 +329,81 @@ def test_cmd_fit_writes_fit_health(tmp_path: Path) -> None:
     assert set(fh) == {"map_converged", "map_message", "map_newton_gain", "map_max_projected_gradient",
                        "laplace_positive_definite", "laplace_min_eigenvalue", "at_bound"}
     assert fh["map_converged"] is True and fh["laplace_positive_definite"] is True and "ln_ns" in fh["at_bound"]
+
+
+@pytest.mark.unit
+def test_components_sum_to_expected_counts() -> None:
+    inp = _inputs()
+    th = _theta(inp)
+    mu, var = rf.expected_counts(th, inp)
+    comps = rf.expected_counts_components(th, inp)
+    np.testing.assert_allclose(sum(m for m, _ in comps.values()), mu)
+    np.testing.assert_allclose(sum(v for _, v in comps.values()), var)
+
+
+@pytest.mark.unit
+def test_gate_5d_pass_and_fail_with_dominant_component() -> None:
+    inp = _inputs()
+    th = _theta(inp)
+    g = rf.gate_5d(th, inp, 0.1, mu_floor=1e-3)
+    assert g["verdict"] == "pass" and g["n_fail"] == 0 and g["failing_cells"] == []
+    # Inflate the dark-template MC variance in one cell: that cell must fail, dominated by the dark companion term.
+    inp.dark_var[:, 15] = inp.dark[:, 15] ** 2 * 10.0
+    g = rf.gate_5d(th, inp, 0.1, mu_floor=1e-3)
+    cells = {f["cell"]: f for f in g["failing_cells"]}
+    assert g["verdict"] == "fail" and 15 in cells
+    assert cells[15]["dominant_component"] == "dark" and cells[15]["ratio"] >= 0.1
+    assert g["per_component"]["dark"][15] == pytest.approx(g["ratio"][15], rel=0.05)
+    # components add in quadrature to the total ratio
+    tot = np.sqrt(sum(np.array(g["per_component"][n]) ** 2 for n in rf.COMPONENTS))
+    np.testing.assert_allclose(tot, g["ratio"])
+
+
+@pytest.mark.unit
+def test_gate_5d_used_cell_definition() -> None:
+    inp = _inputs()
+    th = _theta(inp)
+    mu, _ = rf.expected_counts(th, inp)
+    b = int(np.argmin(mu))
+    inp.lum_var[:, b] = 1e6                                  # terrible MC noise in the lowest-μ cell
+    floor = float(mu[b]) * 2.0
+    g = rf.gate_5d(th, inp, 0.1, mu_floor=floor)             # below the floor and k = 0: unused, cannot fail
+    assert not g["used"][b] and all(f["cell"] != b for f in g["failing_cells"])
+    inp.k_obs[b] = 1.0                                       # an observed event makes it used
+    g = rf.gate_5d(th, inp, 0.1, mu_floor=floor)
+    assert g["used"][b] and any(f["cell"] == b and f["k_obs"] == 1.0 for f in g["failing_cells"])
+    # default floor is derived from the data: 1 / Σ k_obs
+    assert rf.gate_5d(th, inp, 0.1)["mu_floor"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_gate_5d_zero_mu_used_cell_fails() -> None:
+    inp = _inputs()
+    th = _theta(inp)
+    inp.lum[:, 0] = 0.0; inp.spur[0] = 0.0; inp.wd[:, :, 0] = 0.0; inp.dark[:, 0] = 0.0
+    inp.lum_var[:, 0] = 1.0
+    inp.k_obs[0] = 2.0
+    g = rf.gate_5d(th, inp, 0.1)
+    assert any(f["cell"] == 0 and math.isinf(f["ratio"]) for f in g["failing_cells"])
+
+
+@pytest.mark.unit
+def test_cmd_fit_gate_5d_json_and_require_flag(tmp_path: Path) -> None:
+    """#675: gate_5d lands in rung5_fit.json; failure is recorded in `limitations`; `--require-gate5d` exits 1."""
+    import json
+
+    pytest.importorskip("dynesty")
+    inp = _inputs(scale=50.0)
+    inp.lum_var[:] = inp.lum**2 * 10.0                       # huge luminous-template MC noise: gate must fail
+    inp.k_obs = rf.simulate_counts(_theta(inp), inp, np.random.default_rng(3))
+    rf.write_inputs(tmp_path / "in.h5", inp)
+    base = ["fit", "--inputs", str(tmp_path / "in.h5"), "--n-runs", "1", "--nlive", "30", "--dlogz", "5",
+            "--maxcall", "2000", "--map-starts", "2"]
+    assert fitcli.main(base + ["--out", str(tmp_path / "o1")]) == 0          # default: report only
+    out = json.loads((tmp_path / "o1" / "rung5_fit.json").read_text())
+    g = out["gate_5d"]["at_map"]
+    assert g["verdict"] == "fail" and g["n_fail"] == len(g["failing_cells"]) > 0 and g["threshold"] == 0.1
+    assert set(g["failing_cells"][0]) == {"cell", "ratio", "dominant_component", "k_obs", "mu"}
+    assert any("gate 5d FAIL" in x for x in out["limitations"])
+    assert fitcli.main(base + ["--out", str(tmp_path / "o2"), "--require-gate5d"]) == 1
+    assert (tmp_path / "o2" / "rung5_fit.json").exists()

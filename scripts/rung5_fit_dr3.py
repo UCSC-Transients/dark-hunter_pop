@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from darkhunter_pop import rung5_fit as rf
+from darkhunter_pop.config_loader import load_config
 
 
 def _summ(samples: np.ndarray, names: list[str]) -> dict:
@@ -46,6 +47,17 @@ def cmd_fit(a: argparse.Namespace) -> int:
                   "laplace_positive_definite": lap.positive_definite, "laplace_min_eigenvalue": lap.min_eigenvalue,
                   "at_bound": [n for n, b in zip(names, lap.at_bound) if b]}
     mu, var = rf.expected_counts(th_map, inp)
+    thr = float(load_config().physics.mc_noise_threshold)
+    gate_5d = {"at_map": rf.gate_5d(th_map, inp, thr, a.gate5d_mu_floor)}
+    if a.theta_ref is not None:
+        th_ref = np.array([json.loads(Path(a.theta_ref).read_text())["map"]["theta"][n] for n in names])
+        gate_5d["at_reference"] = rf.gate_5d(th_ref, inp, thr, a.gate5d_mu_floor)
+    limitations = list(rf.LIMITATIONS)
+    g5 = gate_5d["at_map"]
+    if g5["verdict"] == "fail":
+        limitations.append(f"gate 5d FAIL: {g5['n_fail']} of {g5['n_used']} used cells have sigma_MC/sigma_Poisson >= "
+                           f"{thr:g} at the MAP (worst dominant components in gate_5d.at_map.failing_cells); the merge "
+                           "map is not committed (per-sample cells: #683), so failing cells are fitted unmerged")
     runs = []
     for r in range(a.n_runs):
         nlive = a.nlive if r % 2 == 0 else int(a.nlive * 1.5)
@@ -64,11 +76,12 @@ def cmd_fit(a: argparse.Namespace) -> int:
             agree[n] = {"median_spread_over_sigma": float((max(meds) - min(meds)) / max(np.mean(sds), 1e-12)),
                         "width_ratio": float(max(sds) / max(min(sds), 1e-12))}
     out = {
-        "issue": 644, "inputs": str(a.inputs), "inputs_meta": inp.meta, "limitations": list(rf.LIMITATIONS),
+        "issue": 644, "inputs": str(a.inputs), "inputs_meta": inp.meta, "limitations": limitations,
         "map": {"theta": dict(zip(names, np.round(th_map, 5).tolist())), "log_posterior": lp_map,
                 "chi2_like": float(np.sum((inp.k_obs - mu) ** 2 / np.maximum(mu + var, 1e-9))), "n_cells": int(inp.k_obs.size),
                 "k_total": float(inp.k_obs.sum()), "mu_total": float(mu.sum())},
         "fit_health": fit_health,
+        "gate_5d": gate_5d,
         "runs": [{k: v for k, v in r.items() if k != "samples"} for r in runs],
         "gate_5f_agreement": agree,
         "posterior": _summ(allsamp, names),
@@ -81,6 +94,10 @@ def cmd_fit(a: argparse.Namespace) -> int:
     }
     (a.out / "rung5_fit.json").write_text(json.dumps(out, indent=1, default=float))
     print(json.dumps({k: out[k] for k in ("map", "fit_health", "gate_5f_agreement")}, indent=1, default=float)[:4000])
+    print(f"gate 5d (at MAP): {g5['verdict']}, {g5['n_fail']} of {g5['n_used']} used cells fail (threshold {thr:g})")
+    if a.require_gate5d and g5["verdict"] == "fail":
+        print("gate 5d FAIL and --require-gate5d set: exiting non-zero (outputs written)", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -154,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("mode", choices=("fit", "closed-loop"))
     ap.add_argument("--inputs", type=Path, required=True)
     ap.add_argument("--fit-inputs", type=Path, default=None, help="closed-loop: training-partition inputs to fit with")
-    ap.add_argument("--theta-ref", type=Path, default=None, help="closed-loop: a rung5_fit.json whose MAP θ is the reference")
+    ap.add_argument("--theta-ref", type=Path, default=None, help="a rung5_fit.json whose MAP θ is the reference (closed-loop; fit: also report gate 5d there)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--seed", type=int, default=644)
     ap.add_argument("--map-starts", type=int, default=8)
@@ -162,6 +179,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--nlive", type=int, default=500)
     ap.add_argument("--dlogz", type=float, default=0.5)
     ap.add_argument("--maxcall", type=int, default=None)
+    ap.add_argument("--require-gate5d", action="store_true",
+                    help="fit: exit non-zero after writing outputs when gate 5d fails at the MAP (default: report only)")
+    ap.add_argument("--gate5d-mu-floor", type=float, default=None,
+                    help="gate 5d: a cell with k_obs = 0 is unused below this mu (default 1 / sum k_obs)")
     ap.add_argument("--n-real", type=int, default=20)
     ap.add_argument("--small-n-expected", type=float, default=10.0)
     ap.add_argument("--overlap-threshold", type=float, default=0.5)
