@@ -44,7 +44,7 @@ def test_production_label_and_colour_off_is_default() -> None:
     sec = load_config().dr3.epoch_model
     assert sec is not None
     assert ps.DEFAULT_NOISE_MODEL == "n2d_s1232"
-    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st1"  # colour_v2.1+tr1 adopted 2026-10-28 (#583); e2+st1 2026-10-31 (#599)
+    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st2"  # colour_v2.1+tr1 adopted 2026-10-28 (#583); e2+st1 2026-10-31 (#599); st2 #696
     assert em.noise_model_version(_cfg()) == "n2d_s1232"
     assert em.noise_model_version(_cfg(_colour())) == "colour_test"
     assert em.noise_model_version(_cfg(_colour_v2())) == "colour_v2_test"

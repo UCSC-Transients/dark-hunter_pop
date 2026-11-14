@@ -11,7 +11,7 @@ from darkhunter_pop import proposal_set as ps
 
 pytestmark = pytest.mark.unit
 
-V_NEW = "looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19:noise_colour_v2.1+tr1+e2+st1"
+V_NEW = "looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19:noise_colour_v2.1+tr1+e2+st2"  # #696 st2
 V_OLD = "looks_single_v2:ruwe1.25:dm-0.4:c1.05-2.75:g19:noise_colour_v2.1+tr1"
 
 

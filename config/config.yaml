@@ -1077,10 +1077,13 @@ dr3:
       provenance: "#597: DR3-Orbital F2 medians, #390 same orbits; r err 0.036 / 0.018 / 0.026 / 0.009"
     # #597 (§8.16; MOCK_POPULATION_SPEC §12.41, option (a) of §12.36): AstroSpectroSB1 routing of orbital-branch fits and
     # type-dependent solution properties. Routing: logistic on DR3 C1 orbits (scripts/calibrate_type_routing_597.py,
-    # docs/gate_noise_colour/st1/routing.json); offsets: #390 same orbits by DR3 type after e2. Adds "+st1". ADOPTED 2026-10-31 (#599, iteration 2).
+    # docs/gate_noise_colour/st1/routing.json); offsets: #390 same orbits by DR3 type after e2. ADOPTED 2026-10-31 (#599, iteration 2).
+    # st2 (#696, §8.16; Ryan 2026-11-13 option 1): the iteration-2 routing intercept delta(G) is removed (it was bisected on the
+    # unweighted gens 47-50 proposal and absorbed its covariate mismatch; on the rung-3 v5 weighted mock the solved intercept
+    # is 0.00 +- 0.11). Every other st1 parameter is unchanged. Adds "+st2".
     solution_type_model:
-      enabled: true  # ADOPTED 2026-10-31 (Ryan; #599, EPOCH_MODEL_SPEC §8.16; iteration 2)
-      version: st1
+      enabled: true  # ADOPTED 2026-10-31 (Ryan; #599, EPOCH_MODEL_SPEC §8.16; iteration 2); st2 #696
+      version: st2
       break_g: 13.0
       grvs_poly: [-0.00388039, -0.0705883, 0.834474, 0.0541438]  # G - G_RVS = poly(clip(BP-RP)), numpy.polyval order
       colour_clip: [0.2, 3.5]
@@ -1098,12 +1101,12 @@ dr3:
       asb1_dlog_sigma_p: [-0.142496, -0.0787933, -0.0673706, 0.0100153]
       asb1_f2_kappa: [0.561547, 0.502695, 0.571308, 0.494683]
       asb1_f2_alpha: [-1.7665, -0.277665, -1.94398, 0.321285]
-      routing_delta_knots_g: [9.5, 10.5, 11.5, 12.5]  # #597 iter 2: post-cut type fractions matched per G bin
-      routing_delta: [-0.0877254, -0.504602, -0.380056, -0.676607]
+      # st2 (#696): no routing_delta_knots_g / routing_delta (st1 iteration 2 had [9.5, 10.5, 11.5, 12.5] /
+      # [-0.0877254, -0.504602, -0.380056, -0.676607]; docs/gate_noise_colour/st1/iter2.json)
       asb1_f2_qmap_g_edges: [10, 11, 12]  # #597 iter 2: AstroSpectroSB1 F2 quantile map (1..99%), replaces the affine map
       asb1_f2_qmap_mock: [[-1.54604, 0.627488, 1.72108, 3.56035, 5.99322, 9.13071, 12.8134, 15.3233, 20.6073], [-0.141226, 1.70685, 2.65943, 4.4196, 6.61802, 9.31128, 12.559, 14.9603, 20.4101], [0.480879, 2.33341, 3.59925, 5.16323, 7.46628, 10.7753, 13.7822, 15.9722, 19.5445], [-1.04531, 0.424652, 1.42145, 3.00248, 4.8471, 7.3751, 10.6197, 12.8871, 17.6261]]
       asb1_f2_qmap_dr3: [[-1.7965, -0.435498, 0.213119, 1.48546, 2.7698, 3.98085, 5.25951, 6.31067, 12.8036], [-0.2924, 0.744796, 1.29267, 2.30582, 3.43796, 4.99013, 7.70437, 10.974, 19.1413], [-0.586855, 0.553374, 1.16831, 2.245, 3.46698, 5.07255, 7.42021, 9.77199, 16.3062], [-0.691422, 0.384422, 0.944087, 1.90338, 2.95, 4.07789, 5.29063, 6.23049, 11.5233]]
-      provenance: "#597: routing on 125,251 DR3 C1 orbits; offsets on #390 same orbits split by DR3 type (after e2); iteration 2 (delta, lambda, quantile map) on gens 47-50 post hoc (docs/gate_noise_colour/st1/iter2.json)"
+      provenance: "#597: routing on 125,251 DR3 C1 orbits; offsets on #390 same orbits split by DR3 type (after e2); iteration 2 (delta, lambda, quantile map) on gens 47-50 post hoc (docs/gate_noise_colour/st1/iter2.json); st2 (#696): delta removed, docs/gate_noise_colour/st2/routing_696.json"
     # #579 noise model colour_v2 (EPOCH_MODEL_SPEC §8.13; Ryan 2026-10-27), supersedes colour_v1 (§8.12): N2d is KEPT and
     # the DR3 G = 13 bright/faint processing break is preserved (note after §8.5). Actual per-CCD noise (gaiamock + N2d)
     # x s(G, BP-RP), ln s = a(G) + b(G) c + q c^2, c = clip(BP-RP) - 1.2, separate parameters for G < 13 (fields

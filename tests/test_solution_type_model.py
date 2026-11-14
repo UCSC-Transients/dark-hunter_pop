@@ -37,10 +37,10 @@ def _orbital_vec(g_like: float = 0.0) -> list[float]:
 def test_adopted_and_labels() -> None:
     sec = _sec()
     assert sec.bright_stated_refit.enabled is True and sec.solution_type_model.enabled is True  # adopted 2026-10-31 (#599)
-    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st1"
+    assert em.noise_model_version(sec) == "colour_v2.1+tr1+e2+st2"  # st2: routing intercept removed (#696)
     sec = _off()
     assert em.noise_model_version(sec) == "colour_v2.1+tr1"
-    assert em.noise_model_version(_on()) == "colour_v2.1+tr1+e2+st1"
+    assert em.noise_model_version(_on()) == "colour_v2.1+tr1+e2+st2"
     cfg = em.epoch_model_config_from_mapping(sec)
     assert cfg.bright_stated_refit is None and cfg.solution_type_model is None
 
@@ -111,4 +111,4 @@ def test_quantile_map_keeps_tail_and_intercept() -> None:
     assert st.map_f2_asb1(m[4], 10.5) == pytest.approx(d[4])  # median maps onto the DR3 median
     assert st.map_f2_asb1(m[-1] + 5.0, 10.5) == pytest.approx(d[-1] + 5.0)  # slope 1 beyond the 99th percentile
     assert st.map_f2_asb1(7.0, 14.0) == 7.0  # nothing at G >= 13
-    assert st.delta(10.5) != 0.0
+    assert st.delta(10.5) == 0.0 and not st.routing_delta  # st2 (#696): no routing intercept

@@ -894,6 +894,8 @@ meant to be adopted together with colour_v2 as one version.
 > **Status: ADOPTED 2026-10-31 (Ryan; #599), iteration 2 parameters** (λ_SB1 = 1.0, λ_Orb = 0.6, iteration-2 δ(G) and F2
 > quantile map, e2 r(G) as in iteration 2). `noise_model_version` is `colour_v2.1+tr1+e2+st1`; `decided_settings.yaml` guards
 > launches on it. Iteration 3 (below) failed and is not used. Population side: MOCK_POPULATION_SPEC §12.41.
+> **st2 PROPOSED 2026-11-13 (#696, below):** the iteration-2 routing intercept δ(G) is removed; label
+> `colour_v2.1+tr1+e2+st2`; gens 53–59 and 1006–1008 are replayed from their stored seeds.
 >
 > **Known limitations at adoption:**
 > - the pooled log σ_a0/σ_ϖ at G 10–13 is about 0.03 dex low (0.035 / 0.038 / 0.057 vs DR3 0.058 / 0.067 / 0.088). This is the
@@ -968,6 +970,73 @@ selection reason as λ for Orbital (the same-orbit AstroSpectroSB1 sample is wha
 - by type, gens 47–50 post hoc and a fresh #390 re-injection: type fractions against G, P, K1 and colour; F2, σ_ϖ and σ_a0 by type; the a0/σ_a0–RUWE edge by type; the bright high-F2 tail by type and class; short-P bright counts;
 - the single-star control;
 - G < 10.
+
+**st2: routing intercept removed (#696; Ryan, 2026-11-13, option 1).**
+
+> **Status: PROPOSED, awaiting Ryan's approval** (this spec PR, with the config, guard and fragment flip to
+> `colour_v2.1+tr1+e2+st2`). Measured by `scripts/calibrate_st2_routing_696.py`, written to
+> `docs/gate_noise_colour/st2/routing_696.json`.
+
+*Finding.* On the luminous gens 53–59, with the rung-3 v5 weights (`output/rung5/lum_weights_v5.npz`), in the domain
+G 10–19.5 and fitted P ≤ 830.4 d:
+- the weighted mock AstroSpectroSB1 share of accepted orbits at G 10–13 is 0.347 ± 0.029, against real DR3's 0.458 (−3.8σ);
+- per G bin it is 0.570 / 0.490 / 0.199 at G 10–11 / 11–12 / 12–13, against 0.629 / 0.574 / 0.342;
+- at G ≥ 13 it is 0.003 against 0.004.
+
+*Diagnosis.*
+- **The deficit is inside each G bin.** The weighted G mix within 10–13 matches DR3 (0.16 / 0.30 / 0.54 vs 0.17 / 0.29 / 0.54).
+- **The DR3 logistic is not at fault.** Without δ, its mean P on the real DR3 rows equals the DR3 share in every bin
+  (0.632 / 0.574 / 0.341 vs 0.629 / 0.574 / 0.342).
+- **The G = 13 break is not involved.** The G ≥ 13 share is about 0 on both sides. The type offsets and the F2 map are
+  0 at G ≥ 13, so the break and the e2 r(G) are untouched.
+- **The cause is the iteration-2 intercept δ(G), −0.50 / −0.38 / −0.68 at G 10.5 / 11.5 / 12.5.**
+  - It was bisected so that the *unweighted* gens 47–50 proposal matched DR3's post-cut fractions.
+  - Unweighted, the bright accepted proposal draws are redder than DR3 (measured on gens 53–59): median BP−RP
+    0.93 / 1.02 / 1.21 vs 0.81 / 0.85 / 0.91. They
+    are therefore brighter in G_RVS, so P is higher, and δ absorbed that proposal-vs-DR3 covariate mismatch.
+  - Under the fitted rung-3 weights the mock covariates match DR3: median BP−RP 0.80 / 0.91 / 0.87, and G_RVS, log K1,
+    log P and e within about 0.05. So δ double-counts.
+- **A constant intercept re-solved on the weighted mock is consistent with 0.** Solved per G bin so that the weighted
+  post-cut share equals DR3's, it is −0.11 ± 0.14 / −0.13 ± 0.20 / +0.09 ± 0.27, and +0.00 ± 0.11 pooled over 10–13.
+  The errors are Poisson bootstraps of the mock draws plus the DR3 binomial error. This is 3–4σ from st1's δ.
+
+*st2.*
+- P(ASB1 | x) is the DR3 logistic of `routing.json` with **no intercept**: `routing_delta_knots_g` and `routing_delta`
+  are removed.
+- Everything else in st1 is unchanged: the type σ offsets with λ_Orb = 0.6, e2, and the AstroSpectroSB1 F2 quantile map.
+- No per-star term is added; the routing is calibrated on DR3 alone.
+- Label: `colour_v2.1+tr1+e2+st2`.
+
+*Validation, post hoc and exact.* The routing uniform and every input of P are untouched by the routing parameters,
+and the type is applied after the fit, so st2's type, σ, F2 and acceptance follow from the stored cascades. The stored
+st1 labels and acceptance are reproduced bit for bit first. The weighted luminous results:
+- by G bin, 0.646 ± 0.027 / 0.590 ± 0.053 / 0.325 ± 0.036 at G 10–11 / 11–12 / 12–13 (0.457 ± 0.031 pooled), against
+  DR3's 0.629 / 0.574 / 0.342 / 0.458. Every |z| ≤ 0.6;
+- at G ≥ 13, 0.004 against 0.004;
+- at G < 13 by log P: 2.0–2.5 gives 0.568 vs 0.555; 2.5–3.0 gives 0.404 vs 0.413; the 1.5–2.0 check gives 0.69 ± 0.16
+  (ESS 8) vs 0.73. That bin needs no separate term; the #696 table's 0.77 used truth P at all G;
+- by log K1 at G < 13: 0.415 / 0.544 vs 0.427 / 0.572 at 0.5–1 / 1–1.5;
+- by colour, within 1.5σ, except BP−RP < 0.6 (known limitation);
+- the F2 and σ_ϖ medians by type at G 10–13 move by ≤ 0.02 (F2) and ≤ 0.002 dex (σ_ϖ);
+- the overall share becomes 0.224 ± 0.017 against 0.184 (+2.4σ). This is not routing: the weighted mock puts 0.48 of
+  its accepted orbits at G < 13, against DR3's 0.40 (#698).
+
+*Compact-object gens* 1006–1008, co_v1 target weights, at G 10–13:
+- AstroSpectroSB1 share: dark 0.70 ± 0.03, WD 0.51 ± 0.05 (st1: 0.65 / 0.42). G ≥ 13: 0.003 / 0.004.
+- The DR3 whole-population share (0.458) is not a CO target. At matched log K1 < 1.5 the dark draws agree with DR3.
+- Their median log K1 (1.45) is DR3's 99.9th percentile. DR3 has 24 published orbits at log K1 > 1.5, so the CO routing
+  there is an extrapolation of the logistic: **open, decision needed (#699)**.
+
+*Draw invalidation and replay* (MOCK_POPULATION_SPEC §3.5).
+- A routing change moves draws between types, and so changes their σ, F2 and acceptance. The st1 artifacts are
+  therefore not valid under st2.
+- Only draws whose type changes differ: 3,491 luminous and 553 CO, all Orbital → AstroSpectroSB1, with 281 acceptance
+  changes.
+- Gens 53–59 and 1006–1008 are replayed deterministically from their stored seeds (same generation numbers and
+  draw_index), into new artifacts under `output/proposal_set/v21tr1_e2st2/`, with `scripts/replay_routing_696.py`.
+- Products built on the st1 artifacts are stale until rebuilt on the replays. These are the rung-3 v5 weights and fit,
+  the spurious calibration from gens 53–56, and the rung-5 inputs, fits and gates. So are the configs that pin
+  `required_noise_model: …+st1`: `rung3_joint_v5.yaml`, `rung5_bins_dr3.yaml` and `rung5_known_objects_dr3.yaml`.
 
 ## References
 
