@@ -86,13 +86,20 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
   not applicable, never a diagonal guess. ``main_sequence``, ``m1_tilde_msun``, ``m2_tilde_msun``, ``amrf``,
   ``amrf_threshold_elbadry2026`` and ``goodness_of_fit`` come from the evaluator's own enrichment
   (``enrich_elbadry2026_row`` / ``attach_amrf_threshold``) on the observables above, unchanged.
-* ``shahaf2023b_*`` / AMRF class III (#682), Table E1 / Table 3 membership (external tables; no mock analogue).
+* Shahaf et al. (2023b) AMRF class III (#682): emitted only with ``shahaf_triage`` (and ``include_orbit``) as
+  ``shahaf2023b_class3_reimpl`` (+ ``shahaf2023b_p_iii``, ``shahaf2023b_n_below_atr``, ``shahaf2023b_n_draws``,
+  ``shahaf2023b_amrf_reimpl``, ``shahaf2023b_m1_source``, ``shahaf2023b_parent_status``) by
+  :mod:`darkhunter_pop.shahaf2023b_triage`. M1 is the TAG10 ``pipeline_m1_msun`` (the real S23 used the
+  ``gaiadr3.binary_masses`` IsocLum M1, which a mock does not have), and the IsocLum-availability parent cut is not
+  emulated; both are recorded per row. The catalogue columns ``shahaf2023b_m2min_msun`` etc. stay real-only.
+* Table E1 / Table 3 membership (external tables; no mock analogue).
 * Follow-up labels (``not_spurious`` etc.): catalog-level, SF_followup.
 * ``t_periastron``: the cascade stores a phase angle, not the DR3 epoch-based quantity; no cut reads it.
 
 Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a frozen cut:
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
-``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
+``mock_m1_row_msun`` (the proposal's parent-row M1, MIST), ``mock_significance_a0`` (cascade a0 / σ_a0, the astrometric
+DR3 ``significance``; not emitted as ``significance``, which the evaluator aliases to the SB1 ``k1_significance``; #682),
 ``mock_is_dark``, ``mock_co_component`` (-1 for a luminous generation, #706), ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
 ``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681),
 plus ``mock_orbit_cov_status`` for a luminous generation read with its #704 covariance sidecar. The one
@@ -178,6 +185,7 @@ def mock_draws_to_selection_rows(
     include_orbit: bool = False,
     max_rows: int | None = None,
     logg_emulator: Any | None = None,
+    shahaf_triage: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Map mock draws to ``sample_selection`` rows (module docstring: provenance table).
 
@@ -208,6 +216,14 @@ def mock_draws_to_selection_rows(
         row gets the emulated GSP-Phot log g in ``logg_emulator.output_column`` (NaN = undefined) and
         ``mock_logg_emulator``; needs ``truth/generation`` (#680). Without it the column is absent and Andrews'
         ``atf_giant_reject_logg`` passes every mock row (``mock_atf_columns`` warns).
+
+    shahaf_triage
+        A :class:`darkhunter_pop.shahaf2023b_triage.TriageDefinition` (``load_definition()``, #682). When given (needs
+        ``include_orbit=True``), every row gets the reimplemented Shahaf et al. (2023b) class-III columns
+        (:func:`darkhunter_pop.shahaf2023b_triage.attach_class3_columns`: the §3.1 orbit cuts, the §3.3 Monte Carlo
+        on ``mock_orbit_solution`` with M1 = ``pipeline_m1_msun`` ± ``pipeline_m1_sigma_msun``, and the paper's
+        fixed-threshold equivalent of its FDR cut). The ``gaiadr3.binary_masses`` IsocLum parent cut has no mock
+        analogue and is recorded as ``shahaf2023b_parent_status = "binary_masses_not_emulated"``.
 
     Returns
     -------
@@ -247,6 +263,10 @@ def mock_draws_to_selection_rows(
         raise ValueError("draw_index is not unique: source_id would collide in the evaluator outcome tables")
 
     col = {name: cascade[idx, k] for k, name in enumerate(CASCADE_COLUMNS)}
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # The astrometric a0 / sigma_a0 (what DR3 ``significance`` is for an orbit). Kept mock-only: the evaluator
+        # aliases ``significance`` to the SB1 ``k1_significance``, which the mock does not simulate (Q6).
+        significance = np.where(_finite_positive(col["sigma_a0_mas"]), col["a0_mas"] / col["sigma_a0_mas"], np.nan)
     g = np.asarray(truth["phot_g_mean_mag"], dtype=np.float64)[idx]
     bp_rp = np.asarray(truth["sys_bp_rp"], dtype=np.float64)[idx]
     plx = col["plx"]
@@ -307,6 +327,8 @@ def mock_draws_to_selection_rows(
         }
         for real, casc in _CASCADE_TO_ROW:
             row[real] = float(col[casc][i])
+        if np.isfinite(significance[i]):
+            row["mock_significance_a0"] = float(significance[i])
         row["parallax_mas"] = row["parallax"]
         row["period_day"] = row["period"]
         row["phot_g_mean_mag"] = float(g[i])
@@ -343,6 +365,16 @@ def mock_draws_to_selection_rows(
             row["mock_orbit_solution"] = mock_orbit_parameter_set(row)  # ParameterSet or None (#681)
         rows.append(row)
     logger.info("mock draws -> rows: %d draws, %d accepted-orbit rows (%d AstroSpectroSB1)", accepted.size, len(rows), int((nss == ASB1_SOLUTION_TYPE).sum()))
+    if shahaf_triage is not None:
+        if not include_orbit:
+            raise ValueError("shahaf_triage needs include_orbit=True (the class-III Monte Carlo draws the orbit covariance)")
+        from darkhunter_pop.shahaf2023b_triage import MOCK_M1_SOURCE, MOCK_PARENT_STATUS, attach_class3_columns
+
+        rows = attach_class3_columns(
+            rows, shahaf_triage, orbit_key="mock_orbit_solution", m1_key="pipeline_m1_msun",
+            significance_key="mock_significance_a0",
+            m1_sigma_key="pipeline_m1_sigma_msun", m1_source=MOCK_M1_SOURCE, parent_status=MOCK_PARENT_STATUS,
+        )
     return rows
 
 
