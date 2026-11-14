@@ -1,0 +1,85 @@
+issue: 682
+definition_sha256: cb9a7641ca3d82f7197a01f9a6f7d99888a520541c50edae8d8fa3b520f13a84
+parent_cumulative_counts:
+  solution_type: 168065
+  bit_index: 166086
+  binary_masses: 127026
+  eccentricity_error: 126966
+  parallax_snr: 126943
+  significance: 126624
+  thiele_innes_relative_error: 110401
+  period: 101380
+parent_expected_counts:
+  after_binary_masses: 127026
+  after_halbwachs: 126624
+  after_ti: 110401
+  clean: 101380
+parent_vs_table1:
+  ours: 101380
+  table1: 101380
+  ours_only: 0
+  table1_only: 0
+m1_max_abs_diff: 4.999980926512215e-07
+amrf_max_rel_diff: 7.605027718682322e-14
+decision_on_published_pr_iii:
+  n: 177
+  equals_table2: true
+mc_seconds: 349.4
+mc_status_counts:
+  ok: 101380
+pr_iii_pull_all:
+  n: 101380
+  chi2_per_row: 2.434115090571692
+  frac_abs_lt3: 0.995423160386664
+pr_iii_pull_m1_inside_grid_4sigma:
+  n: 88975
+  chi2_per_row: 0.380448540528617
+  frac_abs_lt3: 0.9977746558021916
+pr_iii_pull_m1_near_grid_edge:
+  n: 12405
+  chi2_per_row: 17.164061184089036
+  frac_abs_lt3: 0.9785570334542523
+membership:
+  ours_bh: 177
+  table2: 177
+  both: 175
+  ours_only:
+  - 4384513795007410048
+  - 4690739122056717184
+  table2_only:
+  - 1683575679079854848
+  - 4566039969296448128
+  ours_fixed_threshold: 177
+membership_differences:
+- source_id: 4690739122056717184
+  m1: 0.5295103192329407
+  A: 0.699842665695212
+  n_below_published: 17.0
+  n_draws: 100000
+  n_class3: 99990
+  pull_n_below: -1.2005921506678765
+  in_table2: false
+- source_id: 1683575679079854848
+  m1: 0.9478687047958374
+  A: 0.721500248853663
+  n_below_published: 14.0
+  n_draws: 100000
+  n_class3: 99982
+  pull_n_below: 0.7559818666014019
+  in_table2: true
+- source_id: 4384513795007410048
+  m1: 1.2274713516235352
+  A: 0.836564091474974
+  n_below_published: 17.0
+  n_draws: 100000
+  n_class3: 99990
+  pull_n_below: -1.2005921506678765
+  in_table2: false
+- source_id: 4566039969296448128
+  m1: 0.5142753720283508
+  A: 0.671564571019416
+  n_below_published: 16.0
+  n_draws: 100000
+  n_class3: 99973
+  pull_n_below: 1.9446992304249753
+  in_table2: true

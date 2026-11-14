@@ -32,7 +32,8 @@ OMP_NUM_THREADS=1 nice .venv/bin/python scripts/reproduce_shahaf2023b_class3_682
   --out-dir <out> --workers 6
 ```
 
-The `binary_masses` and Table 1 snapshots used here were fetched into the session scratchpad, not `data/`. Before the
+The run is deterministic: two runs gave identical counts for every source. Definition SHA-256: `cb9a7641…`. The run
+summary is `docs/gate682/summary.yaml`. The `binary_masses` and Table 1 snapshots used here were fetched into the session scratchpad, not `data/`. Before the
 gate can be rerun from `data/`, the operator must run `scripts/fetch_shahaf2023b_triage_inputs.py`.
 
 ## Per-step agreement (real DR3)
