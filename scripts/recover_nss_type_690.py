@@ -30,6 +30,7 @@ from darkhunter_pop import epoch_model as em
 from darkhunter_pop import joint_refit as jr
 from darkhunter_pop import proposal_set as ps
 from darkhunter_pop.config_loader import load_config
+from run_proposal_pilot import build_epoch_setup  # scripts/ is on sys.path when run as a script
 
 
 def recover_labels(truth: dict, outcome: dict, attrs: dict, st: object, base_seed: int) -> np.ndarray:
@@ -65,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     gcfg = ps.ProposalConfig.model_validate_json(attrs["proposal_config_json"])
     cfg = load_config()
-    epoch = ps.build_epoch_setup(cfg, gcfg)
+    epoch = build_epoch_setup(cfg, gcfg)
     st = epoch.config.solution_type_model
     if st is None or epoch.config.source_noise_scale is not None or epoch.config.source_sigma_a0_scale is not None:
         print("refusing: current epoch config has ss1 / sa1 on or no solution_type_model; recovery would not be exact")
