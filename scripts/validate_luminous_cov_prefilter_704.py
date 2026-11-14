@@ -121,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{path}: generation {gen} not in validation.generations {list(ccfg.validation.generations)}")
         prop = ps.ProposalConfig.model_validate_json(attrs["proposal_config_json"])
         parent = ps.load_parent_snapshot(a.parent_dir, cfg, prop)
+        if str(parent.meta["parent_h5_sha256"]) != str(attrs.get("parent_h5_sha256")):
+            raise SystemExit(f"{path}: --parent-dir checksum differs from the artifact's parent ({attrs.get('parent_snapshot_dir')})")
         rows = mock_draws_to_selection_rows(truth, outcome, parent_columns=parent.columns, config=cfg, include_orbit=True,
                                             max_rows=a.max_rows)
         del truth, outcome
