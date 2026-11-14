@@ -44,6 +44,7 @@ import yaml
 from numpy.typing import ArrayLike, NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from darkhunter_pop.constants import JULIAN_YEAR_DAYS
 from darkhunter_pop.physics_utils import astrometric_mass_ratio_function, photocenter_a0_from_thiele_innes
 
 #: Frozen definition (paper thresholds, MC settings, decision rule, supplementary limiting curves).
@@ -276,9 +277,9 @@ def amrf(
     parallax_mas: ArrayLike, period_day: ArrayLike, m1_msun: ArrayLike, definition: TriageDefinition,
 ) -> NDArray[np.float64]:
     """Eq. (1) ``A = (a0/ϖ) M1^{-1/3} (P/yr)^{-2/3}`` with ``a0`` from the Thiele–Innes constants (NaN if undefined)."""
-    if definition.amrf.year_day != 365.25:
-        # physics_utils.astrometric_mass_function fixes the Julian year; a different convention needs its own path.
-        raise ValueError(f"amrf.year_day {definition.amrf.year_day} is not the physics_utils Julian year 365.25")
+    if definition.amrf.year_day != JULIAN_YEAR_DAYS:
+        # physics_utils.astrometric_mass_function uses the Julian year; a different convention needs its own path.
+        raise ValueError(f"amrf.year_day {definition.amrf.year_day} is not the Julian year {JULIAN_YEAR_DAYS}")
     a0 = photocenter_a0_from_thiele_innes(a_ti, b_ti, f_ti, g_ti)
     return astrometric_mass_ratio_function(a0, parallax_mas, period_day, m1_msun)
 
@@ -479,6 +480,7 @@ def attach_class3_columns(
     m1_sigma_key: str,
     m1_source: str,
     parent_status: str,
+    significance_key: str = "significance",
 ) -> list[dict[str, Any]]:
     """Copy ``rows`` with the reimplemented class-III columns (fixed-threshold decision, §4 equivalent).
 
@@ -488,13 +490,14 @@ def attach_class3_columns(
     ``mock_orbit_solution``); M1 is ``row[m1_key] ± row[m1_sigma_key]`` (symmetric interval). Rows failing the
     orbit parent cuts (all §3.1 cuts except ``binary_masses``, which the caller reports in ``parent_status``) get
     ``COLUMN_CLASS3 = False``; rows without an orbit covariance or finite M1 get a ``NotApplicable`` reason, never a
-    guess. ``source_id`` seeds the per-row stream.
+    guess. ``source_id`` seeds the per-row stream. ``significance_key`` names the astrometric a0/σa0 column (mock
+    rows: ``mock_significance_a0``, since the evaluator aliases ``significance`` to the SB1 ``k1_significance``).
     """
     from darkhunter_pop.luminous_covariance import excluded_reason, is_excluded_status
     from darkhunter_pop.sample_selection import NotApplicable
 
     cut_columns = (
-        "nss_solution_type", "period", "eccentricity_error", "parallax", "parallax_error", "significance",
+        "nss_solution_type", "period", "eccentricity_error", "parallax", "parallax_error", significance_key,
         *(f"{x}_thiele_innes{s}" for x in "abfg" for s in ("", "_error")),
     )
     out: list[dict[str, Any]] = []
@@ -506,7 +509,7 @@ def attach_class3_columns(
             new[COLUMN_CLASS3] = NotApplicable("shahaf2023b_missing_parent_columns")
             out.append(new)
             continue
-        cols = {k: np.asarray([row[k]]) for k in cut_columns}
+        cols = {("significance" if k == significance_key else k): np.asarray([row[k]]) for k in cut_columns}
         in_parent = bool(parent_mask(parent_cut_masks(cols, definition, binary_masses=False))[0])
         m1 = float(row.get(m1_key, float("nan")))
         sig = float(row.get(m1_sigma_key, float("nan")))

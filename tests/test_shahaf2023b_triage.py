@@ -202,7 +202,8 @@ def test_mock_adapter_emits_class3_columns(small: tri.TriageDefinition) -> None:
         mock_draws_to_selection_rows(truth, outcome, pipeline_m1=m1, shahaf_triage=definition)
     rows = mock_draws_to_selection_rows(truth, outcome, pipeline_m1=m1, include_orbit=True, shahaf_triage=definition)
     a0 = float(photocenter_a0_from_thiele_innes(1.9, 0.3, -0.3, 1.9))
-    assert rows[0]["significance"] == pytest.approx(a0 / 0.01)
+    assert rows[0]["mock_significance_a0"] == pytest.approx(a0 / 0.01)
+    assert "significance" not in rows[0]  # the evaluator would alias it to the SB1 k1_significance
     for row in rows[:2]:  # Orbital and AstroSpectroSB1 both enter the S23 parent
         assert row[tri.COLUMN_CLASS3] is True
         assert row[tri.COLUMN_N_BELOW] == 0 and row[tri.COLUMN_N_DRAWS] == definition.monte_carlo.n_draws

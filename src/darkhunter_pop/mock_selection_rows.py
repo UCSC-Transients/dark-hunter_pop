@@ -25,7 +25,7 @@ into a ``.nss_type.h5`` sidecar for older generations, MOCK_POPULATION_SPEC §3.
 then selects: El-Badry 2024 / 2026 take Orbital + AstroSpectroSB1, Andrews takes Orbital only. Without the label the
 adapter raises :class:`MissingSolutionTypeError`: it will not guess which draws are SB1-routed, because that would put
 SB1-routed draws into Andrews. The SB1 RV channel itself is not simulated (the type is a calibrated routing of the
-astrometric fit, EPOCH_MODEL_SPEC §8.16); there is no ``k1_*`` column (``significance`` is the astrometric a0/σa0 only), so the spectroscopic branch
+astrometric fit, EPOCH_MODEL_SPEC §8.16); there is no ``k1_*`` / ``significance`` column, so the spectroscopic branch
 of El-Badry 2026 stays not evaluable (Q6).
 
 Column provenance (real column <- mock quantity)
@@ -45,7 +45,6 @@ real DR3 / evaluator column        mock quantity
 ``period``, ``period_day``         cascade ``period`` (fit, d); ``period_error`` <- ``sig_period``
 ``eccentricity``                   cascade ``ecc``; ``eccentricity_error`` <- ``sig_ecc``
 ``a_thiele_innes`` (+ ``_error``)  cascade ``A`` (``sig_A``), likewise ``b``/``B``, ``f``/``F``, ``g``/``G`` (mas)
-``significance``                   cascade ``a0_mas / sigma_a0_mas`` (the DR3 NSS a0/σa0; #682)
 ``goodness_of_fit``                cascade ``F2`` (the DR3 orbital ``goodness_of_fit`` statistic; its
                                    calibration is a known limitation, EPOCH_MODEL_SPEC §8.16)
 ``ruwe``                           cascade ``ruwe`` (modified RUWE = UWE / u0)
@@ -99,7 +98,8 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
 
 Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a frozen cut:
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
-``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
+``mock_m1_row_msun`` (the proposal's parent-row M1, MIST), ``mock_significance_a0`` (cascade a0 / σ_a0, the astrometric
+DR3 ``significance``; not emitted as ``significance``, which the evaluator aliases to the SB1 ``k1_significance``; #682),
 ``mock_is_dark``, ``mock_co_component`` (-1 for a luminous generation, #706), ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
 ``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681),
 plus ``mock_orbit_cov_status`` for a luminous generation read with its #704 covariance sidecar. The one
@@ -264,7 +264,8 @@ def mock_draws_to_selection_rows(
 
     col = {name: cascade[idx, k] for k, name in enumerate(CASCADE_COLUMNS)}
     with np.errstate(divide="ignore", invalid="ignore"):
-        # DR3 NSS ``significance`` = a0 / sigma_a0 (astrometric orbits); NaN where sigma_a0 is not positive.
+        # The astrometric a0 / sigma_a0 (what DR3 ``significance`` is for an orbit). Kept mock-only: the evaluator
+        # aliases ``significance`` to the SB1 ``k1_significance``, which the mock does not simulate (Q6).
         significance = np.where(_finite_positive(col["sigma_a0_mas"]), col["a0_mas"] / col["sigma_a0_mas"], np.nan)
     g = np.asarray(truth["phot_g_mean_mag"], dtype=np.float64)[idx]
     bp_rp = np.asarray(truth["sys_bp_rp"], dtype=np.float64)[idx]
@@ -327,7 +328,7 @@ def mock_draws_to_selection_rows(
         for real, casc in _CASCADE_TO_ROW:
             row[real] = float(col[casc][i])
         if np.isfinite(significance[i]):
-            row["significance"] = float(significance[i])
+            row["mock_significance_a0"] = float(significance[i])
         row["parallax_mas"] = row["parallax"]
         row["period_day"] = row["period"]
         row["phot_g_mean_mag"] = float(g[i])
@@ -371,6 +372,7 @@ def mock_draws_to_selection_rows(
 
         rows = attach_class3_columns(
             rows, shahaf_triage, orbit_key="mock_orbit_solution", m1_key="pipeline_m1_msun",
+            significance_key="mock_significance_a0",
             m1_sigma_key="pipeline_m1_sigma_msun", m1_source=MOCK_M1_SOURCE, parent_status=MOCK_PARENT_STATUS,
         )
     return rows
