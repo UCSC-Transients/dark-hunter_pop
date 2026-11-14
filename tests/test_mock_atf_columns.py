@@ -29,6 +29,7 @@ from darkhunter_pop.mock_atf_columns import (
     compute_atf_columns,
     mock_orbit_to_atf_frame,
     mock_orbit_to_atf_inputs,
+    wrap_phase_to_dr3_window,
 )
 from darkhunter_pop.mass_derivation import pipeline_tag10_m1
 from darkhunter_pop.proposal_set import ORBIT_PARAMETER_NAMES
@@ -98,10 +99,56 @@ def test_slot_values_land_in_the_named_atf_slot() -> None:
     cov2[ia, ig] = cov2[ig, ia] = 0.3
     _m, c2 = mock_orbit_to_atf_frame(p0, cov2, ATF_ORDER)
     assert c2[ATF_ORDER.index("a_thiele_innes"), ATF_ORDER.index("g_thiele_innes")] == 0.3
-    # t_periastron = phi_p P / 2 pi
+    # t_periastron = phi_p P / 2 pi, phi_p wrapped into DR3's [-pi, pi] window (#691)
+    phi = p0[MOCK_ORBIT_NAMES.index("phi_p")]
     assert means[ATF_ORDER.index("t_periastron")] == pytest.approx(
-        p0[MOCK_ORBIT_NAMES.index("phi_p")] * p0[MOCK_ORBIT_NAMES.index("period")] / _TWO_PI
+        float(wrap_phase_to_dr3_window(phi)) * p0[MOCK_ORBIT_NAMES.index("period")] / _TWO_PI
     )
+
+
+def test_wrap_phase_to_dr3_window() -> None:
+    """Whole turns only, into [-pi, pi]; values already inside (ends included) are untouched (#691)."""
+    inside = np.array([-math.pi, -1.0, 0.0, 0.5, math.pi])
+    np.testing.assert_array_equal(wrap_phase_to_dr3_window(inside), inside)
+    outside = np.array([1.5 * math.pi, 2.0 * math.pi - 1e-9, -1.5 * math.pi, 80.0, -80.0])
+    wrapped = wrap_phase_to_dr3_window(outside)
+    assert np.all(np.abs(wrapped) <= math.pi)
+    turns = (outside - wrapped) / _TWO_PI
+    np.testing.assert_allclose(turns, np.round(turns), atol=1e-12)
+
+
+def test_t_periastron_uses_dr3_window_and_exact_shifted_covariance() -> None:
+    """phi_p in (pi, 2 pi) gives T_p - P in [-P/2, P/2]: means and covariance are the linear shift T_p -> T_p - P.
+
+    DR3 publishes the periastron passage nearest 2016.0 (T_p in [-P/2, P/2]); gaiamock stores phi_p in [0, 2 pi).
+    The 12-D covariance gate is not invariant to the window, so the mock must use DR3's (#691).
+    """
+    rng = np.random.default_rng(7)
+    a = rng.normal(size=(12, 12))
+    cov = a @ a.T + 12.0 * np.eye(12)
+    it, ip = ATF_ORDER.index("t_periastron"), ATF_ORDER.index("period")
+    k_phi, k_p = MOCK_ORBIT_NAMES.index("phi_p"), MOCK_ORBIT_NAMES.index("period")
+    p0 = np.abs(rng.normal(size=12)) + 1.0
+    period = 1300.0
+    p0[k_p] = period
+    for phi in (1.2 * math.pi, 1.9 * math.pi):
+        p0[k_phi] = phi
+        means, cc = mock_orbit_to_atf_frame(p0, cov, ATF_ORDER)
+        assert -period / 2 <= means[it] <= period / 2
+        assert means[it] == pytest.approx(phi * period / _TWO_PI - period)
+        # unwrapped [0, P) propagation, then the exact shift T_p -> T_p - P
+        perm = [MOCK_ORBIT_NAMES.index(ATF_FROM_MOCK[name]) for name in ATF_ORDER]
+        c = cov[np.ix_(perm, perm)]
+        jac = np.eye(12)
+        jac[it, it] = period / _TWO_PI
+        jac[it, ip] = phi / _TWO_PI
+        shift = np.eye(12)
+        shift[it, ip] = -1.0
+        np.testing.assert_allclose(cc, shift @ jac @ c @ jac.T @ shift.T, rtol=1e-12, atol=1e-9)
+    # inside the window: unchanged T_p = phi_p P / 2 pi
+    p0[k_phi] = 0.4 * math.pi
+    means, _cc = mock_orbit_to_atf_frame(p0, cov, ATF_ORDER)
+    assert means[it] == pytest.approx(0.2 * period)
 
 
 def test_wrong_parameter_set_is_refused() -> None:
