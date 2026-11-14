@@ -416,7 +416,8 @@ def class_probabilities(
     n_target = mc.n_draws
     n_done = n_c2 = n_c3 = 0
     while n_done < n_target:
-        x = mu + orbit_rng.standard_normal((mc.chunk_draws, len(ORBIT_PARAMETERS))) @ root.T
+        # einsum, not BLAS matmul: a 7x7 product gains nothing from BLAS threads and oversubscribes worker pools
+        x = mu + np.einsum("nk,jk->nj", orbit_rng.standard_normal((mc.chunk_draws, len(ORBIT_PARAMETERS))), root)
         ecc = x[:, _I_E]
         x = x[(ecc >= e_lo) & (ecc < e_hi)][: n_target - n_done]
         if x.shape[0] == 0:

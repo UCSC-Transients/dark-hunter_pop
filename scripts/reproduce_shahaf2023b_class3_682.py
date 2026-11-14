@@ -13,7 +13,7 @@ Inputs (read-only): the NSS enrichment ECSV (``corr_vec`` / ``bit_index`` / ``si
 ``gaiadr3.binary_masses`` ECSV and the VizieR ``J/MNRAS/518/2991`` ``table1`` / ``table2`` ECSVs
 (``scripts/fetch_shahaf2023b_triage_inputs.py``). Writes ``summary.yaml`` and ``per_source.csv`` to ``--out-dir``.
 
-Heavy: ~1e5 sources x 1e5 draws; run under ``nice`` with ``--workers``.
+Heavy: ~1e5 sources x 1e5 draws; run under ``nice`` with ``--workers`` (each worker pins BLAS to one thread).
 """
 
 from __future__ import annotations
@@ -55,6 +55,9 @@ def _read_table(path: Path) -> pd.DataFrame:
 
 def _init(def_path: str) -> None:
     global _DEF
+    from threadpoolctl import threadpool_limits
+
+    threadpool_limits(1)  # 7x7 products per chunk: BLAS threads only oversubscribe the pool (#408)
     _DEF = tri.load_definition(def_path)
 
 
