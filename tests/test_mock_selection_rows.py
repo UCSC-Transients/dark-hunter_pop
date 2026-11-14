@@ -227,3 +227,27 @@ def test_parent_filters_split_orbital_and_sb1(registry: SampleSelectionRegistry,
         assert sb1_id in res.outcomes_by_source
     elb = _selection(registry, "elbadry2026").evaluate(rows)
     assert sb1_id in elb.surviving_source_ids  # the SB1-routed draw passes primary_ns_bh like draw 0
+
+
+def test_logg_emulator_fills_the_andrews_giant_logg_column(rows: list[dict[str, Any]]) -> None:
+    """#680: with the emulator every row carries the emulated GSP-Phot log g, seeded per (generation, draw_index)."""
+    from darkhunter_pop.gspphot_logg_emulator import load_emulator
+
+    emu = load_emulator()
+    col = emu.output_column
+    assert all(col not in r for r in rows)  # absent without the emulator
+    truth, outcome = _draws()
+    with pytest.raises(ValueError, match="generation"):
+        mock_draws_to_selection_rows(truth, outcome, logg_emulator=emu, **_kw())
+    truth["generation"] = np.full(_N, 3, dtype=np.int64)
+    got = mock_draws_to_selection_rows(truth, outcome, logg_emulator=emu, **_kw())
+    assert all(r["mock_logg_emulator"] == emu.version for r in got)
+    vals = np.array([r[col] for r in got])
+    ids = np.array([r["source_id"] for r in got])
+    exp = emu.emulate(
+        [r["phot_g_mean_mag"] for r in got], [r["bp_rp"] for r in got], [r["abs_g_mag"] for r in got],
+        generation=3, draw_index=ids,
+    ).logg
+    np.testing.assert_array_equal(vals, exp)
+    again = np.array([r[col] for r in mock_draws_to_selection_rows(truth, outcome, logg_emulator=emu, **_kw())])
+    np.testing.assert_array_equal(vals, again)

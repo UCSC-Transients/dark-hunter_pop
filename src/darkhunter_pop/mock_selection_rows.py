@@ -75,7 +75,11 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
   ``requires_defined`` ATF cut makes every row not applicable (so the chain stops there); the later ATF cuts
   that name an ``andrews_atf_*`` column directly raise ``CutExpressionError`` (unbound name) if run on their own.
   :func:`classify_cuts` reports both, never silently.
-* GSP-Phot ``logg_apsis`` / ``logg_gspphot`` (#680).
+* GSP-Phot log g: emitted only with ``logg_emulator`` (#680): the row then carries the emulator's ``output_column``
+  (``logg_vizier_apsis``, the column Andrews' ``atf_giant_reject_logg`` reads through ``mock_atf_columns``), NaN where
+  the emulator draws "undefined" as the real column is, plus ``mock_logg_emulator`` (version). The emulator
+  (:mod:`darkhunter_pop.gspphot_logg_emulator`) is statistical, conditioned on the row's ``phot_g_mean_mag``,
+  ``bp_rp`` and ``abs_g_mag`` and seeded per ``(truth/generation, draw_index)``; it never reads the truth log g.
 * El-Badry 2026 ``sigma_m2_astrometric_msun`` (#681) needs ``include_orbit=True``: the evaluator's own analytic
   routine then reads the row's ``mock_orbit_solution`` (:func:`mock_orbit_parameter_set` of ``mock_orbit_p0`` / ``mock_orbit_cov``) instead of
   the real NSS enrichment index (a synthetic id never matches it). Without the orbit arrays the ``m2_error`` cut is
@@ -173,6 +177,7 @@ def mock_draws_to_selection_rows(
     config: Any | None = None,
     include_orbit: bool = False,
     max_rows: int | None = None,
+    logg_emulator: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Map mock draws to ``sample_selection`` rows (module docstring: provenance table).
 
@@ -198,6 +203,11 @@ def mock_draws_to_selection_rows(
         applicable with that reason (the Andrews mark is set by ``mock_atf_columns.mock_rows_atf_columns``).
     max_rows
         Keep at most this many accepted-Orbital rows (first in draw order); smoke use only.
+    logg_emulator
+        A :class:`darkhunter_pop.gspphot_logg_emulator.GspPhotLoggEmulator` (``load_emulator()``). When given, every
+        row gets the emulated GSP-Phot log g in ``logg_emulator.output_column`` (NaN = undefined) and
+        ``mock_logg_emulator``; needs ``truth/generation`` (#680). Without it the column is absent and Andrews'
+        ``atf_giant_reject_logg`` passes every mock row (``mock_atf_columns`` warns).
 
     Returns
     -------
@@ -268,6 +278,15 @@ def mock_draws_to_selection_rows(
                else np.full(idx.size, LUMINOUS_CO_COMPONENT, dtype=np.int64))
     p_truth = np.asarray(truth["period_days"], dtype=np.float64)[idx]
     evolved = np.asarray(truth["sys_evolved"], dtype=bool)[idx]
+    logg_emu = None
+    if logg_emulator is not None:
+        if "generation" not in truth:
+            raise ValueError("logg_emulator needs truth/generation (the per-draw seed is (generation, draw_index))")
+        logg_emu = logg_emulator.emulate(
+            g, bp_rp, abs_g, generation=np.asarray(truth["generation"], dtype=np.int64)[idx], draw_index=draw_index
+        ).logg
+    else:
+        logger.info("mock rows: no GSP-Phot log g emulator given; the giant log g column is absent (#680)")
     p0 = cov = status = None
     if include_orbit:
         p0 = np.asarray(outcome["orbit_p0"], dtype=np.float64)[idx]
@@ -309,6 +328,9 @@ def mock_draws_to_selection_rows(
         row["mock_co_component"] = int(co_comp[i])
         row["mock_period_days"] = float(p_truth[i])
         row["mock_sys_evolved"] = bool(evolved[i])
+        if logg_emu is not None:
+            row[logg_emulator.output_column] = float(logg_emu[i])
+            row["mock_logg_emulator"] = logg_emulator.version
         if status is not None:
             row["mock_orbit_cov_status"] = str(status[i])
             if is_excluded_status(status[i]):  # #704: outside the validated pre-filter; never a covariance stand-in

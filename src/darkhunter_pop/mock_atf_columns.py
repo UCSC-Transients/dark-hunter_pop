@@ -44,12 +44,14 @@ Gaia row's TAG10 posterior: :func:`parent_tag10_m1` runs ``pipeline_tag10_m1`` (
 uses) on the parent row's atmosphere columns. The caller passes ``(M1, sigma_M1)`` per row; a row without one
 falls back to the notebook's Uniform(0.63, 1.0), exactly as a real row without an atmosphere.
 
-Known limitation (#680)
------------------------
-``andrews_atf_logg`` (GSP-Phot log g, ``logg_vizier_apsis`` in the real chain) is NaN on mock rows and
-``andrews_atf_mass_flame`` is NaN (unused in ``forward_model``). ``atf_giant_reject_logg`` treats an undefined
-log g as a pass, so until #680 it removes no mock row while it removes giants from the real data. The CMD giant cut
-(``atf_giant_reject_cmd``) is evaluated: G_abs and BP-RP come from the system G and ``bp_rp`` of the mock row.
+Giant log g (#680)
+------------------
+``andrews_atf_logg`` is read from the mock row's ``pass2.giant_logg_column`` (``logg_vizier_apsis``), which
+``mock_selection_rows.mock_draws_to_selection_rows(..., logg_emulator=load_emulator())`` fills with the emulated
+GSP-Phot log g (:mod:`darkhunter_pop.gspphot_logg_emulator`; NaN = undefined, as the real column). A row without
+that column gets NaN and is counted in a warning: ``atf_giant_reject_logg`` treats an undefined log g as a pass, so
+such rows are never removed as giants. ``andrews_atf_mass_flame`` stays NaN (unused in ``forward_model``). The CMD
+giant cut (``atf_giant_reject_cmd``) is evaluated: G_abs and BP-RP come from the system G and ``bp_rp`` of the row.
 """
 
 from __future__ import annotations
@@ -162,11 +164,13 @@ def mock_orbit_to_atf_inputs(
     bp_rp: float,
     pipeline_m1_msun: float = float("nan"),
     pipeline_m1_sigma_msun: float = float("nan"),
+    logg: float = float("nan"),
 ) -> AtfSourceInputs:
     """:class:`AtfSourceInputs` of one mock row (module docstring); the ATF functions take it unchanged.
 
     ``BP`` / ``RP`` are set to ``G + bp_rp`` / ``G`` so the notebook's ``BP_abs - RP_abs`` is the mock's observed
-    ``bp_rp`` (the notebook CMD cut uses no extinction correction). ``logg`` and FLAME are NaN (#680).
+    ``bp_rp`` (the notebook CMD cut uses no extinction correction). ``logg`` is the row's emulated GSP-Phot log g
+    (#680; NaN = undefined); FLAME is NaN.
     """
     order = list(proc.covariance.parameter_order)
     means, cc = mock_orbit_to_atf_frame(p0, cov, order)
@@ -182,7 +186,7 @@ def mock_orbit_to_atf_inputs(
         corr_vec = np.full(n * (n - 1) // 2, np.nan)
     return AtfSourceInputs(
         source_id=int(source_id), means=means, errors=sigma, corr_vec=corr_vec,
-        goodness_of_fit=float(goodness_of_fit), mass_flame=float("nan"), logg=float("nan"),
+        goodness_of_fit=float(goodness_of_fit), mass_flame=float("nan"), logg=float(logg),
         g_mag=float(g_mag), bp_mag=float(g_mag) + float(bp_rp), rp_mag=float(g_mag),
         pipeline_m1_msun=float(pipeline_m1_msun), pipeline_m1_sigma_msun=float(pipeline_m1_sigma_msun),
     )
@@ -310,8 +314,8 @@ def mock_rows_atf_columns(
 
     ``m1_msun`` / ``m1_sigma_msun`` are the per-row data-side TAG10 posterior (:func:`parent_tag10_m1`). Returns
     ``{source_id: columns}`` ready for ``SampleSelection``'s ``reproduction_columns_loader`` (mock ``source_id`` is
-    the draw index; pass-2 randomness is seeded by it, as the real ATF seeds by the Gaia id). The logg column is
-    NaN (#680).
+    the draw index; pass-2 randomness is seeded by it, as the real ATF seeds by the Gaia id). ``andrews_atf_logg``
+    is the row's ``pass2.giant_logg_column`` (the #680 emulated log g); rows without it get NaN (warned, counted).
 
     A luminous row outside the #704 pre-filter (``mock_orbit_cov_status`` ``prefilter_excluded:<version>``) has no
     orbit covariance: it gets :func:`prefilter_excluded_atf_columns` (the covariance-free static columns computed,
@@ -327,6 +331,13 @@ def mock_rows_atf_columns(
         raise ValueError("m1_msun / m1_sigma_msun must have one entry per row")
     inputs = []
     excluded: dict[int, dict[str, Any]] = {}
+    logg_col = proc.pass2.giant_logg_column
+    n_no_logg = sum(1 for r in rows if logg_col not in r)
+    if n_no_logg:
+        logger.warning(
+            "mock ATF: %d / %d rows carry no %s (no #680 emulator): atf_giant_reject_logg passes them",
+            n_no_logg, len(rows), logg_col,
+        )
     for k, r in enumerate(rows):
         if is_excluded_status(r.get("mock_orbit_cov_status")):
             excluded[int(r["source_id"])] = prefilter_excluded_atf_columns(r, proc=proc, threshold=m2_threshold_msun(spec))
@@ -338,6 +349,7 @@ def mock_rows_atf_columns(
                 int(r["source_id"]), r["mock_orbit_p0"], r["mock_orbit_cov"], proc=proc,
                 goodness_of_fit=r["goodness_of_fit"], g_mag=r["g_mag"], bp_rp=r["bp_rp"],
                 pipeline_m1_msun=mu[k], pipeline_m1_sigma_msun=sg[k],
+                logg=float(r.get(logg_col, float("nan"))),
             )
         )
     cols = compute_atf_columns(
@@ -371,7 +383,8 @@ def prefilter_excluded_atf_columns(
     means[order.index("parallax")] = float(row.get("parallax", np.nan))
     inputs = AtfSourceInputs(
         source_id=int(row["source_id"]), means=means, errors=np.full(n, np.nan), corr_vec=np.full(n * (n - 1) // 2, np.nan),
-        goodness_of_fit=float(row["goodness_of_fit"]), mass_flame=float("nan"), logg=float("nan"),
+        goodness_of_fit=float(row["goodness_of_fit"]), mass_flame=float("nan"),
+        logg=float(row.get(proc.pass2.giant_logg_column, float("nan"))),
         g_mag=float(row["g_mag"]), bp_mag=float(row["g_mag"]) + float(row["bp_rp"]), rp_mag=float(row["g_mag"]),
     )
     cols = {**static_columns(inputs, proc), **empty_pass2_columns(), **run_pass1(inputs, proc, m2_threshold=threshold)}
