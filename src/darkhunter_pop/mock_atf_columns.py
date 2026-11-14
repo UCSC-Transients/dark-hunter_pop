@@ -26,10 +26,15 @@ A non-finite covariance gives NaN errors, so the notebook covariance gate reject
 diagonal fallback).
 
 The one non-identity slot is ``t_periastron``: gaiamock's nonlinear parameter is the phase angle ``phi_p`` (rad),
-DR3's is a time in days. It is mapped with the linearised ``T_p = phi_p P / (2 pi)`` (covariance propagated with
-the Jacobian, sign and epoch origin immaterial). ``t_periastron`` does not enter ``m_f``, ``M2`` or any Andrews
-cut; it only enters the 12-D covariance gate and the draw stream, and the 11 other parameters keep their exact
-marginal covariance. This is an assumption of the mock path, not of the real-row path.
+DR3's is a time in days. gaiamock's mean anomaly is ``2 pi t / P - phi_p`` with ``t`` in days since 2016.0
+(JD 2457389.0), DR3's ``t_periastron`` reference epoch, so ``T_p = phi_p P / (2 pi)`` (covariance propagated with
+the Jacobian). The stored ``phi_p`` lies in ``[0, 2 pi)``, i.e. ``T_p`` in ``[0, P)``, while DR3 publishes the
+periastron passage nearest 2016.0, ``T_p`` in ``[-P/2, P/2]``. The orbit is 2 pi periodic in ``phi_p``, but the
+covariance is not invariant to the window (``T_p + P`` adds ``var(P) + 2 cov(T_p, P)``), and the 12-D covariance
+gate is not invariant to that (#691). So ``phi_p`` is first wrapped to ``[-pi, pi]`` (:func:`wrap_phase_to_dr3_window`;
+values already inside are untouched). ``t_periastron`` does not enter ``m_f``, ``M2`` or any Andrews cut; it only
+enters the 12-D covariance gate and the draw stream, and the 11 other parameters keep their exact marginal
+covariance. This is an assumption of the mock path, not of the real-row path.
 
 Pass-2 M1
 ---------
@@ -112,6 +117,19 @@ def _proposal_orbit_names() -> tuple[str, ...]:
     return tuple(ORBIT_PARAMETER_NAMES)
 
 
+def wrap_phase_to_dr3_window(phi_p: ArrayLike) -> NDArray[np.float64]:
+    """``phi_p`` (rad) shifted by a whole number of turns into ``[-pi, pi]``: DR3's ``t_periastron`` window (#691).
+
+    ``T_p = phi_p P / (2 pi)`` then lies in ``[-P/2, P/2]``, the periastron passage nearest the 2016.0 reference
+    epoch, as DR3 publishes it. Values already in ``[-pi, pi]`` (both ends included) are returned unchanged, so a
+    real DR3 ``t_periastron`` round-trips exactly. The orbit is unchanged (the mean anomaly is 2 pi periodic in
+    ``phi_p``).
+    """
+    phi = np.asarray(phi_p, dtype=np.float64)
+    # np.rint rounds half to even, so |phi| / 2 pi == 0.5 gives 0 turns: +-pi stay where they are.
+    return phi - _TWO_PI * np.rint(phi / _TWO_PI)
+
+
 def mock_orbit_to_atf_frame(
     p0: ArrayLike, cov: ArrayLike, parameter_order: Sequence[str]
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -125,7 +143,7 @@ def mock_orbit_to_atf_frame(
     means = p[perm].copy()
     cc = c[np.ix_(perm, perm)].copy()
     it, ip = list(parameter_order).index("t_periastron"), list(parameter_order).index("period")
-    phi, period = means[it], means[ip]
+    phi, period = float(wrap_phase_to_dr3_window(means[it])), means[ip]
     jac = np.eye(n)
     jac[it, it] = period / _TWO_PI
     jac[it, ip] = phi / _TWO_PI
