@@ -666,6 +666,20 @@ The sample-selection adapter (`mock_selection_rows`) requires the label: Andrews
 2026 take Orbital + AstroSpectroSB1. The SB1 RV channel is not simulated; the label is a calibrated routing of the
 astrometric fit.
 
+**Routing-version note (#696; Ryan, 2026-11-13, option 1; PROPOSED).** Unlike storing the label, **changing the
+routing parameters invalidates stored orbital-branch draws**. A draw that changes type gets the other type's σ offsets
+and F2 map (EPOCH_MODEL_SPEC §8.16), so its cascade and acceptance change. A routing change is therefore a new
+noise-model label (`…+st2` replaces `…+st1`) and is never mixed with the old one.
+- **Draws are replayed, not re-drawn.** The routing uniform comes from `(base_seed, stream, draw_index)` and P(ASB1 | x)
+  reads only type-independent cascade values, so the affected generations are replayed from their stored seeds: same
+  generation numbers, same draw_index and truth.
+- **The replay is written to new artifacts.** The st1 artifacts stay as history.
+- **A targeted replay re-simulates only the draws whose type changes.** Every other draw is bit-identical by
+  construction, and a verification subset of unchanged draws is re-simulated to confirm it. The tool is
+  `scripts/replay_routing_696.py`.
+- **Weights and every product built on the old label are rebuilt on the replays.** Reweighting cannot substitute,
+  because acceptance changes.
+
 ### 3.6 Effective sample size and the minimum per bin
 
 Per bin b (observed six-panel bin, solution-type class, or mass bin):

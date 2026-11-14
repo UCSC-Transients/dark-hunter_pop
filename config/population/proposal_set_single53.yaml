@@ -13,7 +13,7 @@
 # draw_index from 4,704,812 (gen 41 reserved 4,304,812-4,704,811). Not under config/fragments/.
 
 proposal:
-  noise_model: colour_v2.1+tr1+e2+st1    # #599 (EPOCH_MODEL_SPEC §8.13/§8.14/§8.16)
+  noise_model: colour_v2.1+tr1+e2+st2    # #696 replay recipe (was +st1, #599); EPOCH_MODEL_SPEC §8.16 st2
   generation: 53
   n_draws: 500000                  # gen 42: 90 CPU-h watcher / 10 h wall-clock stop; prefix assembled
   base_seed: 391
