@@ -135,11 +135,14 @@ def test_vectorized_routing_matches_scalar() -> None:
     k1 = em.predicted_k1_kms_array(c[:, 17], c[:, 0], c[:, 10], c[:, 14], c[:, 16])
     k1s = np.array([em.predicted_k1_kms(*c[i, [17, 0, 10, 14, 16]]) for i in range(g.size)])
     assert np.allclose(k1, k1s, rtol=1e-13)
-    p = st.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1)
-    ps_ = np.array([st.p_asb1(g[i], bp[i], c[i, 10], c[i, 14], k1s[i]) for i in range(g.size)])
-    assert np.allclose(p, ps_, rtol=1e-12, atol=1e-15)
-    st0 = dataclasses.replace(st, routing_delta_knots_g=(), routing_delta=())  # no intercept: P is the bare DR3 logistic
-    assert st0.delta(11.0) == 0.0 and not np.allclose(st0.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1), p)
+    st_d = dataclasses.replace(st, routing_delta_knots_g=(10.5, 12.5), routing_delta=(-0.5, -0.7))  # with an intercept δ(G)
+    st_0 = dataclasses.replace(st, routing_delta_knots_g=(), routing_delta=())  # without: the bare DR3 logistic (st2)
+    for s in (st_d, st_0):
+        p = s.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1)
+        ps_ = np.array([s.p_asb1(g[i], bp[i], c[i, 10], c[i, 14], k1s[i]) for i in range(g.size)])
+        assert np.allclose(p, ps_, rtol=1e-12, atol=1e-15)
+    assert st_0.delta(11.0) == 0.0
+    assert np.all(st_d.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1) <= st_0.p_asb1_array(g, bp, c[:, 10], c[:, 14], k1))
 
 
 def test_type_properties_array_matches_apply_and_inverts() -> None:
