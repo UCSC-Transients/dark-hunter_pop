@@ -77,7 +77,7 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
   :func:`classify_cuts` reports both, never silently.
 * GSP-Phot ``logg_apsis`` / ``logg_gspphot`` (#680).
 * El-Badry 2026 ``sigma_m2_astrometric_msun`` (#681) needs ``include_orbit=True``: the evaluator's own analytic
-  routine then reads the row's ``mock_orbit_p0`` / ``mock_orbit_cov`` (:func:`mock_orbit_parameter_set`) instead of
+  routine then reads the row's ``mock_orbit_solution`` (:func:`mock_orbit_parameter_set` of ``mock_orbit_p0`` / ``mock_orbit_cov``) instead of
   the real NSS enrichment index (a synthetic id never matches it). Without the orbit arrays the ``m2_error`` cut is
   not applicable, never a diagonal guess. ``main_sequence``, ``m1_tilde_msun``, ``m2_tilde_msun``, ``amrf``,
   ``amrf_threshold_elbadry2026`` and ``goodness_of_fit`` come from the evaluator's own enrichment
@@ -90,7 +90,7 @@ Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
 ``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
 ``mock_is_dark``, ``mock_co_component``, ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
-``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF, #681 sigma_M2).
+``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681).
 """
 
 from __future__ import annotations
@@ -293,6 +293,7 @@ def mock_draws_to_selection_rows(
         if p0 is not None and cov is not None:
             row["mock_orbit_p0"] = p0[i]
             row["mock_orbit_cov"] = cov[i]
+            row["mock_orbit_solution"] = mock_orbit_parameter_set(row)  # ParameterSet or None (#681)
         rows.append(row)
     logger.info("mock draws -> rows: %d draws, %d accepted-orbit rows (%d AstroSpectroSB1)", accepted.size, len(rows), int((nss == ASB1_SOLUTION_TYPE).sum()))
     return rows

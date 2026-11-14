@@ -191,7 +191,7 @@ def test_mock_columns_equal_real_row_columns(registry: SampleSelectionRegistry, 
 
 
 def test_no_orbit_no_sigma_and_no_diagonal(registry: SampleSelectionRegistry, monkeypatch: pytest.MonkeyPatch) -> None:
-    mock = [{k: v for k, v in r.items() if k not in ("mock_orbit_p0", "mock_orbit_cov")} for r in _mock_rows()]
+    mock = [{k: v for k, v in r.items() if not k.startswith("mock_orbit")} for r in _mock_rows()]
     sel = forward_model_selection(registry, "elbadry2026", extinction_lookup=_ConstantEbv(registry.cfg.dust_maps))
     monkeypatch.setattr(sel, "_nss_enrichment_index", lambda: {})
     assert all("sigma_m2_astrometric_msun" not in r for r in _run(sel, mock))
@@ -201,6 +201,7 @@ def test_orbit_parameter_set_rejects_bad_input() -> None:
     row = _mock_rows()[0]
     ps = mock_orbit_parameter_set(row)
     assert ps is not None and list(ps.names) == list(MOCK_ORBIT_NAMES)
+    assert row["mock_orbit_solution"] is not None
     bad = dict(row, mock_orbit_cov=np.full((12, 12), np.nan))
     assert mock_orbit_parameter_set(bad) is None
     skew = np.array(row["mock_orbit_cov"], copy=True)

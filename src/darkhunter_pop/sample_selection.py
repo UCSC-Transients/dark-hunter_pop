@@ -1157,7 +1157,7 @@ class SampleSelection:
         )
 
         enrich_index = self._nss_enrichment_index()
-        if not enrich_index and not any("mock_orbit_cov" in row for row in rows):
+        if not enrich_index and not any("mock_orbit_solution" in row for row in rows):
             return
         sigma_spec = self.spec.sigma_m2_tilde
         method = "monte_carlo" if sigma_spec is None else sigma_spec.method
@@ -1202,12 +1202,11 @@ class SampleSelection:
                 if fit_sigma is None:
                     continue
                 sigma_log_m1 = fit_sigma
-            if "mock_orbit_cov" in row:
-                # Mock row (#681): the cascade fit's own 12x12 covariance plays the role of the
-                # reconstructed NSS covariance; everything after this point is the real-row code.
-                from darkhunter_pop.mock_selection_rows import mock_orbit_parameter_set
-
-                parameter_set = mock_orbit_parameter_set(row)
+            if "mock_orbit_solution" in row:
+                # Mock row (#681): the cascade fit's own 12x12 covariance (a ParameterSet attached by
+                # mock_selection_rows, or None if unusable) plays the role of the reconstructed NSS
+                # covariance; everything after this point is the real-row code.
+                parameter_set = row["mock_orbit_solution"]
             else:
                 key = _enrichment_join_key(row)
                 extra = enrich_index.get(key)
