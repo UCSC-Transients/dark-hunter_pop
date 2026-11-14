@@ -213,9 +213,9 @@ re-fits them in its own cells, A > 0.5 included.
 - **Gate 5b** (closed loop) injects spurious amplitudes and WD rates away from the rung-3 values (N_s at 0.5×, 1× and 2×
   the π̂ sum; s_A at 0.3 and 3; A_ni and R_mt at ±1 e-fold) and must recover the dark heights within their intervals.
 
-### 2.7 Per-published-sample comparison (#671; DRAFT, for Ryan's decision)
+### 2.7 Per-published-sample comparison (#671; ACCEPTED 2026-11-13)
 
-**Status:** draft. Nothing here is implemented. This section supersedes the first #671 draft (H1: a luminous-star mass split). Ryan's
+**Status:** accepted 2026-11-13 (Ryan, PR #676). Nothing here is implemented. This section supersedes the first #671 draft (H1: a luminous-star mass split). Ryan's
 2026-11-13 decisions on PR #676 are binding and are listed first. The evidence is the #671 diagnostic note.
 
 **Terminology (Ryan, 2026-11-13).**
@@ -248,7 +248,11 @@ re-fits them in its own cells, A > 0.5 included.
   - **H4:** a **power-law dark mass function** dN/dM2 ∝ M2^−α. α is free by default; exactly Salpeter (α = 2.35) is the
     fixed-slope comparison. The binned heights are kept as a check. Spill-over across the M2_app edges is then modelled
     by the forward model, not assumed.
-- **H5** (gate 5d, plus a luminous top-up only if needed) is pending. Gate 5d itself is #675.
+- **H5 (decided):** a dark top-up is added only if gate 5d fails in the per-sample cells. Gate 5d itself is #675.
+- **P1 (decided, #682):** reimplement Shahaf et al. (2023b) AMRF class III so the 177-candidate membership is
+  reproduced exactly, so El-Badry 2024 can be forward-modelled.
+- **P2 (decided, #680):** a GSP-Phot log g emulator for Andrews' giant reject.
+- **P3 (decided):** El-Badry et al. (2023) Table E1 and the SB1 branch are comparison-only, never inference inputs.
 - **Reproduction status is accepted as good enough to proceed** (Ryan, 2026-11-13, via the orchestrator). The current
   Andrews and El-Badry 2026 differences are not blockers. #335 and #133 are later follow-ups. §2.7.3 records the numbers
   re-measured on `main`; they gate nothing.
