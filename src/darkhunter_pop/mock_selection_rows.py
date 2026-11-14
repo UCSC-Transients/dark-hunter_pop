@@ -25,7 +25,7 @@ into a ``.nss_type.h5`` sidecar for older generations, MOCK_POPULATION_SPEC §3.
 then selects: El-Badry 2024 / 2026 take Orbital + AstroSpectroSB1, Andrews takes Orbital only. Without the label the
 adapter raises :class:`MissingSolutionTypeError`: it will not guess which draws are SB1-routed, because that would put
 SB1-routed draws into Andrews. The SB1 RV channel itself is not simulated (the type is a calibrated routing of the
-astrometric fit, EPOCH_MODEL_SPEC §8.16); there is no ``k1_*`` / ``significance`` column, so the spectroscopic branch
+astrometric fit, EPOCH_MODEL_SPEC §8.16); there is no ``k1_*`` column (``significance`` is the astrometric a0/σa0 only), so the spectroscopic branch
 of El-Badry 2026 stays not evaluable (Q6).
 
 Column provenance (real column <- mock quantity)
@@ -45,6 +45,7 @@ real DR3 / evaluator column        mock quantity
 ``period``, ``period_day``         cascade ``period`` (fit, d); ``period_error`` <- ``sig_period``
 ``eccentricity``                   cascade ``ecc``; ``eccentricity_error`` <- ``sig_ecc``
 ``a_thiele_innes`` (+ ``_error``)  cascade ``A`` (``sig_A``), likewise ``b``/``B``, ``f``/``F``, ``g``/``G`` (mas)
+``significance``                   cascade ``a0_mas / sigma_a0_mas`` (the DR3 NSS a0/σa0; #682)
 ``goodness_of_fit``                cascade ``F2`` (the DR3 orbital ``goodness_of_fit`` statistic; its
                                    calibration is a known limitation, EPOCH_MODEL_SPEC §8.16)
 ``ruwe``                           cascade ``ruwe`` (modified RUWE = UWE / u0)
@@ -86,7 +87,13 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
   not applicable, never a diagonal guess. ``main_sequence``, ``m1_tilde_msun``, ``m2_tilde_msun``, ``amrf``,
   ``amrf_threshold_elbadry2026`` and ``goodness_of_fit`` come from the evaluator's own enrichment
   (``enrich_elbadry2026_row`` / ``attach_amrf_threshold``) on the observables above, unchanged.
-* ``shahaf2023b_*`` / AMRF class III (#682), Table E1 / Table 3 membership (external tables; no mock analogue).
+* Shahaf et al. (2023b) AMRF class III (#682): emitted only with ``shahaf_triage`` (and ``include_orbit``) as
+  ``shahaf2023b_class3_reimpl`` (+ ``shahaf2023b_p_iii``, ``shahaf2023b_n_below_atr``, ``shahaf2023b_n_draws``,
+  ``shahaf2023b_amrf_reimpl``, ``shahaf2023b_m1_source``, ``shahaf2023b_parent_status``) by
+  :mod:`darkhunter_pop.shahaf2023b_triage`. M1 is the TAG10 ``pipeline_m1_msun`` (the real S23 used the
+  ``gaiadr3.binary_masses`` IsocLum M1, which a mock does not have), and the IsocLum-availability parent cut is not
+  emulated; both are recorded per row. The catalogue columns ``shahaf2023b_m2min_msun`` etc. stay real-only.
+* Table E1 / Table 3 membership (external tables; no mock analogue).
 * Follow-up labels (``not_spurious`` etc.): catalog-level, SF_followup.
 * ``t_periastron``: the cascade stores a phase angle, not the DR3 epoch-based quantity; no cut reads it.
 
@@ -178,6 +185,7 @@ def mock_draws_to_selection_rows(
     include_orbit: bool = False,
     max_rows: int | None = None,
     logg_emulator: Any | None = None,
+    shahaf_triage: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Map mock draws to ``sample_selection`` rows (module docstring: provenance table).
 
@@ -208,6 +216,14 @@ def mock_draws_to_selection_rows(
         row gets the emulated GSP-Phot log g in ``logg_emulator.output_column`` (NaN = undefined) and
         ``mock_logg_emulator``; needs ``truth/generation`` (#680). Without it the column is absent and Andrews'
         ``atf_giant_reject_logg`` passes every mock row (``mock_atf_columns`` warns).
+
+    shahaf_triage
+        A :class:`darkhunter_pop.shahaf2023b_triage.TriageDefinition` (``load_definition()``, #682). When given (needs
+        ``include_orbit=True``), every row gets the reimplemented Shahaf et al. (2023b) class-III columns
+        (:func:`darkhunter_pop.shahaf2023b_triage.attach_class3_columns`: the §3.1 orbit cuts, the §3.3 Monte Carlo
+        on ``mock_orbit_solution`` with M1 = ``pipeline_m1_msun`` ± ``pipeline_m1_sigma_msun``, and the paper's
+        fixed-threshold equivalent of its FDR cut). The ``gaiadr3.binary_masses`` IsocLum parent cut has no mock
+        analogue and is recorded as ``shahaf2023b_parent_status = "binary_masses_not_emulated"``.
 
     Returns
     -------
@@ -247,6 +263,9 @@ def mock_draws_to_selection_rows(
         raise ValueError("draw_index is not unique: source_id would collide in the evaluator outcome tables")
 
     col = {name: cascade[idx, k] for k, name in enumerate(CASCADE_COLUMNS)}
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # DR3 NSS ``significance`` = a0 / sigma_a0 (astrometric orbits); NaN where sigma_a0 is not positive.
+        significance = np.where(_finite_positive(col["sigma_a0_mas"]), col["a0_mas"] / col["sigma_a0_mas"], np.nan)
     g = np.asarray(truth["phot_g_mean_mag"], dtype=np.float64)[idx]
     bp_rp = np.asarray(truth["sys_bp_rp"], dtype=np.float64)[idx]
     plx = col["plx"]
@@ -307,6 +326,8 @@ def mock_draws_to_selection_rows(
         }
         for real, casc in _CASCADE_TO_ROW:
             row[real] = float(col[casc][i])
+        if np.isfinite(significance[i]):
+            row["significance"] = float(significance[i])
         row["parallax_mas"] = row["parallax"]
         row["period_day"] = row["period"]
         row["phot_g_mean_mag"] = float(g[i])
@@ -343,6 +364,15 @@ def mock_draws_to_selection_rows(
             row["mock_orbit_solution"] = mock_orbit_parameter_set(row)  # ParameterSet or None (#681)
         rows.append(row)
     logger.info("mock draws -> rows: %d draws, %d accepted-orbit rows (%d AstroSpectroSB1)", accepted.size, len(rows), int((nss == ASB1_SOLUTION_TYPE).sum()))
+    if shahaf_triage is not None:
+        if not include_orbit:
+            raise ValueError("shahaf_triage needs include_orbit=True (the class-III Monte Carlo draws the orbit covariance)")
+        from darkhunter_pop.shahaf2023b_triage import MOCK_M1_SOURCE, MOCK_PARENT_STATUS, attach_class3_columns
+
+        rows = attach_class3_columns(
+            rows, shahaf_triage, orbit_key="mock_orbit_solution", m1_key="pipeline_m1_msun",
+            m1_sigma_key="pipeline_m1_sigma_msun", m1_source=MOCK_M1_SOURCE, parent_status=MOCK_PARENT_STATUS,
+        )
     return rows
 
 
