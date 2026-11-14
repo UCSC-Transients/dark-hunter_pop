@@ -1,0 +1,186 @@
+# Shahaf et al. (2023b), MNRAS 518, 2991 (arXiv:2209.00828v2): AMRF class-III triage of the Gaia DR3
+# astrometric orbits — the method definition reimplemented by darkhunter_pop.shahaf2023b_triage (#682).
+#
+# Frozen external definition. Every number is the paper's (section and equation cited per key) or the
+# authors' published supplementary table; nothing here was tuned to land on the 177-row Table 2.
+# Where the paper does not state a step, the value used is the reading that reproduces the authors'
+# own per-source Table 1 quantities (AMRF, AMRF_error, classII_prob, classIII_prob for all 101,380
+# clean-sample rows), and the alternatives are recorded under `readings:` with their measured effect
+# (docs/RUNG5_SPEC.md §2.7.4, "Shahaf 2023b AMRF class III").
+#
+# Real DR3 vs mock: the parent cuts (iii)/(iv) read gaiadr3.binary_masses (IsocLum M1 for a
+# main-sequence primary); a mock row has no binary_masses analogue and is handled by the caller
+# (darkhunter_pop.shahaf2023b_triage.mock_class3_columns), never silently.
+
+schema_version: 1
+name: shahaf2023b_amrf_triage
+
+provenance:
+  reference: "Shahaf, Bashi, Mazeh, Faigler, Arenou, El-Badry & Rix (2023), MNRAS 518, 2991"
+  arxiv: "2209.00828v2"
+  sections: "2.3 (limiting curves), 3.1 (sample selection), 3.3 (classification probability), 4 (FDR)"
+  limiting_curves_source: "MNRAS supplementary stac3290_supplemental_file.zip :: AMRF_limiting_curves.fits"
+  limiting_curves_fits_sha256: 8c9cc0080cff079396f0b12bf36ff4e084d5dcba551085c7406e46960130598b
+  supplementary_zip_sha256: b2afc8d28692dd682179c51af22ee0a781c1e1dbd767f1ddfc598ad3d6e64ed6
+  validation_tables: "VizieR J/MNRAS/518/2991/table1 (101,380 rows), table2 (177 rows)"
+  frozen_on: "2026-11-14"
+  issue: 682
+
+# §3.1 conditions (i)-(iv), then the Halbwachs et al. (2022) cuts, Eq. (4), and the period cut.
+# Published counts after each step: 127,026 / 126,624 / 110,401 / 101,380.
+parent:
+  solution_types: [Orbital, AstroSpectroSB1]          # (i)
+  bit_index: [8191, 65535]                             # (ii) all orbital parameters fitted
+  binary_masses_m1_ref: IsocLum                        # (iii)
+  binary_masses_combination_methods: [Orbital+M1, AstroSpectroSB1+M1]   # (iv) not tied to (i) per source
+  # Halbwachs et al. (2022) criteria as stated in §3.1, P in days:
+  eccentricity_error_ln_period_slope: 0.079            # Δe < 0.079 ln P − 0.244
+  eccentricity_error_offset: -0.244
+  parallax_snr_period_coeff: 20000.0                   # ϖ/σϖ > 20000 / P
+  significance_period_coeff: 158.0                     # a0/σa0 > 158 / √P
+  ti_relative_error_sq_sum_max: 36.0                   # Eq. (4): Σ (σ_X/X)², X ∈ {A,B,F,G} ≤ 36
+  period_max_day: 1000.0                               # P < 1000 d (strict)
+  expected_counts: {after_binary_masses: 127026, after_halbwachs: 126624, after_ti: 110401, clean: 101380}
+
+amrf:
+  # Eq. (1): A = (a0/ϖ) (M1/M☉)^(-1/3) (P/yr)^(-2/3), a0 from the Thiele–Innes constants.
+  year_day: 365.25
+
+monte_carlo:
+  # §3.3: N = 1e5 draws of the Thiele–Innes constants, parallax, period, eccentricity and M1, "considering
+  # the uncertainties and covariance between the parameters as reported in the Gaia catalogue".
+  n_draws: 100000
+  # Draws are taken in chunks from one per-source stream; a chunk count never changes a completed result.
+  chunk_draws: 25000
+  seed: 682
+  # Eccentricity draws outside the physical domain are rejected and redrawn (keeps N valid draws).
+  eccentricity_domain: [0.0, 1.0]                      # 0 ≤ e < 1
+  # M1 ~ two half-normals of equal weight: m1 − (m1 − m1_lower)|z| or m1 + (m1_upper − m1)|z|.
+  m1_draw: two_half_normals
+  # §2.3 lookup table, linear interpolation in M1.
+  limiting_curve_interpolation: linear
+  # M1 draws outside the tabulated range 0.2–2.0 M☉ are clipped to it (AMRF and curve lookup alike);
+  # see readings.off_grid.
+  off_grid: clip_m1
+  # Eq. (6): Pr = (r + 1) / (N + 1).
+  probability_estimator: plus_one
+
+decision:
+  # §4: Benjamini & Hochberg (1995) FDR at α = 10% over the clean sample, Eq. (7).
+  method: fdr_bh
+  alpha: 0.10
+  # Monte-Carlo p-value of the class-III null: (n_below + 1) / (N + 1), n_below = draws with A ≤ A_TR.
+  p_value: n_below_plus_one
+  # The paper's stated equivalent cut (§4): "only 16 out of the 10^5 Monte-Carlo instances fell below
+  # the A_TR limit" (minimal Pr III = 99.984%). Used where the BH step cannot be run over the real DR3
+  # clean sample (a mock catalogue): class III ⇔ n_below ≤ fixed_n_below_max.
+  fixed_n_below_max: 16
+
+readings:
+  p_value:
+    adopted: "n_below_plus_one: p = 1 − Pr III + 1/(N+1); BH at α = 0.1 over 101,380 → 177, Table 2 exactly"
+    alternative: "one_minus_pr_iii: p = 1 − Pr III → 179 (adds 4384513795007410048, 4690739122056717184)"
+  m1_draw:
+    adopted: "two_half_normals (equal weight) — Table 1 Pr III reproduced within MC noise (χ²/n ≈ 1.1)"
+    alternatives: "symmetric Gaussian σ = max side (χ²/n ≈ 2.9), split normal with continuous density (≈ 23)"
+  amrf_error:
+    note: "Table 1 AMRF_error = first-order propagation with the full NSS covariance and σ_M1 = max(m1_upper − m1, m1 − m1_lower); reproduced to 7e-7 relative. It is a reported column, not an input to the MC."
+  off_grid:
+    note: "Filled in from the measured comparison (see RUNG5_SPEC §2.7.4)."
+
+# §2.3 supplementary lookup table (AMRF_limiting_curves.fits), copied verbatim: [m1 (M☉, float32 as
+# stored), A_MS, A_TR]. 0.20–2.00 M☉ in 0.02 M☉ steps.
+limiting_curves:
+  columns: [m1_msun, a_ms, a_tr]
+  rows:
+    - [0.20000000298023224, 0.3833608766907901, 0.6190055907268374]
+    - [0.2199999988079071, 0.3692807071130504, 0.5925936109753376]
+    - [0.23999999463558197, 0.361884336318866, 0.5704325504306776]
+    - [0.25999999046325684, 0.3503524119824082, 0.5504823009856646]
+    - [0.2800000011920929, 0.34073417833146336, 0.5369848916576238]
+    - [0.30000001192092896, 0.3315263418901342, 0.5255283605930917]
+    - [0.3199999928474426, 0.32602151151771147, 0.5155882355318324]
+    - [0.3400000035762787, 0.3234225683564151, 0.5068493828357477]
+    - [0.36000001430511475, 0.3210616641680349, 0.4992280174752791]
+    - [0.3799999952316284, 0.3228932224149992, 0.5006789366012759]
+    - [0.4000000059604645, 0.32849614844301694, 0.5083919441575805]
+    - [0.41999998688697815, 0.3316279172792678, 0.5114268448120921]
+    - [0.4399999976158142, 0.3341554555108713, 0.5148680624744294]
+    - [0.46000000834465027, 0.3379581256935137, 0.5215387053487488]
+    - [0.47999998927116394, 0.3384535294806185, 0.5229936402934838]
+    - [0.5, 0.33899323220967487, 0.5199708392372977]
+    - [0.5199999809265137, 0.34159688921066306, 0.5239797723582571]
+    - [0.5400000214576721, 0.34376096255257144, 0.5282898980883003]
+    - [0.5600000023841858, 0.3470465727163529, 0.5324927382372945]
+    - [0.5799999833106995, 0.3520192851310701, 0.5376932123921985]
+    - [0.6000000238418579, 0.35859892209465205, 0.5454267581873226]
+    - [0.6200000047683716, 0.36717427866259417, 0.5559108252244839]
+    - [0.6399999856948853, 0.37777759771682445, 0.569698991639915]
+    - [0.6600000262260437, 0.3889230886244241, 0.5876561896186844]
+    - [0.6800000071525574, 0.40173425067539315, 0.6095673544394345]
+    - [0.699999988079071, 0.41488570274106795, 0.6311784006584713]
+    - [0.7200000286102295, 0.4256434474789019, 0.6490528962900995]
+    - [0.7400000095367432, 0.4342033079612178, 0.6630030893697105]
+    - [0.7599999904632568, 0.4390397726597689, 0.6709495820913464]
+    - [0.7799999713897705, 0.43948625364641086, 0.6722874203860714]
+    - [0.800000011920929, 0.4384160644183218, 0.6710891938871334]
+    - [0.8199999928474426, 0.43703608099838975, 0.6690425522149428]
+    - [0.8399999737739563, 0.43474121293661533, 0.6661829253098073]
+    - [0.8600000143051147, 0.43317528491852997, 0.6640116470445816]
+    - [0.8799999952316284, 0.4323397019829547, 0.6623727430447165]
+    - [0.8999999761581421, 0.4310834774472402, 0.6603680840262555]
+    - [0.9200000166893005, 0.43091784054493487, 0.6597319763944478]
+    - [0.9399999976158142, 0.43045765679243236, 0.6581882119017548]
+    - [0.9599999785423279, 0.4299139507118755, 0.6566127631814263]
+    - [0.9800000190734863, 0.42928995763954064, 0.6550457272614765]
+    - [1.0, 0.42804921362035636, 0.6534425172327837]
+    - [1.0199999809265137, 0.4273271228287558, 0.6517170842835751]
+    - [1.0399999618530273, 0.42649153640586807, 0.6501639902332212]
+    - [1.059999942779541, 0.4262496246191833, 0.6488840343708245]
+    - [1.0800000429153442, 0.42569627781784286, 0.6474358766604585]
+    - [1.100000023841858, 0.42537753479478163, 0.6458724823928628]
+    - [1.1200000047683716, 0.4252466848551972, 0.6447701840315182]
+    - [1.1399999856948853, 0.4251084535109439, 0.6444602929123747]
+    - [1.159999966621399, 0.4220858373519358, 0.6411364987362592]
+    - [1.1799999475479126, 0.42119472782675765, 0.6400083667330827]
+    - [1.2000000476837158, 0.41950259178096994, 0.6382995605918623]
+    - [1.2200000286102295, 0.41816949860528757, 0.6367862010073732]
+    - [1.2400000095367432, 0.4163698166390118, 0.6341430547807904]
+    - [1.2599999904632568, 0.4166531314902611, 0.6337234365003812]
+    - [1.2799999713897705, 0.4152099239111508, 0.6316017453356573]
+    - [1.2999999523162842, 0.41505545296638846, 0.6307341629369155]
+    - [1.3200000524520874, 0.4143687703560317, 0.6299262013914632]
+    - [1.340000033378601, 0.41429791435352403, 0.6300534068149594]
+    - [1.3600000143051147, 0.41447691312541535, 0.630834882580473]
+    - [1.3799999952316284, 0.41410013528118567, 0.6307238396889068]
+    - [1.399999976158142, 0.4138686509956596, 0.6306496939401118]
+    - [1.4199999570846558, 0.4141591443579877, 0.631188730528375]
+    - [1.440000057220459, 0.4142636328893584, 0.631525048746443]
+    - [1.4600000381469727, 0.4146303478371502, 0.6314222240190909]
+    - [1.4800000190734863, 0.4149165929144086, 0.63165873265524]
+    - [1.5, 0.4150605702884785, 0.6316362188621065]
+    - [1.5199999809265137, 0.4146036500828026, 0.6309287182316007]
+    - [1.5399999618530273, 0.4142297264536484, 0.630595120684907]
+    - [1.559999942779541, 0.41362989253848476, 0.630011901971592]
+    - [1.5800000429153442, 0.4132653821681637, 0.6296018902872016]
+    - [1.600000023841858, 0.4129609611594986, 0.6290835175284719]
+    - [1.6200000047683716, 0.41328537304178714, 0.6295376290308313]
+    - [1.6399999856948853, 0.41365483705536105, 0.6299865229088312]
+    - [1.659999966621399, 0.41377643342996334, 0.6301102228319977]
+    - [1.6799999475479126, 0.4130696983269417, 0.629346566797284]
+    - [1.7000000476837158, 0.4117112455298003, 0.627690679001804]
+    - [1.7200000286102295, 0.4091676004183849, 0.6242886029753889]
+    - [1.7400000095367432, 0.40620304274827945, 0.6207992469236382]
+    - [1.7599999904632568, 0.4032939374338108, 0.6175350836857202]
+    - [1.7799999713897705, 0.40118426717328926, 0.615037153927672]
+    - [1.7999999523162842, 0.3994549633101378, 0.6135037837318702]
+    - [1.8200000524520874, 0.39803755755416204, 0.6120117124608127]
+    - [1.840000033378601, 0.3969134267648413, 0.6105360624181011]
+    - [1.8600000143051147, 0.3959087787133239, 0.6097286091716568]
+    - [1.8799999952316284, 0.3944471534251751, 0.6085128705843676]
+    - [1.899999976158142, 0.39329401845227385, 0.6071481038710561]
+    - [1.9199999570846558, 0.3924625203475698, 0.6061807592114337]
+    - [1.940000057220459, 0.39159637691398946, 0.6047973443845427]
+    - [1.9600000381469727, 0.39023285524399165, 0.6031827551254604]
+    - [1.9800000190734863, 0.38863495909873214, 0.601218671586658]
+    - [2.0, 0.3864163693986511, 0.5988606148458482]
