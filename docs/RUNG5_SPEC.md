@@ -348,7 +348,7 @@ In the table, **Y** means computable from stored mock columns, **gap** means a c
 | | `atf_giant_reject_cmd` | BP−RP, M_G (ATF convention) | `sys_bp_rp`, G and ϖ_fit | Y (reddening convention must match ATF) |
 | | `atf_m2_3sigma` | ATF pass-2 mean / std | same MC | Y (wire) |
 | | modified: BH1 restored (scan-alias exclusion lifted) | n/a | n/a (the mock has no scan-alias rejection) | Y |
-| El-Badry 2024 | `ns_candidate_pool` = Table 3 membership (A22 ∪ S23) | external table | A22 part = the Andrews chain above; S23 part = Shahaf 2023b class III | **A22 Y; S23 N** until an AMRF class-III reimplementation reproduces the Shahaf catalogue membership exactly (Q2) |
+| El-Badry 2024 | `ns_candidate_pool` = Table 3 membership (A22 ∪ S23) | external table | A22 part = the Andrews chain above; S23 part = `shahaf2023b_class3_reimpl` (#682, below) | **A22 Y; S23 Y (column wired; real-DR3 membership 175 / 177 with the 4 boundary swaps at MC noise, escalated to Ryan; the frozen file still reads Table 3 in both modes)** |
 | | G < 15 | `phot_g_mean_mag` | `phot_g_mean_mag` | Y |
 | | inclusion `m2_joint_fit`, `not_spurious`, `orbit_coverage` | follow-up labels | SF_followup (§11) | catalog-level: comparison only until §11 |
 | El-Badry 2026 `primary_ns_bh` | `main_sequence` (dereddened CMD, Janssens segment) | M_G, BP−RP, E(B−V) from Green19 / Lallement19 at the position | `sys_bp_rp` / G / ϖ + the same dust-map E(B−V) at the mock (l, b, d) | Y (wire; the mock must carry **reddened** photometry and be dereddened by the same maps, not use truth `sys_colour0`) |
@@ -359,6 +359,31 @@ In the table, **Y** means computable from stored mock columns, **gap** means a c
 | El-Badry 2026 `sub_chandrasekhar` (forward_model) | `main_sequence`, `m2_range` 1.05–1.40, M̃2/M̃1 > 1.0, `amrf` > threshold, `m2_error` σ_M̃2 ≤ 0.105 (analytic), P ≤ 900 d, G < 15 | Janssens chain; analytic σ_M̃2 from the NSS covariance | the same on `orbit_cov` | Y (wire). The reproduction mode (Shahaf class-III cross-match) is real-only by construction |
 | El-Badry 2026 inclusion | `not_spurious`, `followup_characterized` | follow-up labels | SF_followup | catalog-level: comparison only |
 | El-Badry 2026 spectroscopic branch | SB1 `k1_significance`, `mass_route` | SB1 | none (SB1 not in the mock cascade; Q6, v1 scope) | **N** (v1 scope boundary) |
+
+**Shahaf 2023b AMRF class III (#682; P1, Ryan 2026-11-13).** `shahaf2023b_triage` reimplements Shahaf et al.
+(2023b) §3.1–§4. The definition is `config/selections/external/shahaf2023b_amrf_triage.yaml`: the paper's thresholds,
+the Monte-Carlo settings, the decision rule and the authors' supplementary `A_MS` / `A_TR` table, copied verbatim. The
+measured report is `docs/gate682/README.md` (`scripts/reproduce_shahaf2023b_class3_682.py`).
+- **Real DR3, per step.**
+  - Exact: the parent counts 127,026 → 126,624 → 110,401 → 101,380 (by source ID), M1, the AMRF to 10⁻¹³, and BH
+    (α = 0.1) on the published Pr III, which gives Table 2 exactly.
+  - Within MC noise: Pr III on 88,975 interior rows (χ²/row 0.38).
+  - Membership from our own Pr III: 177 vs 177, with 175 common. The four swaps are at the boundary (14–17 of 10⁵
+    draws below `A_TR`, |pull| < 2). About 3.9 swaps are expected from MC noise alone. **Not exact: escalated to Ryan.**
+- **Readings not stated in the paper.** Each was settled on the authors' own Table 1, never on the Table 2 count:
+  - p-value `(n_below + 1)/(N + 1)`;
+  - eccentricity rejected outside [0, 1);
+  - two-half-normal M1;
+  - off-grid M1 clipped to 0.2–2.0 M☉. This one is not reproduced on the 12,405 edge rows (χ²/row 17), but none of
+    them is near the decision boundary.
+- **Mock.** `mock_draws_to_selection_rows(..., include_orbit=True, shahaf_triage=load_definition())` emits
+  `shahaf2023b_class3_reimpl`. Without a real clean sample to run BH over, it uses the paper's stated equivalent cut,
+  n_below ≤ 16 of 10⁵, which on real DR3 gives the same 177 as BH. Open mock-side gaps (escalated):
+  - M1 is TAG10, not the `binary_masses` IsocLum value;
+  - the IsocLum-availability parent cut is not emulated (22.5 % of orbit-cut-passing real rows lack it);
+  - the #704 luminous pre-filter does not contain Shahaf class III (397 / 1,576 class-III rows of `co_gen1008` fall
+    outside it);
+  - `elbadry2024.yaml` is frozen and still reads Table 3.
 
 **GSP-Phot log g emulator (#680; P2, Ryan 2026-11-13).** Andrews' giant reject reads `logg_vizier_apsis`
 (VizieR I/355/paramp `logg`, the archive `logg_gspphot`). Mock rows get it from
@@ -413,7 +438,7 @@ cells in `gspphot_logg_emulator_680_table.yaml`; `mock_draws_to_selection_rows(.
      `atmosphere_logg`.
    - Calibrated on real DR3 rows matched in G, BP−RP and M_G (the Andrews ATF population).
 5. **L — El-Badry 2026 columns on mock rows:** `main_sequence` (same Janssens segment and dereddening), M̃1, M̃2, analytic σ_M̃2 from `orbit_cov`, AMRF and its threshold. Test against the real-row values on the published orbits.
-6. **L — Shahaf 2023b AMRF class-III reimplementation (Q2, P1).** It must reproduce the published 177-candidate class-III membership exactly on real DR3 before it is applied to the mock. Without it, El-Badry 2024's S23 pool stays real-only.
+6. **L — Shahaf 2023b AMRF class-III reimplementation (Q2, P1).** It must reproduce the published 177-candidate class-III membership exactly on real DR3 before it is applied to the mock. Without it, El-Badry 2024's S23 pool stays real-only. **Implemented (#682)**; membership 175 / 177, with MC-noise boundary swaps escalated (see §2.7.4 and `docs/gate682/README.md`).
 7. **L — per-draw membership pattern and Q1 pattern cells.**
    - Per-sample cell definitions, frozen from the mock in a new `rung5_bins` schema version.
    - `rung5_build_inputs` per-sample mode: the response is restricted to chain-passing draws per pattern.

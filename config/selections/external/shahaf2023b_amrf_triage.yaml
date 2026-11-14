@@ -83,10 +83,15 @@ readings:
   m1_draw:
     adopted: "two_half_normals (equal weight) — Table 1 Pr III reproduced within MC noise (χ²/n ≈ 1.1)"
     alternatives: "symmetric Gaussian σ = max side (χ²/n ≈ 2.9), split normal with continuous density (≈ 23)"
+  eccentricity_domain:
+    adopted: "reject e outside [0, 1) and redraw (Table 1 Pr III χ²/n 3.2 → 1.1 on interior rows vs no rejection, 68)"
+  covariance:
+    adopted: "full NSS covariance from corr_vec (column-major upper triangle, nss_covariance); diagonal-only χ²/n ≈ 1e4, row-major ≈ 2e4"
   amrf_error:
     note: "Table 1 AMRF_error = first-order propagation with the full NSS covariance and σ_M1 = max(m1_upper − m1, m1 − m1_lower); reproduced to 7e-7 relative. It is a reported column, not an input to the MC."
   off_grid:
-    note: "Filled in from the measured comparison (see RUNG5_SPEC §2.7.4)."
+    adopted: "clip_m1: M1 draws clipped to 0.2–2.0 for the AMRF and the curve lookup"
+    measured: "No tested reading reproduces Table 1 for sources whose M1 interval reaches the grid edges (12,405 rows, Pr III χ²/n 17 with clip_m1; clamp / NaN / linear extrapolation / rejection worse). Interior rows (88,975): χ²/n 0.38. No near-threshold source (n_below ≤ 40) has M1 near an edge, so membership is unaffected (docs/gate682/README.md)."
 
 # §2.3 supplementary lookup table (AMRF_limiting_curves.fits), copied verbatim: [m1 (M☉, float32 as
 # stored), A_MS, A_TR]. 0.20–2.00 M☉ in 0.02 M☉ steps.
