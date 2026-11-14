@@ -68,7 +68,6 @@ from darkhunter_pop.andrews2022_atf import (  # noqa: E402
     m2_threshold_msun,
     merge_reproduction_columns,
     notebook_float,
-    pipeline_tag10_m1,
     procedure_fingerprint,
     reproduction_cache_dir,
     require_procedure,
@@ -86,6 +85,7 @@ from darkhunter_pop.config_schema import (  # noqa: E402
     SampleSelectionMode,
 )
 from darkhunter_pop.data_acquisition import load_gaia_snapshot  # noqa: E402
+from darkhunter_pop.mass_derivation import pipeline_tag10_m1  # noqa: E402
 from darkhunter_pop.sample_selection import (  # noqa: E402
     CutOutcome,
     SampleSelection,

@@ -19,7 +19,6 @@ from darkhunter_pop.andrews2022_atf import (
     build_notebook_covariance,
     load_reproduction_columns,
     notebook_float,
-    pipeline_tag10_m1,
     require_procedure,
 )
 from darkhunter_pop.config_loader import load_config, repo_root
@@ -31,6 +30,7 @@ from darkhunter_pop.mock_atf_columns import (
     mock_orbit_to_atf_frame,
     mock_orbit_to_atf_inputs,
 )
+from darkhunter_pop.mass_derivation import pipeline_tag10_m1
 from darkhunter_pop.proposal_set import ORBIT_PARAMETER_NAMES
 from darkhunter_pop.sample_selection import SampleSelectionRegistry
 

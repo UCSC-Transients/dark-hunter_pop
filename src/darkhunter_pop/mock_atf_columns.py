@@ -63,12 +63,12 @@ from darkhunter_pop.andrews2022_atf import (
     empty_pass2_columns,
     m2_threshold_msun,
     merge_reproduction_columns,
-    pipeline_tag10_m1,
     require_procedure,
     run_pass1,
     run_pass2,
     static_columns,
 )
+from darkhunter_pop.mass_derivation import pipeline_tag10_m1
 from darkhunter_pop.config_schema import (
     ActiveDRMode,
     PipelineConfig,
