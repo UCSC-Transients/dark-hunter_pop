@@ -449,6 +449,46 @@ class SolutionTypeConfig:
         z = float(np.dot(self.beta, x)) + self.delta(g_mag)
         return float(1.0 / (1.0 + np.exp(-z)))
 
+    def p_asb1_array(self, g_mag: NDArray[np.float64], bp_rp: NDArray[np.float64], period_days: NDArray[np.float64],
+                     ecc: NDArray[np.float64], k1_kms: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Vectorized :meth:`p_asb1` (#696; same features, clip and intercept δ(G); equal to the scalar to rounding).
+        A non-finite BP−RP is taken as 1.0, as in the scalar."""
+        g = np.asarray(g_mag, float)
+        bp = np.asarray(bp_rp, float)
+        c = np.clip(np.where(np.isfinite(bp), bp, 1.0), *self.colour_clip)
+        grvs = g - np.polyval(self.grvs_poly, c)
+        feat = {"logK1": np.log10(np.maximum(np.asarray(k1_kms, float), 1e-3)), "bp_rp": c, "bp_rp2": c * c,
+                "logP": np.log10(np.asarray(period_days, float)), "e": np.asarray(ecc, float)}
+        cols = [np.ones_like(g), grvs] + [np.maximum(0.0, grvs - k) for k in self.grvs_knots] + [feat[t] for t in self.terms]
+        z = np.column_stack(cols) @ np.asarray(self.beta, float)
+        if self.routing_delta_knots_g:
+            z = z + np.interp(g, self.routing_delta_knots_g, self.routing_delta)
+        return 1.0 / (1.0 + np.exp(-z))
+
+    def offset_array(self, key: str, g_mag: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Vectorized :meth:`offset` (0, or 1 for a ``kappa`` key, at G >= ``break_g``)."""
+        g = np.asarray(g_mag, float)
+        outside = 1.0 if key.endswith("kappa") else 0.0
+        return np.where(g < self.break_g, np.interp(g, self.knots_g, self.offsets[key]), outside)
+
+    def map_f2_asb1_array(self, f2: NDArray[np.float64], g_mag: NDArray[np.float64], *, inverse: bool = False) -> NDArray[np.float64]:
+        """Vectorized :meth:`map_f2_asb1` (quantile map only), or its inverse with ``inverse=True`` (#696: recovers the
+        pre-routing F2 of a stored AstroSpectroSB1 draw; the map is monotone, slope 1 beyond the end quantiles).
+        Rows at G >= ``break_g`` pass through unchanged."""
+        if not self.qmap_g_edges:
+            raise ValueError("map_f2_asb1_array needs the quantile map (st1 iteration 2 or later)")
+        x, g = np.asarray(f2, float), np.asarray(g_mag, float)
+        out = x.copy()
+        j = np.searchsorted(self.qmap_g_edges, g, side="right")
+        for jj in range(len(self.qmap_mock)):
+            b = (j == jj) & (g < self.break_g)
+            src, dst = np.asarray(self.qmap_mock[jj]), np.asarray(self.qmap_dr3[jj])
+            if inverse:
+                src, dst = dst, src
+            xb = x[b]
+            out[b] = np.where(xb < src[0], dst[0] + (xb - src[0]), np.where(xb > src[-1], dst[-1] + (xb - src[-1]), np.interp(xb, src, dst)))
+        return out
+
     def offset(self, key: str, g_mag: float) -> float:
         if not g_mag < self.break_g:
             return 0.0 if not key.endswith("kappa") else 1.0
@@ -1314,6 +1354,39 @@ def apply_solution_type(cascade: list[float], source: SourceEpochContext, config
     if typ == "AstroSpectroSB1" and g < st.break_g:
         c[S["f2"]] = st.map_f2_asb1(c[S["f2"]], g)
     return c, typ
+
+
+def predicted_k1_kms_array(a0_mas: NDArray[np.float64], plx_mas: NDArray[np.float64], period_days: NDArray[np.float64],
+                           ecc: NDArray[np.float64], inc_deg: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Vectorized :func:`predicted_k1_kms` (#696)."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return 29.78 * (np.asarray(a0_mas, float) / np.asarray(plx_mas, float)) * np.abs(np.sin(np.radians(np.asarray(inc_deg, float)))) / (
+            (np.asarray(period_days, float) / 365.25) * np.sqrt(np.maximum(1e-6, 1.0 - np.asarray(ecc, float) ** 2)))
+
+
+_TYPE_SIGMA_SLOTS: Final[tuple[tuple[str, str], ...]] = (
+    ("sigma_a0", "dlog_sigma_a0"), ("sigma_plx", "dlog_sigma_plx"), ("sigma_ecc", "dlog_sigma_e"), ("sigma_period", "dlog_sigma_p"))
+
+
+def solution_type_properties_array(cascade: NDArray[np.float64], g_mag: NDArray[np.float64], is_asb1: NDArray[np.bool_],
+                                   st: SolutionTypeConfig, *, inverse: bool = False) -> NDArray[np.float64]:
+    """#696: the type-dependent part of :func:`apply_solution_type` on an ``(N, 23)`` block of orbital-branch cascades.
+
+    ``inverse=False`` applies the σ offsets and the AstroSpectroSB1 F2 map to pre-routing cascades (what
+    ``apply_solution_type`` does after the routing draw); ``inverse=True`` undoes them on stored cascades of known type,
+    recovering the pre-routing vector to float rounding. Rows must be orbital-branch fits; the routing draw itself is
+    not touched (see ``joint_refit.routing_uniforms``)."""
+    c = np.array(cascade, dtype=float, copy=True)
+    g = np.asarray(g_mag, float)
+    a = np.asarray(is_asb1, bool)
+    sign = -1.0 if inverse else 1.0
+    for slot, key in _TYPE_SIGMA_SLOTS:
+        o = np.where(a, st.offset_array(f"asb1_{key}", g), st.offset_array(f"orbital_{key}", g))
+        c[:, CASCADE_SLOTS[slot]] = c[:, CASCADE_SLOTS[slot]] * 10.0 ** (sign * o)
+    f2 = c[:, CASCADE_SLOTS["f2"]]
+    m = a & (g < st.break_g)
+    c[:, CASCADE_SLOTS["f2"]] = np.where(m, st.map_f2_asb1_array(f2, g, inverse=inverse), f2)
+    return c
 
 
 def source_noise_factor(source: SourceEpochContext, config: EpochModelConfig, noise_rng: np.random.Generator) -> float:
