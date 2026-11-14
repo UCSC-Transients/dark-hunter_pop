@@ -321,7 +321,18 @@ and the Andrews extra row are later follow-ups.
 **What the mock stores per draw.**
 - Truth: luminous star, dark companion, orbit, `sys_bp_rp`, `sys_mg0`, `sys_evolved`, `atmosphere_logg`, position.
 - Cascade fit: ϖ, A, B, F, G (Thiele–Innes) and their σ, P, e, a0, σ_a0, N_vis, N_obs, F2, RUWE.
-- Fit covariance: `orbit_p0` and `orbit_cov`.
+- Fit covariance: `orbit_p0` and `orbit_cov`. The compact-object generations store it for every orbital fit. The
+  luminous generations (`single_gen53`–`59`) did not; **#704 option B (Ryan 2026-11-14)** adds it by deterministic
+  replay (stored seeds, current st2 config, the CO path's `orbit_covariance_from_epochs` and Jacobian step) of only
+  the accepted luminous orbital draws that pass a mock-only, deliberately loose pre-filter
+  (`config/population/luminous_covariance_704.yaml`: point M2 at the Andrews pass-1 M1, the El-Badry 2026 evaluator's
+  own M̃2, P, G, solution type; every threshold checked strictly looser than its frozen cut). The covariances live in
+  a `<gen>.orbit_cov.h5` sidecar (`luminous_covariance`; `load_generation_draws(..., orbit_cov_sidecar=True)`).
+  Draws outside the filter carry no covariance and are recorded as **not applicable** with reason
+  `mock_prefilter_excluded:<version>` at the first covariance cut (Andrews `atf_covariance_valid`, El-Badry 2026
+  `m2_error`), never dropped and never given an approximated covariance. Justification: on the CO generations (with
+  covariances) no draw outside the filter passes any sample's full chain
+  (`scripts/validate_luminous_cov_prefilter_704.py`, gate: 0 draws).
 - Parent-row luminous-star M1: TAG10 (`proposal_set.tag10_m1_for_rows`) and MIST isochrone.
 
 In the table, **Y** means computable from stored mock columns, **gap** means a column or emulator is missing, and
