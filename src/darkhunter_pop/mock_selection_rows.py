@@ -89,8 +89,11 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
 Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a frozen cut:
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
 ``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
-``mock_is_dark``, ``mock_co_component``, ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
-``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681).
+``mock_is_dark``, ``mock_co_component`` (-1 for a luminous generation, #706), ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
+``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681),
+plus ``mock_orbit_cov_status`` for a luminous generation read with its #704 covariance sidecar. The one
+non-``mock_`` mark: a pre-filter-excluded luminous row (#704) carries ``sigma_m2_astrometric_msun`` as
+``NotApplicable("mock_prefilter_excluded:<version>")`` (the evaluator keeps a set value and records the reason).
 """
 
 from __future__ import annotations
@@ -114,6 +117,10 @@ CASCADE_COLUMNS: Final[tuple[str, ...]] = (
 #: Smallest Gaia DR3 ``source_id`` in ``gaia_source`` (the uncut NSS snapshot's minimum is 33,711,199,137,024, above it);
 #: synthetic ``draw_index`` ids stay below it, so they can never equal a real id.
 MOCK_SOURCE_ID_MAX: Final[int] = 4_295_806_720
+
+#: ``mock_co_component`` of a luminous-generation draw (no ``co_component`` truth column; CO codes are
+#: ``compact_objects.COMPONENT_CODES``, wd = 0, dark = 1) (#706).
+LUMINOUS_CO_COMPONENT: Final[int] = -1
 
 #: ``nss_solution_type`` labels the adapter emits (the routed types of ``epoch_model.apply_solution_type``).
 ORBITAL_SOLUTION_TYPE: Final[str] = "Orbital"
@@ -183,7 +190,12 @@ def mock_draws_to_selection_rows(
         One is required: the proposal's ``m1_row_msun`` is the MIST isochrone M1 and is not the real-row definition.
     include_orbit
         Also attach ``mock_orbit_p0`` / ``mock_orbit_cov`` (heavy: 12x12 per row) for the ATF / covariance
-        consumers (#679, #681).
+        consumers (#679, #681). A luminous generation's orbits come from its covariance sidecar
+        (``load_generation_draws(..., orbit_cov_sidecar=True)``, #704), whose ``outcome/orbit_cov_status`` marks
+        each accepted draw replayed or ``prefilter_excluded:<version>``. Every row then carries
+        ``mock_orbit_cov_status``; an excluded row gets no orbit and ``sigma_m2_astrometric_msun =
+        NotApplicable("mock_prefilter_excluded:<version>")``, so the El-Badry 2026 ``m2_error`` cut records it as not
+        applicable with that reason (the Andrews mark is set by ``mock_atf_columns.mock_rows_atf_columns``).
     max_rows
         Keep at most this many accepted-Orbital rows (first in draw order); smoke use only.
 
@@ -251,13 +263,20 @@ def mock_draws_to_selection_rows(
     m1_truth = np.asarray(truth["m1_msun"], dtype=np.float64)[idx]
     m2_truth = np.asarray(truth["m2_msun"], dtype=np.float64)[idx]
     is_dark = np.asarray(truth["is_dark"], dtype=bool)[idx]
-    co_comp = np.asarray(truth["co_component"])[idx]
+    # luminous generations carry no co_component truth column (#706): LUMINOUS_CO_COMPONENT, never a WD/dark code
+    co_comp = (np.asarray(truth["co_component"])[idx] if "co_component" in truth
+               else np.full(idx.size, LUMINOUS_CO_COMPONENT, dtype=np.int64))
     p_truth = np.asarray(truth["period_days"], dtype=np.float64)[idx]
     evolved = np.asarray(truth["sys_evolved"], dtype=bool)[idx]
-    p0 = cov = None
+    p0 = cov = status = None
     if include_orbit:
         p0 = np.asarray(outcome["orbit_p0"], dtype=np.float64)[idx]
         cov = np.asarray(outcome["orbit_cov"], dtype=np.float64)[idx]
+        if "orbit_cov_status" in outcome:  # #704 luminous covariance sidecar
+            status = np.asarray(outcome["orbit_cov_status"]).astype(str)[idx]
+    if status is not None:
+        from darkhunter_pop.luminous_covariance import excluded_reason, is_excluded_status
+        from darkhunter_pop.sample_selection import NotApplicable
 
     rows: list[dict[str, Any]] = []
     for i in range(idx.size):
@@ -290,6 +309,12 @@ def mock_draws_to_selection_rows(
         row["mock_co_component"] = int(co_comp[i])
         row["mock_period_days"] = float(p_truth[i])
         row["mock_sys_evolved"] = bool(evolved[i])
+        if status is not None:
+            row["mock_orbit_cov_status"] = str(status[i])
+            if is_excluded_status(status[i]):  # #704: outside the validated pre-filter; never a covariance stand-in
+                row["sigma_m2_astrometric_msun"] = NotApplicable(excluded_reason(str(status[i])))
+                rows.append(row)
+                continue
         if p0 is not None and cov is not None:
             row["mock_orbit_p0"] = p0[i]
             row["mock_orbit_cov"] = cov[i]

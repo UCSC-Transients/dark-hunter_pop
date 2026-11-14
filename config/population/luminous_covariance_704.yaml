@@ -1,0 +1,53 @@
+# #704 option B (Ryan 2026-11-14): orbit covariances for the luminous generations (single_gen53-59) by deterministic
+# replay, from the stored seeds and under the CURRENT st2 config, of ONLY the accepted luminous orbital draws
+# (Orbital + AstroSpectroSB1) that can reach a published sample. Mock-only; never read by a real-DR3 path.
+#
+# The covariance is computed exactly as the compact-object path does: proposal_set.simulate_one ->
+# compact_objects.orbit_covariance_from_epochs, central differences with step covariance_jacobian_step (the CO
+# fragments' compact_object.covariance_jacobian_step; a test pins the equality). No approximated covariance, no
+# diagonal fallback (#704 "Do not").
+#
+# Pre-filter: defined only on quantities computable WITHOUT the covariance, and DELIBERATELY LOOSE. Each threshold
+# is checked against the frozen selection file it loosens (luminous_covariance.check_prefilter_looser; the tools
+# refuse to run, and a test fails, if a threshold is not strictly looser). A luminous accepted orbital draw is
+# replayed when it passes EITHER branch:
+#
+#  andrews: nss_solution_type in the Andrews parent (andrews2022.yaml parent_query: Orbital) AND the point M2 of the
+#    fitted orbit (a0 from A, B, F, G; m_f = a0^3 yr^2 / (P^2 plx^3); f = 0 root) at the ATF pass-1 luminous-star M1
+#    (andrews2022.yaml reproduction_procedure.pass1.m1_msun = 1.0, the same root code, andrews2022_atf) is
+#    >= m2_point_min_msun. Pass 1 is a necessary cut of both Andrews modes: P(M2 > 1.4 | M1 = 1.0) > 0.95 over
+#    the covariance draws. Covers andrews2022 / andrews2022_modified, El-Badry 2024's A22 part and El-Badry 2026
+#    andrews2022_import (both are Andrews members with G < 15).
+#  elbadry2026: nss_solution_type in solution_types AND G < g_mag_faint_limit AND period < period_days_max AND the
+#    evaluator's own Janssens M~2 (El-Badry 2026 enrichment, dereddened as for a real row) is defined and
+#    >= m2_tilde_min_msun. Covers primary_ns_bh (M~2 > 1.4, P < 1200, G < 15) and sub_chandrasekhar
+#    (1.05 <= M~2 <= 1.40, P <= 900, G < 15). M~2 is a point quantity; only sigma_M~2 needs the covariance.
+#    Where M~1 is undefined (evolved, off the Janssens range) neither subsample can pass (requires_defined).
+#
+# Draws outside the filter keep no covariance; mock_selection_rows marks them (status "prefilter_excluded:<version>")
+# so the evaluator records them as not applicable with reason "mock_prefilter_excluded:<version>" at the first
+# covariance-dependent cut (Andrews atf_covariance_valid; El-Badry 2026 sub_chandrasekhar m2_error), never silently
+# dropped. Justification: the validation below.
+#
+# Validation (scripts/validate_luminous_cov_prefilter_704.py): on the compact-object generations, which carry
+# covariances, run every sample's full forward_model cut chain and count draws OUTSIDE the filter that pass ANY of
+# them (Andrews forward_model, El-Badry 2024 A22 part, El-Badry 2026 primary_ns_bh / andrews2022_import /
+# sub_chandrasekhar). Must be max_outside_filter_passing (0); otherwise loosen, bump version, re-validate.
+
+schema_version: 1
+provenance: "#704 option B, Ryan 2026-11-14 (issue comment); thresholds chosen loose by construction, validated on CO gens 1006-1008 (st2)"
+covariance_jacobian_step: 1.0e-8   # = compact_object.covariance_jacobian_step of the CO fragments (gaiamock's own step)
+prefilter:
+  version: lcf1
+  andrews:
+    selection: andrews2022        # pass-1 M1, root bracket, parent solution types and the 1.4 threshold are read from it
+    m2_point_min_msun: 1.0        # frozen: P(M2 > 1.4 | M1 = 1.0) > 0.95 (atf_m2_probability)
+  elbadry2026:
+    selection: elbadry2026
+    solution_types: [Orbital, AstroSpectroSB1]
+    m2_tilde_min_msun: 0.8        # frozen: > 1.4 (primary_ns_bh m2_floor), >= 1.05 (sub_chandrasekhar m2_range)
+    period_days_max: 1500.0       # frozen: < 1200 (primary_ns_bh), <= 900 (sub_chandrasekhar)
+    g_mag_faint_limit: 15.5       # frozen: < 15 (both)
+validation:
+  generations: [1006, 1007, 1008]
+  max_outside_filter_passing: 0

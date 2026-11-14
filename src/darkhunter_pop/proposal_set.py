@@ -899,12 +899,16 @@ def check_single_primary_model(gen_cfgs: Sequence[ProposalConfig], *, allow_mixe
 
 
 def load_generation_draws(
-    paths: Sequence[str | Path], *, require_primary_model: str,
+    paths: Sequence[str | Path], *, require_primary_model: str, orbit_cov_sidecar: bool = False,
 ) -> tuple[dict[str, NDArray[Any]], dict[str, NDArray[Any]]]:
     """Concatenate ``(truth, outcome)`` of several generation artifacts of ONE primary-model version (spec §12.16, #601).
 
     Every artifact's ``primary_model`` attribute must equal ``require_primary_model`` (which carries the noise label,
     EPOCH_MODEL_SPEC §8.12), so draws of other versions are never mixed in; draw_index must be unique across files.
+
+    ``orbit_cov_sidecar`` (#704): an artifact without ``outcome/orbit_cov`` (a luminous generation) must have a
+    ``<stem>.orbit_cov.h5`` sidecar (``luminous_covariance``), merged into ``orbit_p0`` / ``orbit_cov`` /
+    ``orbit_cov_status``; a missing or mismatched sidecar raises. Off by default (the arrays are heavy).
     """
     if not paths:
         raise ValueError("no generation artifacts given")
@@ -920,6 +924,13 @@ def load_generation_draws(
         if got != require_primary_model:
             raise ValueError(f"{p}: primary_model {got!r} != required {require_primary_model!r} "
                              "(spec §12.16/§12.33: draws of other versions are never mixed in)")
+        if orbit_cov_sidecar and "orbit_cov" not in outcome:
+            from darkhunter_pop import luminous_covariance as lc
+
+            side_path = lc.orbit_cov_sidecar_path(p)
+            if not side_path.is_file():
+                raise FileNotFoundError(f"{p}: no orbit_cov and no covariance sidecar {side_path.name} (#704)")
+            lc.merge_orbit_cov_sidecar(truth, outcome, attrs, lc.read_orbit_cov_sidecar(side_path))
         truths.append(truth)
         outs.append(outcome)
     tk = set.intersection(*(set(t) for t in truths))
@@ -2012,6 +2023,7 @@ def simulate_one(
     cfg: ProposalConfig,
     cuts: OrbitalSolutionCutsConfig,
     epoch: EpochSetup | None = None,
+    orbit_covariance_step: float | None = None,
 ) -> dict[str, Any]:
     """Run one stored draw through the gaiamock cascade, seeded per #371.
 
@@ -2027,6 +2039,12 @@ def simulate_one(
     epoch and noise Generators are ``epoch_model_rng(base_seed, stream, draw_index[, tag])``;
     the source context carries G and the draw's galactic (l, b) (#421). Without the epoch
     model it is the bare ``run_full_astrometric_cascade`` call.
+
+    ``orbit_covariance_step`` (#704, option B): store the spec §13.3 orbit covariance (``orbit_p0`` / ``orbit_cov``,
+    :func:`compact_objects.orbit_covariance_from_epochs` with this central-difference step) for a generation whose
+    proposal does not (luminous generations, replayed from their stored seeds). Keeping the epochs does not change
+    the cascade. A compact-object proposal that stores its covariance uses its own ``covariance_jacobian_step``;
+    a different ``orbit_covariance_step`` is refused.
     """
     if (epoch is None) != (cfg.epoch_model == "off"):
         raise ValueError(f"epoch_model={cfg.epoch_model!r} but epoch is {'missing' if epoch is None else 'given'}")
@@ -2052,9 +2070,16 @@ def simulate_one(
     )
     t0 = time.process_time()
     co = cfg.compact_object
-    want_cov = co is not None and co.store_orbit_covariance
+    cov_step: float | None = co.covariance_jacobian_step if co is not None and co.store_orbit_covariance else None
+    if orbit_covariance_step is not None:
+        if not orbit_covariance_step > 0.0:
+            raise ValueError("orbit_covariance_step must be > 0")
+        if cov_step is not None and float(orbit_covariance_step) != float(cov_step):
+            raise ValueError(f"orbit_covariance_step {orbit_covariance_step} != compact_object.covariance_jacobian_step {cov_step}")
+        cov_step = float(orbit_covariance_step)
+    want_cov = cov_step is not None
     if want_cov and epoch is None:
-        raise ValueError("compact_object store_orbit_covariance needs the epoch model (the epochs are kept from run_cascade)")
+        raise ValueError("storing the orbit covariance needs the epoch model (the epochs are kept from run_cascade)")
     epochs = None
     if not bool(draw.get("system_in_cut", True)):  # spec §12.33: the system fails the parent cuts; no cascade
         rec0 = {"draw_index": int(draw["draw_index"]), "solution_type": "not_in_parent", "accepted_orbital": False,
@@ -2123,7 +2148,7 @@ def simulate_one(
             from darkhunter_pop.compact_objects import orbit_covariance_from_epochs
 
             t1 = time.process_time()
-            oc = orbit_covariance_from_epochs(gaiamock, c_funcs, epochs, vec, step=co.covariance_jacobian_step)  # type: ignore[union-attr]
+            oc = orbit_covariance_from_epochs(gaiamock, c_funcs, epochs, vec, step=float(cov_step))  # type: ignore[arg-type]
             out_rec.update(orbit_p0=oc.p0.tolist(), orbit_cov=oc.covariance.ravel().tolist(),
                            orbit_cov_sigma_check=oc.max_sigma_mismatch, orbit_cov_cpu_seconds=time.process_time() - t1)
     return out_rec
