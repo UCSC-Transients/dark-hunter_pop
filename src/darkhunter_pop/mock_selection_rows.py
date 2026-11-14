@@ -76,9 +76,12 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
   that name an ``andrews_atf_*`` column directly raise ``CutExpressionError`` (unbound name) if run on their own.
   :func:`classify_cuts` reports both, never silently.
 * GSP-Phot ``logg_apsis`` / ``logg_gspphot`` (#680).
-* El-Badry 2026 ``sigma_m2_astrometric_msun`` and ``amrf_threshold_elbadry2026`` (#681); the evaluator reads the
-  real NSS enrichment index by ``source_id``, which a synthetic id never matches, so those cuts are not applicable.
-  ``m1_tilde_msun`` / ``m2_tilde_msun`` / ``main_sequence`` come from the evaluator's own enrichment, unchanged.
+* El-Badry 2026 ``sigma_m2_astrometric_msun`` (#681) needs ``include_orbit=True``: the evaluator's own analytic
+  routine then reads the row's ``mock_orbit_solution`` (:func:`mock_orbit_parameter_set` of ``mock_orbit_p0`` / ``mock_orbit_cov``) instead of
+  the real NSS enrichment index (a synthetic id never matches it). Without the orbit arrays the ``m2_error`` cut is
+  not applicable, never a diagonal guess. ``main_sequence``, ``m1_tilde_msun``, ``m2_tilde_msun``, ``amrf``,
+  ``amrf_threshold_elbadry2026`` and ``goodness_of_fit`` come from the evaluator's own enrichment
+  (``enrich_elbadry2026_row`` / ``attach_amrf_threshold``) on the observables above, unchanged.
 * ``shahaf2023b_*`` / AMRF class III (#682), Table E1 / Table 3 membership (external tables; no mock analogue).
 * Follow-up labels (``not_spurious`` etc.): catalog-level, SF_followup.
 * ``t_periastron``: the cascade stores a phase angle, not the DR3 epoch-based quantity; no cut reads it.
@@ -87,7 +90,7 @@ Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
 ``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
 ``mock_is_dark``, ``mock_co_component``, ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
-``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12, for #679 / #681).
+``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12; #679 ATF) and ``mock_orbit_solution`` (their ``ParameterSet``, #681).
 """
 
 from __future__ import annotations
@@ -290,9 +293,39 @@ def mock_draws_to_selection_rows(
         if p0 is not None and cov is not None:
             row["mock_orbit_p0"] = p0[i]
             row["mock_orbit_cov"] = cov[i]
+            row["mock_orbit_solution"] = mock_orbit_parameter_set(row)  # ParameterSet or None (#681)
         rows.append(row)
     logger.info("mock draws -> rows: %d draws, %d accepted-orbit rows (%d AstroSpectroSB1)", accepted.size, len(rows), int((nss == ASB1_SOLUTION_TYPE).sum()))
     return rows
+
+
+def mock_orbit_parameter_set(row: Mapping[str, Any]) -> Any | None:
+    """The mock row's fitted orbit as a ``ParameterSet`` (``mock_orbit_p0`` / ``mock_orbit_cov``), or ``None``.
+
+    Names are the gaiamock order ``mock_atf_columns.MOCK_ORBIT_NAMES``; the El-Badry 2026 analytic sigma_M2 reads
+    ``a/b/f/g_thiele_innes``, ``parallax`` and ``period`` by name, as for a reconstructed real NSS covariance
+    (``sample_selection``, #681). ``None`` (never a diagonal substitute) when the orbit or its covariance is
+    missing or not finite, or the covariance is not symmetric.
+    """
+    from darkhunter_pop.mock_atf_columns import MOCK_ORBIT_NAMES
+    from darkhunter_pop.schemas import ParameterSet
+
+    p0 = row.get("mock_orbit_p0")
+    cov = row.get("mock_orbit_cov")
+    if p0 is None or cov is None:
+        return None
+    p = np.asarray(p0, dtype=np.float64).ravel()
+    c = np.asarray(cov, dtype=np.float64)
+    n = len(MOCK_ORBIT_NAMES)
+    if p.shape != (n,) or c.shape != (n, n) or not (np.all(np.isfinite(p)) and np.all(np.isfinite(c))):
+        return None
+    if not np.allclose(c, c.T, rtol=1e-6, atol=0.0):
+        return None
+    c = 0.5 * (c + c.T)  # rounding-level asymmetry of a Jacobian product; ParameterSet demands exact symmetry
+    return ParameterSet(
+        names=list(MOCK_ORBIT_NAMES), values=[float(x) for x in p], covariance=c.tolist(),
+        provenance=f"mock_orbit_cov:{row.get('nss_solution_type', 'Orbital')}",
+    )
 
 
 def forward_model_selection(

@@ -180,7 +180,7 @@ def test_cuts_evaluable_today(registry: SampleSelectionRegistry, rows: list[dict
             "astrometric:primary_ns_bh:g_mag": CUT_EVALUABLE,
             "astrometric:elbadry2023_table_e1:table_e1_membership": CUT_EXTERNAL_MEMBERSHIP,  # no SF (N)
             "astrometric:andrews2022_import:andrews2022_membership": CUT_NOT_APPLICABLE,  # #679
-            "astrometric:sub_chandrasekhar:m2_error": CUT_NOT_APPLICABLE,  # #681
+            "astrometric:sub_chandrasekhar:m2_error": CUT_NOT_APPLICABLE,  # rows without include_orbit (#681: evaluable with orbit arrays)
             "spectroscopic:k1_significance": CUT_NOT_APPLICABLE,  # SB1 not in mock (Q6)
         },
     }
