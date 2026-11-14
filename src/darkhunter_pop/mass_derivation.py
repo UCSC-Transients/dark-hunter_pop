@@ -478,6 +478,31 @@ M1_ISOCHRONE_EXTRAS_KEY: str = "m1_isochrone"
 _ISOCHRONE_MODEL_CACHE: dict[tuple[str, str], Any] = {}
 
 
+def pipeline_tag10_m1(extras: Mapping[str, Any], cfg: PipelineConfig) -> tuple[float, float]:
+    """Bulk-tier TAG10 ``(M1, σ_M1)`` exactly as ``mass_derivation_bulk`` computes it under TAG10.
+
+    Moved verbatim from ``scripts/build_andrews2022_atf_columns.py`` (``_pipeline_m1``, #679) so the mock path
+    (``mock_atf_columns``) calls the same code; the real-row sidecar builder imports it.
+
+    ``pipeline_tag10_bulk`` is TAG10 by name (#425): the TAG10 calibration is used even when the
+    run's ``mass_calibration.method`` is ``MIST_isochrone`` (the Santos switch and scatter still
+    come from config), so this sidecar's counts do not move with the bulk switch.
+    """
+    from darkhunter_pop.config_schema import MassCalibrationMethod
+
+    atmosphere = resolve_atmosphere_from_extras(extras)
+    if atmosphere is None:
+        return float("nan"), float("nan")
+    if cfg.mass_calibration.method is not MassCalibrationMethod.TAG10:
+        cfg = cfg.model_copy(update={"mass_calibration": cfg.mass_calibration.model_copy(
+            update={"method": MassCalibrationMethod.TAG10})})
+    try:
+        m1 = derive_tag10_m1_r1(atmosphere, cfg).marginal("M1")
+    except (ValueError, NotImplementedError):
+        return float("nan"), float("nan")
+    return float(m1.value), float(m1.sigma)
+
+
 def _isochrone_model(config: PipelineConfig) -> Any:
     """Build (once per process and config) the MIST CMD moment map (#418)."""
     from darkhunter_pop import isochrone_mass as im

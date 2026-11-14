@@ -62,7 +62,8 @@ new dust path. The cascade parallax replaces the Bailer-Jones distance in that l
 
 Columns that need extra machinery are **not** emitted (separate tickets), so the evaluator sees them as missing:
 
-* Andrews ``andrews_atf_*`` sidecar columns (#679): no ``reproduction_columns_loader`` is supplied. The first
+* Andrews ``andrews_atf_*`` sidecar columns: built by ``mock_atf_columns`` (#679) and passed to
+  :func:`forward_model_selection` as ``reproduction_columns``. Without them (no loader) the first
   ``requires_defined`` ATF cut makes every row not applicable (so the chain stops there); the later ATF cuts
   that name an ``andrews_atf_*`` column directly raise ``CutExpressionError`` (unbound name) if run on their own.
   :func:`classify_cuts` reports both, never silently.
@@ -248,13 +249,16 @@ def forward_model_selection(
     name: str,
     *,
     extinction_lookup: Any | None = None,
+    reproduction_columns: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> Any:
     """A ``SampleSelection`` for sample ``name`` in ``forward_model`` mode, whatever the registry mode.
 
     The registry's configured mode is the real-data mode (``reproduction`` for the published samples); the mock
     must run the sample's ``forward_model`` cut list. This builds the evaluator exactly as
     ``SampleSelectionRegistry.selection`` does, with the mode forced and **no** reproduction-columns loader
-    (the ATF sidecar is keyed by real ``source_id``; #679). ``extinction_lookup`` defaults to the El-Badry
+    (the real ATF sidecar is keyed by real ``source_id``). ``reproduction_columns`` is the mock's own
+    ``{source_id: columns}`` table (``mock_atf_columns.mock_rows_atf_columns``, #679); without it the
+    ``andrews_atf_*`` cuts are not applicable. ``extinction_lookup`` defaults to the El-Badry
     2026 builder (the real-row path); pass ``None`` rows-with-``ebv_elbadry2026`` fixtures through a test stub.
     """
     from darkhunter_pop.config_schema import SampleSelectionMode
@@ -270,7 +274,7 @@ def forward_model_selection(
         mode=SampleSelectionMode.FORWARD_MODEL,
         dr_mode=registry.dr_mode,
         extinction_lookup=lookup,
-        reproduction_columns_loader=None,
+        reproduction_columns_loader=(None if reproduction_columns is None else (lambda: reproduction_columns)),
         external_catalog_loader=None,
     )
 

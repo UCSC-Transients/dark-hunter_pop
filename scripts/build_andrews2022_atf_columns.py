@@ -85,10 +85,7 @@ from darkhunter_pop.config_schema import (  # noqa: E402
     SampleSelectionMode,
 )
 from darkhunter_pop.data_acquisition import load_gaia_snapshot  # noqa: E402
-from darkhunter_pop.mass_derivation import (  # noqa: E402
-    derive_tag10_m1_r1,
-    resolve_atmosphere_from_extras,
-)
+from darkhunter_pop.mass_derivation import pipeline_tag10_m1  # noqa: E402
 from darkhunter_pop.sample_selection import (  # noqa: E402
     CutOutcome,
     SampleSelection,
@@ -137,28 +134,6 @@ def _pass2_chunk(
     assert _WORKER_PROC is not None
     mode = SampleSelectionMode(job[0])
     return [(item.source_id, run_pass2(item, _WORKER_PROC, mode=mode)) for item in job[1]]
-
-
-def _pipeline_m1(extras: dict[str, Any], cfg: Any) -> tuple[float, float]:
-    """Bulk-tier TAG10 ``(M1, σ_M1)`` exactly as ``mass_derivation_bulk`` computes it under TAG10.
-
-    ``pipeline_tag10_bulk`` is TAG10 by name (#425): the TAG10 calibration is used even when the
-    run's ``mass_calibration.method`` is ``MIST_isochrone`` (the Santos switch and scatter still
-    come from config), so this sidecar's counts do not move with the bulk switch.
-    """
-    from darkhunter_pop.config_schema import MassCalibrationMethod
-
-    atmosphere = resolve_atmosphere_from_extras(extras)
-    if atmosphere is None:
-        return float("nan"), float("nan")
-    if cfg.mass_calibration.method is not MassCalibrationMethod.TAG10:
-        cfg = cfg.model_copy(update={"mass_calibration": cfg.mass_calibration.model_copy(
-            update={"method": MassCalibrationMethod.TAG10})})
-    try:
-        m1 = derive_tag10_m1_r1(atmosphere, cfg).marginal("M1")
-    except (ValueError, NotImplementedError):
-        return float("nan"), float("nan")
-    return float(m1.value), float(m1.sigma)
 
 
 def _cell(value: Any) -> Any:
@@ -411,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
         for item in inputs:
             if item.source_id not in survivors:
                 continue
-            mu, sigma = _pipeline_m1(atmosphere_by_source.get(item.source_id, {}), cfg)
+            mu, sigma = pipeline_tag10_m1(atmosphere_by_source.get(item.source_id, {}), cfg)
             todo.append(
                 dataclasses.replace(
                     item, pipeline_m1_msun=mu, pipeline_m1_sigma_msun=sigma
