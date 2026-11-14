@@ -1157,7 +1157,7 @@ class SampleSelection:
         )
 
         enrich_index = self._nss_enrichment_index()
-        if not enrich_index:
+        if not enrich_index and not any("mock_orbit_cov" in row for row in rows):
             return
         sigma_spec = self.spec.sigma_m2_tilde
         method = "monte_carlo" if sigma_spec is None else sigma_spec.method
@@ -1202,20 +1202,28 @@ class SampleSelection:
                 if fit_sigma is None:
                     continue
                 sigma_log_m1 = fit_sigma
-            key = _enrichment_join_key(row)
-            extra = enrich_index.get(key)
-            if extra is None:
-                continue
-            mapping = merge_nss_enrichment_into_row(row, extra)
-            cov = reconstruct_nss_covariance(
-                mapping, nss_solution_type=mapping.get("nss_solution_type")
-            )
-            if cov.parameter_set is None:
+            if "mock_orbit_cov" in row:
+                # Mock row (#681): the cascade fit's own 12x12 covariance plays the role of the
+                # reconstructed NSS covariance; everything after this point is the real-row code.
+                from darkhunter_pop.mock_selection_rows import mock_orbit_parameter_set
+
+                parameter_set = mock_orbit_parameter_set(row)
+            else:
+                key = _enrichment_join_key(row)
+                extra = enrich_index.get(key)
+                if extra is None:
+                    continue
+                mapping = merge_nss_enrichment_into_row(row, extra)
+                cov = reconstruct_nss_covariance(
+                    mapping, nss_solution_type=mapping.get("nss_solution_type")
+                )
+                parameter_set = cov.parameter_set
+            if parameter_set is None:
                 continue
             sid = int(row["source_id"])
             if method == "analytic":
                 sigma = sigma_m2_tilde_analytic_msun(
-                    cov.parameter_set,
+                    parameter_set,
                     m1_tilde_msun=m1_f,
                     analytic_covariance=analytic_cov,
                     sigma_log10_m1=sigma_log_m1,
@@ -1223,7 +1231,7 @@ class SampleSelection:
             elif method == "monte_carlo":
                 seed = int(mc.random_seed) ^ (sid & 0x7FFFFFFF)
                 sigma = sigma_m2_tilde_astrometric_msun(
-                    cov.parameter_set,
+                    parameter_set,
                     m1_tilde_msun=m1_f,
                     n_draws=n_draws,
                     random_seed=seed,
