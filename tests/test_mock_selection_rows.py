@@ -20,6 +20,7 @@ from darkhunter_pop.mock_selection_rows import (
     CUT_PARTIAL,
     CUT_UNBOUND_COLUMN,
     MOCK_SOURCE_ID_MAX,
+    MissingSolutionTypeError,
     REAL_COLUMNS,
     classify_cuts,
     forward_model_selection,
@@ -73,11 +74,17 @@ def _draws() -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         "is_dark": np.ones(_N, dtype=bool), "co_component": np.ones(_N, dtype=np.int8),
         "period_days": period, "sys_evolved": np.array([False] * 5 + [True, False]),
     }
+    nss = np.array(["Orbital", "", "Orbital", "Orbital", "Orbital", "Orbital", "AstroSpectroSB1"])  # draw 6 is SB1-routed
     outcome = {
-        "cascade": cascade, "accepted_orbital": accepted,
+        "cascade": cascade, "accepted_orbital": accepted, "nss_solution_type": nss,
         "orbit_p0": np.zeros((_N, 12)), "orbit_cov": np.tile(np.eye(12), (_N, 1, 1)),
     }
+    truth["parent_row"] = np.zeros(_N, dtype=np.int64)
     return truth, outcome
+
+
+def _kw() -> dict[str, Any]:
+    return {"pipeline_m1": (np.full(_N, 0.9), np.full(_N, 0.05))}
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +94,7 @@ def registry() -> SampleSelectionRegistry:
 
 @pytest.fixture(scope="module")
 def rows() -> list[dict[str, Any]]:
-    return mock_draws_to_selection_rows(*_draws())
+    return mock_draws_to_selection_rows(*_draws(), **_kw())
 
 
 def _selection(registry: SampleSelectionRegistry, name: str) -> Any:
@@ -101,20 +108,20 @@ def test_rows_use_real_column_names_and_synthetic_ids(rows: list[dict[str, Any]]
     assert set(REAL_COLUMNS) <= rows_columns(rows)
     ids = [r["source_id"] for r in rows]
     assert len(set(ids)) == len(ids) and max(ids) < MOCK_SOURCE_ID_MAX
-    assert {r["nss_solution_type"] for r in rows} == {"Orbital"}
+    assert [r["nss_solution_type"] for r in rows] == ["Orbital"] * 4 + ["Orbital", "AstroSpectroSB1"]
     assert len({r["mock_parent_source_id"] for r in rows}) < len(rows)  # parent ids repeat, source_id does not
     r0 = rows[0]
     assert r0["period_day"] == r0["period"] == 500.0 and r0["goodness_of_fit"] == 3.0
     assert r0["abs_g_mag"] == pytest.approx(13.0 + 5.0 * np.log10(2.0) - 10.0)
-    assert r0["pipeline_m1_msun"] == 0.9 and r0["mock_m1_msun"] == 0.9
+    assert r0["pipeline_m1_msun"] == 0.9 and r0["pipeline_m1_sigma_msun"] == 0.05 and r0["mock_m1_msun"] == 0.9
     assert photocenter_a0_from_thiele_innes(
         r0["a_thiele_innes"], r0["b_thiele_innes"], r0["f_thiele_innes"], r0["g_thiele_innes"]
     ) == pytest.approx(3.0)
 
 
 def test_orbit_arrays_only_on_request() -> None:
-    plain = mock_draws_to_selection_rows(*_draws())
-    full = mock_draws_to_selection_rows(*_draws(), include_orbit=True)
+    plain = mock_draws_to_selection_rows(*_draws(), **_kw())
+    full = mock_draws_to_selection_rows(*_draws(), include_orbit=True, **_kw())
     assert "mock_orbit_cov" not in rows_columns(plain)
     assert full[0]["mock_orbit_cov"].shape == (12, 12) and full[0]["mock_orbit_p0"].shape == (12,)
 
@@ -122,11 +129,11 @@ def test_orbit_arrays_only_on_request() -> None:
 def test_bad_inputs_raise() -> None:
     truth, outcome = _draws()
     with pytest.raises(ValueError, match="cascade"):
-        mock_draws_to_selection_rows(truth, {**outcome, "cascade": outcome["cascade"][:, :5]})
+        mock_draws_to_selection_rows(truth, {**outcome, "cascade": outcome["cascade"][:, :5]}, **_kw())
     with pytest.raises(ValueError, match="MOCK_SOURCE_ID_MAX"):
-        mock_draws_to_selection_rows({**truth, "draw_index": truth["draw_index"] + 5_000_000_000}, outcome)
+        mock_draws_to_selection_rows({**truth, "draw_index": truth["draw_index"] + 5_000_000_000}, outcome, **_kw())
     with pytest.raises(ValueError, match="not unique"):
-        mock_draws_to_selection_rows({**truth, "draw_index": np.zeros(_N, dtype=np.int64)}, outcome)
+        mock_draws_to_selection_rows({**truth, "draw_index": np.zeros(_N, dtype=np.int64)}, outcome, **_kw())
 
 
 def test_frozen_chains_run_unchanged_on_mock_rows(
@@ -135,7 +142,7 @@ def test_frozen_chains_run_unchanged_on_mock_rows(
     """The unmodified evaluator runs every forward-model chain; primary_ns_bh keeps exactly the designed rows."""
     for name in ("andrews2022_modified", "elbadry2024", "elbadry2026"):
         result = _selection(registry, name).evaluate(rows)
-        assert result.n_parent == len(rows)
+        assert result.n_parent == (len(rows) - 1 if name.startswith("andrews") else len(rows))  # Andrews: no SB1
         if name == "elbadry2026":
             assert result.surviving_source_ids == (int(_IDS[0]), int(_IDS[6]))
             by_cut = {a.cut_id: a for a in result.attrition}
@@ -181,3 +188,42 @@ def test_cuts_evaluable_today(registry: SampleSelectionRegistry, rows: list[dict
         report = classify_cuts(_selection(registry, name), rows)
         got = {k: report[k]["category"] for k in cuts}
         assert got == cuts, name
+
+
+def test_label_is_required_and_never_assumed() -> None:
+    truth, outcome = _draws()
+    no_label = {k: v for k, v in outcome.items() if k != "nss_solution_type"}
+    with pytest.raises(MissingSolutionTypeError, match="recover_nss_type_690"):
+        mock_draws_to_selection_rows(truth, no_label, **_kw())
+    unlabelled = {**outcome, "nss_solution_type": np.array([""] * _N)}
+    with pytest.raises(ValueError, match="no Orbital / AstroSpectroSB1 label"):
+        mock_draws_to_selection_rows(truth, unlabelled, **_kw())
+
+
+def test_pipeline_m1_must_be_given_and_is_tag10_from_the_parent_row() -> None:
+    from darkhunter_pop.mass_derivation import pipeline_tag10_m1
+
+    truth, outcome = _draws()
+    with pytest.raises(ValueError, match="TAG10"):
+        mock_draws_to_selection_rows(truth, outcome)
+    cfg = load_config()
+    atm = {"teff_gspphot": np.array([5800.0]), "logg_gspphot": np.array([4.4]), "mh_gspphot": np.array([0.0])}
+    rows = mock_draws_to_selection_rows(truth, outcome, parent_columns=atm, config=cfg)
+    m1, sig = pipeline_tag10_m1({k: float(v[0]) for k, v in atm.items()}, cfg)
+    assert np.isfinite(m1) and rows[0]["pipeline_m1_msun"] == m1 and rows[0]["pipeline_m1_sigma_msun"] == sig
+    assert rows[0]["pipeline_m1_msun"] != rows[0]["mock_m1_row_msun"]  # not the proposal's MIST M1
+
+
+def test_parent_filters_split_orbital_and_sb1(registry: SampleSelectionRegistry, rows: list[dict[str, Any]]) -> None:
+    """El-Badry parents include AstroSpectroSB1 mock rows; Andrews (Orbital only) excludes them."""
+    sb1_id = int(_IDS[6])
+    assert any(r["source_id"] == sb1_id and r["nss_solution_type"] == "AstroSpectroSB1" for r in rows)
+    andrews = _selection(registry, "andrews2022_modified").evaluate(rows)
+    assert andrews.n_parent == len(rows) - 1  # the SB1-routed row is not in Andrews' parent
+    assert sb1_id not in andrews.outcomes_by_source
+    for name in ("elbadry2024", "elbadry2026"):
+        res = _selection(registry, name).evaluate(rows)
+        assert res.n_parent == len(rows)  # branched samples count every row; the astrometric parent takes both types
+        assert sb1_id in res.outcomes_by_source
+    elb = _selection(registry, "elbadry2026").evaluate(rows)
+    assert sb1_id in elb.surviving_source_ids  # the SB1-routed draw passes primary_ns_bh like draw 0

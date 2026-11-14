@@ -13,14 +13,20 @@ Row identity
 ------------
 ``source_id`` is the mock ``draw_index`` (unique across generations; the evaluator keys its outcome tables by
 ``source_id`` and the parent Gaia ``source_id`` repeats across draws). :data:`MOCK_SOURCE_ID_MAX` keeps it below
-the smallest real Gaia ``source_id`` so no join to real-row data (enrichment index, ATF sidecar, external
+the smallest Gaia DR3 ``source_id`` (4,295,806,720; the uncut NSS snapshot's own minimum is 33,711,199,137,024) so no join to real-row data (enrichment index, ATF sidecar, external
 catalogues) can ever silently match. The parent Gaia id is kept in ``mock_parent_source_id``.
 
 Which draws become rows
 -----------------------
-Only draws whose cascade published an astrometric **Orbital** solution (``outcome/accepted_orbital``) become
-rows, with ``nss_solution_type = "Orbital"``. The mock has no ``AstroSpectroSB1`` branch (SB1 is v1
-out-of-scope, Q6), so no row carries that type.
+Every draw whose cascade published an astrometric orbit (``outcome/accepted_orbital``) becomes a row, and
+``nss_solution_type`` is the cascade's own routed DR3 type (``outcome/nss_solution_type``: ``"Orbital"`` or
+``"AstroSpectroSB1"``, from ``epoch_model.apply_solution_type``; stored by ``proposal_set`` for new draws, recovered
+into a ``.nss_type.h5`` sidecar for older generations, MOCK_POPULATION_SPEC §3.5). Each sample's own parent filter
+then selects: El-Badry 2024 / 2026 take Orbital + AstroSpectroSB1, Andrews takes Orbital only. Without the label the
+adapter raises :class:`MissingSolutionTypeError`: it will not guess which draws are SB1-routed, because that would put
+SB1-routed draws into Andrews. The SB1 RV channel itself is not simulated (the type is a calibrated routing of the
+astrometric fit, EPOCH_MODEL_SPEC §8.16); there is no ``k1_*`` / ``significance`` column, so the spectroscopic branch
+of El-Badry 2026 stays not evaluable (Q6).
 
 Column provenance (real column <- mock quantity)
 ------------------------------------------------
@@ -31,7 +37,8 @@ Cascade vector layout (``cascade_layout`` attribute of the artifact, gaiamock_mo
 real DR3 / evaluator column        mock quantity
 =================================  ==========================================================================
 ``source_id``                      ``truth/draw_index`` (synthetic, see above)
-``nss_solution_type``              ``"Orbital"`` where ``outcome/accepted_orbital``
+``nss_solution_type``              ``outcome/nss_solution_type`` (Orbital / AstroSpectroSB1) where
+                                   ``outcome/accepted_orbital``
 ``ra_deg``, ``dec_deg``            ``truth/ra_deg``, ``truth/dec_deg`` (parent Gaia row position)
 ``parallax``, ``parallax_mas``     cascade ``plx`` (NSS-fit parallax, as the real orbital solution)
 ``parallax_error``                 cascade ``sig_parallax``
@@ -47,9 +54,10 @@ real DR3 / evaluator column        mock quantity
 ``abs_g_mag``                      ``G + 5 log10(plx_fit) - 10`` (real recipe of ``candidate_to_selection_row``)
 ``mg_0``, ``bp_rp_0``              aliases of ``abs_g_mag`` / ``bp_rp`` (the real-row defaults; the evaluator
                                    overwrites them with the sample's own dereddening)
-``pipeline_m1_msun``               ``truth/m1_row_msun``: the data-side M1 of the parent Gaia row (TAG10, or MIST
-                                   isochrone when the proposal used ``MIST_isochrone``), never the deblended truth
-                                   M1; the evaluator binds ``m1_msun`` from it in ``forward_model`` mode
+``pipeline_m1_msun`` (+ ``_sigma``) TAG10 ``(M1, sigma)`` of the parent Gaia row from its atmosphere columns, via
+                                   ``mass_derivation.pipeline_tag10_m1`` (what real rows carry; the MIST switch is
+                                   off, #425), never the proposal's MIST ``m1_row_msun`` or the deblended truth M1;
+                                   the evaluator binds ``m1_msun`` from it in ``forward_model`` mode
 =================================  ==========================================================================
 
 Reddening. The mock photometry (``sys_bp_rp``, system G) is built in ``proposal_set.apply_system_photometry`` from
@@ -77,6 +85,7 @@ Columns that need extra machinery are **not** emitted (separate tickets), so the
 
 Mock-only bookkeeping columns carry the ``mock_`` prefix and are never read by a frozen cut:
 ``mock_draw_index``, ``mock_parent_source_id``, ``mock_m1_msun`` / ``mock_m2_msun`` (truth masses),
+``mock_m1_row_msun`` (the proposal's parent-row M1, MIST),
 ``mock_is_dark``, ``mock_co_component``, ``mock_period_days`` (truth), ``mock_sys_evolved``, and with
 ``include_orbit=True`` ``mock_orbit_p0`` / ``mock_orbit_cov`` (12 and 12x12, for #679 / #681).
 """
@@ -99,11 +108,17 @@ CASCADE_COLUMNS: Final[tuple[str, ...]] = (
     "a0_mas", "sigma_a0_mas", "N_visibility_periods", "N_obs", "F2", "ruwe",
 )
 
-#: Smallest real Gaia DR3 ``source_id`` (2^32 + 2^15 style lower bound is above 4.29e9): synthetic ids stay below.
+#: Smallest Gaia DR3 ``source_id`` in ``gaia_source`` (the uncut NSS snapshot's minimum is 33,711,199,137,024, above it);
+#: synthetic ``draw_index`` ids stay below it, so they can never equal a real id.
 MOCK_SOURCE_ID_MAX: Final[int] = 4_295_806_720
 
-#: ``nss_solution_type`` label of a published astrometric orbit (the only type the mock cascade produces).
+#: ``nss_solution_type`` labels the adapter emits (the routed types of ``epoch_model.apply_solution_type``).
 ORBITAL_SOLUTION_TYPE: Final[str] = "Orbital"
+ASB1_SOLUTION_TYPE: Final[str] = "AstroSpectroSB1"
+
+
+class MissingSolutionTypeError(ValueError):
+    """``outcome`` carries no routed ``nss_solution_type`` (generation predates the stored label, no sidecar)."""
 
 #: ``(row column, cascade column)`` pairs copied verbatim.
 _CASCADE_TO_ROW: Final[tuple[tuple[str, str], ...]] = (
@@ -143,6 +158,9 @@ def mock_draws_to_selection_rows(
     truth: Mapping[str, NDArray[Any]],
     outcome: Mapping[str, NDArray[Any]],
     *,
+    pipeline_m1: tuple[ArrayLike, ArrayLike] | None = None,
+    parent_columns: Mapping[str, ArrayLike] | None = None,
+    config: Any | None = None,
     include_orbit: bool = False,
     max_rows: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -154,6 +172,12 @@ def mock_draws_to_selection_rows(
         Dicts of arrays as returned by ``proposal_set.load_generation_draws`` (needs ``draw_index``,
         ``source_id``, ``ra_deg``, ``dec_deg``, ``phot_g_mean_mag``, ``sys_bp_rp``, ``m1_row_msun`` in ``truth``;
         ``cascade``, ``accepted_orbital`` in ``outcome``).
+    pipeline_m1, parent_columns, config
+        The data-side TAG10 M1 the real rows carry as ``pipeline_m1_msun`` / ``pipeline_m1_sigma_msun``. Either
+        ``pipeline_m1=(m1, sigma)`` aligned with **all** draws, or ``parent_columns`` (the parent snapshot's atmosphere
+        columns, indexed by ``truth/parent_row``) with the ``PipelineConfig`` ``config``: then
+        ``mock_atf_columns.parent_tag10_m1`` (``mass_derivation.pipeline_tag10_m1``) runs on the selected rows only.
+        One is required: the proposal's ``m1_row_msun`` is the MIST isochrone M1 and is not the real-row definition.
     include_orbit
         Also attach ``mock_orbit_p0`` / ``mock_orbit_cov`` (heavy: 12x12 per row) for the ATF / covariance
         consumers (#679, #681).
@@ -162,8 +186,8 @@ def mock_draws_to_selection_rows(
 
     Returns
     -------
-    One dict per accepted-Orbital draw, in draw order. Draws without a published orbit are not rows (they are
-    not in the real NSS Orbital parent either). ``abs_g_mag`` is NaN-free only where the fit parallax is
+    One dict per accepted-orbit draw (Orbital or AstroSpectroSB1), in draw order. Draws without a published orbit
+    are not rows (they are in no NSS orbit parent either). ``abs_g_mag`` is NaN-free only where the fit parallax is
     positive; other rows get no ``abs_g_mag`` (as ``candidate_to_selection_row``).
     """
     cascade = np.asarray(outcome["cascade"], dtype=np.float64)
@@ -175,6 +199,17 @@ def mock_draws_to_selection_rows(
     accepted = np.asarray(outcome["accepted_orbital"], dtype=bool)
     if accepted.shape[0] != cascade.shape[0]:
         raise ValueError("outcome arrays have inconsistent lengths")
+    if "nss_solution_type" not in outcome:
+        raise MissingSolutionTypeError(
+            "outcome has no 'nss_solution_type': run scripts/recover_nss_type_690.py for this generation (sidecar) or "
+            "regenerate it; the adapter will not assume Orbital (SB1-routed draws would enter Andrews)"
+        )
+    nss_all = np.asarray(outcome["nss_solution_type"]).astype(str)
+    if nss_all.shape[0] != cascade.shape[0]:
+        raise ValueError("outcome arrays have inconsistent lengths")
+    bad = accepted & ~np.isin(nss_all, [ORBITAL_SOLUTION_TYPE, ASB1_SOLUTION_TYPE])
+    if bad.any():
+        raise ValueError(f"{int(bad.sum())} accepted-orbital draws carry no Orbital / AstroSpectroSB1 label")
     idx = np.flatnonzero(accepted)
     if max_rows is not None:
         idx = idx[: int(max_rows)]
@@ -192,7 +227,20 @@ def mock_draws_to_selection_rows(
     plx = col["plx"]
     with np.errstate(divide="ignore", invalid="ignore"):
         abs_g = np.where(_finite_positive(plx), g + 5.0 * np.log10(plx) - 10.0, np.nan)
+    if pipeline_m1 is not None:
+        m1_pipe = np.asarray(pipeline_m1[0], dtype=np.float64)[idx]
+        m1_pipe_sig = np.asarray(pipeline_m1[1], dtype=np.float64)[idx]
+    elif parent_columns is not None and config is not None:
+        from darkhunter_pop.mock_atf_columns import parent_tag10_m1
+
+        m1_pipe, m1_pipe_sig = parent_tag10_m1(parent_columns, np.asarray(truth["parent_row"])[idx], config)
+    else:
+        raise ValueError(
+            "pipeline_m1=(m1, sigma) or parent_columns + config is required: pipeline_m1_msun must be the real-row "
+            "TAG10 M1, not the proposal's MIST m1_row_msun"
+        )
     m1_row = np.asarray(truth["m1_row_msun"], dtype=np.float64)[idx]
+    nss = nss_all[idx]
     ra = np.asarray(truth["ra_deg"], dtype=np.float64)[idx]
     dec = np.asarray(truth["dec_deg"], dtype=np.float64)[idx]
 
@@ -212,7 +260,7 @@ def mock_draws_to_selection_rows(
     for i in range(idx.size):
         row: dict[str, Any] = {
             "source_id": int(draw_index[i]),
-            "nss_solution_type": ORBITAL_SOLUTION_TYPE,
+            "nss_solution_type": str(nss[i]),
             "ra_deg": float(ra[i]),
             "dec_deg": float(dec[i]),
         }
@@ -227,7 +275,10 @@ def mock_draws_to_selection_rows(
             row["abs_g_mag"] = float(abs_g[i])
             row["mg_0"] = row["abs_g_mag"]
         row["bp_rp_0"] = row["bp_rp"]
-        row["pipeline_m1_msun"] = float(m1_row[i])
+        row["pipeline_m1_msun"] = float(m1_pipe[i])
+        if np.isfinite(m1_pipe_sig[i]):
+            row["pipeline_m1_sigma_msun"] = float(m1_pipe_sig[i])
+        row["mock_m1_row_msun"] = float(m1_row[i])
         row["mock_draw_index"] = int(draw_index[i])
         row["mock_parent_source_id"] = int(parent_id[i])
         row["mock_m1_msun"] = float(m1_truth[i])
@@ -240,7 +291,7 @@ def mock_draws_to_selection_rows(
             row["mock_orbit_p0"] = p0[i]
             row["mock_orbit_cov"] = cov[i]
         rows.append(row)
-    logger.info("mock draws -> rows: %d draws, %d accepted-Orbital rows", accepted.size, len(rows))
+    logger.info("mock draws -> rows: %d draws, %d accepted-orbit rows (%d AstroSpectroSB1)", accepted.size, len(rows), int((nss == ASB1_SOLUTION_TYPE).sum()))
     return rows
 
 
@@ -259,7 +310,8 @@ def forward_model_selection(
     (the real ATF sidecar is keyed by real ``source_id``). ``reproduction_columns`` is the mock's own
     ``{source_id: columns}`` table (``mock_atf_columns.mock_rows_atf_columns``, #679); without it the
     ``andrews_atf_*`` cuts are not applicable. ``extinction_lookup`` defaults to the El-Badry
-    2026 builder (the real-row path); pass ``None`` rows-with-``ebv_elbadry2026`` fixtures through a test stub.
+    2026 builder (the real-row path, needs the dust-map files); tests that have no maps pass a stub with the
+    ``ExtinctionLookup.ebv_for`` / ``dust_cfg`` contract.
     """
     from darkhunter_pop.config_schema import SampleSelectionMode
     from darkhunter_pop.elbadry2026_selection import build_elbadry2026_extinction_lookup

@@ -650,6 +650,22 @@ that sets `phot_g_mean_mag` (MP-Q6), the gaiamock version triple and noise model
 and the cascade settings (`ruwe_min`, `skip_acceleration`). Everything in §2 except these is
 reweightable.
 
+**Artifact schema note: the routed solution type (#690; Ryan, 2026-11-13, option A).** The st1 epoch term
+(`epoch_model.apply_solution_type`, EPOCH_MODEL_SPEC §8.16) routes every orbital-branch fit to `Orbital` or
+`AstroSpectroSB1` and `run_cascade` returns that label, but the artifact used to discard it. From now on
+`proposal_set` stores it per draw as `outcome/nss_solution_type` (`Orbital`, `AstroSpectroSB1`, or the empty string
+for a draw with no orbital-branch fit). **This is a schema addition, not a draw-invalidating change.** It is derived
+data: no input to the gaiamock call, no seed, no cascade value and no weight changes, so every stored draw stays valid
+and nothing is re-simulated. Generations that predate it get the label in a sidecar `<artifact stem>.nss_type.h5`,
+recovered by `scripts/recover_nss_type_690.py`: the routing draw is the first child Generator of the per-CCD noise
+Generator, which depends only on `(base_seed, stream, draw_index)`, and P(ASB1 | x) reads a0, parallax, P, e and
+inclination from the stored cascade, which the type offsets do not change. That is exact while the per-source noise
+terms ss1 / sa1 are off (they spawn first; the script refuses otherwise). The recovery is checked by re-simulating a
+stratified subset (bit-identical cascade and equal label); `load_generation_draws` reads the stored label or the sidecar.
+The sample-selection adapter (`mock_selection_rows`) requires the label: Andrews takes Orbital only, El-Badry 2024 /
+2026 take Orbital + AstroSpectroSB1. The SB1 RV channel is not simulated; the label is a calibrated routing of the
+astrometric fit.
+
 ### 3.6 Effective sample size and the minimum per bin
 
 Per bin b (observed six-panel bin, solution-type class, or mass bin):
