@@ -312,14 +312,25 @@ def mock_rows_atf_columns(
     ``{source_id: columns}`` ready for ``SampleSelection``'s ``reproduction_columns_loader`` (mock ``source_id`` is
     the draw index; pass-2 randomness is seeded by it, as the real ATF seeds by the Gaia id). The logg column is
     NaN (#680).
+
+    A luminous row outside the #704 pre-filter (``mock_orbit_cov_status`` ``prefilter_excluded:<version>``) has no
+    orbit covariance: it gets :func:`prefilter_excluded_atf_columns` (the covariance-free static columns computed,
+    ``andrews_atf_covariance_ok = NotApplicable("mock_prefilter_excluded:<version>")``), so the chain records it as
+    not applicable at ``atf_covariance_valid`` with that reason. It never enters pass 1 or pass 2.
     """
+    from darkhunter_pop.luminous_covariance import is_excluded_status
+
     proc = require_procedure(spec)
     mu = np.asarray(m1_msun, dtype=np.float64)
     sg = np.asarray(m1_sigma_msun, dtype=np.float64)
     if mu.shape != (len(rows),) or sg.shape != (len(rows),):
         raise ValueError("m1_msun / m1_sigma_msun must have one entry per row")
     inputs = []
+    excluded: dict[int, dict[str, Any]] = {}
     for k, r in enumerate(rows):
+        if is_excluded_status(r.get("mock_orbit_cov_status")):
+            excluded[int(r["source_id"])] = prefilter_excluded_atf_columns(r, proc=proc, threshold=m2_threshold_msun(spec))
+            continue
         if "mock_orbit_p0" not in r or "mock_orbit_cov" not in r:
             raise ValueError("rows need mock_orbit_p0 / mock_orbit_cov (include_orbit=True)")
         inputs.append(
@@ -331,14 +342,45 @@ def mock_rows_atf_columns(
         )
     cols = compute_atf_columns(
         inputs, spec, mode=SampleSelectionMode.FORWARD_MODEL, workers=workers, chunk=chunk, dr_mode=dr_mode
-    )
+    ) if inputs else {}
     fail = Counter(str(c["andrews_atf_covariance_failure"]) for c in cols.values() if not c["andrews_atf_covariance_ok"])
     if fail:
         logger.info("mock ATF covariance failures (no diagonal fallback): %s", dict(fail))
+    if excluded:
+        logger.info("mock ATF: %d rows outside the #704 pre-filter marked not applicable", len(excluded))
+    return {**cols, **excluded}
+
+
+def prefilter_excluded_atf_columns(
+    row: Mapping[str, Any], *, proc: ReproductionProcedureSpec, threshold: float
+) -> dict[str, Any]:
+    """ATF columns of a mock row outside the #704 pre-filter (no covariance was replayed for it).
+
+    The column set is the real one: ``run_pass1`` on an orbit with no covariance (its failure branch) plus
+    ``static_columns`` (GoF, CMD inputs: need no covariance, computed from the row) and ``empty_pass2_columns``.
+    ``andrews_atf_covariance_ok`` is then replaced by ``NotApplicable(reason)`` and the failure text by the reason,
+    ``reason`` = ``mock_prefilter_excluded:<version>`` (``luminous_covariance.excluded_reason``).
+    """
+    from darkhunter_pop.luminous_covariance import excluded_reason
+    from darkhunter_pop.sample_selection import NotApplicable
+
+    reason = excluded_reason(str(row["mock_orbit_cov_status"]))
+    order = list(proc.covariance.parameter_order)
+    n = len(order)
+    means = np.full(n, np.nan)
+    means[order.index("parallax")] = float(row.get("parallax", np.nan))
+    inputs = AtfSourceInputs(
+        source_id=int(row["source_id"]), means=means, errors=np.full(n, np.nan), corr_vec=np.full(n * (n - 1) // 2, np.nan),
+        goodness_of_fit=float(row["goodness_of_fit"]), mass_flame=float("nan"), logg=float("nan"),
+        g_mag=float(row["g_mag"]), bp_mag=float(row["g_mag"]) + float(row["bp_rp"]), rp_mag=float(row["g_mag"]),
+    )
+    cols = {**static_columns(inputs, proc), **empty_pass2_columns(), **run_pass1(inputs, proc, m2_threshold=threshold)}
+    cols["andrews_atf_covariance_ok"] = NotApplicable(reason)
+    cols["andrews_atf_covariance_failure"] = reason
     return cols
 
 
 __all__ = [
     "ATF_FROM_MOCK", "MOCK_ORBIT_NAMES", "compute_atf_columns", "mock_orbit_to_atf_frame",
-    "mock_orbit_to_atf_inputs", "mock_rows_atf_columns", "parent_tag10_m1",
+    "mock_orbit_to_atf_inputs", "mock_rows_atf_columns", "parent_tag10_m1", "prefilter_excluded_atf_columns",
 ]
