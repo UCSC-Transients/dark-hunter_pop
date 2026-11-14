@@ -358,3 +358,16 @@ def test_replay_check_flags_every_mismatch(monkeypatch: pytest.MonkeyPatch) -> N
     worse = {**rec, "numpy_seed": 4, "nss_solution_type": "AstroSpectroSB1", "cascade": [1.0 + 1e-6] * 23}
     worse.pop("orbit_cov")
     assert mod.check_replayed(worse, 0, outcome) == ["seeds", "nss_solution_type", "cascade", "no_orbit_cov"]
+
+
+@pytest.mark.unit
+def test_luminous_truth_without_co_component() -> None:
+    """#706: luminous generations have no co_component truth column; rows carry -1, CO codes stay unchanged."""
+    from darkhunter_pop.mock_selection_rows import LUMINOUS_CO_COMPONENT
+
+    truth, outcome = _draws([3.0, 0.5], [13.0, 13.0], ["Orbital", "Orbital"])
+    with_co = _rows(truth, outcome)
+    assert [r["mock_co_component"] for r in with_co] == [0, 0]
+    truth.pop("co_component")
+    rows = _rows(truth, outcome)
+    assert LUMINOUS_CO_COMPONENT == -1 and [r["mock_co_component"] for r in rows] == [-1, -1]
