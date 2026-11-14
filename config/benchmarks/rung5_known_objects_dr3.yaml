@@ -1,3 +1,4 @@
+# SUPERSEDED by rung5_known_objects_dr3_st2.yaml (#702); kept as history.
 # R5-T7 (#624; docs/RUNG5_SPEC.md §5 gate 5a): known compact-object systems re-injected at their published DR3 solutions
 # through the adopted epoch/noise model, to compare their recovery rate with the rung-5 response. Comparison only: these
 # objects never enter a prior. Read by scripts/rung5_known_objects_5a.py.

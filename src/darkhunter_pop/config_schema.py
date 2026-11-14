@@ -2779,7 +2779,7 @@ class EpochSolutionTypeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    version: str = "st1"
+    version: str = "st2"
     break_g: float = 13.0
     grvs_poly: list[float] = Field(..., min_length=1)
     colour_clip: list[float] = Field(default_factory=lambda: [0.2, 3.5], min_length=2, max_length=2)

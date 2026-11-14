@@ -910,7 +910,7 @@ meant to be adopted together with colour_v2 as one version.
 - Because the Halbwachs inflation c scales as 1/r, every reported σ is unchanged, and UWE/u0 keeps RUWE unchanged. Only χ², and so F2 and the c-dependent cuts, move.
 - **Calibration:** on the #390 same-orbit set, r per G bin is the value at which the mock F2 median of DR3-**Orbital** orbits equals DR3's. The result is r = 0.905 / 0.868 / 0.915 / 0.974 (± 0.036 / 0.018 / 0.026 / 0.009) at G < 10 / 10–11 / 11–12 / 12–13, with knots at 9.5 / 10.5 / 11.5 / 12.5. Before the refit the mock F2 median was 4.2–6.0 against DR3 Orbital's 8.5–8.8 at G < 12.
 
-**`solution_type_model` (tag `st1`).**
+**`solution_type_model` (tag `st1`; the current model is `st2`, see "st2" below, #702).**
 - After the cascade, an orbital-branch fit gets a type:
   - AstroSpectroSB1 with probability P(ASB1 | x), the §12.41 logistic: G_RVS hinge basis plus log K1, BP−RP, (BP−RP)², e and log P;
   - the draw comes from a child of the noise Generator, so no stream moves.
