@@ -128,6 +128,72 @@ def expected_counts(theta: ArrayLike, inp: Rung5Inputs) -> tuple[FloatArray, Flo
     return mu, var
 
 
+COMPONENTS = ("lum", "spur", "wd", "dark")
+
+
+def expected_counts_components(theta: ArrayLike, inp: Rung5Inputs) -> dict[str, tuple[FloatArray, FloatArray]]:
+    """Per-component ``(μ_b, MC variance_b)`` at θ for the luminous star (``lum``), ``spur``, ``wd`` and dark companion
+    (``dark``) terms; the components sum to :func:`expected_counts` (same formulas, kept separate so its return is
+    unchanged)."""
+    t = np.asarray(theta, float)
+    s = _slices(inp)
+    h_dark, h_wd = 10.0 ** t[s["dark"]], 10.0 ** t[s["wd"]]
+    a = np.exp(t[s["lum"]])
+    ns, sa = math.exp(float(t[s["ln_ns"]][0])), math.exp(float(t[s["ln_sa"]][0]))
+    pi = wd_branch_fractions(inp.wd_rate, float(t[s["ln_r"]][0]), float(np.clip(t[s["f_he"]][0], 0.0, 1.0)))
+    spur_scale = ns * np.where(inp.high_a, sa, 1.0)
+    return {
+        "lum": (a @ inp.lum, (a**2) @ inp.lum_var),
+        "spur": (spur_scale * inp.spur, spur_scale**2 * inp.spur_var),
+        "wd": (np.einsum("j,kj,kjb->b", h_wd, pi, inp.wd), np.einsum("j,kj,kjb->b", h_wd**2, pi**2, inp.wd_var)),
+        "dark": (h_dark @ inp.dark, (h_dark**2) @ inp.dark_var),
+    }
+
+
+def gate_5d(theta: ArrayLike, inp: Rung5Inputs, threshold: float, mu_floor: float | None = None) -> dict[str, Any]:
+    """Gate 5d (RUNG5_SPEC §2.3, §3, §5; #675): σ_MC/σ_Poisson < ``threshold`` in every USED cell at θ.
+
+    Per cell b, σ_MC = sqrt(MC variance of μ_b) (the template variances propagated as in :func:`expected_counts`) and
+    σ_Poisson = sqrt(μ_b) with μ_b the total expected count. The per-component ratio is sqrt(var_c) / sqrt(μ_b)
+    (same denominator), so the component ratios add in quadrature to the total ratio.
+
+    A cell is USED when ``k_obs > 0`` (the real DR3 data count there) or ``μ_b >= mu_floor``. ``threshold`` is
+    ``physics.mc_noise_threshold`` (caller supplies it; no default here). ``mu_floor`` defaults to ``1 / max(Σ k_obs, 1)``:
+    a cell expecting less than one event per whole observed sample is negligible to the likelihood. Cells that are not
+    used are reported but never fail. A used cell with μ_b = 0 and positive variance has ratio ∞ (fail); with zero
+    variance the ratio is 0. Operates on the generic cell axis, so it applies unchanged to any cell definition.
+
+    Returns ``{threshold, mu_floor, verdict, n_used, n_fail, failing_cells, ratio, per_component, used, ...}`` where
+    ``ratio`` (total) and ``per_component`` are per-cell lists and ``failing_cells`` entries carry ``cell, ratio,
+    dominant_component, k_obs, mu``.
+    """
+    comps = expected_counts_components(theta, inp)
+    mu = sum(m for m, _ in comps.values())
+    var = sum(v for _, v in comps.values())
+    if not (np.all(np.isfinite(mu)) and np.all(np.isfinite(var))):
+        raise ValueError("gate_5d: non-finite μ or MC variance at θ — check the templates (validate_inputs, #659)")
+    floor = float(mu_floor) if mu_floor is not None else 1.0 / max(float(inp.k_obs.sum()), 1.0)
+
+    def _ratio(v: FloatArray) -> FloatArray:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r = np.sqrt(v) / np.sqrt(mu)
+        return np.where(v <= 0.0, 0.0, np.where(mu > 0.0, r, np.inf))
+
+    ratio = _ratio(var)
+    per_comp = {n: _ratio(v) for n, (_, v) in comps.items()}
+    used = (inp.k_obs > 0) | (mu >= floor)
+    fail = used & ~(ratio < threshold)
+    names = list(comps)
+    dom_idx = np.argmax(np.stack([comps[n][1] for n in names]), axis=0)
+    failing = [{"cell": int(b), "ratio": float(ratio[b]), "dominant_component": names[int(dom_idx[b])],
+                "k_obs": float(inp.k_obs[b]), "mu": float(mu[b])} for b in np.flatnonzero(fail)]
+    return {"threshold": float(threshold), "mu_floor": floor, "verdict": "fail" if failing else "pass",
+            "n_used": int(used.sum()), "n_fail": len(failing), "failing_cells": failing,
+            "max_ratio_used": float(ratio[used].max()) if used.any() else 0.0,
+            "used": used.tolist(), "ratio": ratio.tolist(),
+            "per_component": {n: r.tolist() for n, r in per_comp.items()}}
+
+
 # Below this gamma shape the SAY terms are evaluated with gammaln directly (no large cancellation); at or above it the
 # Stirling form is used, whose 4-term remainder series is truncated at < 1 / (1188 x⁹) ≈ 1e-12 for x ≥ 10.
 _STIRLING_MIN_SHAPE = 10.0
