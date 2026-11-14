@@ -61,6 +61,47 @@ GAIA_SOURCE_TOTAL_ROWS: int = 1_811_709_771
 #: ``SeedSequence`` spawn-key stream offset for proposal generations (forward_model uses 0, 1).
 PROPOSAL_RNG_STREAM_BASE: int = 100
 
+#: Routed DR3 solution type labels stored per draw (spec §3.5): ``epoch_model.apply_solution_type`` returns the first two
+#: for orbital-branch fits; every other branch (and draws with no cascade) carries the empty label.
+NSS_TYPE_ORBITAL: str = "Orbital"
+NSS_TYPE_ASB1: str = "AstroSpectroSB1"
+NSS_TYPE_NONE: str = ""
+NSS_TYPE_LABELS: frozenset[str] = frozenset({NSS_TYPE_ORBITAL, NSS_TYPE_ASB1, NSS_TYPE_NONE})
+
+
+def nss_type_sidecar_path(artifact: str | Path) -> Path:
+    """Sidecar holding the recovered routed solution type of a generation that predates the stored label."""
+    p = Path(artifact)
+    return p.with_name(p.stem + ".nss_type.h5")
+
+
+def write_nss_type_sidecar(artifact: str | Path, draw_index: ArrayLike, labels: ArrayLike, *, provenance: Mapping[str, Any]) -> Path:
+    """Write ``<artifact stem>.nss_type.h5`` (``draw_index``, ``nss_solution_type``, JSON ``provenance`` attribute)."""
+    import h5py
+
+    lab = np.asarray(labels).astype(str)
+    bad = set(np.unique(lab).tolist()) - NSS_TYPE_LABELS
+    if bad:
+        raise ValueError(f"unknown nss_solution_type labels {sorted(bad)}")
+    p = nss_type_sidecar_path(artifact)
+    with h5py.File(p, "w") as h:
+        h.create_dataset("draw_index", data=np.asarray(draw_index, dtype=np.int64))
+        h.create_dataset("nss_solution_type", data=lab.astype("S32"))
+        h.attrs["artifact"] = Path(artifact).name
+        h.attrs["provenance_json"] = json.dumps(dict(provenance), sort_keys=True, default=str)
+    return p
+
+
+def read_nss_type_sidecar(artifact: str | Path) -> tuple[NDArray[Any], NDArray[Any]] | None:
+    """``(draw_index, labels)`` of the artifact's sidecar, or None when there is none."""
+    import h5py
+
+    p = nss_type_sidecar_path(artifact)
+    if not p.is_file():
+        return None
+    with h5py.File(p, "r") as h:
+        return h["draw_index"][()], np.char.decode(h["nss_solution_type"][()].astype("S32"), "ascii")
+
 #: Number of entries in the gaiamock cascade return vector.
 CASCADE_VECTOR_LENGTH: int = 23
 
@@ -870,6 +911,11 @@ def load_generation_draws(
     truths, outs = [], []
     for p in paths:
         truth, outcome, attrs = read_proposal_artifact(p)
+        if "nss_solution_type" not in outcome:  # spec §3.5: generations that predate the stored label use the sidecar
+            side = read_nss_type_sidecar(p)
+            if side is not None:
+                order = {int(d): k for k, d in enumerate(side[0])}
+                outcome["nss_solution_type"] = np.array([side[1][order[int(d)]] for d in truth["draw_index"]])
         got = str(attrs.get("primary_model", ""))
         if got != require_primary_model:
             raise ValueError(f"{p}: primary_model {got!r} != required {require_primary_model!r} "
@@ -2013,10 +2059,12 @@ def simulate_one(
     if not bool(draw.get("system_in_cut", True)):  # spec §12.33: the system fails the parent cuts; no cascade
         rec0 = {"draw_index": int(draw["draw_index"]), "solution_type": "not_in_parent", "accepted_orbital": False,
                 "published_acceleration": False, "cascade": [0.0] * CASCADE_VECTOR_LENGTH, "f_m_msun": float("nan"),
-                "cos_inclination_fit": float("nan"), "numpy_seed": -1, "c_rand_seed": -1, "cpu_seconds": 0.0}
+                "cos_inclination_fit": float("nan"), "numpy_seed": -1, "c_rand_seed": -1, "cpu_seconds": 0.0,
+                "nss_solution_type": NSS_TYPE_NONE}
         if want_cov:
             rec0.update(_no_orbit_covariance())
         return rec0
+    nss_type: str | None = None  # spec §3.5: the routed DR3 solution type (epoch model only)
     with seeded_global_rng(seeds, c_funcs):
         if epoch is None:
             cascade = gaiamock.run_full_astrometric_cascade(
@@ -2044,6 +2092,7 @@ def simulate_one(
             else:
                 cascade = run.cascade
                 epochs = run.epochs
+                nss_type = run.nss_type
     cpu = time.process_time() - t0
     vec = [float(v) for v in cascade] + [0.0] * (CASCADE_VECTOR_LENGTH - len(cascade))
     rec = classify_cascade_result(
@@ -2060,6 +2109,7 @@ def simulate_one(
         "accepted_orbital": bool(rec.accepted_orbital),
         "published_acceleration": published_acceleration(vec, cfg.acceleration_publication),
         "cascade": vec[:CASCADE_VECTOR_LENGTH],
+        "nss_solution_type": NSS_TYPE_NONE if nss_type is None else str(nss_type),
         "f_m_msun": rec.f_m_msun if rec.f_m_msun is not None else float("nan"),
         "cos_inclination_fit": rec.cos_inclination if rec.cos_inclination is not None else float("nan"),
         "numpy_seed": seeds.numpy_seed,
@@ -2316,6 +2366,8 @@ def write_proposal_artifact(
         for key in ("accepted_orbital", "published_acceleration"):
             o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=bool))
         o.create_dataset("cascade", data=np.array([r["cascade"] for r in rows], dtype=np.float64))
+        if all("nss_solution_type" in r for r in rows):  # spec §3.5: the cascade's routed DR3 solution type
+            o.create_dataset("nss_solution_type", data=np.array([r["nss_solution_type"] for r in rows], dtype="S32"))
         for key in ("f_m_msun", "cos_inclination_fit", "cpu_seconds"):
             o.create_dataset(key, data=np.array([r[key] for r in rows], dtype=np.float64))
         for key in ("numpy_seed", "c_rand_seed"):
@@ -2355,6 +2407,8 @@ def read_proposal_artifact(path: str | Path) -> tuple[dict[str, NDArray[Any]], d
         outcome = {k: h["outcome"][k][()] for k in h["outcome"].keys()}
         attrs = {k: h.attrs[k] for k in h.attrs.keys()}
     outcome["solution_type"] = np.char.decode(outcome["solution_type"].astype("S32"), "ascii")
+    if "nss_solution_type" in outcome:
+        outcome["nss_solution_type"] = np.char.decode(outcome["nss_solution_type"].astype("S32"), "ascii")
     return truth, outcome, attrs
 
 
