@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--m2app", type=Path, default=Path("output/rung5/real_m2app_dr3.h5"))
     ap.add_argument("--published-orbits", type=Path, default=Path("output/gate390/published_orbits.h5"))
-    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3.yaml"))
+    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3_st2.yaml"))
     ap.add_argument("--m2-min", type=float, default=1.0)
     ap.add_argument("--a-min", type=float, default=0.5)
     ap.add_argument("--m2-min-large-a", type=float, default=0.6)

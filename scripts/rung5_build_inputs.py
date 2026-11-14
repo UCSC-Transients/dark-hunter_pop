@@ -106,7 +106,7 @@ def binned_response(cell, true_bin, n_true, w, r, n_cells_: int, n_prim: float):
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3.yaml"))
+    ap.add_argument("--bins-config", type=Path, default=Path("config/population/rung5_bins_dr3_st2.yaml"))
     ap.add_argument("--rung4-config", type=Path, default=Path("config/population/rung4_co_v1.yaml"))
     ap.add_argument("--real-m2app", type=Path, default=Path("output/rung5/real_m2app_dr3.h5"))
     ap.add_argument("--published-orbits", type=Path, default=Path("output/gate390/published_orbits.h5"))

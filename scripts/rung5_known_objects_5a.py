@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """R5-T7 (#624): gate 5a known-object injection (RUNG5_SPEC §5): plan → inject → report.
 
-* ``plan`` (light): resolve the target groups of ``config/benchmarks/rung5_known_objects_dr3.yaml`` against the #390
+* ``plan`` (light): resolve the target groups of ``config/benchmarks/rung5_known_objects_dr3_st2.yaml`` against the #390
   ``published_orbits.h5`` (every DR3 Orbital + AstroSpectroSB1 row), build each injection truth with
   ``injection_test.published_truth_from_row`` (Campbell elements from the published Thiele–Innes; the published a0 is
   the photocentre orbit, so the injection reproduces the observed signal whatever the companion's light), and write
@@ -30,7 +30,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import yaml
 
-CONFIG = Path("config/benchmarks/rung5_known_objects_dr3.yaml")
+CONFIG = Path("config/benchmarks/rung5_known_objects_dr3_st2.yaml")
 
 
 def load_targets(cfg: Mapping[str, Any], root: Path = Path(".")) -> list[dict[str, Any]]:
